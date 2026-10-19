@@ -1,0 +1,11 @@
+import type ExcelJS from 'exceljs';
+import type {SnapshotBundle} from '../domain/model';
+import {sourceCurrent} from '../domain/sourceRevisions';
+
+export function appendSourceLabelSheet(w:ExcelJS.Workbook,b:SnapshotBundle){
+ if(!b.attachments.some(a=>a.annotations?.length))return;
+ const s=w.addWorksheet('Source Callouts');s.addRows([[`${b.project.code} / Source callout positions`],['Normalized coordinates on visible rotated source page. Labels are layout references; points do not add rebar or certify installation. Blank label coordinates = automatic.'],['Member','Source file','Attachment ID','Page','Callout no.','Mark','Anchor X','Anchor Y','Label X','Label Y','Label mode','Source state']]);
+ for(const a of b.attachments)for(const [i,n] of (a.annotations||[]).entries())s.addRow([b.members.find(m=>m.id===a.memberId)?.code||'General Spec',a.name,a.id,n.page,i+1,n.mark,n.x,n.y,n.label?.x??null,n.label?.y??null,n.label?'Manual':'Auto',sourceCurrent(a)?'Current':'Superseded']);
+ const widths=[22,48,38,12,16,36,18,18,18,18,18,18];s.columns=widths.map(width=>({width}));s.mergeCells('A1:L1');s.mergeCells('A2:L2');s.views=[{state:'frozen',ySplit:3,showGridLines:false}];s.eachRow((r,i)=>{r.height=i<3?36:i===3?42:36;r.eachCell({includeEmpty:true},c=>{c.font={name:'Sarabun',size:i===1?15:11,bold:i===1||i===3,color:{argb:i===3?'FFFFFFFF':'FF203940'}};c.alignment={wrapText:true,vertical:'middle',horizontal:i===3?'center':typeof c.value==='number'?'right':'left'};if(i===3)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF203940'}};else if(i>3&&i%2===0)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF1F5F3'}};});if(i>3){for(const col of [7,8,9,10])r.getCell(col).numFmt='0.000000';for(const col of [4,5])r.getCell(col).numFmt='0';let lines=1;r.eachCell((c,col)=>{if(typeof c.value==='string')lines=Math.max(lines,Math.ceil(c.value.length/Math.max(8,(widths[col-1]-2)*.8)));});r.height=Math.min(409,Math.max(36,lines*15+12));}});
+ s.autoFilter={from:{row:3,column:1},to:{row:s.rowCount,column:12}};s.pageSetup={paperSize:8 as ExcelJS.PaperSize,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,printTitlesRow:'1:3',printArea:`A1:L${s.rowCount}`};s.headerFooter={oddFooter:'&LSource references / NOT FOR CONSTRUCTION&C&A&RPage &P / &N'};
+}

@@ -1,0 +1,56 @@
+import type {Timestamp} from 'firebase/firestore';
+
+const viteEnv=(import.meta as ImportMeta&{env?:Record<string,string|undefined>}).env||{};
+export const APP_NAME=viteEnv.VITE_APP_NAME||'my-boq-app';
+
+export const userRoles=['MasterAdmin','SuperAdmin','Admin','admin','Staff','qs','checker','approver','viewer'] as const;
+export type UserRole=typeof userRoles[number];
+export const roleLabels:Record<UserRole,string>={
+ MasterAdmin:'MasterAdmin',SuperAdmin:'SuperAdmin',Admin:'Admin',admin:'ผู้ดูแลโครงการ',Staff:'Staff',
+ qs:'ผู้ถอดปริมาณ',checker:'ผู้ตรวจ',approver:'ผู้อนุมัติ',viewer:'ผู้อ่าน'
+};
+export const roleDescriptions:Record<UserRole,string>={
+ MasterAdmin:'ดูแลระบบ ผู้ใช้ โครงการ และสิทธิ์ทั้งหมด',
+ SuperAdmin:'ดูแลระบบและสิทธิ์ผู้ใช้ระดับสูง',
+ Admin:'จัดการโครงการและข้อมูลที่ได้รับมอบหมาย',admin:'จัดการโครงการและทีมแบบเดิม',
+ Staff:'ผู้ใช้งานทั่วไป รอการอนุมัติจากผู้ดูแล',
+ qs:'เพิ่มและแก้สมาชิก แบบอ้างอิง BOQ และ BBS',
+ checker:'ตรวจข้อมูลและยืนยันสถานะ Checked',
+ approver:'ตรวจและอนุมัติสมาชิกตามขั้นตอนของโครงการ',
+ viewer:'อ่านข้อมูลและดาวน์โหลดไฟล์ตามสิทธิ์โครงการ'
+};
+export const approvalStatuses=['pending','approved','rejected'] as const;
+export type ApprovalStatus=typeof approvalStatuses[number];
+export interface UserProfile{
+ uid:string;
+ email:string;
+ firstName:string;
+ lastName:string;
+ position:string;
+ department?:string;
+ role?:UserRole;
+ roles:UserRole[];
+ status:ApprovalStatus;
+ assignedProjects:string[];
+ projectRoles?:Record<string,import('./model').Role[]>;
+ createdAt:Timestamp;
+ profileVersion?:number;
+ photoURL?:string;
+ isFirstUser:boolean;
+}
+export interface AppMetaConfig{firstUserRegistered:boolean;totalUsers:number;createdAt:Timestamp;}
+export const userCollectionPath=`${APP_NAME}/root/users`;
+export const userDocPath=(email:string)=>`${userCollectionPath}/${email.trim().toLowerCase()}`;
+export const appMetaConfigPath=`${APP_NAME}/root/appMeta/config`;
+export const activityLogsPath=`${APP_NAME}/root/activityLogs`;
+export const isMasterAdmin=(profile:Pick<UserProfile,'roles'|'status'>|null|undefined)=>profile?.status==='approved'&&profile.roles.includes('MasterAdmin');
+export const isAdminUser=(profile:Pick<UserProfile,'roles'|'status'>|null|undefined)=>!!profile?.roles.some(role=>['MasterAdmin','SuperAdmin','Admin','admin'].includes(role));
+export const displayName=(profile:Pick<UserProfile,'firstName'|'lastName'|'email'>|null|undefined)=>{
+ if(!profile)return 'ผู้ใช้งาน';
+ const name=`${profile.firstName||''} ${profile.lastName||''}`.trim();
+ return name||profile.email;
+};
+export const initials=(profile:Pick<UserProfile,'firstName'|'lastName'|'email'>|null|undefined)=>{
+ const name=displayName(profile).trim();
+ return name.split(/\s+/).map(v=>v[0]).join('').slice(0,2).toUpperCase()||'US';
+};

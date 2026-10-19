@@ -1,0 +1,11 @@
+import type {SnapshotBundle,ExportSize} from '../domain/model';
+import {scopeLabel} from '../domain/exportScope';
+import {font,label} from './exports';
+export async function scopeCoverPdf(blob:Blob,bundle:SnapshotBundle,size:ExportSize):Promise<Blob>{
+ const [{PDFDocument},{jsPDF},{default:autoTable}]=await Promise.all([import('pdf-lib'),import('jspdf'),import('jspdf-autotable')]);
+ const doc=new jsPDF({orientation:size==='A4'?'portrait':'landscape',unit:'mm',format:size.toLowerCase()});await font(doc);
+ const w=doc.internal.pageSize.getWidth(),h=doc.internal.pageSize.getHeight(),scope=scopeLabel(bundle.scope,bundle.members),scopeLines=doc.splitTextToSize('Scope: '+scope,w-30),top=45+scopeLines.length*4;
+ autoTable(doc,{startY:top,margin:{left:15,right:15,top,bottom:24},head:[['Member','Category','Zone','Floor','Grid','Qty']],body:bundle.members.flatMap(m=>m.occurrences.map(o=>[m.code,m.category,o.zone||'ไม่ระบุ',o.floor||'ไม่ระบุ',o.grid||'ไม่ระบุ',o.quantity])),styles:{font:'Sarabun',fontStyle:'normal',fontSize:size==='A4'?7:9},headStyles:{fillColor:[32,57,64],fontStyle:'normal'},didDrawPage:()=>{doc.setFont('Sarabun','normal');doc.setFontSize(12);doc.text('SELECTED DRAWING PACKAGE / ขอบเขตชุดแบบ',15,18);doc.setFontSize(8);doc.text(`${bundle.project.code} / ${label(bundle)}`,15,29);doc.text(scopeLines,15,38);doc.text('Only the listed occurrences are counted. Source pointers and engineering validation remain pending.',15,h-18);}});
+ const source=await PDFDocument.load(await blob.arrayBuffer()),cover=await PDFDocument.load(doc.output('arraybuffer')),total=source.getPageCount()+cover.getPageCount();if(total>500)throw Error('แบ่งชุดส่งงาน: หน้าขอบเขตและแบบรวมเกิน 500 หน้า');
+ const output=await PDFDocument.create();for(const p of await output.copyPages(cover,cover.getPageIndices()))output.addPage(p);for(const p of await output.copyPages(source,source.getPageIndices()))output.addPage(p);output.setTitle(`${bundle.project.code} / ${bundle.revisionNumber||'Draft'} / Selected drawing package`);output.setCreator('FORM');const bytes=await output.save();if(bytes.byteLength>=50*1024*1024)throw Error('แบ่งชุดส่งงาน: PDF รวมเกิน 50 MB');return new Blob([bytes.slice().buffer],{type:'application/pdf'});
+}

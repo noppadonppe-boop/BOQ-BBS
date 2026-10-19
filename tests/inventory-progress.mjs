@@ -1,0 +1,3 @@
+import {chromium,admin,guard,login} from './auth-persistence-qa.mjs';
+const b=await chromium.launch({headless:true}),p=await b.newPage(),cloud=[],errors=[];await guard(p,cloud,errors);
+try{await p.goto('http://127.0.0.1:5196');await login(p,admin);const card=p.locator('[data-project-id]').filter({hasText:'Inventory QA only / not construction'}).last();await card.waitFor();const pid=await card.getAttribute('data-project-id');const data=await p.evaluate(async pid=>{const c=await import('/src/data/collections.ts');return {stock:(await c.readCollectionPages(pid,'stock')).length,ledger:(await c.readCollectionPages(pid,'stockLedger')).length};},pid);console.log(JSON.stringify({pid,...data,cloud:cloud.length,errors}));}finally{await b.close();}

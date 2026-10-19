@@ -1,0 +1,29 @@
+import {useEffect,useRef,useState} from 'react';
+import type {Project,Revision,Role} from '../domain/model';
+import type {ReleaseReport} from '../domain/releaseReview';
+import {indexedApprover} from '../domain/code99Review';
+import {command} from '../data/firebase';
+import {readReleaseOperations,readSavedReleaseReport} from '../data/releaseReview';
+import {download} from '../data/exports';
+import {releaseReviewContextKey,releaseReportIsCurrent} from '../domain/releaseReviewContext';
+const labels={revision:'Revision และรุ่นคำนวณ',engineering:'มาตรฐานและกรณีอ้างอิง',member:'ข้อมูลสมาชิกและตำแหน่ง',source:'แบบและเอกสารอ้างอิง',coverage:'ความครบของเหล็ก',drawing:'เลขแบบและกรอบชื่อแบบ',calculation:'ฐานปริมาณที่ตรึงไว้'};
+type ReviewProps={project:Project;revision?:Revision;roles:Role[];uid:string;run:any;onMember?:(id:string)=>void};
+export function ReleaseReviewPanel(props:ReviewProps){
+ return <ScopedReleaseReview key={releaseReviewContextKey(props.project,props.revision,props.uid)} {...props}/>;
+}
+function ScopedReleaseReview({project:p,revision,roles,uid,run,onMember}:ReviewProps){
+ const [report,setReport]=useState<ReleaseReport>(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[note,setNote]=useState(''),[history,setHistory]=useState<any[]>([]),[historical,setHistorical]=useState(false);
+ const live=useRef(true),inFlight=useRef(false);
+ useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
+ useEffect(()=>{let cancelled=false;readReleaseOperations(p.id,'prepareIssue').then(r=>{if(!cancelled)setHistory(r.filter(o=>o.uid===o.result?.actorUid&&o.result?.projectId===p.id).map(o=>o.result));}).catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};},[p.id,p.version]);
+ const save=roles.some(r=>['admin','qs','checker','approver'].includes(r)),approver=indexedApprover(p,uid),current=!historical&&releaseReportIsCurrent(report,p,revision);
+ async function task(work:()=>Promise<void>){if(inFlight.current)return;inFlight.current=true;setBusy(true);setError('');try{await work();}catch(e){if(live.current)setError((e as Error).message);}finally{inFlight.current=false;if(live.current)setBusy(false);}}
+ async function inspect(){if(!revision)return;await task(async()=>{const result=await command('inspectIssue',p.id,{revisionId:revision.id});if(live.current){setReport(result);setHistorical(false);}});}
+ async function saveReview(){if(!revision)return;await task(()=>run(async()=>{const result=await command('prepareIssue',p.id,{revisionId:revision.id,projectVersion:p.version}),saved=await readSavedReleaseReport(result);if(live.current){setReport(saved);setHistorical(true);}},'บันทึกผลตรวจก่อนส่งงานแล้ว'));}
+ async function openReview(record:any){await task(()=>run(async()=>{const saved=await readSavedReleaseReport(record);if(live.current){setReport(saved);setHistorical(true);}},'เปิดผลตรวจเดิมแล้ว'));}
+ return <section className="panel padded release-review" data-release-context={revision?.id||'none'}><h3>ตรวจ Revision ก่อนออก Issued</h3><p>เลือก Revision แล้วตรวจข้อมูลที่ตรึงไว้กับสเป็ค หลักฐาน และผลรับรองปัจจุบัน ผลตรวจที่บันทึกเป็นประวัติ ไม่อนุมัติการก่อสร้างแทนผู้รับผิดชอบ</p><div className="actions"><button disabled={!revision||busy} onClick={()=>void inspect()}>{busy?'กำลังตรวจหลักฐาน…':'ตรวจความพร้อม Revision ที่เลือก'}</button><button disabled={!revision||busy||!save} onClick={()=>void saveReview()}>บันทึกผลตรวจไว้ในโครงการ</button></div>{!revision&&<p className="muted">เลือก Revision จากทะเบียนด้านบนก่อนเริ่มตรวจ</p>}{error&&<p role="alert" className="notice danger">{error}</p>}
+ {report&&<><p data-release-report={report.revisionId} className={`notice ${report.ready?'':'warning'}`}>{report.revisionNumber} · {historical?'ผลตรวจที่บันทึกไว้':current?'ผลตรวจข้อมูลปัจจุบัน':'ข้อมูลเปลี่ยนแล้ว ต้องตรวจใหม่'} · {report.checks.length} รายการต้องดำเนินการ · ตรวจไฟล์ผ่าน {report.sourceChecks.filter(s=>s.verified).length}/{report.sourceChecks.length}</p><label className="field"><span>ค้นหารายการที่ต้องแก้</span><input aria-label="ค้นหารายการก่อน Issued" value={search} onChange={e=>setSearch(e.target.value)}/></label>{Object.entries(labels).map(([group,label])=>{const all=report.checks.filter(c=>c.group===group),rows=all.filter(c=>c.message.toLocaleLowerCase().includes(search.toLocaleLowerCase()));return !!rows.length&&<details key={group} open><summary>{label} · {all.length} รายการ</summary><ul>{rows.map((c,i)=><li key={i}>{c.message}{c.memberId&&onMember&&<button onClick={()=>onMember(c.memberId!)}>เปิดสมาชิก</button>}</li>)}</ul></details>;})}<button onClick={()=>download(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),'release-preflight-'+report.revisionNumber+'.json')}>ดาวน์โหลดผลตรวจ JSON</button></>}
+ <label className="field"><span>บันทึกการออก Issued โดยผู้อนุมัติ</span><textarea aria-label="บันทึกออก Issued" value={note} maxLength={2000} disabled={!approver||busy} onChange={e=>setNote(e.target.value)}/></label><button disabled={!approver||!current||!report?.ready||!note.trim()||busy} onClick={()=>void task(()=>run(()=>command('issue',p.id,{revisionId:revision!.id,projectVersion:p.version,revisionDigest:revision!.digest,note}),'บันทึก Issued แล้ว'))}>ออก Issued จาก Revision ที่ตรวจครบ</button><p className="muted">ต้องเป็นผู้อนุมัติในทีม มีผลรับรองชุดกฎและกรณีอ้างอิงครบ และ Rules ของเจ้าของฐานข้อมูลอนุญาตการบันทึก ระบบตรวจซ้ำก่อน commit ไม่มีการแก้หรือ deploy Rules ให้โดยอัตโนมัติ</p>
+ {!!history.length&&<details><summary>ประวัติผลตรวจก่อนส่งงาน · {history.length} รายการ</summary>{[...history].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(h=><p key={h.id} data-release-review-id={h.id}>{h.revisionNumber} · {h.createdAt.slice(0,19).replace('T',' ')} UTC · {h.checkCount} รายการ <button disabled={busy} onClick={()=>void openReview(h)}>เปิดผลตรวจเดิม</button></p>)}</details>}
+ </section>;
+}

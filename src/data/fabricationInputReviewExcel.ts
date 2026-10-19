@@ -1,0 +1,10 @@
+import type ExcelJS from 'exceljs';
+import type {SnapshotBundle} from '../domain/model';
+import {fabricationInputReview} from '../domain/fabricationInputReview';
+import {takeoff} from '../domain/engine';
+export function appendFabricationInputSheet(w:ExcelJS.Workbook,b:SnapshotBundle){
+ const review=fabricationInputReview(b);if(review.complete)return;const s=w.addWorksheet('BBS Quantity Review');
+ s.addRows([[`${b.project.code} · BBS/cutting quantity input review`],['BBS raw preview counts and weights use current input. Provisional quantities are not for fabrication. Reviewed input totals below do not establish engineering/owner approval. '+review.policy],['Member','Input state','Preview member qty','Preview total pieces','Input-reviewed total pieces','Preview total kg','Input-reviewed total kg','Reference / review scope']]);
+ for(const r of review.rows){const f=b.calculations?.[r.member.id],q=f||takeoff(r.member,b.project.spec),pieces=r.member.bars.reduce((n,bar)=>n+bar.count*r.quantity,0),weight=q.rebar*r.quantity;s.addRow([r.member.code,r.label,r.quantity,pieces,r.state==='Provisional'?null:pieces,weight,r.state==='Provisional'?null:weight,r.member.quantityBasis?.reference||'Legacy basis not recorded']);}
+ s.columns=[22,38,20,22,27,24,28,65].map(width=>({width}));s.mergeCells('A1:H1');s.mergeCells('A2:H2');s.eachRow((r,i)=>{r.height=i===1?30:i===2?64:i===3?50:Math.min(409,Math.max(85,Math.ceil(String(r.getCell(8).value||'').length/50)*15+18));r.eachCell(c=>{c.font={name:'Sarabun',size:10,bold:i===1||i===3,color:{argb:i===3?'FFFFFFFF':'FF203940'}};c.alignment={vertical:'middle',wrapText:true,horizontal:i>3&&Number(c.col)>=3&&Number(c.col)<=7?'right':'left'};if(i===3)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF245E4D'}};if(Number(c.col)>=6&&Number(c.col)<=7)c.numFmt='0.000000';});});s.views=[{state:'frozen',ySplit:3,showGridLines:false}];s.pageSetup={paperSize:8 as ExcelJS.PaperSize,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,printTitlesRow:'1:3',printArea:`A1:H${s.rowCount}`};
+}

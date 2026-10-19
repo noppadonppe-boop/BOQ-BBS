@@ -1,0 +1,13 @@
+# PDF source references — v0.64
+
+The `source-v9` BBS package now shares the actual PDF input parser used by attachment validation. An ordinary PDF retains its vector page, visible CropBox and rotation. Pages with annotations/layers use the existing PDF.js raster route. A protected PDF that can be opened with an empty user password is independently parsed by PDF.js, then rendered into the output as a reference image. Original source bytes are neither rewritten nor stripped of protection.
+
+A PDF that requires a user password, a corrupt file, mismatched stored byte size/SHA256/page count, invalid page/Mark or overlapping callout labels still fails. This feature does not accept a PDF merely because an encryption flag exists or `ignoreEncryption` was supplied. No password collection or password guessing is implemented.
+
+Use **BBS + จุดชี้แบบต้นทาง A3** in the member's reference drawing panel, or choose **BBS + จุดชี้แบบต้นทาง** and A3/A1 in the export composer. The composer can use a pinned Frozen revision. Check the chosen source page and saved pointers first. Output sheets state Fit/NTS, rendering mode, effective image dpi, original source SHA256 and unverified placement status. Original scale does not apply after fitting to the output sheet.
+
+Raster output targets200dpi and retains the existing approximately16-million-pixel page cap. Check readability for large or detailed drawings and split a large package. Rendering a reference page does not establish engineering approval, confirm a reinforcement location, multiply bar quantities or change cut calculations. PDF text extraction can read invisible content clipped by a Form XObject's BBox; rendered page inspection is necessary to verify visible crop/rotation.
+
+[Evidence](../output/protected-source-export-verification/DEVELOPMENT_REPORT.html):1065 unit cases/66 files, a reproduced v0.63 Failed export, six actual local UI/SDK paths after the fix, and two actual A3/A1 PDFs with ten inspected pages. Normal rotated vector and stamped raster pages are included as controls. Viewer editing and an unassigned project read are denied. Frozen raw inputs and captured cuts, original source hashes and all nine protected files remain unchanged.
+
+The sample `S01` pointers on the supplied BS source page are synthetic rendering checks, not actual reinforcement locations. No new XLSX/native Excel/BackupRestore acceptance is claimed in this PDF-only change. Prior v0.63 evidence remains separately recorded. Numerical policies, default BSv7, opt-in BSv8 and pending engineering/Issued status are unchanged. Rules and their deployment remain owned by the user; nothing is deployed.

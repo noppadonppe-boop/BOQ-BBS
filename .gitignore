@@ -1,0 +1,19 @@
+node_modules/
+functions/node_modules/
+functions/lib/
+dist/
+.env.local
+.env
+.emulator-data/
+firebase-export-*/
+*-debug.log
+output/dev-verification/downloads/
+output/revision-verification/downloads/
+output/emulator-checkpoints/
+output/**/test-context.json
+
+# Local test and emulator artifacts
+output/
+tmp/
+*.log
+*.tsbuildinfo

@@ -1,0 +1,18 @@
+import {useState} from 'react';
+import type {Bar,Member} from '../domain/model';
+import {hasAcuteBend,tangentBar,tangentSketch} from '../domain/tangentBar';
+export function TangentBarView({member,bar}:{member:Member;bar:Bar}){
+ const [part,setPart]=useState(0),chain=bar.pathInput?.basis==='support';
+ if(!chain&&!hasAcuteBend(member,bar))return null;
+ const e=tangentBar(member,bar);
+ return <details open className="envelope-view tangent-view"><summary>{chain?'รูปหลายขา · เส้นสัมผัสมุมแหลม':'มุมแหลมหนึ่งจุด · เส้นสัมผัส Figure 4'}</summary>{e.available?(()=>{const current=Math.min(part,Math.ceil(e.dimensions.length/6)-1),s=tangentSketch(e,760,440,current);return <>
+ <svg viewBox={`0 0 ${s.width} ${s.height}`} role="img" aria-label={chain?'รูปหลายขา Code 99 มิติ L และเส้นสัมผัส':'มุมแหลม Code 99 มิติ A B C และเส้นสัมผัส Figure 4'}>
+ <polyline points={s.outline.map(p=>p.join(',')).join(' ')} fill="#eaf4ee" stroke="#217b64" strokeWidth="1.2"/>
+ <polyline points={s.centerline.map(p=>p.join(',')).join(' ')} fill="none" stroke="#92aaa2" strokeDasharray="3 3" strokeWidth=".5"/>
+ {s.tangents.map(t=><g key={t.label}><line x1={t.from[0]} y1={t.from[1]} x2={t.to[0]} y2={t.to[1]} stroke="#4574a5" strokeDasharray="6 3" strokeWidth="1"/><circle cx={t.touch[0]} cy={t.touch[1]} r="2.5" fill="#4574a5"/><line x1={t.touch[0]} y1={t.touch[1]} x2={t.labelAt[0]-3} y2={t.labelAt[1]-3} stroke="#4574a5" strokeWidth=".6"/><rect x={t.labelAt[0]-2} y={t.labelAt[1]-10} width={Math.max(27,t.label.length*6+4)} height="14" fill="white"/><text x={t.labelAt[0]} y={t.labelAt[1]} fontSize="10" fill="#4574a5">{t.label}</text></g>)}
+ {s.dimensions.map(d=><g key={d.label}><line x1={d.from[0]} y1={d.from[1]} x2={d.a[0]} y2={d.a[1]} stroke="#8da19c"/><line x1={d.to[0]} y1={d.to[1]} x2={d.b[0]} y2={d.b[1]} stroke="#8da19c"/><line x1={d.a[0]} y1={d.a[1]} x2={d.b[0]} y2={d.b[1]} stroke="#35584d"/><rect x={d.labelAt[0]-78} y={d.labelAt[1]-12} width="156" height="18" fill="white"/><text x={d.labelAt[0]} y={d.labelAt[1]} textAnchor="middle" fontSize="12" fill="#244f40">{d.text}</text></g>)}
+ <line x1={s.radius.center[0]} y1={s.radius.center[1]} x2={s.radius.surface[0]} y2={s.radius.surface[1]} stroke="#8da19c" strokeDasharray="3 3"/><line x1={s.radius.surface[0]} y1={s.radius.surface[1]} x2={s.radius.labelAt[0]-5} y2={s.radius.labelAt[1]} stroke="#8da19c"/><rect x={s.radius.labelAt[0]-3} y={s.radius.labelAt[1]-12} width="175" height="18" fill="white"/><text x={s.radius.labelAt[0]} y={s.radius.labelAt[1]} fontSize="12">{s.radius.text}</text>
+ {s.vertices.map(v=><text key={v.label} x={v.at[0]+4} y={v.at[1]-5} fontSize="10" fill="#687d74">{v.label}</text>)}
+ </svg>{s.total>1&&<div className="actions">{Array.from({length:s.total},(_,i)=><button type="button" key={i} onClick={()=>setPart(i)}>มิติชุด {i+1}/{s.total}</button>)}</div>}<div className="table-scroll"><table><thead><tr><th>มิติผิวนอก mm</th><th>ฐานการวัด</th></tr></thead><tbody>{e.dimensions.map(d=><tr key={d.label}><td>{d.free?'('+d.label+')':d.label} = {Number(d.value.toFixed(3))}</td><td>{chain?'เส้นสัมผัสวงโค้งที่มุมแหลม / จุดตัดผิวนอกที่มุมอื่น':d.label==='B'?'สูงสุด–ต่ำสุดของผิว / วัดตั้งฉากช่วง C':`จากเส้นสัมผัส ${d.label==='A'?'TA / L02':'TC / L01'} ถึงหน้าตัดปลาย`}</td></tr>)}</tbody></table></div><p className="notice warning">{e.warnings.join(' · ')}</p>
+ </>;})():<p className="notice warning">{e.reason}</p>}<p className="muted">{chain?'NTS · ระนาบและมุมเริ่มต้นที่กรอก ก่อนหมุนแม่แบบ/จัดตำแหน่ง · L เรียงตามขา · เส้น T มี i/o สำหรับช่วงเข้า/ออกของแต่ละมุมแหลม · ฐานที่เลือกยังรอตรวจร่วมกับแบบต้นทาง':'NTS · A↔L02, C↔L01'} · ใช้ช่องเลือกมิติอิสระด้านบน · r ในภาพคือรัศมีด้านใน · พิกัด P ใช้ประกอบการกำหนดมุมตามข้อ 8.6 · Draft รอตรวจวิศวกรรม</p></details>;
+}

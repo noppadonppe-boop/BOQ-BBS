@@ -1,0 +1,18 @@
+import {useEffect,useState} from 'react';
+import type {Member} from '../domain/model';
+import {sourceSchedulePages,sourceRowPage} from '../domain/sourceSchedule';
+import {editSourcePage,removeSourcePage} from '../domain/sourcePageManagement';
+
+export function SourcePageManager({member,readOnly,onChange}:{member:Member;readOnly:boolean;onChange:(m:Member)=>void}){
+ const source=member.sourceSchedule!,tables=sourceSchedulePages(source),[selected,setSelected]=useState<number>(),[action,setAction]=useState<'edit'|'remove'>('edit'),[note,setNote]=useState(''),[total,setTotal]=useState(''),[reviewed,setReviewed]=useState(false),[error,setError]=useState(''),[basisKey,setBasisKey]=useState('');
+ const key=JSON.stringify([member.id,member.version,source,readOnly]);useEffect(()=>{setSelected(undefined);setReviewed(false);setError('');},[key]);
+ const start=(page:number,kind:typeof action)=>{const t=tables.find(t=>t.page===page)!;setBasisKey(key);setSelected(page);setAction(kind);setNote(t.note);setTotal(t.statedTotalWeight===undefined?'':String(t.statedTotalWeight));setReviewed(false);setError('');};
+ const selectedRows=source.rows.filter(r=>sourceRowPage(source,r)===selected),remaining=source.rows.length-selectedRows.length;
+ const apply=()=>{if(readOnly||selected===undefined||basisKey!==key)return;try{const next=action==='remove'?removeSourcePage(source,selected,reviewed):editSourcePage(source,selected,{note,statedTotalWeight:total.trim()===''?undefined:Number(total)},reviewed);onChange({...member,sourceSchedule:next});setSelected(undefined);}catch(e){setError(e instanceof Error?e.message:'เปลี่ยนหน้าตารางไม่ได้');}};
+ return <div className="source-page-manager" data-source-page-manager><h4>จัดการหน้าตารางต้นทาง</h4><div className="actions">{tables.map(t=><span key={t.page}><button type="button" disabled={readOnly} aria-label={`แก้ข้อมูลหน้าตาราง ${t.page}`} onClick={()=>start(t.page,'edit')}>แก้ข้อมูลหน้า {t.page}</button> <button type="button" disabled={readOnly||tables.length<2} aria-label={`ลบหน้าตาราง ${t.page}`} onClick={()=>start(t.page,'remove')}>ลบหน้า {t.page}</button></span>)}</div>
+ {selected!==undefined&&basisKey===key&&<div className="notice" role="group" aria-label="ตรวจการเปลี่ยนหน้าตาราง"><p>หน้า {selected} · {action==='remove'?`ลบอ้างอิง ${selectedRows.length} รายการ · ทั้งชุด ${source.rows.length} → ${remaining} รายการ · หน้าเหลือ ${tables.filter(t=>t.page!==selected).map(t=>t.page).join(', ')}`:'แก้ Total ที่ถอดจากต้นฉบับและบันทึกของหน้านี้'} · ล้างการจับคู่ BBS ทั้งชุด เก็บเหล็ก BBS เดิมไว้ให้ทบทวนและจับคู่ใหม่</p>
+ <fieldset className="profile-fields" disabled={readOnly}>{action==='edit'&&<div className="form-grid"><label className="field"><span>Total ที่พิมพ์ของหน้า kg (เว้นว่างถ้าไม่ทราบ)</span><input aria-label="Total ของหน้าที่แก้" type="number" min="0" value={total} onChange={e=>{setTotal(e.target.value);setReviewed(false);}}/></label><label className="field"><span>บันทึกที่มา / ขอบเขต</span><textarea aria-label="บันทึกของหน้าที่แก้" maxLength={500} value={note} onChange={e=>{setNote(e.target.value);setReviewed(false);}}/></label></div>}
+ <label className="check"><input type="checkbox" aria-label="ยืนยันตรวจการเปลี่ยนหน้าตาราง" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/><span>{action==='remove'?'ตรวจหน้าที่จะลบและรายการที่เหลือแล้ว':'ตรวจ Total และบันทึกเทียบต้นฉบับแล้ว'} พร้อมทบทวนการจับคู่ BBS ใหม่</span></label><div className="actions"><button type="button" disabled={!reviewed||action==='edit'&&!note.trim()} onClick={apply}>{action==='remove'?'ยืนยันลบหน้าตาราง':'ยืนยันแก้ข้อมูลหน้าตาราง'}</button><button type="button" onClick={()=>setSelected(undefined)}>ยกเลิก</button></div></fieldset>{error&&<p role="alert">{error}</p>}
+ </div>}
+ </div>;
+}

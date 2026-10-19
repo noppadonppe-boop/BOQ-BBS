@@ -1,0 +1,43 @@
+import {useState} from 'react';
+import type {Member,Project,SnapshotBundle,Attachment} from '../domain/model';
+import {boqPricingSchema,priceKey,priceEntryKey,type PriceEntry,type CostComponent,type BoqPricing} from '../domain/boqPricingSchema';
+import {priceItems,pricingReport,moneyText,componentLabels} from '../domain/boqPricing';
+import {command} from '../data/firebase';
+import {ReinforcementCoverageNotice} from './ReinforcementScope';
+import {Modal} from './EditorControls';
+type Props={initial:Member;project:Project;attachments:Attachment[];liveMember?:Member;canEdit:boolean;run:(f:()=>Promise<unknown>,message?:string)=>Promise<void>;onClose:()=>void};
+function form(m:Member):{version:1|2;currency:string;quantityDecimals:number|'';amountDecimals:number|'';note:string;entries:PriceEntry[]}{return {version:m.pricing?.version||1,currency:m.pricing?.currency||'THB',quantityDecimals:m.pricing?.quantityDecimals??3,amountDecimals:m.pricing?.amountDecimals??2,note:m.pricing?.note||'',entries:structuredClone(m.pricing?.entries||[])};}
+export function MemberPricingDialog({initial,project,attachments,liveMember,canEdit,run,onClose}:Props){
+ const [source,setSource]=useState(()=>structuredClone(initial)),[basis,setBasis]=useState(()=>structuredClone(project)),[version,setVersion]=useState(project.version),[values,setValues]=useState(()=>form(initial)),[busy,setBusy]=useState(false);
+ const [modeDrafts,setModeDrafts]=useState<Partial<Record<1|2,PriceEntry[]>>>(()=>({[initial.pricing?.version||1]:form(initial).entries}));
+ const [pending,setPending]=useState<{data:{memberId:string;memberVersion:number;projectVersion:number;pricing:BoqPricing};id:string}|null>(null);
+ const stale=version!==project.version||!liveMember||source.version!==liveMember.version;
+ let items:ReturnType<typeof priceItems>=[],itemProblem='';try{items=priceItems(source,{project:basis});}catch(e){itemProblem=e instanceof Error?e.message:String(e);}
+ const components:CostComponent[]=values.version===2?['material','labor']:['combined'];
+ const rows=items.flatMap(item=>components.map(component=>({item,component,key:JSON.stringify([item.key,component]),label:component==='combined'?item.label:`${item.label} · ${componentLabels[component]}`,entry:values.entries.find(e=>priceEntryKey(e)===JSON.stringify([item.key,component]))})));
+ let pricing:BoqPricing|undefined,problem='',preview:ReturnType<typeof pricingReport>|undefined;
+ try{
+  if(itemProblem)throw Error(itemProblem);
+  const entries=rows.filter(r=>r.entry?.rate||r.entry?.source||r.entry?.note).map(r=>({...r.entry!,kind:r.item.kind,...(r.item.kind==='rebar'?{diameter:r.item.diameter,grade:r.item.grade}:{}),...(r.component==='combined'?{}:{component:r.component}),rate:r.entry?.rate||null,source:r.entry?.source||'',note:r.entry?.note||''}));
+  pricing=boqPricingSchema.parse({...values,entries});preview=pricingReport({project:basis,members:[{...source,pricing}],attachments,status:'Draft'} as SnapshotBundle);
+ }catch(e){problem=e instanceof Error?e.message:String(e);if(problem.startsWith('['))problem='ตรวจราคาตัวเลข ที่มาราคา สกุลเงิน และจำนวนทศนิยมให้ครบ';}
+ const edit=(key:string,field:'rate'|'source'|'note',value:string)=>setValues(v=>{const row=rows.find(r=>r.key===key)!,item=row.item,old=v.entries.find(e=>priceEntryKey(e)===key),entry:PriceEntry={kind:item.kind,...(item.kind==='rebar'?{diameter:item.diameter,grade:item.grade}:{}),...(row.component==='combined'?{}:{component:row.component}),rate:'',source:'',note:'',...old,[field]:value};return {...v,entries:[...v.entries.filter(e=>priceEntryKey(e)!==key),entry]};});
+ const execute=async(request:NonNullable<typeof pending>)=>{if(busy||!canEdit)return;setPending(request);setBusy(true);try{await run(async()=>{await command('savePricing',project.id,request.data,request.id);setPending(null);onClose();},'บันทึกราคาแล้ว · สมาชิกกลับเป็น Draft');}finally{setBusy(false);}};
+ return <Modal title="กรอกราคา BOQ" onClose={()=>{if(!busy)onClose();}}><div className="pricing-editor" aria-busy={busy}><p>{source.code} · ราคาต่อหน่วยตามรายการปริมาณจริงของสมาชิก · รุ่น {source.version}</p>
+  {stale&&<p role="alert" className="notice warning">ข้อมูลสมาชิกหรือโครงการเปลี่ยนแล้ว โหลดค่าล่าสุดแทนแบบฟอร์มนี้ก่อนบันทึก</p>}{!canEdit&&<p role="alert" className="notice warning">สิทธิ์เปลี่ยนเป็นอ่านอย่างเดียว ข้อมูลที่กรอกยังคงอยู่</p>}
+  <fieldset className="profile-fields" disabled={busy||!!pending||!canEdit}>
+   <button disabled={!liveMember} onClick={()=>{if(liveMember){const fresh=form(liveMember);setSource(structuredClone(liveMember));setBasis(structuredClone(project));setVersion(project.version);setValues(fresh);setModeDrafts({[fresh.version]:fresh.entries});}}}>โหลดค่าล่าสุดแทนแบบฟอร์ม</button>
+   <label className="field"><span>รูปแบบราคา</span><select aria-label="รูปแบบราคา BOQ" value={values.version} onChange={e=>{const next=Number(e.target.value) as 1|2;setModeDrafts({...modeDrafts,[values.version]:values.entries});setValues({...values,version:next,entries:modeDrafts[next]||[]});}}><option value={1}>ราคาต่อหน่วยรวม</option><option value={2}>แยกค่าวัสดุและค่าแรง</option></select></label>
+   {values.version===2&&<p className="notice">กรอกค่าวัสดุและค่าแรงต่อหน่วยแยกกัน พร้อมที่มาของแต่ละส่วน ช่องว่างคือรอราคา ถ้าไม่คิดส่วนใดให้ระบุ0พร้อมที่มา · ปัดจำนวนเงินแต่ละส่วนก่อนรวม ไม่แยกราคาเดิมให้อัตโนมัติ</p>}
+   <div className="form-grid"><label className="field"><span>สกุลเงิน</span><input aria-label="สกุลเงินราคา" maxLength={3} value={values.currency} onChange={e=>setValues({...values,currency:e.target.value.toUpperCase()})}/></label><label className="field"><span>ทศนิยมปริมาณคิดราคา (0–6)</span><input aria-label="ทศนิยมปริมาณคิดราคา" type="number" min={0} max={6} step={1} value={values.quantityDecimals} onChange={e=>setValues({...values,quantityDecimals:e.target.value===''?'':Number(e.target.value)})}/></label><label className="field"><span>ทศนิยมจำนวนเงิน (0–4)</span><input aria-label="ทศนิยมจำนวนเงิน" type="number" min={0} max={4} step={1} value={values.amountDecimals} onChange={e=>setValues({...values,amountDecimals:e.target.value===''?'':Number(e.target.value)})}/></label></div>
+   <p className="muted">กรอก0ได้เมื่อราคานั้นเป็น0จริง ช่องว่างคือรอราคา · ปัดต่อรายการตำแหน่งแล้วรวมยอด ไม่เปลี่ยนปริมาณวิศวกรรมต้นฉบับ</p>
+   {rows.map(({item,entry,key,label})=><section className="price-input" key={key}><h3>{label} · ต่อ {item.unit}</h3><div className="form-grid"><label className="field"><span>ราคาต่อหน่วย</span><input aria-label={`ราคา ${label}`} inputMode="decimal" placeholder="ยังไม่กรอกราคา" value={entry?.rate||''} onChange={e=>edit(key,'rate',e.target.value)}/></label><label className="field"><span>ที่มาราคา / ใบเสนอราคา / วันที่</span><input aria-label={`ที่มา ${label}`} maxLength={250} value={entry?.source||''} onChange={e=>edit(key,'source',e.target.value)}/></label></div><label className="field"><span>หมายเหตุรายการ</span><input aria-label={`หมายเหตุ ${label}`} maxLength={500} value={entry?.note||''} onChange={e=>edit(key,'note',e.target.value)}/></label></section>)}
+   {!!values.entries.filter(e=>!items.some(i=>i.key===priceKey(e))).length&&<p className="notice warning">มีราคาวัสดุเดิมที่ไม่ตรงรายการปัจจุบัน การบันทึกนี้จะเก็บเฉพาะรายการที่แสดง</p>}
+   <label className="field"><span>เงื่อนไข/หมายเหตุประมาณราคา</span><textarea aria-label="เงื่อนไขประมาณราคา" maxLength={1000} value={values.note} onChange={e=>setValues({...values,note:e.target.value})}/></label>
+   {problem&&<p role="alert" className="notice danger">{problem}</p>}{preview&&<><ReinforcementCoverageNotice members={preview.coverage.members}/><div className="notice" aria-label="ตัวอย่างยอดราคา">{preview.currencies.map(c=><p key={c.currency||''}>{c.currency} · {c.completeTotal===null?(!preview.coverage.complete?'รอปริมาณเหล็ก':'รอราคา '+c.missing+' รายการ'):'ยอดรวม '+moneyText(c.completeTotal)} · ยอดเฉพาะที่กรอกราคา {moneyText(c.subtotal)}</p>)}</div></>}
+  </fieldset>
+  <p className="notice warning">การแก้ราคาให้สมาชิกกลับเป็น Draft เก็บมิติ/เหล็กและการยืนยันทางเทคนิคเดิมไว้ Frozen revisionไม่เปลี่ยน · ไม่มี VAT/OH/กำไรเพิ่มอัตโนมัติ</p>
+  {pending&&!busy&&<div className="notice warning" role="alert">ยังไม่ได้รับผลสำเร็จ<div className="actions"><button disabled={!canEdit} onClick={()=>void execute(pending)}>ลองบันทึกคำขอเดิม</button><button onClick={()=>setPending(null)}>กลับไปแก้ราคา</button></div></div>}
+  <footer><button disabled={busy} onClick={onClose}>ยกเลิก</button><button className="primary" disabled={busy||!!pending||stale||!canEdit||!pricing||!!problem} onClick={()=>{if(pricing)void execute({data:{memberId:source.id,memberVersion:source.version,projectVersion:version,pricing},id:crypto.randomUUID()});}}>บันทึกราคา BOQ</button></footer>
+ </div></Modal>;
+}

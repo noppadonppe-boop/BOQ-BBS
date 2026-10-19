@@ -1,0 +1,23 @@
+import {quantityBasisCoverage} from '../domain/quantityBasis';
+import type ExcelJS from 'exceljs';
+import type {jsPDF} from 'jspdf';
+import type {SnapshotBundle} from '../domain/model';
+import {earthworkRows} from '../domain/earthworkReport';
+import {calculationEngine} from '../domain/version';
+import {scopeLabel} from '../domain/exportScope';
+const modeLabel={legacy:'Legacy',automatic:'Automatic',manual:'Manual'};
+export function appendEarthworkSheet(wb:ExcelJS.Workbook,b:SnapshotBundle){
+ const rows=earthworkRows(b);if(!rows.length)return;const provisional=!quantityBasisCoverage(b).complete;
+ const s=wb.addWorksheet('Foundation Earthwork');
+ s.addRows([[`${b.project.code} · Foundation earthwork basis`],[`${b.status} / NOT FOR CONSTRUCTION · ${b.revisionNumber||'D'+b.version} · ${calculationEngine(b.project.spec)}\n${scopeLabel(b.scope,b.members)} · ${provisional?'PROVISIONAL RAW CALCULATION PREVIEW / complete BOQ totals pending.':'Volumes per foundation; total multiplies the selected quantity once.'}`],['Member','Qty','Buried mode','Excavation m³/ea','Lean m³/ea','Buried m³/ea','Backfill m³/ea','Backfill total m³','Buried volume basis','Zone / Floor / Grid']]);
+ for(const r of rows)s.addRow([r.code,r.quantity,modeLabel[r.mode],r.excavation,r.lean,r.buried,r.backfill,r.backfill*r.quantity,(provisional?'RAW PREVIEW / quantity input pending. ':'')+r.basis,r.locations]);
+ s.addRow(['ALL SELECTED',rows.reduce((n,r)=>n+r.quantity,0),null,null,null,null,null,rows.reduce((n,r)=>n+r.backfill*r.quantity,0), 'Backfill = excavation − lean − buried concrete. Manual zero stays zero; legacy zero selects net concrete automatically.',null]);
+ const widths=[18,8,16,14,14,14,14,18,65,30];s.columns=widths.map(width=>({width}));s.mergeCells('A1:J1');s.mergeCells('A2:J2');
+ s.eachRow((row,i)=>{let lines=i===2?3:1;row.eachCell({includeEmpty:true},(c,j)=>{if(i>2&&typeof c.value==='string')lines=Math.max(lines,c.value.split('\n').reduce((n,t)=>n+Math.max(1,Math.ceil(t.length/(widths[j-1]*.8))),0));c.font={name:'Sarabun',size:i===1?15:10,bold:i===1||i===3||i===s.rowCount,color:{argb:i===3?'FFFFFFFF':'FF203940'}};c.alignment={vertical:'middle',wrapText:true,horizontal:typeof c.value==='number'?'right':'left',indent:i>3&&j>=9?1:0};if(i===3)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF203940'}};else if(i>3&&i%2===0)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF1F5F3'}};if(i>3&&j>=4&&j<=8)c.numFmt='0.000';});row.height=Math.min(409,Math.max(i===1?32:i===3?48:28,lines*15+12));});
+ s.views=[{state:'frozen',ySplit:3,showGridLines:false}];s.autoFilter={from:{row:3,column:1},to:{row:s.rowCount-1,column:10}};s.pageSetup={paperSize:8 as ExcelJS.PaperSize,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,printTitlesRow:'1:3',printArea:'A1:J'+s.rowCount};s.headerFooter={oddFooter:'&LFoundation quantities / NOT FOR CONSTRUCTION&C&A&RPage &P / &N'};
+}
+export async function appendEarthworkPdf(doc:jsPDF,b:SnapshotBundle){
+ const rows=earthworkRows(b);if(!rows.length)return;const provisional=!quantityBasisCoverage(b).complete;
+ const {default:autoTable}=await import('jspdf-autotable');doc.addPage();
+ autoTable(doc,{startY:51,margin:{left:15,right:15,top:51,bottom:20},head:[['Member / selected Qty','Mode / buried basis','Excavation m³/ea','Lean m³/ea','Buried m³/ea','Backfill m³/ea','Backfill total m³']],body:rows.map(r=>[`${r.code} × ${r.quantity}\n${r.locations}`,`${modeLabel[r.mode]}\n${r.basis}`,r.excavation.toFixed(3),r.lean.toFixed(3),r.buried.toFixed(3),r.backfill.toFixed(3),(r.backfill*r.quantity).toFixed(3)]),foot:[['ALL SELECTED',rows.reduce((n,r)=>n+r.quantity,0)+' foundations','','','','',rows.reduce((n,r)=>n+r.backfill*r.quantity,0).toFixed(3)]],showFoot:'lastPage',styles:{font:'Sarabun',fontStyle:'normal',fontSize:9,cellPadding:3},headStyles:{fillColor:[32,57,64],fontStyle:'normal'},footStyles:{fillColor:[232,240,235],textColor:[32,57,64],fontStyle:'normal'},columnStyles:{0:{cellWidth:58},1:{cellWidth:147},2:{cellWidth:37},3:{cellWidth:37},4:{cellWidth:37},5:{cellWidth:37},6:{cellWidth:37}},didDrawPage:()=>{doc.setFont('Sarabun','normal');doc.setTextColor(32,57,64);doc.setFontSize(12);doc.text(b.project.code+' · Foundation earthwork '+(provisional?'RAW PREVIEW / INPUT PENDING':'basis'),15,16);doc.setFontSize(8);doc.text(doc.splitTextToSize(`${b.status} / NOT FOR CONSTRUCTION · ${b.revisionNumber||'D'+b.version} · ${calculationEngine(b.project.spec)} · Scope: ${scopeLabel(b.scope,b.members)}`,390),15,29);doc.text('Backfill = excavation − lean − buried concrete. Manual zero is zero; legacy zero uses net concrete.',15,45);if(doc.getNumberOfPages()>500)throw Error('BOQ เกิน500หน้า แบ่งขอบเขตส่งออก');}});
+}

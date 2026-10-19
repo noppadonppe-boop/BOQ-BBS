@@ -1,0 +1,10 @@
+import {it,expect} from 'vitest';
+import type {Vec3} from '../src/domain/model';
+import {drawingBarTraces} from '../src/domain/drawingBarTraces';
+const cut={id:'s',label:'A-A',axis:'Z' as const,position:500};
+const rows=Array.from({length:13},(_,i)=>({id:'B'+i,mark:'R'+i,diameter:12,paths:[[[100+i*10,200,100],[100+i*10,200,900]] as Vec3[]]}));
+it('Last page retains13 physical bars but selects exactly3 leaders in original table order',()=>{const t=drawingBarTraces(rows,[0,1],true,cut,10,5);expect(t).toHaveLength(13);expect(t.flatMap(t=>t.dots)).toHaveLength(13);expect(t.filter(t=>t.slot!==undefined).map(t=>[t.row.id,t.slot])).toEqual([['B10',0],['B11',1],['B12',2]]);expect(t.slice(0,10).every(t=>t.slot===undefined)).toBe(true);});
+it('Cross section includes every real intersecting Mark, irrespective of the paged table',()=>{const t=drawingBarTraces(rows,[0,1],false,cut,0,5);expect(t.flatMap(t=>t.dots)).toHaveLength(13);expect(t.every(t=>t.dots[0][2]===500)).toBe(true);});
+it('Absent sections do not invent paths/anchors or remove the selected row identity',()=>{const t=drawingBarTraces(rows,[0,1],false,{...cut,position:950},10,5);expect(t.every(t=>!t.lines.length&&!t.dots.length&&!t.anchor)).toBe(true);expect(t.filter(t=>t.slot!==undefined)).toHaveLength(3);});
+it('Physical copies stay per-element and repeated views do not multiply or mutate inputs',()=>{const multiple=rows.map(r=>({...r,paths:[...r.paths,r.paths[0].map(p=>[p[0],p[1]+50,p[2]] as Vec3)]})),before=JSON.stringify(multiple);for(let offset=0;offset<13;offset+=5)expect(drawingBarTraces(multiple,[0,1],true,cut,offset,5).flatMap(t=>t.dots)).toHaveLength(26);expect(JSON.stringify(multiple)).toBe(before);});
+it('A primary elevation keeps projected lines while an absent Mark has no fake leader',()=>{const t=drawingBarTraces([...rows,{id:'empty',mark:'EMPTY',diameter:12,paths:[]}],[0,2],true,cut,13,5);expect(t.flatMap(t=>t.lines)).toHaveLength(13);expect(t.at(-1)!.anchor).toBeUndefined();expect(t.at(-1)!.slot).toBe(0);});

@@ -1,0 +1,8 @@
+import fs from 'node:fs/promises';import {chromium,admin,guard} from './auth-persistence-qa.mjs';
+const ctx=JSON.parse(await fs.readFile('tmp/rebar-interference-context.json','utf8')),b=await chromium.launch({headless:true}),p=await b.newPage(),cloud=[],errors=[];
+try{await guard(p,cloud,errors);await p.goto('http://127.0.0.1:5236/tests/context-harness.html');await p.evaluate(async a=>{const f=await import('/src/data/firebase.ts');if(!f.emulator||f.db.app.options.projectId!=='demo-boq-v041')throw Error('Only isolated SDK');await(await import('/src/auth/authService.ts')).loginWithEmail(a.email,a.password);},admin);
+ const ids=await p.evaluate(async q=>{const f=await import('/src/data/firebase.ts'),h=await import('/tests/direct-browser-harness.ts'),decode=(await import('/src/domain/storageCodec.ts')).decodeStorage;
+  const positive={...q.baseline,id:crypto.randomUUID(),version:0,code:'POSITIVE-QA',bars:q.baseline.bars.map(b=>({...b,id:crypto.randomUUID()}))};await f.command('saveMember',q.pid,{member:positive});
+  const heavy=decode((await h.getDocFromServer(h.doc(f.db,`projects/${q.pid}/members/${q.heavyMid}`))).data()),limited={...heavy,id:crypto.randomUUID(),version:0,code:'LIMIT-QA',description:'Synthetic bounded-review QA; not an approved reinforcement arrangement',bars:[{...heavy.bars[0],id:crypto.randomUUID(),mark:'L1'},{...heavy.bars[0],id:crypto.randomUUID(),mark:'L2'}]};await f.command('saveMember',q.pid,{member:limited});return {positiveMid:positive.id,limitedMid:limited.id};
+ },ctx);Object.assign(ctx,ids);await fs.writeFile('tmp/rebar-interference-context.json',JSON.stringify(ctx,null,2));console.log('Created isolated positive and bounded-limit UI fixtures');
+}finally{await b.close();}

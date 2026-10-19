@@ -1,0 +1,15 @@
+# Code99 dimensions with several bends
+
+In the bar editor, open **สร้างแนวเหล็กจากมิติและมุม**, choose the dimension basis and enter the legs in order. The new **เส้นสัมผัสสำหรับมุมแหลม + จุดตัดผิวนอกมุมอื่น** basis is explicit. It is never selected from a source cut length or a drawing crop automatically.
+
+At an acute internal bend (deflection greater than90°), each adjoining leg has its own outer-circle supporting tangent, perpendicular to that leg. At other bends, dimensions use intersections of extended outer surfaces. This geometric convention extends the local tangent construction illustrated in the supplied BS8666:2000 Figure4. It is not an automatic classification or engineering approval of a source detail.
+
+For a bend with centreline radius R, outside half-diameter h and deflection θ, the dimension extension beyond the virtual intersection is `R+h−R×tan(θ/2)` at an acute internal bend and `h×tan(θ/2)` at other bends. Each entered leg dimension subtracts the extensions at its two ends to obtain the virtual leg. A negative acute extension is valid; overlapping bend trims and touching/crossing planar surfaces remain rejected.
+
+The support drawing follows the declared input plane/start angle before template and physical placement rotations. The coordinate appendix uses the physical member datum. The support drawing shows both steel surfaces, centreline, leg dimensions L01–L12, a selected free dimension in parentheses, independent incoming/outgoing tangent lines at every acute bend, inside radius and numbered vertices. For more than six legs, dimensions continue on another sheet. Export using **BBS · เส้นสัมผัสและมุม**. The coordinate sheet preserves the full first-bar geometry; placement appendices preserve the entered physical positions and original dimension inputs. Nonplanar shapes and physical hook closure are outside this adapter.
+
+The supplied C1 Mark4 diagram has111/600/111 annotations and a45° internal end angle. A **provisional** support-basis interpretation with inside radius24mm produces straight lengths75+528+75mm and centreline arcs totalling117.80972451mm. The geometric length is795.80972451mm; the current25mm rounding gives800mm. The source's790mm remains unchanged and visibly different. The source does not establish this basis, radius, SD40-to-BS material mapping or physical placement. The local example saves one review bar; it does not claim to reconstruct the source's148-bar arrangement.
+
+Creating or rebuilding the geometry clears dimension/placement confirmations and overrides. Source comparison, BS problems and incomplete steel coverage continue to prevent Checked/release. Code99's existing approval requirement is retained. Mark5 closure and complete GULF reference cases remain unresolved.
+
+Legacy input bases, unopted single-acute A/B/C drawings, numerical engine IDs and Frozen captures keep their previous behaviour. The new basis is saved with the raw entered inputs and is preserved by copy, Snapshot and Backup/Restore. Rules, Auth configuration and production deployment remain controlled by the user.

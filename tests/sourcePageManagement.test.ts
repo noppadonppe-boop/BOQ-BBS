@@ -1,0 +1,29 @@
+import {it,expect} from 'vitest';
+import first from './fixtures/b104-native-panels.json';
+import last from './fixtures/b104-page19-native.json';
+import {sourceTableCandidate,acceptSourceTable,type NativeSourceTextPage} from '../src/domain/sourceTableIntake';
+import {appendSourcePage} from '../src/domain/sourceTableAppend';
+import {editSourcePage,removeSourcePage,replaceSourcePage} from '../src/domain/sourcePageManagement';
+import {sourceScheduleSchema,sourceSchedulePages,compareSourceSchedule} from '../src/domain/sourceSchedule';
+import {blankMember,type Attachment} from '../src/domain/model';
+const file:Attachment={id:'source',name:first.file,path:'projects/p/files/source/file.pdf',memberId:'m',kind:'Detail',revision:'0A',page:2,pageCount:19,size:1,sha256:first.sha256,contentType:'application/pdf'};
+const review={basis:'allOccurrences' as const,note:'Literal source-only software QA, not acceptance',reviewed:true,unitsConfirmed:true};
+const page=(f:typeof first|typeof last)=>sourceTableCandidate(structuredClone(f.page) as NativeSourceTextPage,f.sha256);
+const combined=()=>appendSourcePage(acceptSourceTable(page(first),file,review),page(last),file,review);
+it.each([2,19])('Removes only page%s and canonicalizes the surviving single page with exact row IDs/crops/Total/reference; clears mappings',p=>{
+ const s=combined();s.rows[0].barId='bar1';const before=structuredClone(s),next=removeSourcePage(s,p,true),kept=s.rows.filter(r=>r.sourcePage!==p);
+ expect(next.version).toBe(2);expect(next.page).toBe(p===2?19:2);expect(next.pageTables).toBeUndefined();expect(next.statedTotalWeight).toBe(p===2?891.57:2908.61);expect(next.rows).toEqual(kept.map(({sourcePage,...r})=>({...r,barId:undefined})));expect(s).toEqual(before);expect(sourceScheduleSchema.safeParse(next).success).toBe(true);expect(()=>removeSourcePage(next,next.page,true)).toThrow('หน้าสุดท้าย');
+});
+it('Keeps a multi-page v3 register when removing one of three reviewed pages',()=>{const s=combined(),third={...s.rows[0],id:'third',mark:'SYNTHETIC',sourcePage:3};s.pageTables!.push({page:3,note:'Synthetic registry QA only',statedTotalWeight:1});s.rows.push(third);const n=removeSourcePage(s,2,true);expect(n.version).toBe(3);expect(n.page).toBe(19);expect(n.pageTables!.map(t=>t.page)).toEqual([19,3]);expect(n.rows).toHaveLength(16);});
+it('Edits only a declared page Total/reference without coercing a missing value to0, repairing row sums or changing physical quantities',()=>{
+ const s=combined();s.rows[0].barId='bar1';const n=editSourcePage(s,19,{note:'Reviewed missing printed Total QA',statedTotalWeight:undefined},true);expect(n.pageTables![0]).toEqual(s.pageTables![0]);expect(n.pageTables![1].statedTotalWeight).toBeUndefined();expect(n.pageTables![1].note).toContain('missing');expect(n.rows.every(r=>!r.barId)).toBe(true);expect(n.rows.map(r=>r.weight)).toEqual(s.rows.map(r=>r.weight));const m={...blankMember('Beam','QA'),id:'m',sourceSchedule:n};expect(compareSourceSchedule(m,[],[file])!.pageWeights[1].difference).toBeUndefined();expect(compareSourceSchedule(m,[],[file])!.actualWeight).toBe(0);
+});
+it.each(['unreviewed','unknown','blank','nan','zero','negative','excess'])('Rejects invalid/unreviewed metadata edit: %s',kind=>{const s=combined(),patch={note:'QA',statedTotalWeight:1};if(kind==='blank')patch.note=' ';if(kind==='nan')patch.statedTotalWeight=NaN;if(kind==='zero')patch.statedTotalWeight=0;if(kind==='negative')patch.statedTotalWeight=-1;if(kind==='excess')patch.statedTotalWeight=1e18;expect(()=>editSourcePage(s,kind==='unknown'?3:19,patch,kind!=='unreviewed')).toThrow();});
+it('Re-reads one original page into its original registry order, replacing only its rows/crops/reference and clearing all BBS mappings',()=>{
+ const s=combined();s.rows[0].barId='bar1';s.rows[40].barId='bar2';const before=structuredClone(s),n=replaceSourcePage(s,page(last),file,{...review,note:'Re-read page19 literal QA'});expect(n.rows).toHaveLength(55);expect(n.pageTables!.map(t=>t.page)).toEqual([2,19]);expect(n.pageTables![0]).toEqual(s.pageTables![0]);expect(n.rows.slice(0,40)).toEqual(s.rows.slice(0,40).map(r=>({...r,barId:undefined})));expect(n.rows.slice(40).map(r=>r.id)).not.toEqual(s.rows.slice(40).map(r=>r.id));expect(n.rows.slice(40).map(r=>r.shapeReference)).toEqual(s.rows.slice(40).map(r=>r.shapeReference));expect(n.rows.every(r=>!r.barId)).toBe(true);expect(s).toEqual(before);
+});
+it('Re-reads a surviving single page without retaining multi-page provenance or an obsolete global note',()=>{const s=removeSourcePage(combined(),2,true),n=replaceSourcePage(s,page(last),file,{...review,note:'Current single-page review'});expect(n.version).toBe(2);expect(n.note).toBe('Current single-page review');expect(n.statedTotalWeight).toBe(891.57);expect(sourceSchedulePages(n)).toHaveLength(1);expect(n.rows.every(r=>r.sourcePage===undefined)).toBe(true);});
+it.each(['page','mark','basis','file','sha','superseded','units','review','old-crop-range','too-many'])('Rejects unsafe per-page replacement: %s',kind=>{
+ const s=combined(),c=page(last),f={...file},r={...review};if(kind==='page')c.page=3;if(kind==='mark')c.rows[0].mark=s.rows[0].mark;if(kind==='basis')r.basis='perElement' as typeof r.basis;if(kind==='file')f.id='other';if(kind==='sha')f.sha256='b'.repeat(64);if(kind==='superseded')f.sourceStatus='Superseded';if(kind==='units')r.unitsConfirmed=false;if(kind==='review')r.reviewed=false;if(kind==='old-crop-range')s.rows[0].shapeReference!.page=20;if(kind==='too-many'){s.rows=[...Array.from({length:290},(_,i)=>({...s.rows[0],id:'i'+i,mark:'SYNTHETIC'+i})),...s.rows.slice(40,41)];}expect(()=>replaceSourcePage(s,c,f,r)).toThrow();
+});
+it.each(['unreviewed','unknown'])('Rejects unreviewed or absent page removal: %s',kind=>expect(()=>removeSourcePage(combined(),kind==='unknown'?3:2,kind!=='unreviewed')).toThrow());
