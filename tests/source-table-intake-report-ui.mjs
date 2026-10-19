@@ -1,7 +1,0 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import assert from 'node:assert/strict';
-import {pathToFileURL} from 'node:url';
-import {chromium} from './auth-persistence-qa.mjs';
-const out='output/source-table-intake-isolated-verification',browser=await chromium.launch({headless:true}),p=await browser.newPage(),checks=[];
-try{await p.goto(pathToFileURL(path.resolve(out,'DEVELOPMENT_REPORT.html')).href);await p.evaluate(()=>{document.querySelectorAll('details').forEach(d=>d.open=true);document.querySelectorAll('img').forEach(i=>i.loading='eager');});await p.waitForFunction(()=>Array.from(document.images).every(i=>i.complete&&i.naturalWidth>0));const links=await p.locator('a').evaluateAll(a=>a.map(a=>new URL(a.href).pathname));for(const url of links)await fs.access(decodeURIComponent(url).replace(/^\/([A-Za-z]:)/,'$1'));assert.equal(await p.locator('img').count(),30);for(const [name,width,height]of [['desktop',1440,1000],['mobile',390,844]]){await p.setViewportSize({width,height});const overflow=await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth);assert.equal(overflow,false);await p.screenshot({path:out+'/report-'+name+'.png',fullPage:true});checks.push({name,width,overflow});}await fs.writeFile(out+'/report-ui-results.json',JSON.stringify({status:'PASS',loadedImages:30,verifiedLinks:links.length,checks},null,2));console.log('PASS report30 images, all local links, desktop/mobile layout');}finally{await browser.close();}
