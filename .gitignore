@@ -17,3 +17,9 @@ output/
 tmp/
 *.log
 *.tsbuildinfo
+
+# Only PDF source references are versioned from this folder
+Referrence/PDF/**/*.png
+Referrence/PDF/**/*.rar
+Referrence/PDF/**/*.dwl
+Referrence/PDF/**/*.dwl2
