@@ -25,6 +25,7 @@ export async function command(action:string,projectId:string|undefined,data:Data
  if(action==='setProjectAccess')return (await import('./direct/access')).setDirectAccess(pid,data,requestId);
  if(action==='setRole'){const roster=await (await import('./direct/access')).listDirectAccess(pid,{});return (await import('./direct/access')).setDirectAccess(pid,{target:{email:data.email},role:data.role,reason:'คำขอเปลี่ยนสิทธิ์จากรุ่นเดิม',expectedDigest:roster.digest,legacy:true},requestId);}
  if(action==='saveProject')return (await import('./direct/projects')).saveDirectProject(pid,data,requestId);
+ if(action==='deleteProject')return (await import('./direct/projects')).deleteDirectProject(pid,data,requestId);
  if(action==='copyMember')return (await import('./direct/memberCopy')).copyDirectMember(pid,data,requestId);
  if(action==='savePricing')return (await import('./direct/pricing')).saveDirectPricing(pid,data,requestId);
  if(action==='beginAreaChange')return (await import('./direct/areaChanges')).beginAreaChange(pid,data,requestId);

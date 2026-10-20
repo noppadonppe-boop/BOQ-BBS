@@ -32,6 +32,7 @@ export async function projectTransaction<T>(action:string,pid:string,data:unknow
   const u=await actor(tx),pr=projectRef(pid),s=await tx.get(pr),or=recordRef(pid,'operations',id),op=await tx.get(or);
   must(s.exists(),'ไม่พบโครงการ','not-found');const p=decodeStorage(s.data()) as Project;allow(p,u,roles);
   if(op.exists()){const o=op.data();must(o.uid===u.uid&&o.action===action&&o.inputHash===inputHash,'รหัสคำขอถูกใช้กับข้อมูลอื่นแล้ว','aborted');return decodeStorage(o.result) as T;}
+  must(!p.deleted,'โครงการถูกลบแล้ว · อ่านได้อย่างเดียว','failed-precondition');
   if(!allowLocked)writable(p);const result=await body(tx,p,u);
   tx.set(or,encode({id,action,uid:u.uid,inputHash,createdAt:now(),result}));return result;
  });

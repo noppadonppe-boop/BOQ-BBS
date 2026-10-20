@@ -59,9 +59,12 @@ export function placedTemplateBar(m:Member,b:Bar):Bar {
 }
 export function legacyBarPaths(m:Member,b:Bar):Vec3[][] {
  const target=b.targetSolidId?solidsOf(m).find(s=>s.id===b.targetSolidId):undefined;
- const d=target?target.size:m.geometry||m.prismGeometry?boundsOf(m):[m.x,m.y,m.z],origin=target?.origin||[0,0,0],a={X:0,Y:1,Z:2}[b.axis],dist=b.shape==='link'?a:(a===0?1:0),c=m.cover+(b.outsideDiameter??b.diameter)/2;
+ const d=target?target.size:m.geometry||m.prismGeometry?boundsOf(m):[m.x,m.y,m.z],origin=target?.origin||[0,0,0],a={X:0,Y:1,Z:2}[b.axis],dist=b.shape==='polyline'&&b.distributionAxis?{X:0,Y:1,Z:2}[b.distributionAxis]:b.shape==='link'?a:(a===0?1:0),c=m.cover+(b.outsideDiameter??b.diameter)/2;
  if(b.shape==='arc'){const geometry=arcGeometry(b);if(geometry.errors.length||!b.curve)return [];const n=arcNormal(b.curve),from=b.distributionStart||c,to=b.distributionEnd||d[a]-c;return Array.from({length:Math.max(0,Math.min(2000,Math.trunc(b.count)))},(_,i)=>{const position=b.count===1?from:from+(to-from)*i/(b.count-1);return geometry.points.map(p=>add(add(p,scale(n,position-from)),origin as Vec3));});}
  if(b.shape==='helix'){const geometry=helixGeometry(b);if(geometry.errors.length||!b.helix)return [];const n=b.helix.axis,span=b.distributionEnd-b.distributionStart;return Array.from({length:Math.max(0,Math.min(2000,Math.trunc(b.count)))},(_,i)=>geometry.points.map(p=>add(add(p,scale(n,b.count===1?0:span*i/(b.count-1))),origin as Vec3)));}
+ // Offsets translate the template; optional offsetTurns first rotate it about the vertical
+ // axis through its last point (e.g. column bars whose feet point away from the column centre).
+ if(b.shape==='polyline'&&b.offsets?.length){const pivot=b.points.at(-1)||[0,0,0];return b.offsets.slice(0,Math.max(0,Math.min(2000,Math.trunc(b.count)))).map((o,i)=>{const t=(b.offsetTurns?.[i]||0)*Math.PI/180,c=Math.cos(t),s=Math.sin(t);return b.points.map(p=>{const dx=p[0]-pivot[0],dy=p[1]-pivot[1],q:Vec3=t?[pivot[0]+dx*c-dy*s,pivot[1]+dx*s+dy*c,p[2]]:p;return add(add(q,o),origin as Vec3);});});}
  const from=b.distributionStart||c,to=b.distributionEnd||d[dist]-c;
  const paths=Array.from({length:Math.max(0,Math.min(2000,Math.trunc(b.count)))},(_,i)=>{
   const position=b.count===1?(from+to)/2:from+(to-from)*i/(b.count-1);

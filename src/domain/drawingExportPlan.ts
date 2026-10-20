@@ -9,6 +9,7 @@ import {sourceSheets} from './sourceDrawings';
 import {publicationLabel} from './publication';
 
 export const exportFormats: {id:string;label:string;kind:ExportKind;layout:ExportLayout}[] = [
+  {id:'sheet-a3-v10',label:'แบบ BBS A3 · รูป + ตาราง BBS + ตาราง BOQ',kind:'drawing',layout:'sheet-a3-v10'},
   {id:'schedule-v1',label:'BBS · แปลน รูปตัด และตารางเหล็ก',kind:'drawing',layout:'schedule-v1'},
   {id:'source-v9',label:'BBS + แบบต้นทางพร้อมจุดชี้ Mark',kind:'drawing',layout:'source-v9'},
   {id:'excel',label:'Excel · BOQ และ BBS',kind:'excel',layout:'schedule-v1'},

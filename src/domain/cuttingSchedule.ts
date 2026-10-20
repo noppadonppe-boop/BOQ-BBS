@@ -23,7 +23,8 @@ export function validateScheduleReferences(members:Member[]){
 export function validateExportFormat(kind:ExportKind,size:ExportSize,layout?:ExportLayout){
  if(kind==='inventory-excel'||kind==='inventory-pdf'){if(size!=='A3')throw Error('ทะเบียนสต็อกใช้ A3');return;}
  if(kind==='schedule'){if(size!=='A4'||layout!=='cutting-a4-v1')throw Error('ตารางตัด/ดัดต้องใช้ A4 / cutting-a4-v1');}
- else if(size==='A4'||(kind==='drawing'&&!['schedule-v1','details-v2','fabrication-v3','general-v4','tangent-v5','spatial-v6','measurements-v7','projections-v8','source-v9'].includes(layout||'schedule-v1')))throw Error('รูปแบบนี้ใช้ A3/A1 เท่านั้น');
+ else if(size==='A4'||(kind==='drawing'&&!['schedule-v1','details-v2','fabrication-v3','general-v4','tangent-v5','spatial-v6','measurements-v7','projections-v8','source-v9','sheet-a3-v10'].includes(layout||'schedule-v1')))throw Error('รูปแบบนี้ใช้ A3/A1 เท่านั้น');
+ if(kind==='drawing'&&layout==='sheet-a3-v10'&&size!=='A3')throw Error('แบบ BBS + BOQ ใช้ขนาด A3');
 }
 export function validateScheduleBundle(b:SnapshotBundle){
  if(!b.members.length)throw Error('ไม่มีสมาชิกในชุดตาราง A4');

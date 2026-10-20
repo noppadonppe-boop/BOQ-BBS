@@ -19,6 +19,7 @@ import {appendSourceScheduleSheet} from './sourceScheduleExcel';
 import {appendPlanarPathSheet} from './planarPathExcel';
 import {appendPathFrameSheet} from './pathFrameExcel';
 import {appendEarthworkSheet,appendEarthworkPdf} from './earthworkExports';
+import {appendPileSheet,appendPilePdf} from './pileExports';
 import {appendSourceRegionSheet} from './sourceRegionExcel';
 import {appendPricingSheets} from './pricingExcel';
 import {appendCoverageSheet,appendCoveragePdf} from './reinforcementCoverageExports';
@@ -107,7 +108,7 @@ export async function excel(bundle:Bundle):Promise<Blob>{checkEngine(bundle);
  bbs.getColumn(6).numFmt='@';
  bbs.eachRow((row,i)=>{if(i>3){let height=22;row.eachCell((cell,col)=>{if(typeof cell.value==='string')height=Math.max(height,14*Math.ceil(cell.value.length/Math.max(8,(bbs.getColumn(col).width||18)*1.1))+10);});row.height=Math.min(409,height);}});
  await appendPrintSheets(wb,bundle,printBars);
- appendProjectMaterialSheet(wb,bundle);appendCoverageSheet(wb,bundle);appendPricingSheets(wb,bundle);appendEarthworkSheet(wb,bundle);(await import('./sourceLabelExcel')).appendSourceLabelSheet(wb,bundle);
+ appendProjectMaterialSheet(wb,bundle);appendCoverageSheet(wb,bundle);appendPricingSheets(wb,bundle);appendEarthworkSheet(wb,bundle);appendPileSheet(wb,bundle);(await import('./sourceLabelExcel')).appendSourceLabelSheet(wb,bundle);
  (await import('./code99ReviewExports')).appendCode99ReviewSheet(wb,bundle);(await import('./fabricationInputReviewExcel')).appendFabricationInputSheet(wb,bundle);
  return new Blob([await wb.xlsx.writeBuffer() as ArrayBuffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
@@ -128,6 +129,7 @@ export function drawProjection(doc:jsPDF,m:Member,bundle:Bundle,axes:[number,num
 }
 function shapeDrawing(doc:jsPDF,path:Vec3[],x:number,y:number,w:number,h:number){if(path.length<2)return;const spans=[0,1,2].map(i=>Math.max(...path.map(p=>p[i]))-Math.min(...path.map(p=>p[i]))),axes=spans.map((s,i)=>({s,i})).sort((a,b)=>b.s-a.s).slice(0,2).map(v=>v.i),lo=axes.map(a=>Math.min(...path.map(p=>p[a]))),s=Math.min((w-8)/(spans[axes[0]]||1),(h-5)/(spans[axes[1]]||1));doc.setDrawColor(40,85,74);doc.setLineWidth(.35);for(let i=1;i<path.length;i++)doc.line(x+4+(path[i-1][axes[0]]-lo[0])*s,y+h-2-(path[i-1][axes[1]]-lo[1])*s,x+4+(path[i][axes[0]]-lo[0])*s,y+h-2-(path[i][axes[1]]-lo[1])*s);}
 export async function drawingPdf(bundle:Bundle,size:'A3'|'A1',layout:DrawingLayout='schedule-v1',stampFinal=true):Promise<Blob>{checkEngine(bundle);drawingReferences(bundle,layout);const finish=async(blob:Promise<Blob>|Blob)=>{const views=await appendDrawingViewsPdf(await blob,bundle,size),placed=await appendBarPlacementPdf(views,bundle,size);if(!stampFinal)return placed;const materials=await appendProjectMaterialPdf(placed,bundle,size);return stampOwnerDrawing(await appendSourceSchedulePdf(materials,bundle,size),bundle,size);};
+ if(layout==='sheet-a3-v10')return (await import('./bbsSheetPdf')).bbsSheetPdf(bundle,size);
  if(layout==='source-v9')return finish((await import('./sourcePdf')).sourcePdf(bundle,size));
  if(layout==='projections-v8')return finish((await import('./spatialPdf')).spatialPdf(bundle,size,true,true));
  if(layout==='measurements-v7')return finish((await import('./spatialPdf')).spatialPdf(bundle,size,true));
@@ -161,7 +163,7 @@ export async function boqPdf(bundle:Bundle):Promise<Blob>{
   styles:{font:'Sarabun',fontStyle:'normal',fontSize:10},headStyles:{fillColor:[32,57,64],fontStyle:'normal'},footStyles:{fillColor:[232,240,235],textColor:[32,57,64],fontStyle:'normal'},
   didDrawPage:()=>{doc.setFont('Sarabun','normal');doc.setFontSize(12);doc.setTextColor(34,59,66);doc.text(doc.splitTextToSize(`${bundle.project.code} · ${bundle.project.name} · BOQ / ${report.group}`,390).slice(0,2),15,16);doc.setFontSize(8);doc.text(doc.splitTextToSize(`Scope: ${scopeLabel(bundle.scope,bundle.members)}`,390),15,29);doc.text(`${label(bundle)} / ${bundle.createdAt}`,15,42);}
  });
- if(bundle.project.spec.projectMaterials){doc.addPage();await projectMaterialTable(doc,bundle,'A3');}await appendQuantityBasisPdf(doc,bundle);await appendCoveragePdf(doc,bundle);await (await import('./pricingPdf')).appendPricingPdf(doc,bundle);await appendEarthworkPdf(doc,bundle);
+ if(bundle.project.spec.projectMaterials){doc.addPage();await projectMaterialTable(doc,bundle,'A3');}await appendQuantityBasisPdf(doc,bundle);await appendCoveragePdf(doc,bundle);await (await import('./pricingPdf')).appendPricingPdf(doc,bundle);await appendEarthworkPdf(doc,bundle);await appendPilePdf(doc,bundle);
  const pages=doc.getNumberOfPages();for(let i=1;i<=pages;i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(90,110,112);doc.text(`Page ${i}/${pages} · A3 · ${bundle.revisionNumber||'D'+bundle.version}`,405,288,{align:'right'});}
  return doc.output('blob');
 }
