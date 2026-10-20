@@ -20,6 +20,20 @@ export type ExtractedReinforcement={
   source:string;
 };
 
+export type ExtractedAnalysisFields={
+  description?:string;
+  x?:number;
+  y?:number;
+  z?:number;
+  cover?:number;
+  pedestal?:{x?:number;y?:number;z?:number};
+  lean?:{x?:number;y?:number;thickness?:number};
+  excavation?:{bottomX?:number;bottomY?:number;topX?:number;topY?:number;depth?:number;buriedConcrete?:number};
+};
+
+export type ExtractedEvidence={page:number;field:string;quote:string};
+export type ExtractedCalculated={concrete?:number;formwork?:number;rebar?:number;quantity?:number};
+
 export type DrawingExtraction={
   attachmentId:string;
   fileName:string;
@@ -27,10 +41,18 @@ export type DrawingExtraction={
   pages:number;
   status:'Needs review'|'Applied';
   confidence:'High'|'Medium'|'Low';
+  description?:string;
   dimensions:ExtractedDimension[];
   reinforcement:ExtractedReinforcement[];
   textSample:string;
   warnings:string[];
+  fields?:ExtractedAnalysisFields;
+  calculated?:ExtractedCalculated;
+  evidence?:ExtractedEvidence[];
+  source?:'text'|'ai';
+  provider?:string;
+  model?:string;
+  analysisId?:string;
 };
 
 export type ExtractionInput={attachmentId:string;fileName:string;pages:number;text:string;category:Category};
@@ -95,12 +117,14 @@ export function extractDrawingText(input:ExtractionInput):DrawingExtraction{
   if(!dims.length)warnings.push('ยังไม่พบชุดมิติที่มีรูปแบบชัดเจน เช่น 2400 x 2400 x 600 หรือ L=6000');
   if(!bars.length)warnings.push('ยังไม่พบรูปแบบเหล็ก เช่น T16@200, Ø12 หรือ 4-Ø16');
   if(input.pages>1)warnings.push(`อ่าน text จากทั้ง ${input.pages} หน้าแล้ว แต่ผลลัพธ์ยังต้องจับคู่กับหน้า/Detail ที่ถูกต้อง`);
-  return {attachmentId:input.attachmentId,fileName:input.fileName,extractedAt:new Date().toISOString(),pages:input.pages,status:'Needs review',confidence:dims.length&&bars.length?'Medium':dims.length||bars.length?'Low':'Low',dimensions:dims,reinforcement:bars,textSample:text.slice(0,2400),warnings};
+  return {attachmentId:input.attachmentId,fileName:input.fileName,extractedAt:new Date().toISOString(),pages:input.pages,status:'Needs review',confidence:dims.length&&bars.length?'Medium':dims.length||bars.length?'Low':'Low',dimensions:dims,reinforcement:bars,textSample:text.slice(0,2400),warnings,source:'text'};
 }
 
 export function extractionToMemberPatch(result:DrawingExtraction,member:Member){
-  const next={x:member.x,y:member.y,z:member.z};
-  for(const row of result.dimensions){if(row.axis==='x'||row.axis==='y'||row.axis==='z')next[row.axis]=row.value;}
-  return {dimensions:next,hasDimensionChanges:next.x!==member.x||next.y!==member.y||next.z!==member.z};
+  const next={x:member.x,y:member.y,z:member.z,cover:member.cover};
+  for(const row of result.dimensions){if(row.axis==='x'||row.axis==='y'||row.axis==='z'||row.axis==='cover')next[row.axis]=row.value;}
+  // The AI report is evidence for review. It does not contain enough geometry
+  // to create installation-ready BBS bars, so keep existing bars unchanged.
+  return {dimensions:next,description:member.description,bars:member.bars,hasDimensionChanges:next.x!==member.x||next.y!==member.y||next.z!==member.z||next.cover!==member.cover,hasDescriptionChanges:false,hasBarChanges:false};
 }
 

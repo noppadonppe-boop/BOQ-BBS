@@ -6,6 +6,7 @@ dist/
 .env
 .emulator-data/
 firebase-export-*/
+.firebase/
 *-debug.log
 output/dev-verification/downloads/
 output/revision-verification/downloads/

@@ -1,1 +1,15 @@
-{"projects":{"default":"my-boq-app"}}
+{
+  "projects": {
+    "default": "my-boq-app"
+  },
+  "targets": {
+    "my-boq-app": {
+      "hosting": {
+        "site-02": [
+          "cmg-boq-bbs"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

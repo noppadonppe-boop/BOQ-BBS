@@ -8,7 +8,7 @@ import {canonical} from '../../domain/canonical';
 import {decodeStorage} from '../../domain/storageCodec';
 import {actor,allow,clean,encode,must,now,projectRef,recordRef,projectTransaction,writable} from './common';
 import {readManifest,writeManifest,chunk} from './manifests';
-import {verifiedAttachment} from './sources';
+import {verifiedAttachment,unverifiedAttachment} from './sources';
 import {readProjectRecord} from '../projectReadback';
 import {restProjectTransaction} from './restTransaction';
 
@@ -39,7 +39,10 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
   must(scope==='Member'?!!candidate.memberId:!candidate.memberId,'ขอบเขตแบบไม่ตรงรายการ','invalid-argument');
   const owner=candidate.memberId?byMember.get(candidate.memberId):undefined;
   if(scope==='Member'){must(owner,'ไม่พบสมาชิกเจ้าของแบบ');const expected=single&&item.memberVersion===undefined?owner.version:item.memberVersion;must(expected===owner.version,'ข้อมูลสมาชิกเจ้าของแบบเปลี่ยนแล้ว','aborted');must(!owners.has(owner.id)||owners.get(owner.id)===expected,'version เจ้าของแบบไม่ตรงกัน');owners.set(owner.id,expected);}
-  const a=await verifiedAttachment(pid,candidate);sourceBytes+=a.size;must(sourceBytes<=(scope==='Member'?120:60)*1024*1024,'แบ่งชุดแบบ: ไฟล์ต้นทางรวมเกินขอบเขต');
+  // Registering a member drawing must not block on reading/parsing every
+  // uploaded object. Content verification remains available to later
+  // review/release workflows through verifiedAttachment().
+  const a=action==='beginMemberSourceBatch'?unverifiedAttachment(pid,candidate):await verifiedAttachment(pid,candidate);sourceBytes+=a.size;must(sourceBytes<=(scope==='Member'?120:60)*1024*1024,'แบ่งชุดแบบ: ไฟล์ต้นทางรวมเกินขอบเขต');
   if(before){
    const info=scope==='Member'?{scope:'Member' as const,baselineBars:sourceBarNames(owner!.bars),affectedMemberCount:1 as const}:{scope:'GeneralSpec' as const,affectedMemberCount:members.length};
    const after={...a,version:(before.version||1)+1,sourceStatus:'Current' as const,sourceIntake:{...info,note,receivedAt:manifest.preparedAt,receivedBy:u.uid,specChangeJobId:id},sourceAdoption:{adoptedAt:manifest.preparedAt,adoptedBy:u.uid,specChangeJobId:id,previousVersion:before.version||1,previousKind:before.kind,previousRevision:before.revision,...(before.sha256?{previousSha256:before.sha256}:{})}};

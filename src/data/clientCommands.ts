@@ -15,6 +15,10 @@ export async function command(action:string,projectId:string|undefined,data:Data
  idSchema.parse(requestId);
  if(action==='updateOwnProfile'||action==='updateUserProfile'){must(data.profile&&typeof data.profile==='object','ข้อมูลโปรไฟล์ไม่ถูกต้อง','invalid-argument');return (await import('./direct/profiles')).updateDirectProfile(action,{profile:data.profile},requestId);}
  if(action==='createProject')return (await import('./direct/projects')).createDirectProject(data,requestId);
+ if(action==='getApiProviders')return (await import('./direct/apiProviders')).getDirectApiProviders();
+ if(action==='getActiveAiProvider')return (await import('./direct/apiProviders')).getDirectActiveAiProvider();
+ if(action==='saveApiProviders')return (await import('./direct/apiProviders')).saveDirectApiProviders(data,requestId);
+ if(action==='deleteApiProviderKey')return (await import('./direct/apiProviders')).deleteDirectApiProvider(data,requestId);
  must(projectId,'ต้องระบุโครงการ','invalid-argument');const pid=idSchema.parse(projectId);
  if(action==='listProjectAccess')return (await import('./direct/access')).listDirectAccess(pid,data);
  if(action==='listProjectAccessEvents')return (await import('./direct/access')).listDirectAccessEvents(pid,data);
@@ -31,6 +35,7 @@ export async function command(action:string,projectId:string|undefined,data:Data
  if(['exportSnapshot','freezeRevision'].includes(action))return (await import('./direct/snapshotCommands')).directSnapshot(action,pid,data,requestId);
  if(['startExport','finishExport','failExport'].includes(action))return (await import('./direct/snapshotCommands')).directExport(action,pid,data,requestId);
  if(['addStock','planCutting','reserveCutting','consumeCutting','cancelCutting'].includes(action))return (await import('./direct/stock')).directStock(action,pid,data,requestId);
+ if(['attach','replaceSource'].includes(action)&&data.attachment?.memberId)return (await import('./direct/sources')).directMemberSource(action,pid,data,requestId);
  if(['attach','replaceSource'].includes(action))return singleSource(action,pid,data,requestId);
  if(['annotate','reviewSource','reviewGeneralSource'].includes(action))return (await import('./direct/sources')).directSource(action,pid,data,requestId);
  if(['beginSpecChange','beginGeneralSourceRevision','beginGeneralSourceBatch','beginMemberSourceBatch','beginSourceAdoption'].includes(action))return (await import('./direct/specJobs')).beginDirectSpec(action,pid,data,requestId);

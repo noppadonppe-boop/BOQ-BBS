@@ -1,12 +1,16 @@
 {
   "firestore": {"rules": "firestore.rules", "indexes": "firestore.indexes.json"},
+  "functions": {"source": "functions", "runtime": "nodejs22"},
   "storage": {"rules": "storage.rules"},
   "hosting": {
-    "site": "cmg-boq-bbs",
+    "target": "site-02",
     "public": "dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{"source": "**", "destination": "/index.html"}],
-    "headers": [{"key": "X-Content-Type-Options", "value": "nosniff"}, {"key": "Referrer-Policy", "value": "strict-origin-when-cross-origin"}]
+    "rewrites": [
+      {"source": "/analyse-drawing", "function": {"functionId": "analyseDrawing", "region": "asia-southeast1"}},
+      {"source": "**", "destination": "/index.html"}
+    ],
+    "headers": [{"source": "**", "headers": [{"key": "X-Content-Type-Options", "value": "nosniff"}, {"key": "Referrer-Policy", "value": "strict-origin-when-cross-origin"}]}]
   },
   "emulators": {
     "auth": {"port": 9099},
