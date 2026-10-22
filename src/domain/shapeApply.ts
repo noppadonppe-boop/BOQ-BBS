@@ -11,7 +11,7 @@ export function shapeProblems(input:ShapeModel):{blockers:string[];notes:string[
  const name=(p:ShapePart,i:number)=>`ชิ้น ${i+1} ${p.label}`;
  sm.parts.forEach((p,i)=>{
   if(p.shape==='polygon'){const pts=p.points;if(pts.some((a,k)=>{const b=pts[(k+1)%pts.length];return Math.hypot(b[0]-a[0],b[1]-a[1])<1;}))blockers.push(`${name(p,i)}: มีจุดยอดซ้ำ / ด้านยาวเป็นศูนย์`);}
-  if(p.role==='void'){const hit=g.slabs.some(s=>s.voids.includes(p)&&s.solids.length);if(!hit)notes.push(`${name(p,i)}: ช่องเปิดไม่ตัดผ่านคอนกรีต (ไม่มีผลต่อปริมาณ)`);}
+  if(p.role==='void'){const hit=g.slabs.some(s=>s.voids.some(v=>v.id===p.id)&&s.solids.length);if(!hit)notes.push(`${name(p,i)}: ช่องเปิดไม่ตัดผ่านคอนกรีต (ไม่มีผลต่อปริมาณ)`);}
   if(!p.source.trim())notes.push(`${name(p,i)}: ยังไม่ระบุที่มาของมิติ (แบบ / รูปตัด)`);
  });
  // parts must touch the rest (no floating concrete)
