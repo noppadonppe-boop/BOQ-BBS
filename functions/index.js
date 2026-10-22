@@ -125,8 +125,11 @@ async function parseAnalysisRequest(req) {
 
 async function loadAttachmentFromStorage(projectId, context) {
   const attachmentId = stringValue(context.attachmentId);
+  if(!validId(attachmentId))throw new GatewayError('รหัสไฟล์ไม่ถูกต้อง');
   const snapshot = await db.doc(`projects/${projectId}/attachments/${attachmentId}`).get();
+  if(!snapshot.exists)throw new GatewayError('ไม่พบไฟล์แบบ',404,'not-found');
   const attachment = snapshot.exists ? decodeStorage(snapshot.data()) : {};
+  if(attachment.sourceStatus==='Superseded')throw new GatewayError('แบบนี้ถูกแทนที่แล้ว กรุณาใช้ฉบับปัจจุบัน');
   attachment.id = stringValue(attachment.id, attachmentId);
   attachment.memberId = stringValue(attachment.memberId, stringValue(context.memberId));
   attachment.name = stringValue(attachment.name, stringValue(context.fileName, 'drawing'));
@@ -265,7 +268,10 @@ function openAiText(body) {
 
 function providerStreamText(providerName, event) {
   if (providerName === 'OpenAI' && event?.type === 'response.output_text.delta') return stringValue(event.delta);
-  if (providerName === 'Anthropic' && event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') return stringValue(event.delta.text);
+  if (providerName === 'Anthropic') {
+    if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') return stringValue(event.delta.text);
+    if (event?.type === 'content_block_start' && event.content_block?.type === 'text') return stringValue(event.content_block.text);
+  }
   if (providerName === 'Google AI Studio') {
     return (event?.candidates?.[0]?.content?.parts || []).filter((part) => typeof part?.text === 'string').map((part) => part.text).join('');
   }
@@ -294,7 +300,11 @@ async function readProviderStream(response, providerName) {
     let body = {};
     try { body = raw ? JSON.parse(raw) : {}; } catch { throw new GatewayError(`บริการ ${providerName} ส่งข้อมูลที่อ่านไม่ได้`, 502, 'provider-error'); }
     const text = providerResponseText(providerName, body);
-    if (!text) throw new GatewayError(`${providerName} ไม่ส่งผลวิเคราะห์กลับมา`, 502, 'provider-error');
+    if (!text) {
+      logger.warn('AI provider returned no text', {provider: providerName, model: body.model, stopReason: body.stop_reason, outputTokens: body.usage?.output_tokens, contentTypes: (body.content || []).map(item => item.type)});
+      if (body.stop_reason === 'max_tokens') throw new GatewayError(`${providerName} ใช้โควตา output หมดก่อนส่งผลวิเคราะห์ กรุณาลดระดับการคิดหรือแบ่งแบบเป็นกลุ่มเล็กลง`, 502, 'provider-error');
+      throw new GatewayError(`${providerName} ไม่ส่งผลวิเคราะห์กลับมา`, 502, 'provider-error');
+    }
     return text;
   }
 
@@ -308,6 +318,10 @@ async function readProviderStream(response, providerName) {
     if (!data || data === '[DONE]') return;
     let event;
     try { event = JSON.parse(data); } catch { return; }
+    if (event?.type === 'error') {
+      const message = stringValue(event.error?.message || event.error?.type || event.message);
+      throw new GatewayError(`${providerName} ตอบกลับผิดพลาด${message ? `: ${message}` : ''}`, 502, 'provider-error');
+    }
     text += providerStreamText(providerName, event);
   };
   while (true) {
@@ -320,15 +334,17 @@ async function readProviderStream(response, providerName) {
   }
   buffer += decoder.decode();
   if (buffer.trim()) consume(buffer);
-  if (!text) throw new GatewayError(`${providerName} ไม่ส่งผลวิเคราะห์กลับมา`, 502, 'provider-error');
+  if (!text) throw new GatewayError(`${providerName} ส่งข้อมูลกลับมาแต่ไม่มีข้อความผลวิเคราะห์`, 502, 'provider-error');
   return text;
 }
 
 async function callOpenAi(apiKey, model, thinking, file, prompt, signal) {
-  const content = file.mimeType === 'application/pdf'
-    ? [{type: 'input_file', filename: file.filename, file_data: dataUrl(file)}, {type: 'input_text', text: prompt}]
-    : [{type: 'input_image', image_url: dataUrl(file), detail: 'high'}, {type: 'input_text', text: prompt}];
+  const content = (Array.isArray(file)?file:[file]).map(f=>f.mimeType === 'application/pdf'
+    ? {type: 'input_file', filename: f.filename, file_data: dataUrl(f)}
+    : {type: 'input_image', image_url: dataUrl(f), detail: 'high'});
+  content.push({type:'input_text',text:prompt});
   const body = {model, store: false, stream: true, input: [{role: 'user', content}]};
+  if (model === 'gpt-5.6-luna') body.max_output_tokens = 128000;
   if (thinking?.kind === 'openai-reasoning-effort') body.reasoning = {effort: thinking.effort};
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST', headers: {'authorization': `Bearer ${apiKey}`, 'content-type': 'application/json'}, body: JSON.stringify(body), signal,
@@ -337,13 +353,18 @@ async function callOpenAi(apiKey, model, thinking, file, prompt, signal) {
 }
 
 function anthropicContent(file, prompt) {
-  const source = {type: 'base64', media_type: file.mimeType, data: base64Data(file)};
-  const document = file.mimeType === 'application/pdf' ? {type: 'document', source, title: file.filename} : {type: 'image', source};
-  return [document, {type: 'text', text: prompt}];
+  const documents=(Array.isArray(file)?file:[file]).map(f=>{
+    const source={type:'base64',media_type:f.mimeType,data:base64Data(f)};
+    return f.mimeType==='application/pdf'?{type:'document',source,title:f.filename}:{type:'image',source};
+  });
+  return [...documents, {type: 'text', text: prompt}];
 }
 
 async function callAnthropic(apiKey, model, thinking, file, prompt, signal) {
-  const body = {model, max_tokens: 12000, stream: true, messages: [{role: 'user', content: anthropicContent(file, prompt)}]};
+  // Anthropic's non-streaming response is more reliable here: the outer gateway
+  // already streams progress to the browser, while this avoids losing text when
+  // a provider SSE contains only thinking/ping events or an error event.
+  const body = {model, max_tokens: 32000, stream: false, messages: [{role: 'user', content: anthropicContent(file, prompt)}]};
   if (thinking?.kind === 'anthropic-adaptive-effort') {
     body.thinking = {type: 'adaptive'};
     body.output_config = {effort: thinking.effort};
@@ -360,7 +381,8 @@ async function callGoogle(apiKey, model, thinking, file, prompt, signal) {
   if (thinking?.kind === 'gemini-thinking-budget') thinkingConfig.thinkingBudget = thinking.budgetTokens;
   const generationConfig = {responseMimeType: 'application/json'};
   if (Object.keys(thinkingConfig).length) generationConfig.thinkingConfig = thinkingConfig;
-  const body = {contents: [{role: 'user', parts: [{inlineData: {mimeType: file.mimeType, data: base64Data(file)}}, {text: prompt}]}], generationConfig};
+  const parts=(Array.isArray(file)?file:[file]).map(f=>({inlineData:{mimeType:f.mimeType,data:base64Data(f)}}));
+  const body = {contents: [{role: 'user', parts: [...parts, {text: prompt}]}], generationConfig};
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
   const response = await fetch(url, {method: 'POST', headers: {'x-goog-api-key': apiKey, 'content-type': 'application/json'}, body: JSON.stringify(body), signal});
   return readProviderStream(response, 'Google AI Studio');
@@ -503,6 +525,22 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     const configSnapshot = await db.doc(providerConfigPath()).get();
     const config = configSnapshot.exists ? decodeStorage(configSnapshot.data()) : null;
     const {activeProvider, provider} = selectedProvider(config);
+    if ((context.aiProvider && context.aiProvider !== activeProvider) || (context.aiModel && context.aiModel !== provider.model)) {
+      throw new GatewayError('การตั้งค่า AI เปลี่ยนระหว่างส่งคำขอ กรุณาลองใหม่เพื่อใช้ค่ายและโมเดลล่าสุด', 409, 'provider-changed');
+    }
+    logger.info('AI provider selected', {requestId, provider: activeProvider, model: provider.model, task: context.task || 'drawing'});
+    if (['sheet-map','sheet-detail'].includes(context.task)) {
+      providerController=new AbortController();
+      if(clientClosed){providerController.abort();return;}
+      const call={openai:callOpenAi,anthropic:callAnthropic,'google-ai-studio':callGoogle}[activeProvider];
+      const project=decodeStorage((await db.doc(`projects/${projectId}`).get()).data());
+      const {analyseSheet}=require('./sheet-analysis');
+      const result=await analyseSheet({context,file:stored.file,spec:project.spec,signal:providerController.signal,
+        ask:async(files,prompt)=>parseModelJson(await call(provider.apiKey,provider.model,provider.thinking,files,prompt,providerController.signal)),
+        progress:label=>writeSse(res,{type:'progress',phase:'analyzing',label,detail:`${activeProvider} · ${provider.model}`})});
+      if(!clientClosed){writeSse(res,{type:'result',result:{...result,provider:activeProvider,model:provider.model}});res.end();}
+      return;
+    }
     const shapeTask = context.task === 'shape';
     const prompt = shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
     writeSse(res, {type: 'progress', phase: 'sending-to-ai', label: 'ดึงไฟล์จาก Storage แล้ว กำลังส่งไฟล์ต้นฉบับให้ AI อ่าน…', detail: `${stored.file.filename} · ${(stored.file.size / 1024 / 1024).toFixed(2)} MiB`});
@@ -521,8 +559,8 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     writeSse(res, {type: 'result', result});
     res.end();
   } catch (error) {
-    const gatewayError = error instanceof GatewayError ? error : new GatewayError('บริการวิเคราะห์แบบขัดข้อง กรุณาลองใหม่', 500, 'internal');
-    logger.error('AI drawing analysis failed', {requestId, code: gatewayError.code, status: gatewayError.status, message: error instanceof Error ? error.message : String(error)});
+    const gatewayError = error instanceof GatewayError ? error : error?.code === 'sheet-validation' ? new GatewayError(error.message, 422, 'sheet-validation') : new GatewayError(`บริการวิเคราะห์แบบขัดข้อง กรุณาลองใหม่ (รหัส ${requestId})`, 500, 'internal');
+    logger.error('AI drawing analysis failed', {requestId, code: gatewayError.code, status: gatewayError.status, errorMessage: error instanceof Error ? error.message : String(error)});
     if (streaming) {
       if (!clientClosed && !res.writableEnded) {
         writeSse(res, {type: 'error', message: gatewayError.message, requestId});

@@ -1,4 +1,4 @@
-import {doc,getDoc,runTransaction} from 'firebase/firestore';
+import {doc,getDocFromServer,runTransaction} from 'firebase/firestore';
 import {z} from 'zod';
 import {db} from '../firebase';
 import {apiProviderDefinitions,apiProviderIds,apiProvidersConfigPath,defaultApiProvidersConfig,defaultThinking,modelDefinition,thinkingKey,type ApiProviderId,type ApiProvidersConfig,type ApiThinkingSetting} from '../../domain/apiProviders';
@@ -52,12 +52,12 @@ function validateModels(config:ApiProvidersConfig){
 
 export async function getDirectApiProviders(){
  const u=await actor();must(profileMaster(u),'เฉพาะ MasterAdmin เท่านั้น','permission-denied');
- const snapshot=await getDoc(configRef());return publicConfig(snapshot.exists()?baseConfig(snapshot.data()):defaultApiProvidersConfig());
+ const snapshot=await getDocFromServer(configRef());return publicConfig(snapshot.exists()?baseConfig(snapshot.data()):defaultApiProvidersConfig());
 }
 
 export async function getDirectActiveAiProvider(){
  await actor();
- const snapshot=await getDoc(configRef()),config=publicConfig(snapshot.exists()?baseConfig(snapshot.data()):defaultApiProvidersConfig());
+ const snapshot=await getDocFromServer(configRef()),config=publicConfig(snapshot.exists()?baseConfig(snapshot.data()):defaultApiProvidersConfig());
  const active=config.activeProvider;
  return {activeProvider:active,settings:active?config.providers[active]:null};
 }

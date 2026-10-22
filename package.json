@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run build:ai",
+    "build:ai": "node tools/ai/build.mjs",
+    "mcp:model": "node dist/mcp/model-server.mjs",
     "emulators": "firebase emulators:start --only auth,firestore,storage --project demo-boq-bbs --import=.emulator-data --export-on-exit=.emulator-data"
   },
   "dependencies": {

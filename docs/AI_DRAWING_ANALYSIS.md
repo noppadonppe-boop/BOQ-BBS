@@ -7,7 +7,7 @@ Configure the gateway URL with `VITE_AI_DRAWING_ANALYSIS_ENDPOINT`. The browser 
 This repository now includes a Firebase Functions v2 gateway at `functions/index.js`. Firebase Hosting target `site-02` rewrites `/analyse-drawing` to the `analyseDrawing` function in `asia-southeast1`, so the deployed app can use:
 
 ```ini
-VITE_AI_DRAWING_ANALYSIS_ENDPOINT=https://cmg-boq-bbs.web.app/analyse-drawing
+VITE_AI_DRAWING_ANALYSIS_ENDPOINT=https://asia-southeast1-my-boq-app.cloudfunctions.net/analyseDrawing
 ```
 
 Deploy the gateway and the Hosting target with `firebase deploy --only functions:analyseDrawing,hosting:site-02 --project my-boq-app`. The function reads the active provider configuration from Firestore with Admin credentials, verifies an approved Firebase account and project assignment, and never returns the provider API key to the browser.
@@ -27,7 +27,7 @@ The gateway now returns Server-Sent Events (`text/event-stream`) for one analysi
 {"type":"progress","phase":"analyzing","label":"AI กำลังอ่านและวิเคราะห์แบบ…"}
 ```
 
-The final event is `type: "result"` and contains the same JSON object below. A non-streaming JSON response is still accepted by the browser as a compatibility fallback. The gateway uses each provider's native streaming request (`stream: true` for OpenAI Responses and Anthropic Messages, and `streamGenerateContent?alt=sse` for Google AI Studio), then prepares one complete JSON result before applying it to the member preview.
+The final event is `type: "result"` and contains the same JSON object below. A non-streaming JSON response is still accepted by the browser as a compatibility fallback. The gateway uses native streaming for OpenAI Responses and Google AI Studio, while Anthropic uses a complete JSON response for reliable document-analysis output; the gateway then prepares one complete JSON result before applying it to the member preview.
 
 The final result should have this shape (the `analysis` or `result` wrapper is also accepted):
 
