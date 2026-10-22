@@ -33,7 +33,7 @@ export async function directMember(action:string,pid:string,data:Record<string,a
    const errors=validateMember(m,p.spec);must(!errors.length,errors.join('\n'),'invalid-argument');
    const changed=!old||semantics(old)!==semantics(m);
    const sourceChanged=!!old&&canonical([old.sourceSchedule])!==canonical([m.sourceSchedule]);
-   const geometryChanged=!!old&&canonical([old.x,old.y,old.z,old.cover,old.geometry,old.prismGeometry,old.pedestal,old.placementContext])!==canonical([m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.pedestal,m.placementContext]);
+   const geometryChanged=!!old&&canonical([old.x,old.y,old.z,old.cover,old.geometry,old.prismGeometry,old.pedestal,old.placementContext,old.shapeModel?.parts||null])!==canonical([m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.pedestal,m.placementContext,m.shapeModel?.parts||null]);
    const next={...resetStaleQuantityBasis(old,resetStaleNoRebar(old,m)),status:'Draft',version:m.version+1,inputEpoch:changed||!old?.inputEpoch?requestId:old.inputEpoch,updatedAt:now(),bars:m.bars.map(b=>{
     const prior=old?.bars.find(x=>x.id===b.id),barGeometry=(v:typeof b)=>canonical({...v,placementConfirmed:false,bsDimensionsConfirmed:false,note:'',scheduleRevisionLetter:'',count:0}),dimensionsChanged=geometryChanged||sourceChanged||!!prior&&barGeometry(prior)!==barGeometry(b);
     return {...b,placementConfirmed:changed?false:b.placementConfirmed,...(dimensionsChanged?{bsDimensionsConfirmed:false}:{})};

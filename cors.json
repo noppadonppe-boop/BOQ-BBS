@@ -1,0 +1,13 @@
+[
+  {
+    "origin": [
+      "http://127.0.0.1:5173",
+      "http://localhost:5173",
+      "https://cmg-boq-bbs.web.app",
+      "https://cmg-boq-bbs.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Length", "Content-Range", "Content-Disposition", "Authorization", "X-Firebase-Storage-Version", "X-Goog-Meta-Sha256"],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -13,8 +13,10 @@ const v2=z.object({version:z.literal(2),state:z.literal('Partial'),reference:z.s
 export const quantityBasisSchema=z.union([v1,v2]);
 export const provisionalQuantityBasis=(reference='มิติเริ่มต้น/ข้อมูลชั่วคราว ยังไม่ยืนยันจากแบบ')=>({version:1 as const,state:'Provisional' as const,reference});
 // Keep v1 review behavior and its historical input key unchanged.
-export const quantityInputKey=(m:Member)=>canonical([m.code,m.category,m.x,m.y,m.z,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.pedestal,m.excavation,m.lean,m.deductions,m.occurrences.map(o=>o.quantity)]);
-const geometryInput=(m:Member)=>[m.x,m.y,m.z,m.geometry&&{solids:m.geometry.solids.map(({faces,...s})=>s),voids:m.geometry.voids.map(({faces,...s})=>s)},m.prismGeometry,m.beamAssembly,m.pedestal,m.deductions.map(d=>d.volume)];
+// shape models are appended only when present so keys of existing members stay unchanged
+const shapeKey=(m:Member)=>m.shapeModel?[{parts:m.shapeModel.parts,piles:m.shapeModel.piles,site:m.shapeModel.site}]:[];
+export const quantityInputKey=(m:Member)=>canonical([m.code,m.category,m.x,m.y,m.z,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.pedestal,m.excavation,m.lean,m.deductions,m.occurrences.map(o=>o.quantity),...shapeKey(m)]);
+const geometryInput=(m:Member)=>[m.x,m.y,m.z,m.geometry&&{solids:m.geometry.solids.map(({faces,...s})=>s),voids:m.geometry.voids.map(({faces,...s})=>s)},m.prismGeometry,m.beamAssembly,m.pedestal,m.deductions.map(d=>d.volume),...shapeKey(m)];
 export function quantityComponentInputKey(m:Member,component:QuantityComponent){
  const geometry=geometryInput(m),input=component==='count'?[]:component==='concrete'?geometry:component==='formwork'?[geometry,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.deductions.map(d=>d.formwork)]:component==='excavation'?m.excavation:component==='lean'?m.lean:component==='backfill'?[geometry,m.excavation,m.lean]:[m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.beamAssembly,m.placementContext,m.sourceSchedule,m.noRebar,m.bars.map(({placementConfirmed,bsDimensionsConfirmed,note,scheduleRevisionLetter,...b})=>b)];
  return Array.from(sha256(new TextEncoder().encode(canonical([m.code,m.category,component,input]))),b=>b.toString(16).padStart(2,'0')).join('');

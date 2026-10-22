@@ -56,6 +56,9 @@ export function placementContextProblems(m:Member):string[]{
 // placement checks. It is never passed into takeoff, quantity totals or targets.
 export function placementMember(m:Member):Member{
  if(m.prismGeometry)return m;
+ // shape model: reference regions join as box parts, reference openings as voids (placement only, never takeoff)
+ if(m.shapeModel&&hasPlacementContext(m)){const box=(s:Solid,role:'solid'|'void')=>({id:`ctx-${s.id}`.slice(0,40),label:s.label||'อ้างอิง',role,stage:9,z0:s.origin[2],height:s.size[2],formSides:false,formBottom:false,source:'',shape:'box' as const,x:s.origin[0],y:s.origin[1],w:s.size[0],d:s.size[1]});
+  return {...m,shapeModel:{...m.shapeModel,parts:[...m.shapeModel.parts,...contextSolids(m).map(s=>box(s,'solid')),...contextOpenings(m).map(s=>box(s,'void'))]}};}
  return hasPlacementContext(m)?{...m,geometry:{solids:[...solidsOf(m),...contextSolids(m)],voids:[...(m.geometry?.voids||[]),...contextOpenings(m)]},pedestal:{x:0,y:0,z:0}}:m;
 }
 export function placementGeometry(m:Member){return solidQuantities(placementMember(m));}

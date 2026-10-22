@@ -1,4 +1,7 @@
-import type {Member,Project,Vec3} from './model';
+import type {Bar,Member,Project,Vec3} from './model';
+import {barPaths} from './engine';
+import {shapePileQuantities} from './shapeGeometry';
+import {shapeStageVolumes} from './shapeApply';
 import {labels} from './model';
 import type {ElementInput} from './elementInput';
 import {pileQuantities} from './elementInput';
@@ -19,9 +22,13 @@ const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const fmt=(v:number,d=2)=>v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 
 export function sheetBoq(s:SheetData):BoqLine[]{
- const q=s.takeoff,n=s.quantity,m=s.member,out:BoqLine[]=[{item:'คอนกรีต',unit:'m³',each:q.concrete,total:q.concrete*n},{item:'แบบหล่อ',unit:'m²',each:q.formwork,total:q.formwork*n}];
- if(m.category==='Foundation')out.push({item:'งานขุดดิน',unit:'m³',each:q.excavation,total:q.excavation*n},{item:'ถมดินกลับ',unit:'m³',each:q.backfill,total:q.backfill*n},{item:'คอนกรีตหยาบ (Lean)',unit:'m³',each:q.lean,total:q.lean*n});
+ const q=s.takeoff,n=s.quantity,m=s.member,out:BoqLine[]=[{item:'คอนกรีต',unit:'m³',each:q.concrete,total:q.concrete*n}];
+ // shape model with several pour stages: concrete per stage (manual deductions stay in the total above)
+ const stages=m.shapeModel?shapeStageVolumes(m.shapeModel):[];if(stages.length>1)for(const st of stages)out.push({item:`  คอนกรีต Stage ${st.stage}`,unit:'m³',each:st.volume,total:st.volume*n});
+ out.push({item:'แบบหล่อ',unit:'m²',each:q.formwork,total:q.formwork*n});
+ if(m.category==='Foundation'||m.shapeModel?.site)out.push({item:'งานขุดดิน',unit:'m³',each:q.excavation,total:q.excavation*n},{item:'ถมดินกลับ',unit:'m³',each:q.backfill,total:q.backfill*n},{item:'คอนกรีตหยาบ (Lean)',unit:'m³',each:q.lean,total:q.lean*n});
  if(s.input?.category==='Foundation'&&s.input.foundationType==='pile'){const p=pileQuantities(s.input);if(p.count){out.push({item:`เสาเข็ม ${p.size} mm × ${p.lengthEach} m`,unit:'ต้น',each:p.count,total:p.count*n},{item:'ความยาวเสาเข็มรวม',unit:'m',each:p.totalLength,total:p.totalLength*n});if(p.cutCount)out.push({item:`ตัดหัวเข็ม (${Math.round(p.cutLengthEach*1000)} mm/ต้น)`,unit:'ต้น',each:p.cutCount,total:p.cutCount*n});}}
+ if(m.shapeModel?.piles){const p=shapePileQuantities(m.shapeModel);if(p.count){out.push({item:`เสาเข็ม ${p.size} mm × ${p.lengthEach} m`,unit:'ต้น',each:p.count,total:p.count*n},{item:'ความยาวเสาเข็มรวม',unit:'m',each:p.totalLength,total:p.totalLength*n});if(p.cutCount)out.push({item:`ตัดหัวเข็ม (${Math.round(p.cutLengthEach*1000)} mm/ต้น)`,unit:'ต้น',each:p.cutCount,total:p.cutCount*n});}}
  const bySize=new Map<string,{d:number;grade:string;w:number}>();
  for(const r of s.rows){const k=`${r.diameter}|${r.grade}`,v=bySize.get(k)||{d:r.diameter,grade:r.grade,w:0};v.w+=r.weight;bySize.set(k,v);}
  for(const v of [...bySize.values()].sort((a,b)=>a.d-b.d))out.push({item:`เหล็ก ${barName(v.d)} (${v.grade})`,unit:'kg',each:v.w,total:v.w*n});
@@ -64,9 +71,13 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
   'มิติทั้งหมดเป็นมิลลิเมตร (mm) · ไม่ใช้วัดจากแบบ (NTS)',
   `ระยะหุ้มคอนกรีต (Cover): ${input?Object.entries(input.cover).map(([k2,v])=>`${names[k2]||k2} ${v}`).join(' · '):m.cover}${input?.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?'เสาตอม่อ':'Starter'} ${input.column.columnNo} ${input.column.cover}`:''}`,
   det?`รัศมีดัดใน ${det.bendSmall}d (Ø ≤ 16) / ${det.bendLarge}d (Ø ≥ 20) · ปลอก ${det.tieBend}d`:'รัศมีดัดตามข้อมูลแต่ละ Mark',
-  det?`ขอ 90° = ${det.hook90}d · ขอปลอก 135° = ${det.hook135}d ≥ ${det.hook135Min} mm · ทาบ ${det.lap}d`:'',
+  det?`ขอ 90° = ${det.hook90}d (ปลอกสี่เหลี่ยมงอฉากอ้อมเหล็กมุม) · ขอปลอกวงกลม 135° = ${det.hook135}d ≥ ${det.hook135Min} mm · ทาบ ${det.lapTable?`ตาม Spec (${det.lapTable.map(r=>`Ø${r.bar}=${r.length}`).join(', ')})`:`${det.lap}d`}`:'',
   `ยาวตัดปัดขึ้นทีละ ${s.project.spec.rounding} mm${s.project.spec.bsEdition?` (${s.project.spec.bsEdition})`:''} · เหล็ก ${det?`${det.mainGrade} / ปลอก ${det.tieGrade}`:'ตามตาราง'}`,
   input?.category==='Foundation'&&input.foundationType==='pile'?(()=>{const p=pileQuantities(input);return `เสาเข็ม ${p.count} ต้น ${p.size} mm ยาว ${p.lengthEach} m · ตัดหัวเข็ม ${Math.round(p.cutLengthEach*1000)} mm · ฝังในฐาน ${input.pile.embed} mm`;})():'',
+  // shape-model (custom) members: pour stages, piles and the rule used for sketched bars
+  ...(m.shapeModel?[(()=>{const st=shapeStageVolumes(m.shapeModel);return st.length>1?`เทคอนกรีต ${st.length} ขั้น: ${st.map(x=>`Stage ${x.stage} = ${x.volume.toFixed(2)} m³`).join(' · ')}`:'';})(),
+   m.shapeModel.piles?.positions.length?(()=>{const p=shapePileQuantities(m.shapeModel);return `เสาเข็ม ${p.count} ต้น ${p.size} mm ยาว ${p.lengthEach} m · ตัดหัวเข็ม ${Math.round(p.cutLengthEach*1000)} mm · ฝังในคอนกรีต ${m.shapeModel.piles!.embed} mm`;})():'',
+   m.bars.some(b=>b.id.startsWith('sk-'))?'เหล็กที่วาดบนรูปตัด: รัศมีดัดขั้นต่ำ BS 8666 (2d Ø ≤ 16 / 3.5d Ø ≥ 20) · ขอมาตรฐานตามตาราง Standard Hooks ของ Spec':'']:[]),
   `จำนวนองค์ประกอบ ${s.quantity} ชิ้น: ${[...new Set(m.occurrences.map(o=>[o.zone,o.floor,o.grid].filter(Boolean).join('/')))].filter(Boolean).join(', ')||'ไม่ระบุตำแหน่ง'}`,
   'เส้นประสีส้ม = ช่วงเหล็กโผล่ (พื้นที่อ้างอิง ไม่คิดปริมาณ) · เส้นประสีน้ำตาล = แนวขุด / เสาเข็ม',
  ].filter(Boolean);
@@ -80,7 +91,8 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  for(const c of cols){cell(c.title,x,y,c.w,S.bbsHead,2.2,c.align||'start','#ffffff');x+=c.w;}y+=S.bbsHead;
  const subset=s.rows.slice(page*L.perPage,(page+1)*L.perPage);
  for(const r of subset){x=sx;const values=[r.mark,r.note||'',`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
-  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],x+1,y+.8,c.w-2,S.bbsRow-3.2,colors.get(r.id)||ink);text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+S.bbsRow-.8,1.8,{color:'#4b6166'});}else cell(values[i],x,y,c.w,S.bbsRow,i===1?1.9:2.3,c.align||'start');x+=c.w;});
+  const bar=r as unknown as Bar,raw=bar.shape&&!['arc','helix'].includes(bar.shape)?barPaths(m,bar)[0]||[]:[];
+  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],raw,r.diameter,x+5,y+2.6,c.w-10,S.bbsRow-5,colors.get(r.id)||ink);text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+S.bbsRow-.8,1.8,{color:'#4b6166'});}else cell(values[i],x,y,c.w,S.bbsRow,i===1?1.9:2.3,c.align||'start');x+=c.w;});
   line(sx,y+S.bbsRow,S.w-S.margin,y+S.bbsRow);y+=S.bbsRow;}
  if(!subset.length){cell('ยังไม่มีชุดเหล็ก · ใช้ข้อมูลพื้นฐานเพื่อสร้าง Bar cut list',sx,y,S.strip,S.bbsRow);y+=S.bbsRow;}
  x=sx;for(const c of cols.slice(0,-1)){x+=c.w;line(x,L.tableTop,x,y);}
@@ -107,10 +119,23 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  grid3([['ขนาด / มาตราส่วน','A3 · NTS'],['แผ่นที่',`${page+1} / ${L.pages}`],['สถานะ',s.status]],rowsH[6]);
  return out;
 }
-function sketch(out:Prim[],path:Vec3[],x:number,y:number,w:number,h:number,color:string){
+/** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
+ * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */
+function sketch(out:Prim[],path:Vec3[],raw:Vec3[],d:number,x:number,y:number,w:number,h:number,color:string){
  if(path.length<2)return;
  const spans=[0,1,2].map(i=>Math.max(...path.map(p=>p[i]))-Math.min(...path.map(p=>p[i]))),axes=spans.map((s,i)=>({s,i})).sort((a,b)=>b.s-a.s).slice(0,2).map(v=>v.i);
- const lo=axes.map(a=>Math.min(...path.map(p=>p[a]))),s=Math.min(w/(spans[axes[0]]||1),h/(spans[axes[1]]||1)),ox=x+(w-spans[axes[0]]*s)/2,oy=y+h-(h-spans[axes[1]]*s)/2;
- out.push({t:'poly',pts:path.map(p=>[ox+(p[axes[0]]-lo[0])*s,oy-(p[axes[1]]-lo[1])*s]),closed:false,stroke:color,width:.35});
+ const lo=axes.map(a=>Math.min(...path.map(p=>p[a]))),flat=spans[axes[1]]<1e-6,sx=w/(spans[axes[0]]||1),sy=flat?0:h/spans[axes[1]];
+ const P=(p:Vec3):[number,number]=>[x+(p[axes[0]]-lo[0])*sx,flat?y+h/2:y+h-(p[axes[1]]-lo[1])*sy];
+ out.push({t:'poly',pts:path.map(P),closed:false,stroke:color,width:.35});
+ if(raw.length<2||raw.length>8)return;
+ const cx=x+w/2,size=1.5;
+ for(let i=0;i<raw.length-1;i++){
+  // outside dimension: vertex distance + d/2 at each bent end (BS 8666 dimensions are to the outside of the bar)
+  const len=Math.hypot(...raw[i+1].map((v,k)=>v-raw[i][k]))+(i>0?d/2:0)+(i<raw.length-2?d/2:0);if(len<1)continue;
+  const [ax,ay]=P(raw[i]),[bx,by]=P(raw[i+1]),mx=(ax+bx)/2,my=(ay+by)/2,label=Math.round(len).toLocaleString('en-US');
+  if(Math.hypot(bx-ax,by-ay)<.8)continue; // e.g. closing hooks of loops: too small to label legibly
+  if(Math.abs(bx-ax)>=Math.abs(by-ay))out.push({t:'text',x:mx,y:my-.45,text:label,size,color:'#33494e',anchor:'middle',halo:true});
+  else out.push({t:'text',x:mx<cx?mx-.5:mx+.5,y:my+size*.35,text:label,size,color:'#33494e',anchor:mx<cx?'end':'start',halo:true});
+ }
 }
 export const sheetTextWidth=textWidth;

@@ -6,7 +6,7 @@ import {CODE99_REVIEW_POLICY,CODE99_HOLD,type Code99Review,type Code99ReviewRequ
 import {sourceCurrent} from './sourceRevisions';
 export {CODE99_REVIEW_POLICY,CODE99_HOLD};
 export const indexedApprover=(p:Project,uid:string)=>!!p.roleSets?.[uid]?.includes('approver')||p.acl[uid]==='approver';
-export const code99MemberBasis=(m:Member)=>({id:m.id,code:m.code,category:m.category,inputEpoch:m.inputEpoch||'',x:m.x,y:m.y,z:m.z,cover:m.cover,faces:m.faces,pedestal:m.pedestal,geometry:m.geometry,prismGeometry:m.prismGeometry,beamAssembly:m.beamAssembly,placementContext:m.placementContext,sourceSchedule:m.sourceSchedule,bars:m.bars});
+export const code99MemberBasis=(m:Member)=>({id:m.id,code:m.code,category:m.category,inputEpoch:m.inputEpoch||'',x:m.x,y:m.y,z:m.z,cover:m.cover,faces:m.faces,pedestal:m.pedestal,geometry:m.geometry,prismGeometry:m.prismGeometry,beamAssembly:m.beamAssembly,placementContext:m.placementContext,sourceSchedule:m.sourceSchedule,bars:m.bars,...(m.shapeModel?{shapeModel:m.shapeModel.parts}:{})});
 export const code99EvidenceBasis=(a:Attachment)=>({id:a.id,path:a.path,name:a.name,memberId:a.memberId,kind:a.kind,revision:a.revision,sha256:a.sha256,version:a.version||1,pageCount:a.pageCount,sourceStatus:a.sourceStatus||'Current',supersededById:a.supersededById||''});
 export const code99SpecBasis=(s:Spec)=>s;
 export function reviewDimensions(m:Member,b:Bar,request:Code99ReviewRequest){

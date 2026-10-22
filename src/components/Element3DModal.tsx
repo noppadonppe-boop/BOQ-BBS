@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Pencil,Plus,Trash2,Maximize2} from 'lucide-react';
 import {barSchema,blankBar,labels,type Bar,type Member,type Spec} from '../domain/model';
-import {elementInputProblems,elementInputSchema,pilePositions,pileTypeLabels,type ElementInput} from '../domain/elementInput';
+import {elementInputProblems,elementInputSchema,layerShapes,shapesFor,pilePositions,pileTypeLabels,tiePatternInfo,tiePatterns,type ElementInput} from '../domain/elementInput';
 import {takeoff} from '../domain/engine';
 import {solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
@@ -31,7 +31,8 @@ const roleIs=(r:string)=>(role:string)=>role===r||role.startsWith(r+'-');
 const bendOpts=(d:any):[string,string][]=>[['none','ไม่งอ (ปลายตรง)'],['standard',`ฉาก 90° มาตรฐาน (${d.detailing.hook90}d + r)`],['custom','กำหนดระยะขางอเอง']];
 const spacingF=(p:string):F[]=>[{k:'dia',label:'ขนาดเหล็ก',path:`${p}.diameter`},{k:'num',label:'ระยะห่าง @ (mm)',path:`${p}.spacing`}];
 const countF=(p:string):F[]=>[{k:'int',label:'จำนวน (เส้น)',path:`${p}.count`,max:200},{k:'dia',label:'ขนาดเหล็ก',path:`${p}.diameter`}];
-const meshF=(p:string)=>(d:any):F[]=>[...spacingF(p),{k:'sel',label:'งอขอปลาย',path:`${p}.bend`,opts:bendOpts(d)},...(getP(d,`${p}.bend`)==='custom'?[{k:'num',label:'ระยะขางอ (mm)',path:`${p}.leg`} as F]:[])];
+const shapeF=(p:string)=>(d:any):F[]=>{const l=getP(d,p),info=layerShapes.find(s=>s.code===l.shape)||layerShapes[0];return [{k:'sel',label:'Shape code (BS 8666)',path:`${p}.shape`,opts:shapesFor(d.category).map(s=>[s.code,`${s.code} · ${s.label}`])},...(info.ends.some(e=>e!=='straight')?[{k:'num',label:'ขางอ / ส่วนตรงหลังขอ (mm, 0 = มาตรฐาน)',path:`${p}.leg`} as F]:[]),...(l.shape==='12'?[{k:'num',label:'รัศมีดัดใน R (mm, Shape 12)',path:`${p}.radius`} as F]:[])];};
+const meshF=(p:string)=>(d:any):F[]=>[...spacingF(p),...shapeF(p)(d)];
 const layersF:F={k:'sel',label:'จำนวนชั้นเหล็ก',path:'rebar.layers',opts:[[1,'1 ชั้น (กึ่งกลาง)'],[2,'2 ชั้น (สองผิว)']]};
 
 export function layerDefs(input:ElementInput):Def[]{
@@ -69,26 +70,41 @@ export function layerDefs(input:ElementInput):Def[]{
     {key:'bottomY',label:'เหล็กล่างทิศ Y',present:true,match:roleIs('bottom-y'),fields:meshF('rebar.bottomY')},
     optional('topX','เหล็กบนทิศ X','rebar.topX','top-x',meshF('rebar.topX')),
     optional('topY','เหล็กบนทิศ Y','rebar.topY','top-y',meshF('rebar.topY')),
+    optional('side','เหล็กรอบข้าง (LOOPS)','rebar.side','side-loop',()=>spacingF('rebar.side')),
+    optional('sideBars','เหล็กแนวตั้งผิวข้าง','rebar.sideBars','side-vertical',()=>[...spacingF('rebar.sideBars'),{k:'sel',label:'ปลายบน',path:'rebar.sideBars.top',opts:[['inward','งอฉากเข้าใน'],['straight','ปลายตรง']]},{k:'sel',label:'ปลายล่าง',path:'rebar.sideBars.bottom',opts:[['straight','ปลายตรง'],['inward','งอฉากเข้าใน']]},{k:'num',label:'ระยะงอเข้าใน (mm, 0 = 15d)',path:'rebar.sideBars.leg'}]),
     {key:'colMain',label:c.type==='starter'?`Starter bar${c.columnNo?` ${c.columnNo}`:''}`:`เหล็กยืนเสาตอม่อ${c.columnNo?` ${c.columnNo}`:''}`,present:c.type!=='none',match:roleIs('column-main'),fields:colMainF,remove:d=>{d.column.type='none';},removeLabel:'ลบเสาตอม่อ / Starter bar ทั้งชุด',adds:[['เพิ่ม Starter bar',d=>{d.column.type='starter';}],['เพิ่มเสาตอม่อ',d=>{d.column.type='pedestal';}]]},
     {key:'colTie',label:'เหล็กปลอกเสาตอม่อ',present:c.type==='pedestal',match:roleIs('column-tie'),fields:()=>spacingF('column.tie')},
     {key:'pile',label:'เสาเข็ม',present:input.foundationType==='pile',match:()=>false,fields:pileF,remove:d=>{d.foundationType='spread';},removeLabel:'ลบเสาเข็ม (เปลี่ยนเป็นฐานแผ่)',adds:[['เพิ่มเสาเข็ม',d=>{d.foundationType='pile';}]]},
    ];}
   case 'Column':return [
-   {key:'main',label:'เหล็กยืน',present:true,match:roleIs('main'),fields:()=>[...countF('rebar.main'),{k:'chk',label:'รวมระยะทาบเหล็กยืน',path:'rebar.lap'}]},
-   {key:'tie',label:'เหล็กปลอก',present:true,match:roleIs('tie'),fields:()=>spacingF('rebar.tie')},
+   {key:'main',label:'เหล็กยืน',present:true,match:roleIs('main'),fields:(d:any)=>[...(d.shape==='circle'?countF('rebar.main'):[
+    {k:'head',label:'เหล็กมุม (4 มุม)'} as F,{k:'dia',label:'ขนาดเหล็ก',path:'rebar.main.corner.diameter'} as F,{k:'sel',label:'จำนวนต่อมุม',path:'rebar.main.corner.count',opts:[[1,'1 เส้น'],[2,'2 เส้น (มัดคู่)'],[3,'3 เส้น (มัด 3)']]} as F,
+    {k:'head',label:'เหล็กด้าน X (ล่าง/บน)'} as F,{k:'dia',label:'ขนาดเหล็ก',path:'rebar.main.sideX.diameter'} as F,{k:'int',label:'จำนวนต่อด้าน (ไม่รวมมุม)',path:'rebar.main.sideX.count',max:200} as F,
+    {k:'head',label:'เหล็กด้าน Y (ซ้าย/ขวา)'} as F,{k:'dia',label:'ขนาดเหล็ก',path:'rebar.main.sideY.diameter'} as F,{k:'int',label:'จำนวนต่อด้าน (ไม่รวมมุม)',path:'rebar.main.sideY.count',max:200} as F]),...(['bottom','top'] as const).flatMap(end=>[
+    {k:'head',label:end==='bottom'?'End condition ปลายล่าง':'End condition ปลายบน'} as F,
+    {k:'sel',label:'ชนิด',path:`rebar.${end}.mode`,opts:[['none',end==='bottom'?'ไม่มี (เริ่มที่ขอบล่างเสา)':'ไม่มี (ตัดที่ cover)'],['lap','Lap splice length (ทาบตรง)'],['crank','Crank 1:6 + ทาบ']]} as F,
+    ...(d.rebar[end].mode!=='none'?[{k:'num',label:`ระยะทาบ (mm, 0 = ${d.detailing.lap}d)`,path:`rebar.${end}.lap`} as F]:[])])]},
+   {key:'tie',label:'เหล็กปลอกชุดที่ 1 (รอบมุม)',present:true,match:roleIs('tie'),fields:()=>[{k:'dia',label:'ขนาดเหล็ก',path:'rebar.tie.diameter'},
+    {k:'num',label:'Upper · ความยาวโซนบน (mm)',path:'rebar.tie.upper.length'},{k:'num',label:'Upper · str @ (mm)',path:'rebar.tie.upper.spacing'},
+    {k:'num',label:'Middle · str @ (mm)',path:'rebar.tie.spacing'},
+    {k:'num',label:'Lower · ความยาวโซนล่าง (mm)',path:'rebar.tie.lower.length'},{k:'num',label:'Lower · str @ (mm)',path:'rebar.tie.lower.spacing'}]},
+   {key:'tie2',label:'เหล็กปลอกชุดที่ 2 (ปลอกใน / รัดขวาง)',present:input.shape==='rect',match:roleIs('tie2'),fields:(d:any)=>[{k:'dia',label:'ขนาดเหล็ก',path:'rebar.tie.inner.diameter'},
+    ...(['upper','middle','lower'] as const).flatMap(z=>[{k:'head',label:{upper:'Upper · โซนบน',middle:'Middle · โซนกลาง',lower:'Lower · โซนล่าง'}[z]} as F,
+     {k:'sel',label:'รูปแบบ',path:`rebar.tie.inner.${z}.pattern`,opts:tiePatterns.map(p=>[p,tiePatternInfo[p].label])} as F,
+     ...(d.rebar.tie.inner[z].pattern!=='none'?[{k:'num',label:'str @ (mm)',path:`rebar.tie.inner.${z}.spacing`} as F]:[])])]},
   ];
   case 'Beam':{
-   const main=(key:'top'|'bottom',label:string):Def=>({key,label,present:input.rebar[key].count>0,match:roleIs(key),fields:()=>[...countF(`rebar.${key}`),{k:'chk',label:'งอขอ 90° ที่ปลาย (ใช้ร่วมเหล็กบน/ล่าง)',path:'rebar.endHook'}],remove:d=>setP(d,`rebar.${key}.count`,0),removeLabel:`ลบ${label}`,adds:[[`เพิ่ม${label}`,d=>setP(d,`rebar.${key}.count`,2)]]});
+   const main=(key:'top'|'bottom',label:string):Def=>({key,label,present:input.rebar[key].count>0,match:roleIs(key),fields:(d:any)=>[...countF(`rebar.${key}`),...shapeF(`rebar.${key}`)(d)],remove:d=>setP(d,`rebar.${key}.count`,0),removeLabel:`ลบ${label}`,adds:[[`เพิ่ม${label}`,d=>setP(d,`rebar.${key}.count`,2)]]});
    return [main('top','เหล็กบน'),main('bottom','เหล็กล่าง'),{key:'stirrup',label:'เหล็กปลอก',present:true,match:roleIs('stirrup'),fields:()=>spacingF('rebar.stirrup')}];}
   case 'Slab':return [
-   {key:'bottomX',label:'เหล็กล่างทิศ X',present:true,match:roleIs('bottom-x'),fields:()=>spacingF('rebar.bottomX')},
-   {key:'bottomY',label:'เหล็กล่างทิศ Y',present:true,match:roleIs('bottom-y'),fields:()=>spacingF('rebar.bottomY')},
-   optional('topX','เหล็กบนทิศ X','rebar.topX','top-x',()=>spacingF('rebar.topX')),
-   optional('topY','เหล็กบนทิศ Y','rebar.topY','top-y',()=>spacingF('rebar.topY')),
+   {key:'bottomX',label:'เหล็กล่างทิศ X',present:true,match:roleIs('bottom-x'),fields:meshF('rebar.bottomX')},
+   {key:'bottomY',label:'เหล็กล่างทิศ Y',present:true,match:roleIs('bottom-y'),fields:meshF('rebar.bottomY')},
+   optional('topX','เหล็กบนทิศ X','rebar.topX','top-x',meshF('rebar.topX')),
+   optional('topY','เหล็กบนทิศ Y','rebar.topY','top-y',meshF('rebar.topY')),
   ];
   case 'Wall':return [
-   {key:'vertical',label:'เหล็กแนวตั้ง',present:true,match:roleIs('vertical'),fields:()=>[...spacingF('rebar.vertical'),{k:'chk',label:'รวมระยะทาบเหล็กแนวตั้ง',path:'rebar.lap'},layersF]},
-   {key:'horizontal',label:'เหล็กแนวนอน',present:true,match:roleIs('horizontal'),fields:()=>[...spacingF('rebar.horizontal'),layersF]},
+   {key:'vertical',label:'เหล็กแนวตั้ง',present:true,match:roleIs('vertical'),fields:(d:any)=>[...meshF('rebar.vertical')(d),{k:'chk',label:'รวมระยะทาบเหล็กแนวตั้ง',path:'rebar.lap'},layersF]},
+   {key:'horizontal',label:'เหล็กแนวนอน',present:true,match:roleIs('horizontal'),fields:(d:any)=>[...meshF('rebar.horizontal')(d),layersF]},
   ];
  }
 }
@@ -104,6 +120,8 @@ function elementFields(d:any):F[]{
    ...(d.shape==='L'||d.shape==='U'?[{k:'num',label:'ความหนาขาแนว X (mm)',path:'armX'} as F,{k:'num',label:'ความหนาขาแนว Y (mm)',path:'armY'} as F]:[]),
    {k:'num',label:'ความหนาฐาน (mm)',path:'thickness'},
    ...cover([['bottom','ด้านล่าง'],['top','ด้านบน'],['side','ด้านข้าง']]),
+   {k:'head',label:'หล่อรวมกับพื้น'},{k:'chk',label:'ฐานหล่อเป็นเนื้อเดียวกับพื้น (ไม่แสดงเหล็กพื้น)',path:'slab.enabled'},
+   ...(d.slab?.enabled?[{k:'num',label:'ความหนาพื้น (mm)',path:'slab.thickness'} as F,{k:'num',label:'เหล็กบนยื่นเข้าพื้น (mm)',path:'slab.extend'} as F]:[]),
    {k:'head',label:'งานดิน / Lean concrete'},{k:'num',label:'ความลึกขุด (mm)',path:'excavation.depth'},{k:'num',label:'ระยะเผื่อทำงานต่อด้าน (mm)',path:'excavation.workingSpace'},{k:'num',label:'ความลาดผนังหลุม (H:V)',path:'excavation.slope'},{k:'num',label:'Lean หนา (mm)',path:'lean.thickness'},{k:'num',label:'Lean ยื่นจากขอบต่อด้าน (mm)',path:'lean.projection'},
   ];
   case 'Column':return [{k:'sel',label:'รูปร่างหน้าตัด',path:'shape',opts:[['rect','สี่เหลี่ยม'],['circle','วงกลม']]},...(d.shape==='rect'?[{k:'num',label:'กว้าง X (mm)',path:'width'} as F,{k:'num',label:'ลึก Y (mm)',path:'depth'} as F]:[{k:'num',label:'เส้นผ่านศูนย์กลาง (mm)',path:'diameter'} as F]),{k:'num',label:'ความสูงเสา (mm)',path:'height'},...cover([['side','รอบหน้าตัด']])];
@@ -115,7 +133,7 @@ function elementFields(d:any):F[]{
 const detailingFields=():F[]=>[
  {k:'text',label:'เกรดเหล็กหลัก',path:'detailing.mainGrade',max:40},{k:'text',label:'เกรดเหล็กปลอก',path:'detailing.tieGrade',max:40},
  {k:'num',label:'รัศมีดัดใน Ø ≤ 16 (×d)',path:'detailing.bendSmall'},{k:'num',label:'รัศมีดัดใน Ø ≥ 20 (×d)',path:'detailing.bendLarge'},{k:'num',label:'รัศมีดัดในปลอก (×d)',path:'detailing.tieBend'},
- {k:'num',label:'ขอ 90° ส่วนตรงปลาย (×d)',path:'detailing.hook90'},{k:'num',label:'ขอปลอก 135° ส่วนตรงปลาย (×d)',path:'detailing.hook135'},{k:'num',label:'ขอปลอก 135° อย่างน้อย (mm)',path:'detailing.hook135Min'},
+ {k:'num',label:'ขอ 90° / ปลอกงอฉาก ส่วนตรงปลาย (×d)',path:'detailing.hook90'},{k:'num',label:'ขอปลอกวงกลม 135° ส่วนตรงปลาย (×d)',path:'detailing.hook135'},{k:'num',label:'ขอปลอกวงกลม 135° อย่างน้อย (mm)',path:'detailing.hook135Min'},
  {k:'num',label:'ระยะทาบ (×d)',path:'detailing.lap'},{k:'num',label:'ความยาวเหล็กเส้น (mm)',path:'detailing.stockLength'},
 ];
 const SIMPLE_SHAPES=['straight','L','U','link'];
@@ -286,6 +304,19 @@ class PolyCurve extends THREE.Curve<THREE.Vector3>{
 }
 const SELECT=0xe69432,HOVER=0x37b39a,BODY=0xc8d2d1;
 
+const AXES:[string,number,[number,number,number]][]=[['X',0xd23c3c,[1,0,0]],['Y',0x2e9e4f,[0,0,-1]],['Z',0x2f6fb5,[0,1,0]]];
+/** X / Y / Z arrows (red / green / blue) with labels; drawn on top of the model. */
+function axisTriad(len:number){
+ const g=new THREE.Group();
+ for(const [name,color,dir] of AXES){
+  const d=new THREE.Vector3(...dir),arrow=new THREE.ArrowHelper(d,new THREE.Vector3(),len,color,len*.22,len*.11);
+  arrow.traverse(o=>{const m=(o as THREE.Mesh).material as THREE.Material|undefined;if(m){m.depthTest=false;m.transparent=true;}o.renderOrder=10;});g.add(arrow);
+  const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d')!;x.font='bold 44px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillStyle=`#${color.toString(16).padStart(6,'0')}`;x.fillText(name,32,34);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,transparent:true}));s.scale.setScalar(len*.32);s.position.copy(d.multiplyScalar(len*1.2));s.renderOrder=11;g.add(s);
+ }
+ return g;
+}
+
 function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}:{member:Member;rows:Row[];input:ElementInput;keyOf:(id:string)=>string;colorOf:(k:string)=>number;labelOf:(k:string)=>string;selected:string;onPick:(k:string)=>void;onMenu:(k:string,x:number,y:number)=>void}){
  const host=useRef<HTMLDivElement>(null),api=useRef<{view:(a:string)=>void;paint:(sel:string,hov:string)=>void}|null>(null),cam=useRef<{pos:THREE.Vector3;target:THREE.Vector3}|null>(null);
  const [hover,setHover]=useState(''),[error,setError]=useState('');
@@ -313,6 +344,9 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
    const pl=input.pile,len=Math.min(Math.max(pl.length*1000-pl.cutoff,500),2500),square=pl.type==='square'||pl.type==='I';
    for(const [x,y] of pilePositions(input)){const g=square?new THREE.BoxGeometry(pl.size/1000,len/1000,pl.size/1000):new THREE.CylinderGeometry(pl.size/2000,pl.size/2000,len/1000,28);const mesh=new THREE.Mesh(g,mat('pile'));mesh.position.copy(P([x,y,pl.embed-len/2]));mesh.userData.key='pile';scene.add(mesh);pickables.push(mesh);}
   }
+  // Axis triads (model X → three x, model Y → three −z, model Z → three y): one at the member origin, one as a corner gizmo
+  const origin=axisTriad(extent*.2);origin.position.copy(P([0,0,0]));scene.add(origin);
+  const gScene=new THREE.Scene(),gCamera=new THREE.OrthographicCamera(-1.7,1.7,1.7,-1.7,.1,10);gScene.add(axisTriad(1.1));
   const paint=(sel:string,hov:string)=>{
    for(const [k,m] of mats){m.color.setHex(k===sel?SELECT:k===hov?HOVER:colorOf(k));m.emissive.setHex(k===sel?0x4a2a00:0);}
    bodyMat.color.setHex(sel==='element'?0xf0b46a:hov==='element'?0xa9d8cc:BODY);bodyMat.opacity=sel==='element'?.34:hov==='element'?.24:.18;edgeMat.color.setHex(sel==='element'?0xd4802a:0x8fa3a8);
@@ -328,12 +362,19 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
   const onLeave=()=>{hovered='';setHover('');};
   const c=renderer.domElement;c.addEventListener('pointerdown',onDown);c.addEventListener('click',onClick);c.addEventListener('contextmenu',onContext);c.addEventListener('pointermove',onMove);c.addEventListener('pointerleave',onLeave);
   const resize=()=>{const w=el.clientWidth||600,h=el.clientHeight||480;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();};const ro=new ResizeObserver(resize);ro.observe(el);resize();
-  let frame=0;const render=()=>{controls.update();renderer.render(scene,camera);frame=requestAnimationFrame(render);};render();
+  renderer.autoClear=false;
+  const GIZMO=104,size=new THREE.Vector2();
+  let frame=0;const render=()=>{
+   controls.update();renderer.getSize(size);renderer.setViewport(0,0,size.x,size.y);renderer.setScissorTest(false);renderer.clear();renderer.render(scene,camera);
+   // corner gizmo follows the view direction of the main camera
+   gCamera.position.copy(camera.position).sub(controls.target).normalize().multiplyScalar(4);gCamera.up.copy(camera.up);gCamera.lookAt(0,0,0);
+   renderer.setScissorTest(true);renderer.setViewport(8,8,GIZMO,GIZMO);renderer.setScissor(8,8,GIZMO,GIZMO);renderer.clearDepth();renderer.render(gScene,gCamera);renderer.setScissorTest(false);
+   frame=requestAnimationFrame(render);};render();
   return ()=>{
    cam.current={pos:camera.position.clone(),target:controls.target.clone()};
    cancelAnimationFrame(frame);cancelAnimationFrame(frameHover);ro.disconnect();controls.dispose();
    c.removeEventListener('pointerdown',onDown);c.removeEventListener('click',onClick);c.removeEventListener('contextmenu',onContext);c.removeEventListener('pointermove',onMove);c.removeEventListener('pointerleave',onLeave);
-   scene.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.LineSegments){o.geometry.dispose();(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());}});
+   for(const s of [scene,gScene])s.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.Line||o instanceof THREE.Sprite){o.geometry.dispose();(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{(m as THREE.SpriteMaterial).map?.dispose();m.dispose();});}});
    renderer.dispose();c.remove();api.current=null;
   };
  },[member,rows,input,keyOf,colorOf]);

@@ -1,17 +1,19 @@
 import {Member,Solid,Vec3} from './model';
 import {prismBounds,prismContains,prismPathInside,prismQuantities,polygonFaceDistance} from './prismGeometry';
+import {shapeBounds,shapeContains,shapeGeometry,shapePathInside} from './shapeGeometry';
 export function solidsOf(m:Member):Solid[]{
- if(m.prismGeometry)return [];
+ if(m.prismGeometry||m.shapeModel)return [];
  if(m.geometry)return m.geometry.solids;
  const solids:Solid[]=[{id:'main',label:m.code,origin:[0,0,0],size:[m.x,m.y,m.z],faces:m.faces}];
  const p=m.pedestal;if(p.x>0&&p.y>0&&p.z>0)solids.push({id:'pedestal',label:'Pedestal',origin:[(m.x-p.x)/2,(m.y-p.y)/2,m.z],size:[p.x,p.y,p.z],faces:[true,true,true,true,false,false]});
  return solids;
 }
-export function boundsOf(m:Member):Vec3{if(m.prismGeometry)return prismBounds(m.prismGeometry);return [0,1,2].map(i=>Math.max(...solidsOf(m).map(s=>s.origin[i]+s.size[i]))) as Vec3;}
+export function boundsOf(m:Member):Vec3{if(m.shapeModel)return shapeBounds(m.shapeModel);if(m.prismGeometry)return prismBounds(m.prismGeometry);return [0,1,2].map(i=>Math.max(...solidsOf(m).map(s=>s.origin[i]+s.size[i]))) as Vec3;}
 export const insideBox=(p:Vec3,b:Solid,tol=1e-6)=>p.every((v,i)=>v>=b.origin[i]-tol&&v<=b.origin[i]+b.size[i]+tol);
 const interior=(p:Vec3,b:Solid)=>p.every((v,i)=>v>b.origin[i]+1e-6&&v<b.origin[i]+b.size[i]-1e-6);
-export function contains(m:Member,p:Vec3){if(m.prismGeometry)return prismContains(m.prismGeometry,p);return solidsOf(m).some(s=>insideBox(p,s))&&!(m.geometry?.voids||[]).some(s=>interior(p,s));}
+export function contains(m:Member,p:Vec3){if(m.shapeModel)return shapeContains(m.shapeModel,p);if(m.prismGeometry)return prismContains(m.prismGeometry,p);return solidsOf(m).some(s=>insideBox(p,s))&&!(m.geometry?.voids||[]).some(s=>interior(p,s));}
 export function pathInside(m:Member,path:Vec3[]){
+ if(m.shapeModel)return shapePathInside(m.shapeModel,path);
  if(m.prismGeometry)return prismPathInside(m.prismGeometry,path);
  const boxes=[...solidsOf(m),...(m.geometry?.voids||[])];
  if(path.some(p=>!contains(m,p)))return false;
@@ -34,6 +36,7 @@ export function pathClearance(path:Vec3[],surfaces:Surface[],required:number){
  for(let i=1;i<path.length;i++)for(const surface of surfaces)if(segmentFaceDistance(path[i-1],path[i],surface)<required-.0001)return false;return true;
 }
 export function solidQuantities(m:Member):{volume:number;formwork:number;surfaces:Surface[];errors:string[]}{
+ if(m.shapeModel){const g=shapeGeometry(m.shapeModel);return {volume:g.volume,formwork:g.formwork,surfaces:g.surfaces,errors:g.errors};}
  if(m.prismGeometry)return prismQuantities(m.prismGeometry);
  const solids=solidsOf(m),voids=m.geometry?.voids||[],boxes=[...solids,...voids],errors:string[]=[];
  const edges=[0,1,2].map(axis=>[...new Set(boxes.flatMap(s=>[s.origin[axis],s.origin[axis]+s.size[axis]]))].sort((a,b)=>a-b));

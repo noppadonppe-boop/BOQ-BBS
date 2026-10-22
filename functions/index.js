@@ -192,6 +192,58 @@ function providerInstruction(context, file) {
   ].join('\n');
 }
 
+// ---------- task "shape": read a custom element's concrete shape (parts + levels + piles) ----------
+function shapeInstruction(context, file) {
+  const current = context.currentShape && typeof context.currentShape === 'object' ? context.currentShape : null;
+  return [
+    'คุณเป็นวิศวกรตรวจแบบโครงสร้าง ช่วยอ่าน "รูปทรงคอนกรีต" ขององค์ประกอบพิเศษจากไฟล์แบบที่แนบ (แปลน / รูปตัด / Top view / 3D) และตอบเป็น JSON object เท่านั้น ห้ามมี Markdown',
+    'แยกรูปทรงเป็นชิ้นส่วนแนวตั้ง แต่ละชิ้นคือรูปในแปลนยกขึ้นจากระดับล่าง z0 สูง height: shape = box (x,y,w,d) | polygon (points [[x,y],...]) | circle (cx,cy,diameter,inner: 0 = ทรงกระบอกตัน, >0 = ผนังกลม/ปล่องกลม) | shaft (x,y,w,d,wall ปล่องสี่เหลี่ยม)',
+    'role = solid (คอนกรีต) หรือ void (ช่องเปิด/หลุม/ร่องลดระดับ ที่หักออก) · stage = ลำดับการเท (First-stage = 1, Second-stage = 2) · ชิ้นส่วนซ้อนกันได้ ระบบนับปริมาตรครั้งเดียว',
+    'พิกัด: หน่วย mm เสมอ (แปลงเมตรเป็น mm) · จุดกำเนิด X=0,Y=0 ที่มุมล่างซ้ายของกรอบแปลนคอนกรีตทั้งหมด X ไปทางขวา Y ขึ้นบนในแปลน · Z=0 ที่ผิวล่างของคอนกรีตต่ำสุด (ไม่รวม Lean) Z ขึ้นบน · ใช้ระดับ (เช่น -0.250) และความหนาในรูปตัดหาค่า z0 / height',
+    'ใช้ผลรวมมิติย่อยตรวจกับมิติรวม ถ้าไม่ตรงกันให้ใส่ใน conflicts · ห้ามเดามิติที่ไม่มีในแบบ ให้ใส่คำถามใน missing (part = ชื่อชิ้นส่วน, field, question) และเว้นค่านั้นเป็น null',
+    'เสาเข็ม (ถ้ามี): piles = {type: round|square, size (Ø mm), length (m, null ถ้าไม่ระบุ), cutoff (mm), embed (mm ฝังในคอนกรีต), positions [[x,y],...]} · Lean / ทราย: site = {leanThickness, leanProjection, excavationDepth (null ถ้าไม่ระบุ), workingSpace: null, slope: 0}',
+    'ผนัง/พื้นที่หล่อต่อเนื่องแต่ไม่ใช่ส่วนนี้ (RC WALL, FLOOR SLAB) ให้ใส่ใน references ไม่ใช่ parts · ข้อความเหล็ก (เช่น Y32-150 (B), Y16-200 LOOPS, 15d) ให้ใส่ใน rebarNotes ห้ามสร้างเหล็ก',
+    'ทุกชิ้นส่วนต้องมี source บอกรูป/หน้า/ข้อความที่ใช้ เช่น "Plan F-01 · 9200" หรือ "Section 1-1 · 2000"',
+    current ? `รูปทรงที่ได้จากไฟล์ก่อนหน้า (ปรับปรุงและเติมให้ครบด้วยไฟล์นี้ คงค่าที่ไม่ขัดแย้ง ใช้ชื่อชิ้นส่วนเดิม): ${JSON.stringify(current).slice(0, 12000)}` : 'ยังไม่มีรูปทรงจากไฟล์ก่อนหน้า',
+    `บทบาทของไฟล์ตามผู้ใช้: ${stringValue(context.drawingRole, 'ไม่ระบุ (อาจมีทั้งแปลนและรูปตัดในหน้าเดียว)')} · ไฟล์: ${stringValue(context.fileName, file.filename)} · หน้า: ${Number(context.pages) || 1}`,
+    'รูปแบบ JSON:',
+    JSON.stringify({version: 1, confidence: 'Medium', parts: [{label: 'ฐานหลัก', role: 'solid', shape: 'box', x: 0, y: 0, w: 0, d: 0, z0: 0, height: 0, stage: 1, source: 'Plan · Section'}],
+      piles: {type: 'round', size: 0, length: null, cutoff: 0, embed: 0, positions: [[0, 0]]}, site: {leanThickness: 0, leanProjection: 0, excavationDepth: null, workingSpace: null, slope: 0},
+      references: [{label: 'RC WALL 300', source: 'Section 1-1'}], rebarNotes: [{text: 'Y32-150 (B)', meaning: 'เหล็กล่าง DB32@150', source: 'Section 1-1'}],
+      missing: [{part: 'ตอม่อตัว L', field: 'd', question: 'ความยาวขาแนว Y ไม่พบในแบบ'}], conflicts: [], warnings: []}),
+    'ค่า 0 ในตัวอย่างแสดงชนิดข้อมูลเท่านั้น ต้องตอบเป็น JSON หนึ่ง object',
+  ].join('\n');
+}
+function normaliseShapeProposal(raw, context, providerName, model) {
+  const r = raw?.result || raw || {};
+  const num = (v, min = -200000) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= 200000 ? n : null; };
+  const text = (v, max = 200) => stringValue(v).slice(0, max);
+  const parts = (Array.isArray(r.parts) ? r.parts : []).slice(0, 40).map((p, i) => {
+    const shape = ['box', 'polygon', 'circle', 'shaft'].includes(p?.shape) ? p.shape : 'box';
+    const out = {label: text(p?.label, 80) || `ชิ้นส่วน ${i + 1}`, role: p?.role === 'void' ? 'void' : 'solid', shape, z0: num(p?.z0), height: num(p?.height, 0), stage: Math.max(1, Math.min(9, Math.round(Number(p?.stage) || 1))), source: text(p?.source)};
+    if (shape === 'box' || shape === 'shaft') Object.assign(out, {x: num(p?.x), y: num(p?.y), w: num(p?.w, 0), d: num(p?.d, 0)}, shape === 'shaft' ? {wall: num(p?.wall, 0)} : {});
+    if (shape === 'circle') Object.assign(out, {cx: num(p?.cx), cy: num(p?.cy), diameter: num(p?.diameter, 0), inner: num(p?.inner, 0) ?? 0});
+    if (shape === 'polygon') out.points = (Array.isArray(p?.points) ? p.points : []).slice(0, 64).map((q) => [num(q?.[0]), num(q?.[1])]).filter((q) => q[0] !== null && q[1] !== null);
+    return out;
+  });
+  const pl = r.piles && typeof r.piles === 'object' ? r.piles : null;
+  const piles = pl ? {type: pl.type === 'square' ? 'square' : 'round', size: num(pl.size, 0), length: num(pl.length, 0), cutoff: num(pl.cutoff, 0) ?? 0, embed: num(pl.embed, 0) ?? 0,
+    positions: (Array.isArray(pl.positions) ? pl.positions : []).slice(0, 100).map((q) => [num(q?.[0]), num(q?.[1])]).filter((q) => q[0] !== null && q[1] !== null)} : null;
+  const st = r.site && typeof r.site === 'object' ? r.site : null;
+  const site = st ? {leanThickness: num(st.leanThickness, 0), leanProjection: num(st.leanProjection, 0), excavationDepth: num(st.excavationDepth, 0), workingSpace: num(st.workingSpace, 0), slope: num(st.slope, 0)} : null;
+  const list = (v, map, max = 60) => (Array.isArray(v) ? v : []).slice(0, max).map(map).filter(Boolean);
+  return {
+    version: 1, task: 'shape', analysisId: `shape-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, provider: providerName, model,
+    attachmentId: stringValue(context.attachmentId), fileName: stringValue(context.fileName),
+    confidence: ['High', 'Medium', 'Low'].includes(r.confidence) ? r.confidence : 'Low', parts, piles, site,
+    references: list(r.references, (x) => text(x?.label) ? {label: text(x.label), source: text(x?.source)} : null),
+    rebarNotes: list(r.rebarNotes, (x) => text(x?.text) ? {text: text(x.text), meaning: text(x?.meaning), source: text(x?.source)} : null),
+    missing: list(r.missing, (x) => text(x?.question) ? {part: text(x?.part, 80), field: text(x?.field, 40), question: text(x.question, 300)} : null),
+    conflicts: list(r.conflicts, (x) => typeof x === 'string' ? x.slice(0, 300) : text(x?.text || x?.question, 300) || null),
+    warnings: list(r.warnings, (x) => stringValue(x).slice(0, 300) || null, 30),
+  };
+}
+
 async function readProviderResponse(response, providerName) {
   const raw = await response.text();
   let body;
@@ -451,7 +503,8 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     const configSnapshot = await db.doc(providerConfigPath()).get();
     const config = configSnapshot.exists ? decodeStorage(configSnapshot.data()) : null;
     const {activeProvider, provider} = selectedProvider(config);
-    const prompt = providerInstruction(context, stored.file);
+    const shapeTask = context.task === 'shape';
+    const prompt = shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
     writeSse(res, {type: 'progress', phase: 'sending-to-ai', label: 'ดึงไฟล์จาก Storage แล้ว กำลังส่งไฟล์ต้นฉบับให้ AI อ่าน…', detail: `${stored.file.filename} · ${(stored.file.size / 1024 / 1024).toFixed(2)} MiB`});
     writeSse(res, {type: 'progress', phase: 'analyzing', label: `AI กำลังอ่านและวิเคราะห์แบบ…`, detail: `${activeProvider === 'openai' ? 'OpenAI' : activeProvider === 'anthropic' ? 'Anthropic' : 'Google AI Studio'} · ${provider.model}`});
     providerController = new AbortController();
@@ -462,7 +515,7 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     if (activeProvider === 'google-ai-studio') raw = await callGoogle(provider.apiKey, provider.model, provider.thinking, stored.file, prompt, providerController.signal);
     if (clientClosed) return;
     writeSse(res, {type: 'progress', phase: 'preparing-json', label: 'AI อ่านแบบเสร็จแล้ว กำลังเตรียมผลลัพธ์ JSON…'});
-    const result = normaliseAnalysis(parseModelJson(raw), context, stored.file, activeProvider, provider.model);
+    const result = shapeTask ? normaliseShapeProposal(parseModelJson(raw), context, activeProvider, provider.model) : normaliseAnalysis(parseModelJson(raw), context, stored.file, activeProvider, provider.model);
     logger.info('AI drawing analysis completed', {requestId, uid: authContext.decodedToken.uid, projectId, provider: activeProvider, model: provider.model, fileSize: stored.file.size});
     writeSse(res, {type: 'progress', phase: 'complete', label: 'วิเคราะห์เสร็จแล้ว กำลังนำผลไปแสดง…'});
     writeSse(res, {type: 'result', result});

@@ -2,6 +2,7 @@ import type {Member,Vec3} from './model';
 import {footingExtent,footingOutline,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
+import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
 import {textWidth,type Prim} from './drawingPrims';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
@@ -32,7 +33,17 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  const foot=input?.category==='Foundation'?footingOutline(input):undefined,polys:Pt[][]=[],piles:Pile[]=[];
  const isFooting=(id:string)=>!!foot&&(id==='main'||id.startsWith('footing'));
  const boxes=[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:'context' as const}))];
- if(m.category==='Foundation'&&m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
+ const sm=m.shapeModel,earth=m.category==='Foundation'||!!sm?.site,holes:Pt[][]=[],edges:Line[]=[];
+ if(earth&&m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
+ // shape model: plan = footprint (holes white) + thin outlines of every part; section = cut rectangles per level band
+ if(sm){
+  if(normal===undefined){const r=shapePlanRings(sm);polys.push(...r.outer);holes.push(...r.holes);
+   for(const p of sm.parts)for(const ring of partPolygon(p))ring.forEach((q,i)=>{const n=ring[(i+1)%ring.length];edges.push({a:[q[a],q[b]],b:[n[a],n[b]]});});}
+  else for(const r of shapeSectionRects(sm,a as 0|1,cut!))rects.push({u0:r.u0,u1:r.u1,v0:r.z0,v1:r.z1,kind:'concrete'});
+  const p=sm.piles;if(p){const h=p.size/2,bottom=-m.lean.thickness-700,square=p.type==='square';
+   for(const [x,y] of p.positions){if(normal===undefined){piles.push({u:[x,y][a],v:[x,y][b],square,size:p.size,hollow:false});continue;}
+    const along=normal===1?y:x,dz=Math.abs(along-cut!);if(dz>h)continue;const half=square?h:Math.sqrt(h*h-dz*dz),u=normal===1?x:y;rects.push({u0:u-half,u1:u+half,v0:bottom,v1:p.embed,kind:'pile'});}}
+ }
  if(foot&&input?.category==='Foundation'){
   if(normal===undefined)polys.push(foot);else for(const [u0,u1] of lineIntervals(foot,a as 0|1,Math.min(Math.max(cut!,1e-3),(a===0?m.y:m.x)-1e-3)))rects.push({u0,u1,v0:0,v1:input.thickness,kind:'concrete'});
   const p=input.pile,square=p.type==='square'||p.type==='I',h=p.size/2,bottom=-m.lean.thickness-700;
@@ -51,7 +62,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  }
  // Excavation outline and ground line (foundations).
  const e=m.excavation,ground=e.depth-m.lean.thickness;
- if(m.category==='Foundation'&&e.depth>0){
+ if(earth&&e.depth>0){
   if(normal===undefined){for(const [wx,wy] of [[e.topX,e.topY],[e.bottomX,e.bottomY]]){const u0=(m.x-wx)/2,v0=(m.y-wy)/2;guides.push({a:[u0,v0],b:[u0+wx,v0]},{a:[u0+wx,v0],b:[u0+wx,v0+wy]},{a:[u0+wx,v0+wy],b:[u0,v0+wy]},{a:[u0,v0+wy],b:[u0,v0]});}}
   else{const size=a===0?m.x:m.y,bw=a===0?e.bottomX:e.bottomY,tw=a===0?e.topX:e.topY,z0=-m.lean.thickness;guides.push({a:[(size-bw)/2,z0],b:[(size+bw)/2,z0]},{a:[(size-bw)/2,z0],b:[(size-tw)/2,ground]},{a:[(size+bw)/2,z0],b:[(size+tw)/2,ground]},{a:[(size-tw)/2-300,ground],b:[(size+tw)/2+300,ground]});}
  }
@@ -81,7 +92,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  });
  const us=[...rects.flatMap(r=>[r.u0,r.u1]),...polys.flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
  const vs=[...rects.flatMap(r=>[r.v0,r.v1]),...polys.flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
- return {member:m,input,axes,normal,cut,rects,polys,piles,guides,bars,u:[Math.min(0,...us),Math.max(1,...us)] as [number,number],v:[Math.min(0,...vs),Math.max(1,...vs)] as [number,number],ground:normal!==undefined&&m.category==='Foundation'&&e.depth>0?ground:undefined};
+ return {member:m,input,axes,normal,cut,rects,polys,holes,edges,piles,guides,bars,u:[Math.min(0,...us),Math.max(1,...us)] as [number,number],v:[Math.min(0,...vs),Math.max(1,...vs)] as [number,number],ground:normal!==undefined&&earth&&e.depth>0?ground:undefined};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
@@ -90,6 +101,12 @@ type DimSpec={dir:'h'|'v';stops:number[];side:'start'|'end'};
 function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number],normal?:number):DimSpec[]{
  const [a,b]=axes,size=[m.x,m.y,m.z],out:DimSpec[]=[{dir:'h',stops:[0,size[a]],side:'start'}];
  if(normal===undefined)out.push({dir:'v',stops:[0,size[b]],side:'start'});
+ // shape model: chain of every part edge along each axis and every level in sections (dimensions come from the model)
+ if(m.shapeModel){const sm=m.shapeModel,stops=(axis:number)=>{const vs=sm.parts.flatMap(p=>{const e=partExtent(p);return p.shape==='circle'?[e[axis],e[axis+2],axis?p.cy:p.cx]:partPolygon(p)[0].map(q=>q[axis]);});return [...new Set(vs.map(v=>Math.round(v)))].filter(v=>v>=0&&v<=size[axis]).sort((x,y)=>x-y).slice(0,12);};
+  out.push({dir:'h',stops:stops(a),side:'end'});
+  if(normal===undefined)out.push({dir:'v',stops:stops(b),side:'end'});
+  else{const zs=[...new Set(sm.parts.flatMap(p=>[p.z0,p.z0+p.height]))].sort((x,y)=>x-y);out.push({dir:'v',stops:m.lean.thickness>0?[-m.lean.thickness,...zs]:zs,side:'start'});if(m.excavation.depth>0)out.push({dir:'v',stops:[-m.lean.thickness,m.excavation.depth-m.lean.thickness],side:'end'});}
+  return out;}
  if(input?.category==='Foundation'){
   const col=input.column,T=input.thickness,H=col.type==='pedestal'?col.height:0;
   if(col.type!=='none'){
@@ -122,6 +139,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const rect=(r:Rect)=>out.push(r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
  v.rects.filter(r=>r.kind==='lean').forEach(rect);
  for(const p of v.polys)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,...style.concrete});
+ for(const p of v.holes)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,fill:'#ffffff',stroke:style.concrete.stroke,width:style.concrete.width});
+ for(const g of v.edges)out.push({t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#7d9690',width:.5*k});
  for(const p of v.piles){const dash=[4*k,2*k];if(p.square)out.push({t:'rect',x:X(p.u-p.size/2),y:Y(p.v+p.size/2),w:p.size*s,h:p.size*s,stroke:'#6b5b45',width:k,dash});else{out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/2*s,stroke:'#6b5b45',width:k,dash});if(p.hollow)out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/4*s,stroke:'#6b5b45',width:k,dash});}}
  v.rects.filter(r=>r.kind!=='lean').forEach(rect);
  for(const g of v.guides)out.push({t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#a07b54',width:.8*k,dash:[6*k,4*k]});

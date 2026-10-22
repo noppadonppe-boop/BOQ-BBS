@@ -10,7 +10,7 @@ export const steelCoverageLabels:Record<SteelCoverageState,string>={Unentered:'à
 export const steelCoverageEnglish:Record<SteelCoverageState,string>={Unentered:'BBS NOT ENTERED',SourcePending:'SOURCE COMPARISON PENDING',Entered:'ENTERED BBS',DeclaredZero:'DECLARED NO REBAR',Conflict:'CONFLICTING STEEL SCOPE'};
 // Changing the physical/context/source definition invalidates a reused zero
 // statement. Pricing/status changes alone do not change its physical scope.
-export const reinforcementScopeKey=(m:Member)=>canonical([m.code,m.category,m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.beamAssembly,m.pedestal,m.placementContext,m.occurrences,m.bars,m.sourceSchedule]);
+export const reinforcementScopeKey=(m:Member)=>canonical([m.code,m.category,m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.beamAssembly,m.pedestal,m.placementContext,m.occurrences,m.bars,m.sourceSchedule,...(m.shapeModel?[m.shapeModel.parts]:[])]);
 export function resetStaleNoRebar(old:Member|undefined,next:Member):Member{
  if(old?.noRebar&&next.noRebar&&canonical(old.noRebar)===canonical(next.noRebar)&&reinforcementScopeKey(old)!==reinforcementScopeKey(next)){const result={...next};delete result.noRebar;return result;}return next;
 }

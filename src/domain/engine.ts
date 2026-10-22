@@ -98,13 +98,15 @@ export function takeoff(m:Member,spec:Spec){
  const concrete=gross-sum(m.deductions.map(d=>d.volume));
  const formwork=formGross-sum(m.deductions.map(d=>d.formwork));
  const e=m.excavation,dx=e.topX-e.bottomX,dy=e.topY-e.bottomY;
- const excavation=m.category==='Foundation'?e.depth*(e.bottomX*e.bottomY+(e.bottomX*dy+e.bottomY*dx)/2+dx*dy/3)/1e9:0;
- const lean=m.category==='Foundation'?m.lean.x*m.lean.y*m.lean.thickness/1e9:0;
+ // earthwork: footings, and shape-model members that carry site data (custom pile caps, pits, shafts …)
+ const earth=m.category==='Foundation'||!!m.shapeModel?.site;
+ const excavation=earth?e.depth*(e.bottomX*e.bottomY+(e.bottomX*dy+e.bottomY*dx)/2+dx*dy/3)/1e9:0;
+ const lean=earth?m.lean.x*m.lean.y*m.lean.thickness/1e9:0;
  const buried=buriedConcreteBasis(m,spec,concrete).volume;
- const backfill=m.category==='Foundation'?excavation-lean-buried:0;
+ const backfill=earth?excavation-lean-buried:0;
  const rows=schedule(m,spec),rebar=sum(rows.map(r=>r.weight));
  const quantity=sum(m.occurrences.map(o=>o.quantity));
- return {quantity,concrete,formwork,excavation,lean,backfill,rebar,rows,gross,formGross,geometryErrors:geometry.errors,geometrySurfaces:geometry.surfaces,formulas:{concrete:m.prismGeometry?.version===4?'π × (outer radius² − inner radius²) × axis length − manual deductions':m.prismGeometry?.version===3?'Axis advance / 6 × (net start area + 4 × net mid area + net end area) − manual deductions':m.prismGeometry?.version===2?'(Outer polygon area − through-hole areas) × axis advance (not inclined run) − manual deductions':m.prismGeometry?'(Outer polygon area − through-hole areas) × extrusion length − manual deductions':m.geometry?'Union solids − geometric voids − manual deductions':`${m.x} × ${m.y} × ${m.z} / 10⁹ + pedestal − deductions`,formwork:'Σ ผิวภายนอกที่เลือก + ผิวช่องเปิดที่เลือก − manual deductions',excavation:'h × [Lb Wb + (Lb ΔW + Wb ΔL)/2 + ΔL ΔW/3] / 10⁹',backfill:`${excavation} − ${lean} − ${buried}`,rebar:'Σ (จำนวนต่อชิ้น × ความยาวตัด(m) × πd²ρ/4 × 10⁻⁶)'}};
+ return {quantity,concrete,formwork,excavation,lean,backfill,rebar,rows,gross,formGross,geometryErrors:geometry.errors,geometrySurfaces:geometry.surfaces,formulas:{concrete:m.shapeModel?'Σ ชั้นระดับ [พื้นที่ (union ชิ้นส่วนคอนกรีต − ช่องเปิด) × ความสูงชั้น] − manual deductions':m.prismGeometry?.version===4?'π × (outer radius² − inner radius²) × axis length − manual deductions':m.prismGeometry?.version===3?'Axis advance / 6 × (net start area + 4 × net mid area + net end area) − manual deductions':m.prismGeometry?.version===2?'(Outer polygon area − through-hole areas) × axis advance (not inclined run) − manual deductions':m.prismGeometry?'(Outer polygon area − through-hole areas) × extrusion length − manual deductions':m.geometry?'Union solids − geometric voids − manual deductions':`${m.x} × ${m.y} × ${m.z} / 10⁹ + pedestal − deductions`,formwork:'Σ ผิวภายนอกที่เลือก + ผิวช่องเปิดที่เลือก − manual deductions',excavation:'h × [Lb Wb + (Lb ΔW + Wb ΔL)/2 + ΔL ΔW/3] / 10⁹',backfill:`${excavation} − ${lean} − ${buried}`,rebar:'Σ (จำนวนต่อชิ้น × ความยาวตัด(m) × πd²ρ/4 × 10⁻⁶)'}};
 }
 export function validateMember(m:Member,spec:Spec):string[]{
  const parsed=memberSchema.safeParse(m);if(!parsed.success)return parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`);
@@ -117,7 +119,7 @@ export function validateMember(m:Member,spec:Spec):string[]{
  errors.push(...beamAssemblyProblems(m),...q.geometryErrors,...drawingViewProblems(m));if(!m.drawingViews&&m.sectionY!==undefined&&m.sectionY>boundsOf(m)[1])errors.push('แนวรูปตัด Y เกินสมาชิก');
  const placement=hasPlacementContext(m)?placementGeometry(m):{surfaces:q.geometrySurfaces,errors:[]};errors.push(...placementContextProblems(m));errors.push(...placement.errors.map(e=>`พื้นที่อ้างอิงรอยต่อ: ${e}`));
  const solids=solidsOf(m);if(new Set(solids.map(s=>s.id)).size!==solids.length)errors.push('รหัสชิ้นส่วนซ้ำ');
- if((m.geometry||m.prismGeometry)&&boundsOf(m).some((v,i)=>Math.abs(v-[m.x,m.y,m.z][i])>.001))errors.push('มิติรวมไม่ตรงขอบเขตชิ้นส่วน');
+ if((m.geometry||m.prismGeometry||m.shapeModel)&&boundsOf(m).some((v,i)=>Math.abs(v-[m.x,m.y,m.z][i])>.001))errors.push('มิติรวมไม่ตรงขอบเขตชิ้นส่วน');
  if(m.cover*2>=Math.min(m.x,m.y,m.z))errors.push('ระยะ cover เกินมิติองค์ประกอบ');
  if(q.concrete<0||q.formwork<0||q.backfill<0)errors.push('ปริมาณสุทธิติดลบ ตรวจรายการหัก/ระดับขุด');
  if(m.pedestal.x>m.x||m.pedestal.y>m.y)errors.push('Pedestal เกินฐานราก');

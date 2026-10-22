@@ -1,7 +1,7 @@
 import {doc,runTransaction} from 'firebase/firestore';
 import {z} from 'zod';
 import {db} from '../firebase';
-import {currentStarterSpec,Project} from '../../domain/model';
+import {currentStarterSpec,Project,specSchema} from '../../domain/model';
 import {userDocPath} from '../../domain/auth';
 import {projectProfileRoles,profileMaster} from '../../domain/authAccess';
 import {drawingProfileSchema} from '../../domain/drawingStandard';
@@ -13,15 +13,16 @@ const logo=z.object({path:z.string().regex(/^projects\/[a-zA-Z0-9_-]{1,80}\/bran
 const input=z.object({code:z.string().trim().min(1).max(50),name:z.string().trim().min(1).max(200),location:z.string().max(300).default(''),owner:z.string().max(200).default(''),contractor:z.string().max(200).default(''),subcontractor:z.string().max(200).default(''),notes:z.string().max(10000).default(''),logo:logo.nullable().optional()});
 const titleBlock=z.object({company:z.string().max(200),drawnBy:z.string().max(120),checkedBy:z.string().max(120),drawingPrefix:z.string().max(50)});
 export async function createDirectProject(data:Record<string,any>,id:string){
- const parsed=input.extend({company:z.string().max(200).default('')}).parse(data.project),inputHash=await digestData({action:'createProject',data});
+ const parsed=input.extend({company:z.string().max(200).default(''),spec:specSchema.optional()}).parse(data.project),inputHash=await digestData({action:'createProject',data});
  if(parsed.logo)must(parsed.logo.path.startsWith(`projects/${id}/`),'ไฟล์โลโก้ไม่ตรงโครงการ','invalid-argument');
  return runTransaction(db,async tx=>{
   const u=await actor(tx);must(profileMaster(u)||projectProfileRoles(u.roles).includes('admin'),'เฉพาะผู้ดูแลที่ได้รับอนุมัติสร้างโครงการ','permission-denied');
   const or=profileOperationRef(id),os=await tx.get(or),pr=projectRef(id),ps=await tx.get(pr);
   if(os.exists()){must(os.data().uid===u.uid&&os.data().inputHash===inputHash,'รหัสคำขอถูกใช้แล้ว','aborted');return os.data().result;}
   must(!ps.exists(),'มีโครงการที่ใช้รหัสคำขอนี้แล้ว','aborted');
-  const {company,...fields}=parsed;
-  const p:Project={...fields,logo:fields.logo||null,id,acl:{[u.uid]:'admin'},roleSets:{[u.uid]:['admin']},version:1,createdAt:now(),spec:currentStarterSpec,titleBlock:{company,drawnBy:'',checkedBy:'',drawingPrefix:parsed.code}},next={...u,assignedProjects:[...new Set([...u.assignedProjects,id])],projectRoles:{...u.projectRoles,[id]:['admin'] as const},profileVersion:(u.profileVersion||1)+1};
+  const {company,spec,...fields}=parsed;
+  // spec = resolved copy of the chosen workspace General Spec profile (+ project f'c / grade)
+  const p:Project={...fields,logo:fields.logo||null,id,acl:{[u.uid]:'admin'},roleSets:{[u.uid]:['admin']},version:1,createdAt:now(),spec:spec?{...spec,approved:false,evidenceFileId:''}:currentStarterSpec,titleBlock:{company,drawnBy:'',checkedBy:'',drawingPrefix:parsed.code}},next={...u,assignedProjects:[...new Set([...u.assignedProjects,id])],projectRoles:{...u.projectRoles,[id]:['admin'] as const},profileVersion:(u.profileVersion||1)+1};
   tx.set(pr,encode(p));tx.update(doc(db,userDocPath(u.email)),{assignedProjects:next.assignedProjects,projectRoles:next.projectRoles,profileVersion:next.profileVersion,updatedAt:now(),accessChange:{projectId:id,operationId:id,kind:'CreateProject'}});
   tx.set(directoryRef(u.uid),directory({...next,projectRoles:{...u.projectRoles,[id]:['admin']}}));
   const result={id};tx.set(or,encode({id,uid:u.uid,email:u.email,action:'createProject',inputHash,createdAt:now(),result}));return result;

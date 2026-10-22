@@ -33,7 +33,7 @@ export function prismPathInside(p:PrismGeometry,path:Vec3[]){
   times.sort((a,b)=>a-b);for(let j=1;j<times.length;j++){const t=(times[j-1]+times[j])/2;if(!prismContains(p,a.map((v,k)=>v+d[k]*t) as Vec3))return false;}
  }return true;
 }
-function surface(vertices:Vec3[],normal:Vec3,formed:boolean):Surface{
+export function surface(vertices:Vec3[],normal:Vec3,formed:boolean):Surface{
  const axis=normal.findIndex(v=>Math.abs(v)>1-EPS),origin=[0,1,2].map(a=>Math.min(...vertices.map(v=>v[a]))) as Vec3,size=[0,1,2].map(a=>Math.max(...vertices.map(v=>v[a]))-origin[a]) as Vec3;
  const actual=new Triangle(...vertices.slice(0,3).map(v=>new Vector3(...v)) as [Vector3,Vector3,Vector3]).getNormal(new Vector3());
  return {origin,size,axis,positive:axis>=0&&normal[axis]>0,formed,vertices:actual.dot(new Vector3(...normal))<0?[...vertices].reverse():vertices,normal};

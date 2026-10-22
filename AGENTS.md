@@ -9,8 +9,48 @@
 ## Structure notes
 - Element input (manual / from drawing) → `src/domain/elementInput.ts`; UI `src/components/ElementInputPanel.tsx`.
   It converts the per-category input into the existing member fields and generated bars (ids prefixed `gen-`).
+- Bar layer shapes (footing/slab mesh, beam top/bottom, wall vertical/horizontal): `shape` = BS 8666:2020 code from
+  `layerShapes` (00/11/12/13/21/22/99), `leg` (0 = standard), `radius` (R for 12); geometry by `shapedEnds()`;
+  old `bend` / `endHook` inputs are migrated in `migrateShapes()`. Shape 41 (U legs full depth + 15d inward, footing only).
+  Footing `slab` (cast with floor slab: reference slab regions `genslab-*`, top bars extend into slab) and
+  `rebar.side` (horizontal perimeter loops), `rebar.sideBars` (vertical face bars, outermost; one Mark via offsets +
+  offsetTurns) — `footingSlabOn()`, `migrateFootingSlab()`. Ad-hoc test: `npx vitest run tmp/shapes.test.ts`.
+- Custom element shape model (Phase 1): `member.shapeModel` (`src/domain/shapeModelSchema.ts`) = vertical parts
+  (box / polygon / circle-ring / shaft, solid or void, stage, z0+height) + piles + site. Geometry engine
+  `src/domain/shapeGeometry.ts` (level slabs, polygon-clipping union/difference, equal-area circles, surfaces, contains,
+  sections) hooked in `solids.ts`; apply/checks in `shapeApply.ts`; views in `elementViews.ts` / `projection.ts`;
+  UI `ShapeModelEditor.tsx` (tab “รูปทรง” for Custom). AI shape reading: gateway task `shape` in `functions/index.js`
+  (owner must deploy) + `src/data/aiShapeAnalysis.ts` + `src/domain/shapeProposal.ts`. Tests: `tmp/shapeModel.test.ts`.
+- Rebar sketch (Phase 2): `src/domain/rebarSketch.ts` (view regions, cover snap lines, snapping, shape-code detection,
+  layout rules, `sketchBar`, `meshBars`, `loopBars`; sketched bars have ids `sk-`, polyline + distributionAxis so the
+  view is recovered from the bar) + UI `RebarSketch.tsx` (tab “ใส่เหล็ก (วาดบนรูปตัด)” for shape-model members).
+  Tests: `tmp/rebarSketch.test.ts`. Forced cover drawing: `coverRings` / `snapToCover` / `traceCover`; end hooks `addHooks`.
+- Rebar notes (Phase 3): `src/domain/rebarNotes.ts` (rule parser `parseRebarNote`, `suggestFromNotes`,
+  `barsFromSuggestions`; loops / vertical face bars stop where the plan changes via `stackTop`); notes kept in
+  `shapeModel.rebarNotes` (also filled from the AI shape proposal); UI tool “จาก Note ในแบบ” in `RebarSketch.tsx`.
+- Column ties: set 1 = perimeter hoop (roles `tie` / `tie-<zone>`), set 2 = supplementary ties per zone
+  (`rebar.tie.inner`, roles `tie2-<zone>-<n>`, patterns `tiePatterns` / `columnTieLayout()` in `elementInput.ts`).
+  UI: `src/components/ColumnTieEditor.tsx` (zone table, elevation strip, pattern gallery).
+- Column main bars (rect): `rebar.main.corner` (bundle 1–3) + `sideX` / `sideY` per face, positions via
+  `columnInputBars()` (symmetric spacing); special sections = `columnPresets` / `applyColumnPreset()`.
 - A3 BBS sheet (views + BBS table + BOQ table + title block), layout id `sheet-a3-v10`:
   layout in `src/domain/bbsSheet.ts` → renderer-agnostic primitives (`src/domain/drawingPrims.ts`),
   drawn as SVG by `src/components/PrimsSvg.tsx` (preview in the "แบบ & BBS" tab) and as PDF by `src/data/primsPdf.ts`.
   Plan/section geometry: `src/domain/elementViews.ts` (also used by `ElementGraphic`).
+- General Spec is workspace-level (not a project menu): profiles in Firestore `${APP_NAME}/root/specProfiles`
+  (`src/domain/specProfiles.ts`, `src/data/specProfiles.ts`, page `src/components/GeneralSpecPage.tsx`,
+  editor `SpecEditor.tsx` + `DesignCodeLibrary.tsx`). Projects choose a profile + f'c/grade in `ProjectForm`;
+  `project.spec` is the resolved copy with `spec.profileRef` / `spec.projectDesign` (live link: saving a profile
+  re-runs `changeSpec` for linked projects). Spec changes regenerate gen-* bars from element input
+  (`specJobs.ts`), detailing derived by `detailingFromSpec()` (`src/domain/specDetailing.ts`, keep it free of
+  runtime imports from model/elementInput to avoid cycles). Table overrides: `spec.codeData[code]`, read via `codeValues()`.
+  Design codes (`src/domain/designCodes.ts`): ACI / EIT / BS / Custom + extra `Custom-<id>` codes named in `spec.customCodes`
+  (Custom = copy of ACI tables, editable); use `codeList()` / `codeInfo()` for labels, `tableCode()` for table-driven codes.
+  Steel grade per bar size: `barGrades` default, override `spec.codeData[code].grades` (UI `GradeSection`, saves the
+  profile directly via `onSave` → `GeneralSpecPage.save(spec)`).
+  Extra provisions per code: `spec.codeData[code].provisions` (UI `Provisions` in `DesignCodeLibrary.tsx`).
+  Project-side spec info / approval / files: `ProjectSpecPanel.tsx` in the project Settings page.
+- Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
+- Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
+  add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).
 - Do not edit or deploy `firestore.rules`, `storage.rules`, `.env` or Firebase config; the owner manages them.

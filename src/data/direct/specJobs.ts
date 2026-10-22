@@ -3,6 +3,8 @@ import {getDoc} from 'firebase/firestore';
 import {readCollectionPages} from '../collections';
 import {attachmentSchema,Attachment,Member,Project,Spec,specSchema,SpecChangeState,SnapshotFile} from '../../domain/model';
 import {validateMember} from '../../domain/engine';
+import {applyElementInput,elementInputSchema,isGeneratedBar} from '../../domain/elementInput';
+import {detailingFromSpec} from '../../domain/specProfiles';
 import {sourceBarNames,sourceCurrent,memberSourceInfo,generalSourceInfo,validateSourceChains} from '../../domain/sourceRevisions';
 import {canonical} from '../../domain/canonical';
 import {decodeStorage} from '../../domain/storageCodec';
@@ -60,7 +62,14 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
   }
  }
  const selected=scope==='Member'?members.filter(m=>owners.has(m.id)):members;
- for(const m of selected){const errors=validateMember(m,spec);must(!errors.length,`${m.code}: ${errors.join('\n')}`,'invalid-argument');manifest.members.push({id:m.id,before:m,after:{...m,...(m.quantityBasis?{quantityBasis:provisionalQuantityBasis(m.quantityBasis.reference)}:{}),noRebar:undefined,status:'Draft',version:m.version+1,inputEpoch:id,updatedAt:manifest.preparedAt,bars:m.bars.map(b=>({...b,placementConfirmed:false,...(b.bsDimensionsConfirmed!==undefined?{bsDimensionsConfirmed:false}:{})}))}});}
+ // A spec change re-derives the element-input detailing (bends, laps, grade) from the new spec and
+ // regenerates the auto bars (gen-*) of members built from element input; manual bars are kept.
+ const regenerate=(m:Member):Member|undefined=>{
+  if(action!=='beginSpecChange'||!m.elementInput)return;
+  const parsed=elementInputSchema.safeParse(m.elementInput);if(!parsed.success||parsed.data.category!==m.category||!parsed.data.appliedAt)return;
+  try{const r=applyElementInput(m,{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)},{rounding:spec.rounding,withBars:m.bars.some(isGeneratedBar)});return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}
+ };
+ for(const m0 of selected){const fresh=regenerate(m0),m=fresh||m0;if(!fresh){const errors=validateMember(m0,spec);must(!errors.length,`${m0.code}: ${errors.join('\n')}`,'invalid-argument');}manifest.members.push({id:m0.id,before:m0,after:{...m,...(m.quantityBasis?{quantityBasis:provisionalQuantityBasis(m.quantityBasis.reference)}:{}),noRebar:undefined,status:'Draft',version:m.version+1,inputEpoch:id,updatedAt:manifest.preparedAt,bars:m.bars.map(b=>({...b,placementConfirmed:false,...(b.bsDimensionsConfirmed!==undefined?{bsDimensionsConfirmed:false}:{})}))}});}
  const nextSources=new Map(byId);manifest.sourceIntakes.forEach(a=>nextSources.set(a.id,a));manifest.sourceAdoptions.forEach(a=>nextSources.set(a.after.id,a.after));manifest.sourceChanges.forEach(c=>{nextSources.set(c.after.id,c.after);nextSources.set(c.next.id,c.next);});validateSourceChains([...nextSources.values()]);
  const file=await writeManifest(pid,'spec-manifests',clean(manifest));
  return projectTransaction(action,pid,data,id,['admin','qs'],async(tx,current)=>{

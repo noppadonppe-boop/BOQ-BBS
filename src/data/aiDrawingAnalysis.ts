@@ -36,7 +36,7 @@ function parseSseFrame(frame:string){
   try{return JSON.parse(data);}catch{throw Error('Gateway ส่งข้อมูล Stream ที่ไม่ถูกต้องกลับมา');}
 }
 
-async function readGatewayStream(response:Response,onProgress:(progress:AiAnalysisProgress)=>void){
+export async function readGatewayStream(response:Response,onProgress:(progress:AiAnalysisProgress)=>void){
   const contentType=String(response.headers.get('content-type')||'').toLowerCase();
   if(!contentType.includes('text/event-stream')){
     const body=await response.json().catch(()=>({}));

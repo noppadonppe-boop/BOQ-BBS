@@ -3,6 +3,8 @@ import {Member,Vec3} from './model';
 import {boundsOf,solidQuantities,solidsOf,contains} from './solids';
 import {prismAxis,prismBounds,prismSection,inclinedProjectedFaces} from './prismGeometry';
 import {axisIndex,drawingSections,sectionAxes,type DrawingSection} from './drawingViews';
+import {shapeElevationRects,shapeGeometry,shapeSectionRects} from './shapeGeometry';
+import {polygonViewFaces} from './polygonViews';
 export function projection(m:Member,axes:[number,number],box:{x:number;y:number;w:number;h:number}){
  const {min,max,size:dims}=placementViewBounds(m),usableW=box.w*.71,usableH=box.h*.82,s=Math.max(.00001,Math.min(usableW/dims[axes[0]],usableH/dims[axes[1]])),ox=box.x+box.w*.073+(usableW-dims[axes[0]]*s)/2,oy=box.y+box.h*.07+(usableH-dims[axes[1]]*s)/2;
  return {scale:s,x:ox,y:oy,w:dims[axes[0]]*s,h:dims[axes[1]]*s,point:(p:Vec3)=>[ox+(p[axes[0]]-min[axes[0]])*s,oy+(max[axes[1]]-p[axes[1]])*s]};
@@ -10,6 +12,9 @@ export function projection(m:Member,axes:[number,number],box:{x:number;y:number;
 // Visible boundary faces share the occupied cells used by takeoff and the 3D mesh.
 export function projectedFaces(m:Member,axes:[number,number]){
  const normal=[0,1,2].find(a=>!axes.includes(a))!;
+ if(m.shapeModel){const sm=m.shapeModel;
+  if(normal===2)return solidQuantities(m).surfaces.filter(s=>s.normal?.[2]===1&&s.vertices).map(s=>s.vertices!);
+  const along=axes[0] as 0|1;return shapeElevationRects(sm,along).map(r=>[[r.u0,r.z0],[r.u1,r.z0],[r.u1,r.z1],[r.u0,r.z1]].map(([u,z])=>{const p:Vec3=[0,0,z];p[along]=u;p[normal]=0;return p;}));}
  if(m.prismGeometry&&m.prismGeometry.version!==1)return inclinedProjectedFaces(m.prismGeometry,axes);
  if(m.prismGeometry){const p=m.prismGeometry,axis=prismAxis(p);if(normal===axis)return prismSection(p,axis,p.start+p.depth);const bounds=prismBounds(p);return [[[0,0],[1,0],[1,1],[0,1]].map(([u,v])=>{const point=[...bounds] as Vec3;point[axes[0]]=axes[0]===axis?p.start+u*p.depth:u*bounds[axes[0]];point[axes[1]]=axes[1]===axis?p.start+v*p.depth:v*bounds[axes[1]];return point;})];}
  return solidQuantities(m).surfaces.filter(s=>s.axis===normal&&s.positive).map(s=>{
@@ -27,6 +32,10 @@ export const viewDimension=(m:Member,value:number)=>m.prismGeometry?Number(value
 export const viewDimensionLabel=(m:Member,value:number)=>`${viewDimension(m,value)} mm${m.prismGeometry&&m.prismGeometry.version!==1?' / view span':''}`;
 export function sectionFaces(m:Member,section:DrawingSection=drawingSections(m)[0]){
  if(m.prismGeometry)return prismSection(m.prismGeometry,axisIndex(section.axis),section.position);
+ if(m.shapeModel){const normal=axisIndex(section.axis);
+  if(normal===2){const g=shapeGeometry(m.shapeModel),s=g.slabs.find(s=>section.position>=s.z0&&section.position<=s.z1);if(!s)return [];
+   return polygonViewFaces(s.region,([x,y])=>[x,y,section.position]);}
+  const along=(normal===0?1:0) as 0|1;return shapeSectionRects(m.shapeModel,along,section.position).map(r=>[[r.u0,r.z0],[r.u1,r.z0],[r.u1,r.z1],[r.u0,r.z1]].map(([u,z])=>{const p:Vec3=[0,0,z];p[along]=u;p[normal]=section.position;return p;}));}
  const axes=sectionAxes(section),normal=axisIndex(section.axis),boxes=[...solidsOf(m),...(m.geometry?.voids||[])],edges=axes.map(axis=>[...new Set(boxes.flatMap(s=>[s.origin[axis],s.origin[axis]+s.size[axis]]))].sort((a,b)=>a-b)),faces:Vec3[][]=[];
  for(let i=1;i<edges[0].length;i++)for(let j=1;j<edges[1].length;j++){const u=edges[0][i-1],v=edges[1][j-1],w=edges[0][i]-u,h=edges[1][j]-v,at=(x:number,y:number)=>{const p=[0,0,0] as Vec3;p[normal]=section.position;p[axes[0]]=x;p[axes[1]]=y;return p;};if(contains(m,at(u+w/2,v+h/2)))faces.push([at(u,v),at(u+w,v),at(u+w,v+h),at(u,v+h)]);}
  return faces;
