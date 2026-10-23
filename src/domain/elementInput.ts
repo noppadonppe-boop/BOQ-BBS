@@ -307,7 +307,7 @@ const wallSchema=z.object({...base,category:z.literal('Wall'),
  cover:z.object({face:mm,edge:mm}).strict(),
  rebar:z.object({layers:z.union([z.literal(1),z.literal(2)]),vertical:meshLayer,horizontal:meshLayer,lap:z.boolean()}).strict(),
 }).strict();
-const elementInputUnion=z.discriminatedUnion('category',[foundationSchema,columnSchema,beamSchema,slabSchema,wallSchema]);
+export const elementInputUnion=z.discriminatedUnion('category',[foundationSchema,columnSchema,beamSchema,slabSchema,wallSchema]);
 export const elementInputSchema=z.preprocess(migrateElementInput,elementInputUnion);
 export type ElementInput=z.infer<typeof elementInputUnion>;
 export const DEFAULT_FOOTING_COLUMN:FootingColumn={type:'none',columnNo:'',shape:'rect',width:400,depth:400,diameter:400,armX:250,armY:250,height:600,projection:800,cover:40,main:{corner:{diameter:16,count:1},sideX:{diameter:16,count:1},sideY:{diameter:16,count:1},diameter:16,count:8,spacing:200},tie:{diameter:9,spacing:200},embed:{mode:'standard',depth:0},bend:'standard',leg:0,offsetX:0,offsetY:0};

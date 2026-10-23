@@ -28,6 +28,7 @@ const geminiBudgetModel=(id:string,label:string,budgets:readonly (-1|0|128|512|1
 
 export const apiProviderDefinitions:readonly ApiProviderDefinition[]=[
  {id:'openai',name:'OpenAI',description:'Responses API · reasoning effort ของ OpenAI',thinkingParameter:'reasoning.effort',models:[
+  openAiModel('gpt-5.6-luna','GPT-5.6 Luna',['xhigh','none','low','medium','high','max']),
   openAiModel('gpt-6-astra','GPT-6 Astra',['low','medium','high','xhigh','max']),openAiModel('gpt-6.1-sol','GPT-6.1 Sol',['low','medium','high','xhigh','max']),openAiModel('gpt-6-sol','GPT-6 Sol',['none','low','medium','high','xhigh','max']),openAiModel('gpt-6-luna','GPT-6 Luna',['none','low','medium','high','xhigh','max']),openAiModel('gpt-5.6-sol','GPT-5.6 Sol',['none','low','medium','high','xhigh','max']),openAiModel('gpt-5.5-pro','GPT-5.5 Pro',['medium','high','xhigh']),
  ]},
  {id:'anthropic',name:'Anthropic',description:'Messages API · adaptive thinking และ effort ของ Claude',thinkingParameter:'thinking + output_config.effort',models:[
