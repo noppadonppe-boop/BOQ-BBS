@@ -308,3 +308,7 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .beam-spans td,.beam-grids td{white-space:nowrap}.beam-spans tr{cursor:pointer}.beam-spans tr.active td{background:var(--brand-50)}.bar-cell{display:inline-flex;gap:4px;align-items:center}.bar-cell select{min-width:64px}
 .template-dialog{display:flex;flex-direction:column;gap:10px;min-width:min(640px,90vw)}.template-dialog footer{display:flex;justify-content:flex-end;gap:8px}
 .template-picker{display:grid;gap:6px;margin:10px 0}.template-picker h3{margin:0}
+.beam-elevation .zone{fill:#f6d9c4;opacity:.55;pointer-events:none}.beam-elevation text.zone-label{fill:#7c3a10}
+.beam-section-editor{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:10px 0;background:var(--surface-2)}.beam-section-editor .section-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.beam-sections td{white-space:nowrap}.beam-sections th.muted{opacity:.55}
+.beam-spans td input{max-width:none}.beam-spans td small.block{white-space:normal;min-width:260px}

@@ -1,21 +1,24 @@
 import type {Prim} from './drawingPrims';
-import {beamGroupLayout,type BeamInput,type ElementInput} from './elementInput';
+import {beamGroupLayout,beamZoneLabels,type BeamInput,type BeamZone,type ElementInput} from './elementInput';
 import {buildView,type ViewRow} from './elementViews';
 import type {Member} from './model';
 
 type Box={x:number;y:number;w:number;h:number};
 type ViewSpec={axes:[number,number];normal?:number;cut?:number};
-export type BeamSection={letter:string;mark:string;where:'support'|'mid';x:number};
+export type BeamSection={letter:string;mark:string;zone:BeamZone;x:number};
 const groupOf=(input?:ElementInput):BeamInput|undefined=>input?.category==='Beam'&&input.layout==='group'&&input.spans.length?input:undefined;
 const SECTIONS_PER_PAGE=5;
 
-/** Cross-sections of a beam group: per beam mark one near the support (end zone, extra top bars) and one at mid-span. */
+/** Cross-sections of a beam group as on the beam details: per beam mark its END / MID / CON / CANT sections
+ * (each cut once, where it first occurs: support sections at L/8 from the face, MID at mid-span). */
 export function beamGroupSections(input:BeamInput):BeamSection[]{
  const lay=beamGroupLayout(input),out:BeamSection[]=[],seen=new Set<string>();
- for(const s of lay.spans){if(seen.has(s.mark))continue;seen.add(s.mark);
-  const tipLeft=s.kind==='cantilever'&&s.k===0,near=Math.min(Math.max(100,s.rebar.stirrup.endLength/2),s.clear/4);
-  out.push({letter:'',mark:s.mark,where:'support',x:tipLeft?s.b-near:s.a+near},{letter:'',mark:s.mark,where:'mid',x:(s.a+s.b)/2});}
- return out.map((v,i)=>({...v,letter:i<26?String.fromCharCode(65+i):`A${i-25}`}));
+ const add=(mark:string,zone:BeamZone,x:number)=>{const key=`${mark}|${zone}`;if(seen.has(key))return;seen.add(key);out.push({letter:'',mark,zone,x});};
+ for(const s of lay.spans){const near=s.clear/8;
+  if(s.kind==='cantilever'){add(s.mark,'cant',(s.a+s.b)/2);continue;}
+  add(s.mark,s.zoneA,s.a+near);add(s.mark,'mid',(s.a+s.b)/2);add(s.mark,s.zoneB,s.b-near);}
+ const order:Record<BeamZone,number>={end:0,mid:1,con:2,cant:3};
+ return out.sort((a,b)=>a.mark.localeCompare(b.mark,'en',{numeric:true})||order[a.zone]-order[b.zone]).map((v,i)=>({...v,letter:i<26?String.fromCharCode(65+i):`A${i-25}`}));
 }
 /** Extra sheet pages needed for the beam-group sections (the BBS table may need more). */
 export function beamSheetPages(input?:ElementInput){const g=groupOf(input);return g?Math.ceil(beamGroupSections(g).length/SECTIONS_PER_PAGE):1;}
@@ -28,7 +31,7 @@ export function beamGroupSheet(m:Member,rows:ViewRow[],input:ElementInput|undefi
  const elevH=Math.min(110,area.h*.38),secY=area.y+elevH+3,secH=Math.min(78,area.h*.3),secW=(area.w-(SECTIONS_PER_PAGE-1)*2)/SECTIONS_PER_PAGE;
  const elevBox={x:area.x,y:area.y,w:area.w,h:elevH},elevSpec:ViewSpec={axes:[0,2],normal:1,cut:lay.W/2};
  const views:{title:string;box:Box;spec:ViewSpec}[]=[{title:`รูปด้านคาน (ELEVATION) · ${[...new Set(g.spans.map(s=>s.mark))].join(', ')} · ${g.spans.length} ช่วง`,box:elevBox,spec:elevSpec},
-  ...list.map((c,i)=>({title:`ตัด ${c.letter}-${c.letter} · ${c.mark} ${c.where==='mid'?'กลางช่วง':'ใกล้เสา'}`,box:{x:area.x+i*(secW+2),y:secY,w:secW,h:secH},spec:{axes:[1,2] as [number,number],normal:0,cut:c.x}}))];
+  ...list.map((c,i)=>({title:`ตัด ${c.letter}-${c.letter} · ${c.mark} (${beamZoneLabels[c.zone]} SPAN)`,box:{x:area.x+i*(secW+2),y:secY,w:secW,h:secH},spec:{axes:[1,2] as [number,number],normal:0,cut:c.x}}))];
  // section marks on the elevation: same mapping as renderView (box inset by the title band)
  const v=buildView(m,rows,input,elevSpec),b={x:elevBox.x,y:elevBox.y+4,w:elevBox.w,h:elevBox.h-4},M=48*k,spanU=v.u[1]-v.u[0],spanV=v.v[1]-v.v[0];
  const sc=Math.min((b.w-2*M)/spanU,(b.h-2*M)/spanV),offU=(b.w-2*M-spanU*sc)/2,offV=(b.h-2*M-spanV*sc)/2;

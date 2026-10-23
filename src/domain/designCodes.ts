@@ -99,7 +99,13 @@ export const beamCases:BeamCase[]=[
  {n:11,title:'END CONTINUOUS SPAN W/ONE END CANTILEVER',caseLabel:'CASE II',parts:['cant','sup','span','sup','next'],top:[{at:0,side:'right',label:'0.3L',frac:.3},{at:1,side:'left',label:'0.3L',frac:.3}]},
 ];
 /** Beam detailing fractions of the clear span L (top extension at discontinuous / continuous ends, bottom zone). */
-export const DEFAULT_BEAM_RULES={topEnd:.25,topCont:.3,bottomZone:.125};
+/** Beam bar cut-offs (× clear span L from the support face): top extra bars at an end (discontinuous) / continuous
+ * support (continuous: × the longer adjacent span La); bottom extra bars of the mid zone stop bottomEnd · L from an end
+ * support and bottomCont · L from a continuous one; close stirrups (END / CON sections) over stirrupZone · L. */
+export const DEFAULT_BEAM_RULES={topEnd:.25,topCont:.3,bottomZone:.125,bottomEnd:.125,bottomCont:.1,stirrupZone:.25};
+export type BeamRules=typeof DEFAULT_BEAM_RULES;
+/** Cut-offs of the typical "BEAM CONFIGURATION" detail: L1/3, La/3, L/8, L/10, close stirrups over L/4. */
+export const CONFIG_BEAM_RULES:BeamRules={topEnd:1/3,topCont:1/3,bottomZone:.125,bottomEnd:.125,bottomCont:.1,stirrupZone:.25};
 
 // ---------- Per-project values ----------
 // Each project keeps its own copy of the tables it changed (spec.codeData[code]); anything not
@@ -113,7 +119,7 @@ export const codeDataSchema=z.object({
  endHooks:z.array(endHookRow).max(30).optional(),
  stirrupHooks:z.array(stirrupHookRow).max(30).optional(),
  lap:z.record(z.string().regex(/^\d{2}-SD\d{2}$/),z.array(lapRow).max(20)).optional(),
- beam:z.object({topEnd:frac,topCont:frac,bottomZone:frac}).strict().optional(),
+ beam:z.object({topEnd:frac,topCont:frac,bottomZone:frac,bottomEnd:frac.optional(),bottomCont:frac.optional(),stirrupZone:frac.optional()}).strict().optional(),
  /** Steel grade per bar size (Dia. mm → grade). */
  grades:z.array(z.object({bar:z.number().int().min(1).max(60),grade:z.string().trim().min(1).max(20)}).strict()).max(30).optional(),
  /** Additional provisions added to this code (free text items: topic, value, details). */
@@ -128,7 +134,7 @@ export const tableOverrides=(d:CodeData)=>Object.keys(d).filter(k=>k!=='provisio
 /** Values used by one project for one code: its own overrides, else the library defaults. */
 export function codeValues(data:ProjectCodeData|undefined,code:DesignCodeId|undefined){
  const d=(code&&data?.[code])||{};
- return {endHooks:d.endHooks||endHooks,stirrupHooks:d.stirrupHooks||stirrupHooks,lap:{...lapTables,...d.lap},beam:d.beam||DEFAULT_BEAM_RULES,provisions:d.provisions||[],grades:d.grades||barGrades,
+ return {endHooks:d.endHooks||endHooks,stirrupHooks:d.stirrupHooks||stirrupHooks,lap:{...lapTables,...d.lap},beam:{...DEFAULT_BEAM_RULES,...d.beam},provisions:d.provisions||[],grades:d.grades||barGrades,
   custom:{endHooks:!!d.endHooks,stirrupHooks:!!d.stirrupHooks,lap:Object.keys(d.lap||{}),beam:!!d.beam,grades:!!d.grades}};
 }
 export type CodeValues=ReturnType<typeof codeValues>;

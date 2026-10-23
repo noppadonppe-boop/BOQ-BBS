@@ -1,8 +1,11 @@
-import {Plus,Trash2} from 'lucide-react';
-import {beamGroupLayout,newBeamGrid,newBeamSpan,type BeamGrid,type BeamInput,type BeamSpan} from '../domain/elementInput';
+import {useState} from 'react';
+import {BookmarkPlus,Copy,Download,Plus,Trash2} from 'lucide-react';
+import {beamGroupLayout,beamZoneLabels,beamZones,newBeamGrid,newBeamSpan,type BeamGrid,type BeamInput,type BeamRebar,type BeamSpan,type BeamZone} from '../domain/elementInput';
+import {deleteBeamMark,saveBeamMark,useBeamMarks,type BeamMark} from '../data/beamMarks';
 
 const diameters=[6,9,10,12,16,20,25,28,32,36,40];
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
+const bars=(b:{count:number;diameter:number})=>b.count>0?`${b.count}${barName(b.diameter)}`:'—';
 type Edit=(f:(i:BeamInput)=>void)=>void;
 
 /** Elevation of a beam group: grid bubbles, supports, spans at their levels (drops), cantilevers and marks. */
@@ -17,17 +20,26 @@ export function BeamGroupElevation({input,selected,onSelect}:{input:BeamInput;se
   {lay.columns.map(q=><rect key={`c${q.k}`} className="support" x={q.x0} y={Y(q.z1)-bubble*.6} width={q.x1-q.x0} height={q.z1-q.z0+bubble*1.2}/>)}
   {lay.spans.map(s=><g key={`s${s.k}`} onClick={()=>onSelect(s.k)} className="span-hit">
    <rect className={`span${s.k===selected?' active':''}${s.kind==='cantilever'?' cantilever':''}`} x={s.a} y={Y(s.z1)} width={Math.max(1,s.clear)} height={s.z1-s.z0}/>
+   {s.kind!=='cantilever'&&[[s.a,s.zoneA],[s.b-s.clear/4,s.zoneB]].map(([x,z])=><rect key={String(z)+x} className="zone" x={x as number} y={Y(s.z1)} width={s.clear/4} height={s.z1-s.z0}/>)}
    <text x={(s.a+s.b)/2} y={Y(s.z1)-fs*.4} fontSize={fs} textAnchor="middle">{s.mark}</text>
+   {s.clear>fs*12&&<>{s.kind==='cantilever'?<text className="zone-label" x={(s.a+s.b)/2} y={Y((s.z0+s.z1)/2)+fs*.3} fontSize={fs*.7} textAnchor="middle">CANT</text>:<>
+    <text className="zone-label" x={s.a+s.clear/8} y={Y((s.z0+s.z1)/2)+fs*.3} fontSize={fs*.7} textAnchor="middle">{beamZoneLabels[s.zoneA]}</text>
+    <text className="zone-label" x={(s.a+s.b)/2} y={Y((s.z0+s.z1)/2)+fs*.3} fontSize={fs*.7} textAnchor="middle">MID</text>
+    <text className="zone-label" x={s.b-s.clear/8} y={Y((s.z0+s.z1)/2)+fs*.3} fontSize={fs*.7} textAnchor="middle">{beamZoneLabels[s.zoneB]}</text></>}</>}
    <text className="dim" x={(lay.grid[s.k]+lay.grid[s.k+1])/2} y={totalH-bubble*.6} fontSize={fs*.8} textAnchor="middle">{(s.length/1000).toFixed(2)}</text>
    {s.top!==0&&<text className="drop" x={(s.a+s.b)/2} y={Y(s.z0)+fs*1.1} fontSize={fs*.75} textAnchor="middle">{s.top>0?'▲':'▼'} {Math.abs(s.top)}</text>}</g>)}
  </svg>;
 }
 
-/** Beam group editor: elevation, span table (mark, type, length, section, level, bars, stirrups) and grid table. */
-export function BeamGroupEditor({input,edit,readOnly,selected,onSelect}:{input:BeamInput;edit:Edit;readOnly:boolean;selected:number;onSelect:(k:number)=>void}){
- const sp=input.spans,gr=input.grids,n=sp.length;
- const num=(v:number,on:(v:number)=>void,label:string,neg=false,width=70)=><input aria-label={label} type="number" step="any" style={{width}} disabled={readOnly} value={v} onChange={e=>on(neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
- const bars=(v:{count:number;diameter:number},on:(v:{count:number;diameter:number})=>void,label:string)=><span className="bar-cell">
+const sectionSummary=(r:BeamRebar,zones:BeamZone[])=>`บน ${bars(r.top)} · ล่าง ${bars(r.bottom)}${zones.map(z=>{const e=r.ex[z];return e.top.count||e.bottom.count?` · ${beamZoneLabels[z]} ${e.top.count?`+${bars(e.top)}↑`:''}${e.bottom.count?`+${bars(e.bottom)}↓`:''}`:'';}).join('')} · ปลอก ${barName(r.stirrup.diameter)}${r.stirrup.legs>2?`×${r.stirrup.legs}ขา`:''} @${zones.map(z=>r.stirrup.spacing[z]).join('/')}${r.side.count?` · ข้าง ${r.side.count * 2}${barName(r.side.diameter)}`:''}`;
+
+/** Beam group editor: elevation, span table (mark from the project beam mark table, grid-to-grid length, column
+ * widths at both supports, section, level) and the section editor of the selected span (END / MID / CON / CANT). */
+export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId}:{input:BeamInput;edit:Edit;readOnly:boolean;selected:number;onSelect:(k:number)=>void;projectId:string}){
+ const sp=input.spans,gr=input.grids,n=sp.length,sel=Math.min(selected,Math.max(0,n-1)),cur=sp[sel],lay=beamGroupLayout(input),zonesOf=(k:number):BeamZone[]=>{const s=lay.spans[k];return s.kind==='cantilever'?['cant']:[...new Set([s.zoneA,'mid' as BeamZone,s.zoneB])];};
+ const {marks,error}=useBeamMarks(projectId),[msg,setMsg]=useState('');
+ const num=(v:number,on:(v:number)=>void,label:string,neg=false,width=70)=><input aria-label={label} type="number" step="any" style={{width}} disabled={readOnly} value={v} onClick={e=>e.stopPropagation()} onChange={e=>on(neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
+ const barsIn=(v:{count:number;diameter:number},on:(v:{count:number;diameter:number})=>void,label:string)=><span className="bar-cell">
   <input aria-label={`${label} จำนวน`} type="number" min={0} style={{width:44}} disabled={readOnly} value={v.count} onChange={e=>on({...v,count:Math.max(0,Math.trunc(Number(e.target.value)||0))})}/>
   <select aria-label={`${label} ขนาด`} disabled={readOnly} value={v.diameter} onChange={e=>on({...v,diameter:Number(e.target.value)})}>{[...new Set([...diameters,v.diameter])].sort((a,b)=>a-b).map(d=><option key={d} value={d}>{barName(d)}</option>)}</select></span>;
  const span=(k:number,f:(s:BeamSpan)=>void)=>edit(i=>f(i.spans[k]));
@@ -38,28 +50,49 @@ export function BeamGroupEditor({input,edit,readOnly,selected,onSelect}:{input:B
  const addCantilever=(side:'start'|'end')=>edit(i=>{const src=side==='start'?i.spans[0]:i.spans[i.spans.length-1],c={...newBeamSpan(i,src),kind:'cantilever' as const,length:1500};
   if(side==='start'){i.spans.unshift(c);i.grids.unshift(newBeamGrid('',0));}else{i.spans.push(c);i.grids.push(newBeamGrid('',0));}});
  const remove=(k:number)=>edit(i=>{if(i.spans.length<2)return;i.spans.splice(k,1);i.grids.splice(k===0?0:k+1,1);});
+ const fromMark=(k:number,m:BeamMark)=>span(k,s=>{s.mark=m.mark;s.width=m.width;s.depth=m.depth;s.rebar=structuredClone(m.rebar);});
+ const markOf=(mark:string)=>marks.find(m=>m.mark===mark);
  const hasStart=sp[0]?.kind==='cantilever',hasEnd=n>1&&sp[n-1]?.kind==='cantilever';
+ const saveMark=async()=>{if(!cur)return;setMsg('');try{const m=await saveBeamMark(projectId,{mark:cur.mark,width:cur.width,depth:cur.depth,rebar:cur.rebar},markOf(cur.mark));setMsg(`บันทึกเบอร์ ${m.mark} ลงตารางเบอร์คานของโครงการแล้ว`);}catch(e){setMsg(e instanceof Error?e.message:String(e));}};
+ const zoneCols:BeamZone[]=cur?.kind==='cantilever'?['cant']:beamZones.filter(z=>z!=='cant');
  return <div className="beam-group">
-  <BeamGroupElevation input={input} selected={selected} onSelect={onSelect}/>
+  <BeamGroupElevation input={input} selected={sel} onSelect={onSelect}/>
   <div className="actions"><button type="button" disabled={readOnly||n>=12} onClick={addSpan}><Plus size={14}/>เพิ่มช่วง (คัดลอกช่วงก่อนหน้า)</button>
    <button type="button" disabled={readOnly||hasStart||n>=12} onClick={()=>addCantilever('start')}><Plus size={14}/>คานยื่นต้น</button>
    <button type="button" disabled={readOnly||hasEnd||n>=12} onClick={()=>addCantilever('end')}><Plus size={14}/>คานยื่นปลาย</button></div>
-  <div className="table-scroll"><table className="subbase-table beam-spans"><thead><tr><th>ช่วง (กริด)</th><th>เบอร์คาน</th><th>ยาว c/c</th><th>b</th><th>h</th><th title="ระดับหลังคานเทียบระดับอ้างอิงของกลุ่ม (− = Drop ลง)">หลังคาน ±</th><th>เหล็กบน</th><th>เหล็กล่าง</th><th>ปลอก</th><th>@ ปลาย / ยาว</th><th>@ กลาง</th><th/></tr></thead>
-   <tbody>{sp.map((s,k)=><tr key={k} className={k===selected?'active':''} onClick={()=>onSelect(k)}>
-    <td><small>{k+1} · {gr[k]?.label||'ปลาย'}–{gr[k+1]?.label||'ปลาย'}{s.kind==='cantilever'?' · ยื่น':''}</small></td>
-    <td><input aria-label="เบอร์คาน" maxLength={32} style={{width:70}} disabled={readOnly} value={s.mark} onChange={e=>span(k,x=>{x.mark=e.target.value.slice(0,32);})}/></td>
-    <td>{num(s.length,v=>span(k,x=>{x.length=v;}),'ความยาว',false,72)}</td><td>{num(s.width,v=>span(k,x=>{x.width=v;}),'กว้าง',false,56)}</td><td>{num(s.depth,v=>span(k,x=>{x.depth=v;}),'ลึก',false,56)}</td>
-    <td>{num(s.top,v=>span(k,x=>{x.top=v;}),'ระดับหลังคาน',true,60)}</td>
-    <td>{bars(s.rebar.top,v=>span(k,x=>{x.rebar.top=v;}),'เหล็กบน')}</td><td>{bars(s.rebar.bottom,v=>span(k,x=>{x.rebar.bottom=v;}),'เหล็กล่าง')}</td>
-    <td><select aria-label="ขนาดปลอก" disabled={readOnly} value={s.rebar.stirrup.diameter} onChange={e=>span(k,x=>{x.rebar.stirrup.diameter=Number(e.target.value);})}>{[6,9,10,12,16].map(d=><option key={d} value={d}>{barName(d)}</option>)}</select></td>
-    <td><span className="bar-cell">{num(s.rebar.stirrup.endSpacing,v=>span(k,x=>{x.rebar.stirrup.endSpacing=v;}),'ระยะปลอกช่วงปลาย',false,50)}{num(s.rebar.stirrup.endLength,v=>span(k,x=>{x.rebar.stirrup.endLength=v;}),'ความยาวช่วงปลาย',false,60)}</span></td>
-    <td>{num(s.rebar.stirrup.spacing,v=>span(k,x=>{x.rebar.stirrup.spacing=v;}),'ระยะปลอกช่วงกลาง',false,50)}</td>
-    <td><button type="button" className="icon-button" aria-label="ลบช่วง" disabled={readOnly||n<2} onClick={e=>{e.stopPropagation();remove(k);}}><Trash2 size={14}/></button></td></tr>)}</tbody></table></div>
-  <div className="table-scroll"><table className="subbase-table beam-grids"><thead><tr><th>กริด</th>{gr.map((_,k)=><th key={k}>{k+1}</th>)}</tr></thead><tbody>
-   <tr><td>ชื่อกริด</td>{gr.map((g,k)=><td key={k}><input aria-label={`ชื่อกริด ${k+1}`} maxLength={20} style={{width:56}} disabled={readOnly} value={g.label} onChange={e=>grid(k,x=>{x.label=e.target.value.slice(0,20);})}/></td>)}</tr>
-   <tr><td>กว้างเสา (ตามแนวคาน) <small className="muted">0 = ไม่มีเสา</small></td>{gr.map((g,k)=><td key={k}>{num(g.support,v=>grid(k,x=>{x.support=v;}),`กว้างเสา ${k+1}`,false,60)}</td>)}</tr>
-   <tr><td>เหล็กเสริมบนเหนือเสา</td>{gr.map((g,k)=><td key={k}>{bars(g.extraTop,v=>grid(k,x=>{x.extraTop=v;}),`เหล็กเสริมบนกริด ${k+1}`)}</td>)}</tr>
-  </tbody></table></div>
-  <p className="muted">ยาว c/c = ระยะกริดถึงกริด (ช่วงยื่น: กริดถึงปลาย) · คอนกรีตคิดระหว่างผิวเสา · เหล็กบนต่อเนื่องรวมช่วงที่ขนาด/จำนวน/ระดับเท่ากัน · เหล็กเสริมบนยื่นตาม General Spec · ปลายต่อเนื่อง {'×'} topCont · ปลายไม่ต่อเนื่อง × topEnd ของช่วงสุทธิ</p>
+  {error&&<p className="notice warning">{error}</p>}
+  <datalist id="beam-marks">{marks.map(m=><option key={m.id} value={m.mark}>{`${m.width}×${m.depth}`}</option>)}</datalist>
+  <div className="table-scroll"><table className="subbase-table beam-spans"><thead><tr><th>ช่วง</th><th>กริด</th><th>เบอร์คาน</th><th>ยาว c/c</th><th title="ความกว้างเสาตามแนวคาน ที่ Support ซ้าย (0 = ไม่มีเสา)">เสาซ้าย</th><th title="ความกว้างเสาตามแนวคาน ที่ Support ขวา">เสาขวา</th><th>b</th><th>h</th><th title="ระดับหลังคานเทียบระดับอ้างอิงของกลุ่ม (− = Drop ลง)">หลังคาน ±</th><th>หน้าตัด</th><th/></tr></thead>
+   <tbody>{sp.map((s,k)=>{const lib=markOf(s.mark);return <tr key={k} className={k===sel?'active':''} onClick={()=>onSelect(k)}>
+    <td><small>{k+1}{s.kind==='cantilever'?' · ยื่น':''}</small></td>
+    <td><span className="bar-cell"><input aria-label={`ชื่อกริดซ้าย ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={readOnly} value={gr[k]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k,x=>{x.label=e.target.value.slice(0,20);})}/>–<input aria-label={`ชื่อกริดขวา ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={readOnly} value={gr[k+1]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k+1,x=>{x.label=e.target.value.slice(0,20);})}/></span></td>
+    <td><span className="bar-cell"><input aria-label="เบอร์คาน" list="beam-marks" maxLength={32} style={{width:70}} disabled={readOnly} value={s.mark} onClick={e=>e.stopPropagation()} onChange={e=>{const v=e.target.value.slice(0,32),m=markOf(v);if(m)fromMark(k,m);else span(k,x=>{x.mark=v;});}}/>
+     {lib&&<button type="button" className="icon-button" title={`ใช้ขนาดและเหล็กของ ${lib.mark} จากตารางเบอร์คาน`} disabled={readOnly} onClick={e=>{e.stopPropagation();fromMark(k,lib);}}><Download size={13}/></button>}</span></td>
+    <td>{num(s.length,v=>span(k,x=>{x.length=v;}),'ความยาว',false,84)}</td>
+    <td>{num(gr[k]?.support||0,v=>grid(k,x=>{x.support=v;}),`กว้างเสาซ้าย ช่วง ${k+1}`,false,70)}</td>
+    <td>{num(gr[k+1]?.support||0,v=>grid(k+1,x=>{x.support=v;}),`กว้างเสาขวา ช่วง ${k+1}`,false,70)}</td>
+    <td>{num(s.width,v=>span(k,x=>{x.width=v;}),'กว้าง',false,66)}</td><td>{num(s.depth,v=>span(k,x=>{x.depth=v;}),'ลึก',false,66)}</td>
+    <td>{num(s.top,v=>span(k,x=>{x.top=v;}),'ระดับหลังคาน',true,68)}</td>
+    <td><small>{zonesOf(k).map(z=>beamZoneLabels[z]).join(' · ')}</small><small className="block muted">{sectionSummary(s.rebar,zonesOf(k))}</small></td>
+    <td><button type="button" className="icon-button" aria-label="ลบช่วง" disabled={readOnly||n<2} onClick={e=>{e.stopPropagation();remove(k);}}><Trash2 size={14}/></button></td></tr>;})}</tbody></table></div>
+  {cur&&<div className="beam-section-editor"><div className="section-heading"><h5>หน้าตัดช่วงที่ {sel+1} · {cur.mark} · {cur.width} × {cur.depth}{cur.kind==='cantilever'?' · คานยื่น (CANT)':''}</h5>
+   <span className="actions"><button type="button" disabled={readOnly} onClick={()=>edit(i=>{const src=i.spans[sel];i.spans.forEach((s,k)=>{if(k!==sel&&s.mark===src.mark){s.width=src.width;s.depth=src.depth;s.rebar=structuredClone(src.rebar);}});})} title="คัดลอกขนาดและเหล็กไปทุกช่วงที่เป็นเบอร์เดียวกันในกลุ่มนี้"><Copy size={13}/>ใช้กับทุกช่วงเบอร์ {cur.mark}</button>
+    <button type="button" disabled={readOnly||!cur.mark.trim()} onClick={()=>void saveMark()}><BookmarkPlus size={13}/>{markOf(cur.mark)?'อัปเดต':'บันทึก'}ลงตารางเบอร์คาน</button>
+    {markOf(cur.mark)&&<button type="button" className="icon-button" title="ลบเบอร์นี้ออกจากตารางเบอร์คานของโครงการ" disabled={readOnly} onClick={()=>{const m=markOf(cur.mark);if(m&&confirm(`ลบเบอร์ ${m.mark} จากตารางเบอร์คาน?`))void deleteBeamMark(projectId,m).catch(e=>setMsg(String(e)));}}><Trash2 size={13}/></button>}</span></div>
+   {msg&&<p className="notice" role="status">{msg}</p>}
+   <div className="table-scroll"><table className="subbase-table beam-sections"><thead><tr><th>รายการ</th>{zoneCols.map(z=><th key={z} className={zonesOf(sel).includes(z)?'':'muted'}>{beamZoneLabels[z]} SPAN</th>)}</tr></thead><tbody>
+    <tr><td>เหล็กบนหลัก (ต่อเนื่อง)</td><td colSpan={zoneCols.length}>{barsIn(cur.rebar.top,v=>span(sel,x=>{x.rebar.top=v;}),'เหล็กบนหลัก')}</td></tr>
+    <tr><td>เหล็กบนเสริม (EX)</td>{zoneCols.map(z=><td key={z}>{barsIn(cur.rebar.ex[z].top,v=>span(sel,x=>{x.rebar.ex[z].top=v;}),`เหล็กบน EX ${z}`)}</td>)}</tr>
+    <tr><td>เหล็กล่างหลัก (ต่อเนื่อง)</td><td colSpan={zoneCols.length}>{barsIn(cur.rebar.bottom,v=>span(sel,x=>{x.rebar.bottom=v;}),'เหล็กล่างหลัก')}</td></tr>
+    <tr><td>เหล็กล่างเสริม (EX)</td>{zoneCols.map(z=><td key={z}>{barsIn(cur.rebar.ex[z].bottom,v=>span(sel,x=>{x.rebar.ex[z].bottom=v;}),`เหล็กล่าง EX ${z}`)}</td>)}</tr>
+    <tr><td>เหล็กปลอก <span className="bar-cell"><select aria-label="ขนาดปลอก" disabled={readOnly} value={cur.rebar.stirrup.diameter} onChange={e=>span(sel,x=>{x.rebar.stirrup.diameter=Number(e.target.value);})}>{[6,9,10,12,16].map(d=><option key={d} value={d}>{barName(d)}</option>)}</select>
+     <select aria-label="จำนวนขาปลอก" disabled={readOnly} value={cur.rebar.stirrup.legs} onChange={e=>span(sel,x=>{x.rebar.stirrup.legs=Number(e.target.value);})}>{[2,4,6,8].map(l=><option key={l} value={l}>{l} ขา</option>)}</select></span></td>
+     {zoneCols.map(z=><td key={z}>@ {num(cur.rebar.stirrup.spacing[z],v=>span(sel,x=>{x.rebar.stirrup.spacing[z]=v;}),`ระยะปลอก ${z}`,false,60)}</td>)}</tr>
+    <tr><td>เหล็กข้าง (ต่อด้าน) + เหล็กยึด</td><td colSpan={zoneCols.length}><span className="bar-cell">{barsIn({count:cur.rebar.side.count,diameter:cur.rebar.side.diameter},v=>span(sel,x=>{x.rebar.side.count=Math.min(20,v.count);x.rebar.side.diameter=v.diameter;}),'เหล็กข้างต่อด้าน')}
+     <small className="muted">ต่อด้าน (รวม {cur.rebar.side.count*2} เส้น) · ยึด</small>
+     <select aria-label="ขนาดเหล็กยึด" disabled={readOnly} value={cur.rebar.side.tie.diameter} onChange={e=>span(sel,x=>{x.rebar.side.tie.diameter=Number(e.target.value);})}>{[6,9,10,12].map(d=><option key={d} value={d}>{barName(d)}</option>)}</select>@{num(cur.rebar.side.tie.spacing,v=>span(sel,x=>{x.rebar.side.tie.spacing=v;}),'ระยะเหล็กยึด',false,60)}</span></td></tr>
+   </tbody></table></div>
+   <p className="muted">END = ปลายติดเสาที่ไม่ต่อเนื่อง · CON = ปลายต่อเนื่อง · CANT = ช่วงยื่น · หน้าตัดตาม Beam Details · ระยะตัด EX และช่วงปลอกถี่ตาม General Spec (Typical beam details) · เหล็กยาวเกินเหล็กเส้นต่อทาบอัตโนมัติ</p>
+  </div>}
  </div>;
 }

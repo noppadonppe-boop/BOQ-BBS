@@ -1,7 +1,7 @@
 ﻿import {useEffect,useState,type ReactNode} from 'react';
 import {ArrowDown,ArrowUp,Plus,Trash2} from 'lucide-react';
 import type {Spec} from '../domain/model';
-import {DEFAULT_BEAM_RULES,barGrades,gradeBarLabel,gradeOptions,type GradeRow,beamCases,beamNotes,codeInfo,codeList,codeValues,designCodes,endHooks,isCustomCode,lapColumns,lapConcrete,lapGrades,lapTables,stirrupHooks,tableCode,tableOverrides,type BeamCase,type CodeData,type CodeValues,type CustomCode,type DesignCodeId,type Provision} from '../domain/designCodes';
+import {CONFIG_BEAM_RULES,DEFAULT_BEAM_RULES,barGrades,gradeBarLabel,gradeOptions,type GradeRow,beamCases,beamNotes,codeInfo,codeList,codeValues,designCodes,endHooks,isCustomCode,lapColumns,lapConcrete,lapGrades,lapTables,stirrupHooks,tableCode,tableOverrides,type BeamCase,type CodeData,type CodeValues,type CustomCode,type DesignCodeId,type Provision} from '../domain/designCodes';
 
 /** onSave: persist the given spec right away (e.g. “บันทึก Grade”); without it changes wait for “บันทึก Spec”. */
 type Props={spec:Spec;readOnly:boolean;onChange:(next:Spec)=>void;bs:ReactNode;onSave?:(next:Spec)=>void};
@@ -254,7 +254,9 @@ export function BeamSection({e,source='ACI 318'}:{e:Edit;source?:string}){
  return <div className="code-section"><div className="code-block">
   <div className="code-block-head"><h5>การเสริมเหล็กคาน · TYPICAL BEAM REINFORCEMENT DETAILS</h5><small>{source}{e.vals.custom.beam&&<b className="code-own"> · ค่าปรับใน Spec นี้</b>}</small><ResetButton e={e} k="beam" custom={e.vals.custom.beam}/></div>
   <div className="form-grid beam-rules"><label className="field"><span>ช่วงคานสุทธิ L (mm) · ใช้แสดงค่าในรูป</span><input type="number" value={L} min={0} onChange={ev=>setL(Math.max(0,Number(ev.target.value)||0))}/></label>
-   {rule('topEnd','เหล็กบนปลายไม่ต่อเนื่อง')}{rule('topCont','เหล็กบนปลายต่อเนื่อง')}{rule('bottomZone','ระยะจากผิวที่รองรับ (ล่าง)')}</div>
+   {rule('topEnd','เหล็กบน EX ปลายไม่ต่อเนื่อง (END)')}{rule('topCont','เหล็กบน EX ปลายต่อเนื่อง (CON, × La)')}{rule('bottomZone','ระยะจากผิวที่รองรับ (ล่าง)')}
+   {rule('bottomEnd','เหล็กล่าง EX กลางช่วง: เริ่มจากปลาย END')}{rule('bottomCont','เหล็กล่าง EX กลางช่วง: เริ่มจากปลาย CON')}{rule('stirrupZone','ช่วงปลอกถี่ END / CON')}
+   <div className="field"><span>ค่าสำเร็จรูป</span><div className="actions"><button type="button" disabled={!e.edit} onClick={()=>e.put({beam:{...DEFAULT_BEAM_RULES}})}>ACI (0.25L / 0.3L)</button><button type="button" disabled={!e.edit} onClick={()=>e.put({beam:{...CONFIG_BEAM_RULES}})} title="L1/3 · La/3 · L/8 · L/10 · ปลอกถี่ L/4">Beam configuration (L/3)</button></div></div></div>
   <div className="beam-grid">{cards.map(c=><figure key={c.n} className="beam-card"><span className="beam-no">{c.n}</span>{c.node}<figcaption>{c.caseLabel&&<u>{c.caseLabel}</u>}{c.title}</figcaption></figure>)}</div>
   <ol className="beam-notes">{beamNotes.map(n=><li key={n}>{n}</li>)}</ol>
  </div></div>;
