@@ -136,7 +136,9 @@ async function loadAttachmentFromStorage(projectId, context) {
 
   let buffer;
   try {
-    [buffer] = await admin.storage().bucket().file(path).download();
+    // CAD / BIM files are read in the browser (views + text); the raw file is never sent to the AI provider
+    if (CAD_TYPES.includes(attachment.contentType)) buffer = Buffer.alloc(0);
+    else [buffer] = await admin.storage().bucket().file(path).download();
   } catch (error) {
     logger.error('AI drawing source download failed', {projectId, attachmentId, message: error instanceof Error ? error.message : String(error)});
     throw new GatewayError('Backend ไม่สามารถดึงไฟล์ต้นฉบับจาก Firebase Storage ได้', 502, 'storage-error');
@@ -162,6 +164,8 @@ function selectedProvider(config) {
   return {activeProvider, provider};
 }
 
+const CAD_TYPES = ['image/vnd.dwg', 'image/vnd.dxf', 'application/x-step'];
+const sendsOriginal = (file) => file.buffer.length > 0 && !CAD_TYPES.includes(file.mimeType);
 function base64Data(file) { return file.buffer.toString('base64'); }
 function dataUrl(file) { return `data:${file.mimeType};base64,${base64Data(file)}`; }
 
@@ -211,6 +215,7 @@ function providerInstruction(context, file) {
 function shapeInstruction(context, file) {
   const current = context.currentShape && typeof context.currentShape === 'object' ? context.currentShape : null;
   const views = Array.isArray(context.views) ? context.views.length : 0;
+  const cadText = stringValue(context.cadText).slice(0, 60000);
   const answers = (Array.isArray(context.answers) ? context.answers : []).slice(0, 40)
     .map((a) => ({part: stringValue(a?.part).slice(0, 80), question: stringValue(a?.question).slice(0, 300), answer: stringValue(a?.answer).slice(0, 500)}))
     .filter((a) => a.question && a.answer);
@@ -235,6 +240,8 @@ function shapeInstruction(context, file) {
     'ผนัง / เสา / พื้นที่ต่อเนื่องแต่ไม่ใช่องค์ประกอบนี้ (RC WALL, RC COLUMN, FLOOR SLAB) ใส่ใน references ไม่ใช่ parts',
     'ทุกชิ้นส่วนต้องมี source บอกรูป / ตัวเลขที่ใช้ เช่น "Plan F-02 · 650+5350+4400+3850+950" หรือ "Section 2-2 · 2400" · confidence = High เฉพาะเมื่อทุกมิติมาจากตัวเลขในแบบและตรวจผลรวมผ่าน',
     current ? `รูปทรงที่ได้จากไฟล์ก่อนหน้า (ปรับปรุงและเติมให้ครบด้วยไฟล์นี้ คงค่าที่ไม่ขัดแย้ง ใช้ชื่อชิ้นส่วนเดิม): ${JSON.stringify(current).slice(0, 12000)}` : 'ยังไม่มีรูปทรงจากไฟล์ก่อนหน้า',
+    cadText ? `ไฟล์นี้เป็นไฟล์ CAD / BIM ที่ระบบอ่านในเบราว์เซอร์แล้ว: ภาพที่แนบคือภาพที่วาดจากไฟล์ และข้อมูลด้านล่างเป็นค่าจริงจากไฟล์ (ให้ใช้ค่าเหล่านี้แทนการอ่านตัวเลขจากภาพ · DXF: ค่ามิติ DIMENSION และข้อความพร้อมพิกัด · IFC: กล่องขอบเขตและเส้นรอบรูปที่ผิวราบแต่ละระดับของแต่ละองค์ประกอบ ใช้สร้าง parts ได้ตรงๆ และกลุ่มเหล็ก IfcReinforcingBar ใช้สร้าง rebarNotes):
+${cadText}` : '',
     answers.length ? `คำตอบของผู้ใช้ต่อคำถามรอบก่อน (ถือเป็นข้อมูลจริงจากผู้ออกแบบ ใช้ปรับ parts / piles / site / rebarNotes ให้ครบ เช่น สร้าง void ตามคำตอบ ห้ามถามข้อเดิมซ้ำ ถ้าคำตอบยังไม่พอให้ถามเฉพาะส่วนที่ขาด):\n${answers.map((a, i) => `${i + 1}) ${a.part ? `${a.part}: ` : ''}${a.question} → ตอบ: ${a.answer}`).join('\n')}` : '',
     `บทบาทของไฟล์ตามผู้ใช้: ${stringValue(context.drawingRole, 'ไม่ระบุ (อาจมีทั้งแปลนและรูปตัดในหน้าเดียว)')} · ไฟล์: ${stringValue(context.fileName, file.filename)} · หน้า: ${Number(context.pages) || 1}`,
     'รูปแบบ JSON:',
@@ -368,7 +375,7 @@ async function readProviderStream(response, providerName) {
 }
 
 async function callOpenAi(apiKey, model, thinking, file, prompt, signal) {
-  const content = file.mimeType === 'application/pdf'
+  const content = !sendsOriginal(file) ? [{type: 'input_text', text: file.filename}, {type: 'input_text', text: prompt}] : file.mimeType === 'application/pdf'
     ? [{type: 'input_file', filename: file.filename, file_data: dataUrl(file)}, {type: 'input_text', text: prompt}]
     : [{type: 'input_image', image_url: dataUrl(file), detail: 'high'}, {type: 'input_text', text: prompt}];
   for (const v of (file.views || []).slice().reverse()) content.splice(1, 0, {type: 'input_text', text: v.label}, {type: 'input_image', image_url: dataUrl(v), detail: 'high'});
@@ -384,7 +391,7 @@ function anthropicContent(file, prompt) {
   const source = {type: 'base64', media_type: file.mimeType, data: base64Data(file)};
   const document = file.mimeType === 'application/pdf' ? {type: 'document', source, title: file.filename} : {type: 'image', source};
   const views = (file.views || []).flatMap((v) => [{type: 'text', text: v.label}, {type: 'image', source: {type: 'base64', media_type: v.mimeType, data: base64Data(v)}}]);
-  return [document, ...views, {type: 'text', text: prompt}];
+  return [...(sendsOriginal(file) ? [document] : []), ...views, {type: 'text', text: prompt}];
 }
 
 async function callAnthropic(apiKey, model, thinking, file, prompt, signal) {
@@ -406,7 +413,7 @@ async function callGoogle(apiKey, model, thinking, file, prompt, signal) {
   const generationConfig = {responseMimeType: 'application/json'};
   if (Object.keys(thinkingConfig).length) generationConfig.thinkingConfig = thinkingConfig;
   const views = (file.views || []).flatMap((v) => [{text: v.label}, {inlineData: {mimeType: v.mimeType, data: base64Data(v)}}]);
-  const body = {contents: [{role: 'user', parts: [{inlineData: {mimeType: file.mimeType, data: base64Data(file)}}, ...views, {text: prompt}]}], generationConfig};
+  const body = {contents: [{role: 'user', parts: [...(sendsOriginal(file) ? [{inlineData: {mimeType: file.mimeType, data: base64Data(file)}}] : []), ...views, {text: prompt}]}], generationConfig};
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
   const response = await fetch(url, {method: 'POST', headers: {'x-goog-api-key': apiKey, 'content-type': 'application/json'}, body: JSON.stringify(body), signal});
   return readProviderStream(response, 'Google AI Studio');
@@ -551,6 +558,7 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     const {activeProvider, provider} = selectedProvider(config);
     const shapeTask = context.task === 'shape';
     if (shapeTask) stored.file.views = readViews(parsed.context);
+    if (CAD_TYPES.includes(stored.file.mimeType) && (!shapeTask || !stored.file.views?.length)) throw new GatewayError('ไฟล์ CAD / BIM ต้องอ่านผ่านแท็บรูปทรง (ระบบแปลงเป็นภาพและข้อมูลในเบราว์เซอร์ก่อน)', 400, 'invalid-argument');
     context.views = (stored.file.views || []).map((v) => ({label: v.label}));
     const prompt = shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
     writeSse(res, {type: 'progress', phase: 'sending-to-ai', label: 'ดึงไฟล์จาก Storage แล้ว กำลังส่งไฟล์ต้นฉบับให้ AI อ่าน…', detail: `${stored.file.filename} · ${(stored.file.size / 1024 / 1024).toFixed(2)} MiB`});

@@ -24,6 +24,9 @@
   the sheet (`src/data/drawingViews.ts`, overview + 3×2 tiles) as `context.views`. Proposal notes carry part / face / dir
   (`shapeModel.rebarNotes[].partId|face|dir`, questions in `rebarQuestions`) used as hints by `suggestFromNotes`.
   Tests: `tmp/shapeModel.test.ts`, `tmp/f02.test.ts`.
+  CAD / BIM sources (`src/domain/fileTypes.ts`): DWG / DXF / IFC upload as reference attachments (no Mark review);
+  DXF (`dxf-parser`) and IFC (`web-ifc`, lazy WASM) are read in the browser by `src/data/cadDrawings.ts` into views
+  + an exact text summary (`context.cadText`); the gateway never sends the raw CAD file. DWG: user saves as DXF.
 - Rebar sketch (Phase 2): `src/domain/rebarSketch.ts` (view regions, cover snap lines, snapping, shape-code detection,
   layout rules, `sketchBar`, `meshBars`, `loopBars`; sketched bars have ids `sk-`, polyline + distributionAxis so the
   view is recovered from the bar) + UI `RebarSketch.tsx` (tab “ใส่เหล็ก (วาดบนรูปตัด)” for shape-model members).

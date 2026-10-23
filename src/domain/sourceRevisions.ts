@@ -1,9 +1,11 @@
 import type {Attachment,Bar} from './model';
 import {canonical} from './canonical';
+import {isModelFile} from './fileTypes';
 
 export const sourceCurrent=(a:Attachment)=>a.sourceStatus!=='Superseded';
 export const generalSourceInfo=(a:Attachment)=>a.sourceRevision?.scope==='GeneralSpec'?a.sourceRevision:a.sourceIntake?.scope==='GeneralSpec'?a.sourceIntake:undefined;
-export const memberSourceInfo=(a:Attachment)=>a.memberId?(a.sourceRevision?.scope!=='GeneralSpec'?a.sourceRevision:undefined)||(a.sourceIntake?.scope==='Member'?a.sourceIntake:undefined):undefined;
+// CAD / BIM files carry no Mark pointers, so they never open a member source review
+export const memberSourceInfo=(a:Attachment)=>a.memberId&&!isModelFile(a)?(a.sourceRevision?.scope!=='GeneralSpec'?a.sourceRevision:undefined)||(a.sourceIntake?.scope==='Member'?a.sourceIntake:undefined):undefined;
 export const generalSource=(a:Attachment)=>!a.memberId&&!!generalSourceInfo(a);
 export function generalSourceReview(a:Attachment){const required=generalSource(a)&&sourceCurrent(a),review=generalSourceInfo(a)?.review,reviewed=required&&!!review?.note?.trim()&&review.annotationVersion===(a.version||1);return {required,reviewed,pending:required&&!reviewed};}
 export function generalSourceProblems(attachments:Attachment[]){return attachments.filter(a=>generalSourceReview(a).pending).map(a=>`${a.name} / Rev ${a.revision}: ตรวจเอกสาร General Spec ฉบับใหม่ก่อนตรวจสมาชิก`);}

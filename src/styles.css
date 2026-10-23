@@ -269,3 +269,5 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 @media(max-width:1100px){:root{--sidebar-w:200px}.workarea,.workarea.sheet-mode{grid-template-columns:minmax(0,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.app-shell{grid-template-columns:1fr;height:auto;overflow:visible}.app-shell>main{height:auto;overflow:visible}.sidebar{height:auto}}
 .link-button{background:none;border:0;padding:2px 0;color:#1f4f8a;text-decoration:underline;cursor:pointer;font-size:12px;text-align:left}
+.source-format-guide{margin:10px 0;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#fafcfb}.source-format-guide summary{cursor:pointer;font-weight:600}.source-format-guide .format-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:8px}.source-format-guide h4{margin:0 0 2px;font-size:13px}.source-format-guide ul{margin:4px 0 0;padding-left:18px;font-size:12px}
+.warn-text{color:#9a5a00}

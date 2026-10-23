@@ -30,14 +30,26 @@ async function jpeg(src:HTMLCanvasElement,sx:number,sy:number,sw:number,sh:numbe
  throw Error('ภาพขยายของแบบใหญ่เกินกำหนด');
 }
 /** Overview + tiles of page 1 (PDF) or of the image, as base64 JPEG for the gateway. */
-export async function drawingViews(a:Attachment):Promise<DrawingView[]>{
- const c=await masterCanvas(a),W=c.width,H=c.height,landscape=W>=H,cols=landscape?COLS:ROWS,rows=landscape?ROWS:COLS;
+export async function drawingViews(a:Attachment):Promise<DrawingView[]>{return tiles(await masterCanvas(a),a.name);}
+/** Views (and for DXF / IFC an exact text summary) of one source file for the AI shape reader. DWG has no reader: Save As DXF. */
+export async function prepareDrawing(a:Attachment,focus:string[]=[]):Promise<{views:DrawingView[];text?:string}>{
+ if(a.contentType==='image/vnd.dwg')throw Error(`${a.name}: ระบบยังอ่าน DWG ไม่ได้ · ใน AutoCAD ใช้ Save As → DXF (AutoCAD 2018 DXF) แล้วอัปโหลดไฟล์ DXF`);
+ if(a.contentType==='image/vnd.dxf'||a.contentType==='application/x-step'){
+  const {dxfDrawing,ifcDrawing}=await import('./cadDrawings'),blob=await getBlob(ref(storage,a.path));
+  const d=a.contentType==='image/vnd.dxf'?await dxfDrawing(blob,{focus}):await ifcDrawing(blob);
+  const views=[...(d.canvas?await tiles(d.canvas,a.name):[]),...(d.views||[]).map(v=>({...v,mimeType:'image/jpeg' as const}))];
+  return {views:views.slice(0,8),text:d.text};
+ }
+ return {views:await drawingViews(a).catch(()=>[])};
+}
+async function tiles(c:HTMLCanvasElement,name:string):Promise<DrawingView[]>{
+ const W=c.width,H=c.height,landscape=W>=H,cols=landscape?COLS:ROWS,rows=landscape?ROWS:COLS;
  const tw=W/cols,th=H/rows,ox=tw*OVERLAP,oy=th*OVERLAP,rowName=['บน','กลาง','ล่าง'],colName=['ซ้าย','กลาง','ขวา'];
- const out:DrawingView[]=[{label:`ภาพรวมทั้งแผ่น · ${a.name}`,mimeType:'image/jpeg',data:await jpeg(c,0,0,W,H,OVERVIEW)}];
+ const out:DrawingView[]=[{label:`ภาพรวมทั้งแผ่น · ${name}`,mimeType:'image/jpeg',data:await jpeg(c,0,0,W,H,OVERVIEW)}];
  for(let r=0;r<rows;r++)for(let k=0;k<cols;k++){
   const x0=Math.max(0,k*tw-ox),y0=Math.max(0,r*th-oy),x1=Math.min(W,(k+1)*tw+ox),y1=Math.min(H,(r+1)*th+oy);
-  const name=`ภาพขยาย ส่วน${rows===2?(r?'ล่าง':'บน'):rowName[r]}${cols===2?(k?'ขวา':'ซ้าย'):colName[k]} (แถว ${r+1}/${rows} · คอลัมน์ ${k+1}/${cols})`;
-  out.push({label:name,mimeType:'image/jpeg',data:await jpeg(c,x0,y0,x1-x0,y1-y0,1800)});
+  const label=`ภาพขยาย ส่วน${rows===2?(r?'ล่าง':'บน'):rowName[r]}${cols===2?(k?'ขวา':'ซ้าย'):colName[k]} (แถว ${r+1}/${rows} · คอลัมน์ ${k+1}/${cols})`;
+  out.push({label,mimeType:'image/jpeg',data:await jpeg(c,x0,y0,x1-x0,y1-y0,1800)});
  }
  return out;
 }

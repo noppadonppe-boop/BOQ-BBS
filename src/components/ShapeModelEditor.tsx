@@ -3,7 +3,8 @@ import {Copy,Plus,Trash2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
 import {isCoverQuestion,proposalGaps,proposalToShape,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
 import {aiShapeConfigured,analyseShapeWithAI} from '../data/aiShapeAnalysis';
-import {drawingViews} from '../data/drawingViews';
+import {prepareDrawing} from '../data/drawingViews';
+import {isModelFile,modelFileLabel} from '../domain/fileTypes';
 import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
 import {normaliseShape,partPolygon,shapeFootprint,shapePileQuantities} from '../domain/shapeGeometry';
 import {applyShapeModel,shapeProblems,shapeStageVolumes,standardCover,starterShape} from '../domain/shapeApply';
@@ -99,16 +100,16 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
  const files=attachments.filter(a=>on[a.id]),configured=aiShapeConfigured(),gaps=proposal?proposalGaps(proposal):[];
  /** First read, or a re-read that refines `proposal` with the user's replies to its questions. */
  const run=async(answers?:ShapeAnswer[])=>{setBusy(true);setError('');let cur:ShapeProposal|undefined=answers?proposal||undefined:undefined;try{for(const [i,a] of files.entries()){
-  const at=`ไฟล์ ${i+1}/${files.length}`;setProgress(`${at} · กำลังเตรียมภาพขยายของแบบ…`);
-  const views=await drawingViews(a).catch(()=>undefined);
-  cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,answers,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur){setProposal(cur);setReplies({});}}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
+  const at=`ไฟล์ ${i+1}/${files.length}`;setProgress(`${at} · ${isModelFile(a)?`กำลังอ่านไฟล์ ${modelFileLabel(a.contentType)} ในเบราว์เซอร์…`:'กำลังเตรียมภาพขยายของแบบ…'}`);
+  const {views,text}=await prepareDrawing(a,[member.code,a.name.replace(/\.[^.]+$/,'')]);
+  cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,cadText:text,answers,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur){setProposal(cur);setReplies({});}}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
  const shapeQs=proposal?.missing.filter(x=>x.kind!=='rebar'&&!isCoverQuestion(x))||[],rebarQs=proposal?.missing.filter(x=>x.kind==='rebar'&&!isCoverQuestion(x))||[];
  const qKey=(x:{part:string;question:string})=>`${x.part}|${x.question}`,answers:ShapeAnswer[]=(proposal?.missing||[]).map(x=>({part:x.part,question:x.question,answer:(replies[qKey(x)]||'').trim()})).filter(a=>a.answer);
  const ask=(x:{part:string;question:string},i:number)=><label key={i} className="shape-ai-q"><span>❓ {x.part?`${x.part}: `:''}{x.question}</span><textarea rows={2} disabled={readOnly||busy} placeholder="พิมพ์คำตอบ เช่น ขอบเขต / ระดับ / ค่าที่ใช้ (เว้นว่างได้)" value={replies[qKey(x)]||''} onChange={e=>setReplies(r=>({...r,[qKey(x)]:e.target.value}))}/></label>;
  const answer=(g:{part:number;field:string},value:number)=>setProposal(p=>{if(!p)return p;if(g.part<0)return {...p,piles:p.piles?{...p.piles,[g.field]:value}:p.piles};return {...p,parts:p.parts.map((q,i)=>i===g.part?{...q,[g.field]:value}:q)};});
  return <details className="shape-ai" open={!member.shapeModel}><summary>✨ ขั้นที่ 1–2 · ให้ AI อ่านรูปทรงจากแบบต้นทาง ({attachments.length} ไฟล์)</summary>
   {!configured&&<p className="notice warning">ยังไม่ได้ตั้งค่าบริการ AI (VITE_AI_DRAWING_ANALYSIS_ENDPOINT) · สร้างรูปทรงด้วยมือได้ด้านล่าง</p>}
-  {!attachments.length?<p className="muted">อัปโหลดแบบ (แปลน / รูปตัด / 3D) ในแท็บ “แบบต้นทาง / อ่านจากแบบ” ก่อน</p>:<table className="shape-ai-files"><thead><tr><th/><th>ไฟล์</th><th>บทบาทของรูป</th></tr></thead><tbody>{attachments.map(a=><tr key={a.id}><td><input type="checkbox" disabled={busy} checked={!!on[a.id]} onChange={e=>setOn({...on,[a.id]:e.target.checked})}/></td><td>{a.name}<small className="block">{a.kind||''} {a.revision?`Rev ${a.revision}`:''}</small></td><td><select disabled={busy} value={pick[a.id]||roles[5]} onChange={e=>setPick({...pick,[a.id]:e.target.value})}>{roles.map(r=><option key={r}>{r}</option>)}</select></td></tr>)}</tbody></table>}
+  {!attachments.length?<p className="muted">อัปโหลดแบบ (แปลน / รูปตัด / 3D) ในแท็บ “แบบต้นทาง / อ่านจากแบบ” ก่อน</p>:<table className="shape-ai-files"><thead><tr><th/><th>ไฟล์</th><th>บทบาทของรูป</th></tr></thead><tbody>{attachments.map(a=><tr key={a.id}><td><input type="checkbox" disabled={busy||a.contentType==='image/vnd.dwg'} checked={!!on[a.id]&&a.contentType!=='image/vnd.dwg'} onChange={e=>setOn({...on,[a.id]:e.target.checked})}/></td><td>{a.name}<small className="block">{isModelFile(a)?`${modelFileLabel(a.contentType)} · `:''}{a.kind||''} {a.revision?`Rev ${a.revision}`:''}</small>{a.contentType==='image/vnd.dwg'&&<small className="block warn-text">อ่าน DWG ไม่ได้ · ใน AutoCAD ใช้ Save As → DXF (2018) แล้วอัปโหลด DXF</small>}{a.contentType==='application/x-step'&&<small className="block muted">อ่านรูปทรง 3D และเหล็ก (IfcReinforcingBar) จากโมเดลโดยตรง</small>}{a.contentType==='image/vnd.dxf'&&<small className="block muted">อ่านพิกัด มิติ และข้อความจริงจากไฟล์</small>}</td><td><select disabled={busy} value={pick[a.id]||roles[5]} onChange={e=>setPick({...pick,[a.id]:e.target.value})}>{roles.map(r=><option key={r}>{r}</option>)}</select></td></tr>)}</tbody></table>}
   <div className="actions"><button className="primary" disabled={readOnly||busy||!configured||!files.length} onClick={()=>void run()}>{busy?'กำลังอ่าน…':`อ่านรูปทรงจาก ${files.length} ไฟล์`}</button>{progress&&<span role="status" className="muted">{progress}</span>}</div>
   <p className="muted">AI อ่านทีละไฟล์ตามลำดับ ไฟล์ถัดไปใช้ผลก่อนหน้าเติมให้ครบ · ค่าที่อ่านไม่ได้จะถามด้านล่าง ไม่เดาค่า</p>
   {error&&<p className="notice danger">{error}</p>}
