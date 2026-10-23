@@ -13,6 +13,7 @@ import {buildView,renderView,viewHeight} from '../domain/elementViews';
 import {Field,number} from './EditorControls';
 import {PrimsSvg} from './PrimsSvg';
 import {ModelView} from './Geometry';
+import {boqCategories,boqCategoryLabels,type BoqCategory} from '../domain/reportCategory';
 
 type P2=[number,number];
 type Drag={mode:'move'|'size'|'radius'|'vertex'|'cutX'|'cutY';id?:string;index?:number;start:P2;orig?:ShapePart;origCut?:number};
@@ -25,6 +26,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  const [draft,setDraft]=useState<ShapeModel>(()=>structuredClone(member.shapeModel||starterShape(member)));
  // cover: the member's value, or the drawing's / standard value once an AI shape is used (editable)
  const [cover,setCover]=useState(member.cover),[coverSource,setCoverSource]=useState('');
+ const [boqCategory,setBoqCategory]=useState<BoqCategory>(member.boqCategory||'Other');
  const [sel,setSel]=useState(draft.parts[0]?.id||''),[snap,setSnap]=useState(50),[cut,setCut]=useState<P2>(()=>[member.x/2,member.y/2]);
  const part=draft.parts.find(p=>p.id===sel);
  const put=(id:string,patch:Partial<ShapePart>)=>setDraft(d=>({...d,confirmed:false,parts:d.parts.map(p=>p.id===id?{...p,...patch} as ShapePart:p)}));
@@ -46,10 +48,10 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  const piles=draft.piles?shapePileQuantities(draft):undefined;
  const blocked=readOnly||!preview||checks.blockers.length>0;
  const std=standardCover(draft);
- const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;onApply({...applyShapeModel(member,draft),cover:Math.max(0,cover)});};
+ const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;onApply({...applyShapeModel(member,draft),cover:Math.max(0,cover),boqCategory});};
  return <section className="panel padded shape-editor">
   <div className="section-heading"><div><h3>รูปทรงหลายชิ้นส่วน · {member.code}</h3><p className="muted">ประกอบจากชิ้นส่วน (กล่อง · หลายเหลี่ยม · ทรงกระบอก/ผนังกลม · ปล่อง) และช่องเปิด · ชิ้นส่วนซ้อนกันนับครั้งเดียว · แก้ได้ทั้งในแปลนและช่องคุณสมบัติ · มิติ mm</p></div>
-   <div className="actions"><label className="field compact"><span>Snap</span><select value={snap} onChange={e=>setSnap(Number(e.target.value))}>{[1,10,25,50,100].map(v=><option key={v} value={v}>{v} mm</option>)}</select></label></div></div>
+   <div className="actions"><label className="field compact"><span>หมวด BOQ</span><select aria-label="หมวด BOQ" disabled={readOnly} value={boqCategory} onChange={e=>setBoqCategory(e.target.value as BoqCategory)} title="รวมปริมาณในรายงาน BOQ กับหมวดนี้">{boqCategories.map(c=><option key={c} value={c}>{boqCategoryLabels[c]}</option>)}</select></label><label className="field compact"><span>Snap</span><select value={snap} onChange={e=>setSnap(Number(e.target.value))}>{[1,10,25,50,100].map(v=><option key={v} value={v}>{v} mm</option>)}</select></label></div></div>
   <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={(shape,c)=>{setDraft(shape);setSel(shape.parts[0].id);setCover(c??standardCover(shape));setCoverSource(c?'จากแบบ':'มาตรฐาน');}}/>
   <div className="shape-layout">
    <aside className="shape-parts">

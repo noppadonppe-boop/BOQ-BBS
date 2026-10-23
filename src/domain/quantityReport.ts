@@ -2,6 +2,7 @@ import {quantityBasisCoverage} from './quantityBasis';
 import {takeoff} from './engine';
 import type {SnapshotBundle,ReportGroup} from './model';
 import {reinforcementCoverage} from './reinforcementCoverage';
+import {reportCategory} from './reportCategory';
 export const BOQ_READINESS_POLICY='quantity-readiness-2.0';
 export const COMPONENT_BOQ_READINESS_POLICY='quantity-readiness-3.0';
 export const quantityKeys=['concrete','formwork','excavation','backfill','lean','rebar'] as const;
@@ -14,8 +15,8 @@ export function quantityReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sc
   if(q.quantity!==quantity)throw Error(`${m.code}: จำนวนสมาชิกในชุดส่งงานไม่ตรงฐานคำนวณ`);
   [1,...quantityKeys.map(k=>q[k])].forEach((value,i)=>totals[i]+=value*quantity);
   for(const o of m.occurrences){
-   const raw=group==='Member'?m.id:group==='Category'?m.category:group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=group+':'+JSON.stringify(raw);
-   const row=rows.get(key)||{key,label:group==='Member'?m.code:raw||'ไม่ระบุ',category:group==='Member'?m.category:'',unassigned:(group==='Zone'||group==='Floor')&&!raw,values:Array(7).fill(0)};
+   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=group+':'+JSON.stringify(raw);
+   const row=rows.get(key)||{key,label:group==='Member'?m.code:raw||'ไม่ระบุ',category:group==='Member'?reportCategory(m):'',unassigned:(group==='Zone'||group==='Floor')&&!raw,values:Array(7).fill(0)};
    [1,...quantityKeys.map(k=>q[k])].forEach((value,i)=>row.values[i]+=value*o.quantity);rows.set(key,row);
   }
   for(const b of m.bars){

@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {categories} from './model';
 import type {ExportScope,Member,SnapshotBundle} from './model';
+import {reportCategory} from './reportCategory';
 
 export const reportGroups=['Member','Category','Zone','Floor','Summary'] as const;
 const optionalText=(max:number)=>z.preprocess(v=>v===''?undefined:v,z.string().max(max).optional());
@@ -15,7 +16,7 @@ export function normalizeScope(input:unknown={}):ExportScope{
 export function hasSelection(scope:ExportScope){return !!(scope.memberId||scope.category||scope.zone||scope.floor||scope.zoneUnassigned||scope.floorUnassigned);}
 export function selectedMembers(members:Member[],input:ExportScope):Member[]{
  const scope=normalizeScope(input);
- return members.filter(m=>(!scope.memberId||m.id===scope.memberId)&&(!scope.category||m.category===scope.category)).map(m=>({...m,occurrences:m.occurrences.filter(o=>(!scope.zone||o.zone===scope.zone)&&(!scope.floor||o.floor===scope.floor)&&(!scope.zoneUnassigned||o.zone==='')&&(!scope.floorUnassigned||o.floor===''))})).filter(m=>m.occurrences.length);
+ return members.filter(m=>(!scope.memberId||m.id===scope.memberId)&&(!scope.category||m.category===scope.category||reportCategory(m)===scope.category)).map(m=>({...m,occurrences:m.occurrences.filter(o=>(!scope.zone||o.zone===scope.zone)&&(!scope.floor||o.floor===scope.floor)&&(!scope.zoneUnassigned||o.zone==='')&&(!scope.floorUnassigned||o.floor===''))})).filter(m=>m.occurrences.length);
 }
 export function selectBundle(bundle:SnapshotBundle,input:ExportScope):SnapshotBundle{
  const scope=normalizeScope(input),members=selectedMembers(bundle.members,scope),ids=new Set(members.map(m=>m.id)),sourceMemberQuantities:NonNullable<SnapshotBundle['sourceMemberQuantities']>={};

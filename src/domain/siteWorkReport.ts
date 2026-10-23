@@ -1,6 +1,7 @@
 import type {ReportGroup,SnapshotBundle} from './model';
 import {takeoff} from './engine';
 import {siteItemKey,siteKinds,siteLabels,siteUnits} from './siteWork';
+import {reportCategory} from './reportCategory';
 
 export type SiteRow={key:string;label:string;item:string;unit:string;quantity:number};
 /** Sub-base layers (sand, plastic sheet, compaction) and manual BOQ items, grouped like the BOQ report.
@@ -14,7 +15,7 @@ export function siteWorkReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sc
   siteKinds.forEach((k,i)=>{const each=q[k]??0;if(each>0)lines.push({item:siteLabels[k],unit:siteUnits[k],each,rank:i});});
   for(const it of m.siteWork.items)if(it.quantity>0)lines.push({item:it.label,unit:it.unit,each:it.quantity,rank:10});
   for(const o of m.occurrences){
-   const raw=group==='Member'?m.code:group==='Category'?m.category:group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary';
+   const raw=group==='Member'?m.code:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary';
    for(const l of lines){
     const key=JSON.stringify([raw,siteItemKey({label:l.item,unit:l.unit})]),r=rows.get(key)||{key,label:raw||'ไม่ระบุ',item:l.item,unit:l.unit,quantity:0};
     r.quantity+=l.each*o.quantity;rows.set(key,r);if(!order.has(key))order.set(key,l.rank);

@@ -139,10 +139,11 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     </div><FootingEarthworkSketch input={input}/></div>;})()}</>}
   {input.category==='Column'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
    <label className="field"><span>รูปร่างหน้าตัด</span><select disabled={readOnly} value={input.shape} onChange={e=>set('shape',e.target.value)}><option value="rect">สี่เหลี่ยม</option><option value="circle">วงกลม</option></select></label>
-   {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div></>}
+   {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div><HeightFromLevels what="เสา" readOnly={readOnly} onUse={h=>set('height',h)}/></>}
   {input.category==='Beam'&&<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
   {input.category==='Slab'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
   {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
+  {input.category==='Wall'&&<HeightFromLevels what="ผนัง" readOnly={readOnly} onUse={h=>set('height',h)}/>}
 
   <SiteItemsEditor items={items} onChange={setItems} readOnly={readOnly}/>
 
@@ -298,4 +299,12 @@ const insetPreview=(poly:[number,number][],c:number)=>poly.map((p,i)=>{const pre
 function pileSummary(i:FoundationInput){
  const q=pileQuantities(i);
  return `${pileTypeLabels[q.type]} ${q.size} mm · ${q.count} ต้น × ${q.lengthEach} m = ${number(q.totalLength,2)} m ต่อฐาน · ตัดหัวเข็ม ${q.cutCount} ต้น × ${number(q.cutLengthEach,2)} m${i.pile.layout==='standard'&&[1,2,3,4,5,6,7,8,9].includes(i.pile.count)?' · รูปแบบมาตรฐาน':''}`;
+}
+/** Height from the bottom / top levels (m) shown on the drawings, e.g. top of footing −1.200 to beam soffit +3.500. */
+function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;onUse:(h:number)=>void}){
+ const [bottom,setBottom]=useState(''),[top,setTop]=useState(''),h=Math.round((Number(top)-Number(bottom))*1000),ok=bottom!==''&&top!==''&&Number.isFinite(h)&&h>0;
+ return <details className="height-levels"><summary>คำนวณความสูง{what}จากระดับในแบบ</summary><div className="form-grid">
+  <label className="field"><span>ระดับล่าง (m) เช่น หลังฐาน</span><input type="number" step="0.001" disabled={readOnly} value={bottom} onChange={e=>setBottom(e.target.value)}/></label>
+  <label className="field"><span>ระดับบน (m) เช่น ท้องคาน / หลังพื้น</span><input type="number" step="0.001" disabled={readOnly} value={top} onChange={e=>setTop(e.target.value)}/></label>
+  <div className="field"><span>ความสูง</span><button type="button" disabled={readOnly||!ok} onClick={()=>onUse(h)}>{ok?`ใช้ ${h.toLocaleString()} mm`:'กรอกระดับให้ครบ'}</button></div></div></details>;
 }

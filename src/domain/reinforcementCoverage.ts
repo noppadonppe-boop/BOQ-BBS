@@ -3,6 +3,7 @@ import {canonical} from './canonical';
 import {schedule} from './engine';
 import {compareSourceSchedule} from './sourceSchedule';
 import {sourceComparisonQuantity} from './sourceQuantityBasis';
+import {reportCategory} from './reportCategory';
 
 export type SteelCoverageState='Unentered'|'SourcePending'|'Entered'|'DeclaredZero'|'Conflict';
 export type SteelCoverage={memberId:string;memberCode:string;state:SteelCoverageState;complete:boolean;reasons:string[];basis:string};
@@ -32,6 +33,6 @@ export function steelCoverage(m:Member,b:Omit<Pick<SnapshotBundle,'project'|'att
 }
 export function reinforcementCoverage(b:Pick<SnapshotBundle,'members'|'project'|'attachments'|'calculations'|'sourceMemberQuantities'|'scope'>,group:ReportGroup='Member'){
  const members=b.members.map(m=>steelCoverage(m,b)),pending=members.filter(m=>!m.complete),pendingIds=new Set(pending.map(m=>m.memberId)),groups=new Map<string,Set<string>>();
- for(const m of b.members)for(const o of m.occurrences){const raw=group==='Member'?m.id:group==='Category'?m.category:group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=JSON.stringify([group,raw]);const ids=groups.get(key)||new Set<string>();if(pendingIds.has(m.id))ids.add(m.id);groups.set(key,ids);}
+ for(const m of b.members)for(const o of m.occurrences){const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=JSON.stringify([group,raw]);const ids=groups.get(key)||new Set<string>();if(pendingIds.has(m.id))ids.add(m.id);groups.set(key,ids);}
  return {members,pending,complete:!pending.length,groupPending:new Map([...groups].map(([key,ids])=>[key,ids.size]))};
 }

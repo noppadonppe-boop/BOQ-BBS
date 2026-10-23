@@ -1,5 +1,6 @@
 import type {Member,ReportGroup,SnapshotBundle} from './model';
 import {elementInputSchema,pileQuantities,pileTypeLabels,type FoundationInput} from './elementInput';
+import {reportCategory} from './reportCategory';
 
 /** Structured pile-cap input of a member, if any (stored input is migrated on read). */
 export function pileInput(m:Member):FoundationInput|undefined{
@@ -16,7 +17,7 @@ export function pileReport(bundle:SnapshotBundle,group:ReportGroup=bundle.scope?
   const q=pileQuantities(input);if(!q.count)continue;
   const pile=`${pileTypeLabels[q.type]} ${q.size} mm × ${q.lengthEach} m`;
   for(const o of m.occurrences){
-   const raw=group==='Member'?m.code:group==='Category'?m.category:group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=`${raw}|${pile}`;
+   const raw=group==='Member'?m.code:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=`${raw}|${pile}`;
    const r=rows.get(key)||{key,label:raw||'ไม่ระบุ',pile,count:0,length:0,cutCount:0,cutLength:0};
    r.count+=q.count*o.quantity;r.length+=q.totalLength*o.quantity;r.cutCount+=q.cutCount*o.quantity;r.cutLength+=q.totalCutLength*o.quantity;rows.set(key,r);
   }

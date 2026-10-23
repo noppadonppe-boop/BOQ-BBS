@@ -297,3 +297,4 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .columns-table tr{cursor:pointer}.columns-table tr.active td{background:var(--brand-50)}.columns-table td input[type=checkbox]{width:auto;min-width:0}
 .column-detail-title{margin:10px 0 4px}
 .ground-fields{margin:10px 0}.ground-fields .subbase-table{max-width:720px}
+.height-levels{margin:6px 0 10px}.height-levels summary{cursor:pointer;color:var(--brand);font-size:13px}
