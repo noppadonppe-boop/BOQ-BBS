@@ -1,10 +1,10 @@
-import {columnExtent,footingEarth,type FoundationInput} from '../domain/elementInput';
+import {columnExtent,footingColumns,footingEarth,type FoundationInput} from '../domain/elementInput';
 
 const fmt=(m:number)=>`${m>0?'+':m<0?'−':'±'}${Math.abs(m).toFixed(3)}`;
 /** Live section X–X of the footing pit: ground line, sloped / vertical sides, working space,
  * sand bed, lean concrete, footing and pedestal, with the reference levels when given. */
 export function FootingEarthworkSketch({input}:{input:FoundationInput}){
- const e=footingEarth(input),T=input.thickness,col=input.column,ped=col.type==='pedestal'?col.height:0,{w:cw}=columnExtent(col);
+ const e=footingEarth(input),T=input.thickness,peds=input.column.type==='pedestal'?footingColumns(input):[],ped=Math.max(0,...peds.map(c=>c.height));
  const half=(e.bx+e.grow)/2+Math.max(300,e.X*.12),W=2*half,fs=W/32,cx=0;
  // room above for the ground label, below for the two pit-bottom labels
  const top=Math.max(T+ped,e.depth-e.below)+Math.max(200,1.6*fs),bottom=-e.below-3.4*fs,H=top-bottom;
@@ -21,7 +21,7 @@ export function FootingEarthworkSketch({input}:{input:FoundationInput}){
    {e.lean>0&&rect(-e.lx/2,e.lx/2,-e.lean,0,'lean','lean')}
    {input.subbase.sheet.enabled&&<line className="sheet" x1={X(-e.sheet[0]/2)} x2={X(e.sheet[0]/2)} y1={Y(-e.lean)} y2={Y(-e.lean)}/>}
    {rect(-e.X/2,e.X/2,0,T,'concrete','footing')}
-   {ped>0&&rect(-cw/2+col.offsetX,cw/2+col.offsetX,T,T+ped,'concrete','pedestal')}
+   {peds.map((c,k)=>{const {w:cw}=columnExtent(c);return rect(-cw/2+c.offsetX,cw/2+c.offsetX,T,T+c.height,'concrete',`pedestal${k}`);})}
    {input.subbase.compaction.enabled&&e.depth>0&&<line className="compaction" x1={X(-e.bx/2)} x2={X(e.bx/2)} y1={Y(pit)+fs*.3} y2={Y(pit)+fs*.3}/>}
    {label(-half+fs*.4,ground+fs*.4,lv?`NGL ${fmt(input.levels.ground)}`:'ระดับดิน')}
    {e.depth>0&&label(-half+fs*.4,pit-fs*1.2,lv&&e.bottomLevel!==undefined?`ก้นขุด ${fmt(e.bottomLevel)}`:`ลึก ${Math.round(e.depth)} mm`)}

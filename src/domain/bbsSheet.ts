@@ -5,7 +5,7 @@ import {shapePileQuantities} from './shapeGeometry';
 import {shapeStageVolumes} from './shapeApply';
 import {labels} from './model';
 import type {ElementInput} from './elementInput';
-import {pileQuantities} from './elementInput';
+import {footingColumns,pileQuantities} from './elementInput';
 import {buildView,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
 import {textWidth,wrapText,type Prim} from './drawingPrims';
 
@@ -73,7 +73,7 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  const det=input?.detailing,names:Record<string,string>={bottom:'ล่าง',top:'บน',side:'ข้าง',edge:'ขอบ',face:'ผิว'};
  const notes=[
   'มิติทั้งหมดเป็นมิลลิเมตร (mm) · ไม่ใช้วัดจากแบบ (NTS)',
-  `ระยะหุ้มคอนกรีต (Cover): ${input?Object.entries(input.cover).map(([k2,v])=>`${names[k2]||k2} ${v}`).join(' · '):m.cover}${input?.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?'เสาตอม่อ':'Starter'} ${input.column.columnNo} ${input.column.cover}`:''}`,
+  `ระยะหุ้มคอนกรีต (Cover): ${input?Object.entries(input.cover).map(([k2,v])=>`${names[k2]||k2} ${v}`).join(' · '):m.cover}${input?.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?'เสาตอม่อ':'Starter'} ${footingColumns(input).map(c=>c.columnNo).filter(Boolean).join(', ')} ${input.column.cover}`:''}`,
   det?`รัศมีดัดใน ${det.bendSmall}d (Ø ≤ 16) / ${det.bendLarge}d (Ø ≥ 20) · ปลอก ${det.tieBend}d`:'รัศมีดัดตามข้อมูลแต่ละ Mark',
   det?`ขอ 90° = ${det.hook90}d (ปลอกสี่เหลี่ยมงอฉากอ้อมเหล็กมุม) · ขอปลอกวงกลม 135° = ${det.hook135}d ≥ ${det.hook135Min} mm · ทาบ ${det.lapTable?`ตาม Spec (${det.lapTable.map(r=>`Ø${r.bar}=${r.length}`).join(', ')})`:`${det.lap}d`}`:'',
   `ยาวตัดปัดขึ้นทีละ ${s.project.spec.rounding} mm${s.project.spec.bsEdition?` (${s.project.spec.bsEdition})`:''} · เหล็ก ${det?`${det.mainGrade} / ปลอก ${det.tieGrade}`:'ตามตาราง'}`,

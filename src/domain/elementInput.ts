@@ -2,6 +2,7 @@ import {z} from 'zod';
 import type {Bar,Category,Member,Spec} from './model';
 import {detailingFromSpec} from './specDetailing';
 import {emptySiteWork,withSiteWork} from './siteWork';
+import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
@@ -129,6 +130,9 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  column:footingColumnSchema,
  /** Reference levels (m): natural ground (NGL) and top of footing. Enabled = excavation depth is computed
   * from the levels down to the bottom of the lowest sub-base layer (lean, or sand under it). */
+ /** Columns 2–10 on the same footing (C1 = `column`): own number and offsets; linked = same section,
+  * bars and height as C1. All columns share C1's type (pedestal / starter). */
+ extraColumns:z.array(footingColumnSchema.extend({linked:z.boolean()}).strict()).max(9),
  levels:z.object({enabled:z.boolean(),ground:level,top:level}).strict(),
  /** Sub-base under the footing: sand bed (projection per side from the footing edge), plastic sheet
   * (= lean area, or sand area without lean), compaction of the whole pit bottom. */
@@ -136,6 +140,25 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
 }).strict();
 export const DEFAULT_FOOTING_LEVELS={enabled:false,ground:0,top:-1.2};
 export const DEFAULT_FOOTING_SUBBASE={sand:{enabled:false,thickness:100,projection:100},sheet:{enabled:false},compaction:{enabled:false}};
+export type ExtraFootingColumn=FootingColumn&{linked:boolean};
+/** Every column on the footing: C1 (`column`) then the extra ones resolved (linked → C1's section, bars and height
+ * with its own number and offsets); empty when C1 is 'none'. */
+export function footingColumns(i:FoundationInput):FootingColumn[]{
+ if(i.column.type==='none')return [];
+ return [i.column,...(i.extraColumns||[]).map(({linked,...c})=>linked?{...i.column,columnNo:c.columnNo,offsetX:c.offsetX,offsetY:c.offsetY}:{...c,type:i.column.type})];
+}
+/** Display name of column k (1-based numbering when unnamed). */
+export const footingColumnName=(c:FootingColumn,k:number,many:boolean)=>`${c.type==='pedestal'?'เสาตอม่อ':'Starter'}${c.columnNo?` ${c.columnNo}`:many?` C${k+1}`:''}`;
+/** Column centre layouts for n columns (offsets from the footing centre, mm) on a footing w × d. */
+export const columnLayouts=[['row-x','แถวแนว X'],['row-y','แถวแนว Y'],['grid','ตาราง 2 แถว'],['triangle','สามเหลี่ยม (3)'],['corners','มุม (4)']] as const;
+export function columnLayout(kind:typeof columnLayouts[number][0],n:number,w:number,d:number):[number,number][]{
+ const even=(count:number,len:number)=>Array.from({length:count},(_,k)=>count===1?0:-len/2+len*k/(count-1));
+ if(kind==='row-x')return even(n,w*.6).map(x=>[Math.round(x),0]);
+ if(kind==='row-y')return even(n,d*.6).map(y=>[0,Math.round(y)]);
+ if(kind==='triangle'&&n===3)return [[-Math.round(w*.25),-Math.round(d*.2)],[Math.round(w*.25),-Math.round(d*.2)],[0,Math.round(d*.25)]];
+ if(kind==='corners'&&n===4)return [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>[Math.round(a*w*.25),Math.round(b*d*.25)]);
+ const cols=Math.ceil(n/2),xs=even(cols,w*.6);return Array.from({length:n},(_,k)=>[Math.round(xs[k%cols]),Math.round(k<cols?-d*.2:d*.2)]);
+}
 /** Excavation slopes offered in the input (H : V per 1 vertical); 0 = vertical sides. */
 export const slopePresets=[[0,'ตั้งตรง'],[1,'1:1'],[1.5,'1:1.5'],[2,'1:2']] as const;
 /** Footing earthwork from the input: thicknesses under the footing, pit depth (levels or entered) and plan sizes. */
@@ -224,8 +247,8 @@ function migrateElementInput(raw:unknown):unknown{
 }
 /** Footings saved before reference levels / sub-base layers → levels off, no sand / sheet / compaction (same quantities). */
 function migrateFootingSite(raw:any):unknown{
- if(raw?.version!==2||raw.category!=='Foundation'||'levels' in raw&&'subbase' in raw)return raw;
- const v=structuredClone(raw);v.levels??={...DEFAULT_FOOTING_LEVELS};v.subbase??=structuredClone(DEFAULT_FOOTING_SUBBASE);return v;
+ if(raw?.version!==2||raw.category!=='Foundation'||'levels' in raw&&'subbase' in raw&&'extraColumns' in raw)return raw;
+ const v=structuredClone(raw);v.levels??={...DEFAULT_FOOTING_LEVELS};v.subbase??=structuredClone(DEFAULT_FOOTING_SUBBASE);v.extraColumns??=[];return v;
 }
 /** Footings saved before the slab-cast option / side loops → both off (same bars). */
 function migrateFootingSlab(raw:any):unknown{
@@ -293,7 +316,7 @@ export type WallInput=z.infer<typeof wallSchema>;
 export function defaultElementInput(category:InputCategory,mode:'manual'|'drawing'='manual',spec?:Spec):ElementInput{
  const common={version:ELEMENT_INPUT_VERSION,mode,detailing:spec?detailingFromSpec(spec,{...DEFAULT_DETAILING}):{...DEFAULT_DETAILING}};
  switch(category){
-  case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE)};
+  case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE)};
   case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}}};
   case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}}};
   case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
@@ -329,9 +352,9 @@ export function elementInputProblems(input:ElementInput):string[]{
     const outlineSafe=input.shape==='circle'||input.width>0&&input.length>0;
     if(outlineSafe&&pl.size>0){const room=inset(footingOutline(input),pl.size/2),out=pilePositions(input).filter(q=>!pointInPolygon(q,room)).length;if(out)p.push(`เสาเข็ม ${out} ต้นอยู่นอกขอบฐาน (รวมครึ่งขนาดเข็ม) ปรับระยะห่างหรือขนาดฐาน`);}
    }
-   const col=input.column;
-   if(col.type!=='none'){
-    const kind=col.type==='pedestal'?'เสาตอม่อ':'Starter bar',{w,d}=columnExtent(col);
+   const cols=footingColumns(input),many=cols.length>1;
+   for(const [ci,col] of cols.entries()){
+    const kind=many?footingColumnName(col,ci,true):col.type==='pedestal'?'เสาตอม่อ':'Starter bar',{w,d}=columnExtent(col);
     if(col.shape==='circle')need(col.diameter,`เส้นผ่านศูนย์กลาง${kind}`);else{need(col.width,`ความกว้าง${kind} (X)`);need(col.depth,`ความลึก${kind} (Y)`);}
     if(col.shape==='L'||col.shape==='U'){need(col.armX,`ความหนาขาแนว X ของ${kind}`);need(col.armY,`ความหนาขาแนว Y ของ${kind}`);if(col.armY>=(col.shape==='U'?col.width/2:col.width)||col.armX>=col.depth)p.push(`${kind}: ความหนาขาต้องน้อยกว่าขนาดหน้าตัด`);}
     const fo=footingOutline(input),cx0=(ext.w-w)/2+col.offsetX,cy0=(ext.d-d)/2+col.offsetY;
@@ -349,6 +372,9 @@ export function elementInputProblems(input:ElementInput):string[]{
     if(col.embed.mode==='custom'){need(col.embed.depth,`ระยะฝังในฐานของ${kind}`);if(col.embed.depth>input.thickness-input.cover.bottom)p.push(`${kind}: ระยะฝังเกินความหนาฐานราก − cover ล่าง`);}
     if(col.bend==='custom')need(col.leg,`ระยะขางอในฐานของ${kind}`);
    }
+   // columns must not overlap each other
+   const ext2=footingExtent(input),rects=cols.map(c=>{const {w,d}=columnExtent(c),x0=(ext2.w-w)/2+c.offsetX,y0=(ext2.d-d)/2+c.offsetY;return columnBoxes(c).map(b=>({x0:x0+b.x0,x1:x0+b.x1,y0:y0+b.y0,y1:y0+b.y1}));});
+   for(let a=0;a<rects.length;a++)for(let b=a+1;b<rects.length;b++)if(rects[a].some(r=>rects[b].some(q=>Math.min(r.x1,q.x1)-Math.max(r.x0,q.x0)>1&&Math.min(r.y1,q.y1)-Math.max(r.y0,q.y0)>1)))p.push(`${footingColumnName(cols[a],a,true)} และ ${footingColumnName(cols[b],b,true)} ซ้อนกัน · ปรับระยะเยื้อง`);
    if(input.rebar.side.enabled)layer(input.rebar.side,'เหล็กรอบข้าง (LOOPS)');
    if(input.rebar.sideBars.enabled){layer(input.rebar.sideBars,'เหล็กแนวตั้งผิวข้าง');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
    if(input.slab.enabled){need(input.slab.thickness,'ความหนาพื้นที่หล่อรวมกับฐาน');if(input.shape!=='rect')p.push('ฐานหล่อรวมพื้น: รองรับแปลนสี่เหลี่ยมเท่านั้น');if(input.slab.thickness>=input.thickness)p.push('ความหนาพื้นต้องน้อยกว่าความหนาฐาน');}
@@ -778,11 +804,12 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    out.push({role:'side-vertical',note:`เหล็กแนวตั้งผิวข้าง @ ≤ ${vb.spacing} mm · ${pos.length} ตำแหน่งรอบฐาน${parts?` · งอเข้าใน ${Math.round(ret)} mm ที่ปลาย${parts}`:''}`,diameter:dv,grade:g,count:pos.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});
   }
  }
- const col=i.column;if(col.type==='none')return out;
- const pedestal=col.type==='pedestal',name=col.columnNo?`${pedestal?'เสาตอม่อ':'Starter'} ${col.columnNo}`:pedestal?'เสาตอม่อ':'Starter bar';
+ const cols=footingColumns(i),many=cols.length>1;
+ for(const [ci,col] of cols.entries()){const sfx=ci?`-c${ci+1}`:'';
+ const pedestal=col.type==='pedestal',name=many?footingColumnName(col,ci,true):col.columnNo?`${pedestal?'เสาตอม่อ':'Starter'} ${col.columnNo}`:pedestal?'เสาตอม่อ':'Starter bar';
  const {w,d:depth}=columnExtent(col),ox=(X-w)/2+col.offsetX,oy=(Y-depth)/2+col.offsetY,dt=pedestal?col.tie.diameter:0;
  const all=columnBarPositions(col,col.cover+dt).map(b=>({...b,x:ox+b.x,y:oy+b.y}));
- if(!all.length){warn(`${name}: ไม่มีตำแหน่งเหล็กยืน`);return out;}
+ if(!all.length){warn(`${name}: ไม่มีตำแหน่งเหล็กยืน`);continue;}
  const meshTop=c.bottom+r.bottomX.diameter+r.bottomY.diameter,top=T+(pedestal?col.height:0);
  const groups=[...new Set(all.map(b=>b.d))].sort((a,b)=>b-a),kinds:Record<ColumnBarPos['kind'],string>={corner:'มุม',sideX:'ด้าน X',sideY:'ด้าน Y',ring:'รอบวง'};
  for(const dm of groups){
@@ -800,15 +827,16 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const [x0,y0]=pts[0],d0=dirs[0],a0=Math.atan2(d0[1],d0[0]),mix=(Object.keys(kinds) as ColumnBarPos['kind'][]).map(k=>[k,set.filter(b=>b.kind===k).length] as const).filter(([,n])=>n>0).map(([k,n])=>`${kinds[k]} ${n}`).join(' · ');
   const parts=[`ฝัง ${Math.round(T-zBend)}`,leg?`งอฉากออกรอบเสา ${Math.round(leg)}`:'ปลายตรง',col.projection>0?`โผล่ ${Math.round(col.projection)}`:''].filter(Boolean);
   const turns=dirs.map(dv=>{let t=(Math.atan2(dv[1],dv[0])-a0)*180/Math.PI;while(t>180)t-=360;while(t<=-180)t+=360;return Number(t.toFixed(4));});
-  out.push({role:groups.length>1?`column-main-${dm}`:'column-main',note:`เหล็กยืน ${name} (${mix}) · ${parts.join(' · ')} mm`,diameter:dm,grade:g,count:pts.length,points:leg?[[x0+d0[0]*leg,y0+d0[1]*leg,zBend],[x0,y0,zBend],[x0,y0,zTop]]:[[x0,y0,zBend],[x0,y0,zTop]],axis:'Z',face:'side',radius:leg?rad:0,shapeCode:leg?'11':'00',offsets:offsetsFrom(pts),...(leg?{turns}:{})});
+  out.push({role:(groups.length>1?`column-main-${dm}`:'column-main')+sfx,note:`เหล็กยืน ${name} (${mix}) · ${parts.join(' · ')} mm`,diameter:dm,grade:g,count:pts.length,points:leg?[[x0+d0[0]*leg,y0+d0[1]*leg,zBend],[x0,y0,zBend],[x0,y0,zTop]]:[[x0,y0,zBend],[x0,y0,zTop]],axis:'Z',face:'side',radius:leg?rad:0,shapeCode:leg?'11':'00',offsets:offsetsFrom(pts),...(leg?{turns}:{})});
  }
  const minGap=Math.min(Infinity,...all.flatMap((a,i)=>all.slice(i+1).map(b=>Math.hypot(a.x-b.x,a.y-b.y)-(a.d+b.d)/2)));
  if(minGap<-0.5)warn(`${name}: ตำแหน่งเหล็กยืนซ้อนกัน ลดจำนวนหรือขนาดเหล็ก`);
  if(pedestal){
   const ext=Math.max(det.hook135*dt,det.hook135Min),trad=radius(dt,det,true),tc=col.cover+dt/2,tz=spread(T+50,top-col.cover-dt/2,col.tie.spacing);
   if(!tz)warn(`${name}: ความสูงไม่พอสำหรับเหล็กปลอก`);
-  else if(col.shape==='circle'){const Rt=col.diameter/2-tc,ctr=[ox+col.diameter/2,oy+col.diameter/2];out.push({role:'column-tie',note:`ปลอกวงกลม${name} (ยาว = เส้นรอบวง + ขอ 2 × ${Math.round(ext)} mm)`,diameter:dt,grade:det.tieGrade,count:tz.count,points:Array.from({length:37},(_,k)=>[ctr[0]+Rt*Math.cos(2*Math.PI*k/36),ctr[1]+Rt*Math.sin(2*Math.PI*k/36),tz.from] as V3),axis:'Z',face:'side',radius:0,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to,cut:roundUp(2*Math.PI*Rt+2*ext,rounding)});}
-  else columnBoxes(col).forEach((b,k,all)=>{const full=col.shape==='L'||col.shape==='U'?(k===0?{...b}:{...b,y0:0}):b;out.push({role:`column-tie-${k+1}`,note:`เหล็กปลอก${name}${all.length>1?` · ${k===0?'ขาแนว X':`ขาแนว Y${all.length>2?` ${k}`:''}`}`:''}`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,ox+full.x0+tc,ox+full.x1-tc,oy+full.y0+tc,oy+full.y1-tc,tz.from,det.hook90*dt,trad,dt),axis:'Z',face:'side',radius:trad,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to});});
+  else if(col.shape==='circle'){const Rt=col.diameter/2-tc,ctr=[ox+col.diameter/2,oy+col.diameter/2];out.push({role:'column-tie'+sfx,note:`ปลอกวงกลม${name} (ยาว = เส้นรอบวง + ขอ 2 × ${Math.round(ext)} mm)`,diameter:dt,grade:det.tieGrade,count:tz.count,points:Array.from({length:37},(_,k)=>[ctr[0]+Rt*Math.cos(2*Math.PI*k/36),ctr[1]+Rt*Math.sin(2*Math.PI*k/36),tz.from] as V3),axis:'Z',face:'side',radius:0,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to,cut:roundUp(2*Math.PI*Rt+2*ext,rounding)});}
+  else columnBoxes(col).forEach((b,k,all)=>{const full=col.shape==='L'||col.shape==='U'?(k===0?{...b}:{...b,y0:0}):b;out.push({role:`column-tie-${k+1}${sfx}`,note:`เหล็กปลอก${name}${all.length>1?` · ${k===0?'ขาแนว X':`ขาแนว Y${all.length>2?` ${k}`:''}`}`:''}`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,ox+full.x0+tc,ox+full.x1-tc,oy+full.y0+tc,oy+full.y1-tc,tz.from,det.hook90*dt,trad,dt),axis:'Z',face:'side',radius:trad,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to});});
+ }
  }
  return out;
 }
@@ -965,12 +993,14 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    const {w:X,d:Y}=footingExtent(input),A=footingArea(input),P=footingPerimeter(input);
    const earth=footingEarth(input),{lx,ly,bx,by,grow,depth}=earth;
    const col=input.column,T=input.thickness,ped=col.type==='pedestal',H=ped?col.height:0,{w,d}=columnExtent(col),ox=(X-w)/2+col.offsetX,oy=(Y-d)/2+col.offsetY;
-   const buriedPed=Math.max(0,Math.min(H,depth-earth.below-T)),buried=(A*T+(ped?columnArea(col)*buriedPed:0))/1e9;
+   // every column on the footing (C1 + extras): plan box origin and height
+   const cols=footingColumns(input),many=cols.length>1,colBox=(c:FootingColumn)=>{const e=columnExtent(c);return {w:e.w,d:e.d,ox:(X-e.w)/2+c.offsetX,oy:(Y-e.d)/2+c.offsetY,h:ped?c.height:0};},Hmax=Math.max(H,...cols.map(c=>colBox(c).h));
+   const buried=(A*T+(ped?cols.reduce((n,c)=>n+columnArea(c)*Math.max(0,Math.min(c.height,depth-earth.below-T)),0):0))/1e9;
    const footingFaces=[true,true,true,true,false,false],sideFaces=[true,true,true,true,false,false];
    const auto:Member['deductions']=[];
    // Hexagon / octagon / circle: bounding box concrete minus the cut-off corners (exact area and perimeter).
    if(!['rect','L','U'].includes(input.shape))auto.push({reason:`${AUTO}ฐานราก${({circle:'กลม',hex:'6 เหลี่ยม',oct:'8 เหลี่ยม'} as Record<string,string>)[input.shape]} (หักจากกล่อง ${Math.round(X)} × ${Math.round(Y)})`,volume:(X*Y-A)*T/1e9,formwork:(2*X+2*Y-P)*T/1e6});
-   if(ped&&col.shape==='circle')auto.push({reason:`${AUTO}เสาตอม่อกลม Ø${w} (หักจากกล่อง ${w} × ${w})`,volume:(w*w-Math.PI*w*w/4)*H/1e9,formwork:(4*w-Math.PI*w)*H/1e6});
+   if(ped)cols.forEach((c,ci)=>{if(c.shape!=='circle')return;const b=colBox(c);auto.push({reason:`${AUTO}เสาตอม่อกลม${many?` ${footingColumnName(c,ci,true).replace('เสาตอม่อ ','')}`:''} Ø${b.w} (หักจากกล่อง ${b.w} × ${b.w})`,volume:(b.w*b.w-Math.PI*b.w*b.w/4)*b.h/1e9,formwork:(4*b.w-Math.PI*b.w)*b.h/1e6});});
    const piles=pilePositions(input);
    if(piles.length&&input.pile.embed>0)auto.push({reason:`${AUTO}หัวเข็มฝังในฐาน ${piles.length} ต้น × ${input.pile.embed} mm`,volume:piles.length*pileArea(input.pile)*input.pile.embed/1e9,formwork:0});
    if(input.shape!=='rect'&&(input.lean.thickness>0||earth.sand>0||depth>0))warn('Lean concrete ทราย และงานขุดคิดเป็นกรอบสี่เหลี่ยมคลุมแปลนฐาน (ระยะยื่น/ระยะเผื่อทำงานรอบกรอบ)');
@@ -978,21 +1008,21 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    if(slabOn)auto.push({reason:`${AUTO}ผิวข้างฐานช่วงความหนาพื้น ${input.slab.thickness} mm (หล่อรวมกับพื้น ไม่ใช้แบบหล่อ)`,volume:0,formwork:P*input.slab.thickness/1e6});
    if(input.slab.enabled&&!slabOn)warn('ฐานหล่อรวมพื้น: ใช้ได้กับแปลนสี่เหลี่ยมและพื้นบางกว่าฐาน · ยังไม่สร้างพื้นอ้างอิงและไม่ยื่นเหล็กบน');
    if(piles.length&&input.cover.bottom<input.pile.embed+25)warn(`cover ล่าง ${input.cover.bottom} mm ควรมากกว่าระยะฝังหัวเข็ม ${input.pile.embed} mm เพื่อให้ตะแกรงล่างอยู่เหนือหัวเข็ม`);
-   const geometryRoute=input.shape==='L'||input.shape==='U'||ped&&(col.shape==='L'||col.shape==='U');
+   const geometryRoute=input.shape==='L'||input.shape==='U'||ped&&(many||col.shape==='L'||col.shape==='U');
    let shape:Partial<Member>={z:T,pedestal:ped?{x:w,y:d,z:H}:{x:0,y:0,z:0}};
-   if(geometryRoute)shape={z:T+H,pedestal:{x:0,y:0,z:0},geometry:{solids:[...footingBoxes(input).map((b,k)=>({id:`footing${k+1}`,label:`ฐานราก ${k+1}`,origin:[b.x0,b.y0,0] as V3,size:[b.x1-b.x0,b.y1-b.y0,T] as V3,faces:footingFaces})),...(ped?columnBoxes(col).map((b,k)=>({id:`pedestal${k+1}`,label:`เสาตอม่อ ${k+1}`,origin:[ox+b.x0,oy+b.y0,T] as V3,size:[b.x1-b.x0,b.y1-b.y0,H] as V3,faces:sideFaces})):[])],voids:[]}};
+   if(geometryRoute)shape={z:T+Hmax,pedestal:{x:0,y:0,z:0},geometry:{solids:[...footingBoxes(input).map((b,k)=>({id:`footing${k+1}`,label:`ฐานราก ${k+1}`,origin:[b.x0,b.y0,0] as V3,size:[b.x1-b.x0,b.y1-b.y0,T] as V3,faces:footingFaces})),...(ped?cols.flatMap((c,ci)=>{const cb=colBox(c);return columnBoxes(c).map((b,k)=>({id:ci?`pedestal-c${ci+1}-${k+1}`:`pedestal${k+1}`,label:`${many?footingColumnName(c,ci,true):'เสาตอม่อ'} ${k+1}`.slice(0,80),origin:[cb.ox+b.x0,cb.oy+b.y0,T] as V3,size:[b.x1-b.x0,b.y1-b.y0,cb.h] as V3,faces:sideFaces}));}):[])],voids:[]}};
    else if(ped&&(Math.abs(col.offsetX)>.5||Math.abs(col.offsetY)>.5))shape={z:T+H,pedestal:{x:0,y:0,z:0},geometry:{solids:[{id:'footing1',label:'ฐานราก',origin:[0,0,0],size:[X,Y,T],faces:footingFaces},{id:'pedestal',label:'เสาตอม่อ',origin:[ox,oy,T],size:[w,d,H],faces:sideFaces}],voids:[]}};
    shape={...shape,deductions:[...deductions,...auto]};
    // Bars projecting above the concrete sit in placement-only reference regions (not in BOQ).
    const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('gencol')&&!r.id.startsWith('genslab')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
-   const regions=col.type!=='none'&&col.projection>0?(col.shape==='circle'?[{x0:0,y0:0,x1:w,y1:d}]:columnBoxes(col)).map((b,k)=>({id:`gencol${k+1}`,label:`${col.columnNo||'เสา'} (อ้างอิง)`.slice(0,80),origin:[ox+b.x0,oy+b.y0,T+H] as V3,size:[b.x1-b.x0,b.y1-b.y0,col.projection+col.cover+maxMainDiameter(col)] as V3,reference:`เหล็กเสาโผล่${ped?'เหนือตอม่อ':'จากฐาน'} ${col.projection} mm · พื้นที่อ้างอิง ไม่คิดปริมาณ`,cover:col.cover,openings:[]})):[];
+   const regions=cols.filter(c=>c.projection>0).flatMap(c=>{const ci=cols.indexOf(c),cb=colBox(c);return (c.shape==='circle'?[{x0:0,y0:0,x1:cb.w,y1:cb.d}]:columnBoxes(c)).map((b,k)=>({id:ci?`gencol-c${ci+1}-${k+1}`:`gencol${k+1}`,label:`${c.columnNo||(many?`C${ci+1}`:'เสา')} (อ้างอิง)`.slice(0,80),origin:[cb.ox+b.x0,cb.oy+b.y0,T+cb.h] as V3,size:[b.x1-b.x0,b.y1-b.y0,c.projection+c.cover+maxMainDiameter(c)] as V3,reference:`เหล็กเสาโผล่${ped?'เหนือตอม่อ':'จากฐาน'} ${c.projection} mm · พื้นที่อ้างอิง ไม่คิดปริมาณ`,cover:c.cover,openings:[]}));});
    const slabRegions=slabOn?footingSlabRegions(input,X,Y):[],all=[...keep,...regions,...slabRegions];
-   if(all.length>6)warn(`พื้นที่อ้างอิงเกิน 6 รายการ (พื้น ${slabRegions.length} + เสา ${regions.length} + กำหนดเอง ${keep.length}) · ตัดพื้นที่กำหนดเองบางส่วนออก`);
-   const context=all.length>6?[...keep.slice(0,Math.max(0,6-regions.length-slabRegions.length)),...regions,...slabRegions].slice(0,6):all,firstBar=col.type!=='none'?columnSectionPreview(col).bars[0]:undefined;
+   if(all.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ (พื้น ${slabRegions.length} + เสา ${regions.length} + กำหนดเอง ${keep.length}) · ตัดพื้นที่กำหนดเองบางส่วนออก`);
+   const context=all.length>REGION_LIMIT?[...keep.slice(0,Math.max(0,REGION_LIMIT-regions.length-slabRegions.length)),...regions,...slabRegions].slice(0,REGION_LIMIT):all,firstBar=col.type!=='none'?columnSectionPreview(col).bars[0]:undefined;
    // Default section A-A passes through the first row of column bars so they appear in the section view.
    if(!m.drawingViews)shape={...shape,sectionY:firstBar?Number((oy+firstBar.y).toFixed(1)):Y/2};
    const {placementContext:_c,...rest}=next;
-   next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...(col.type!=='none'?[col.cover]:[])),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth,buriedConcrete:buried},...shape} as Member;
+   next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...cols.map(c=>c.cover)),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth,buriedConcrete:buried},...shape} as Member;
    next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
    gen=foundationBars(input,det,rounding,warn);break;}
   case 'Column':{

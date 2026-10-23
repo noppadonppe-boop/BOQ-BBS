@@ -4,6 +4,8 @@ import {z} from 'zod';
 import type {Member,Solid,Vec3} from './model';
 import {boundsOf,solidsOf,solidQuantities,pathInside,pathClearance,insideBox,type Surface} from './solids';
 
+/** Reference regions per member (v2): footings with up to 10 columns need one per projecting column. */
+export const REGION_LIMIT=16;
 const coordinate=z.number().finite().min(-200000).max(200000);
 const regionFields={
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),label:z.string().trim().min(1).max(80),
@@ -14,7 +16,7 @@ const regionV1=z.object(regionFields).strict(),openingSchema=z.object(regionFiel
 const regionV2=z.object({...regionFields,cover:z.number().finite().nonnegative().max(200000).optional(),openings:z.array(openingSchema).max(4)}).strict();
 export const placementContextSchema=z.discriminatedUnion('version',[
  z.object({version:z.literal(1),regions:z.array(regionV1).max(6)}),
- z.object({version:z.literal(2),regions:z.array(regionV2).max(6)}),
+ z.object({version:z.literal(2),regions:z.array(regionV2).max(REGION_LIMIT)}),
 ]).superRefine((c,ctx)=>{
  if(new Set(c.regions.map(r=>r.id)).size!==c.regions.length)ctx.addIssue({code:'custom',message:'รหัสพื้นที่อ้างอิงรอยต่อซ้ำ'});
  c.regions.forEach((r,i)=>r.origin.forEach((v,a)=>{if(v+r.size[a]>200000)ctx.addIssue({code:'custom',path:['regions',i,'size',a],message:'ขอบเขตพื้นที่อ้างอิงเกิน 200,000 mm'});}));

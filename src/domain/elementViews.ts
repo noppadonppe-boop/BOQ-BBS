@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {footingExtent,footingOutline,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {footingColumns,footingExtent,footingOutline,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
@@ -17,7 +17,8 @@ const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
 function circleIds(input?:ElementInput){
  const ids=new Set<string>();
  if(input?.category==='Column'&&input.shape==='circle')ids.add('main');
- if(input?.category==='Foundation'&&input.column.type!=='none'&&input.column.shape==='circle'){ids.add('pedestal');ids.add('context_gencol1');}
+ if(input?.category==='Foundation')footingColumns(input).forEach((c,ci)=>{if(c.shape!=='circle')return;
+  if(ci){ids.add(`pedestal-c${ci+1}-1`);ids.add(`context_gencol-c${ci+1}-1`);}else{ids.add('pedestal');ids.add('pedestal1');ids.add('context_gencol1');}});
  return ids;
 }
 function leanRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|undefined):Rect[]{
@@ -120,8 +121,9 @@ function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number
  if(input?.category==='Foundation'){
   const col=input.column,T=input.thickness,H=col.type==='pedestal'?col.height:0;
   if(col.type!=='none'){
-   const w=col.shape==='circle'?col.diameter:col.width,d=col.shape==='circle'?col.diameter:col.depth,ext=[w,d];
-   const fe=footingExtent(input),chain=(axis:number)=>{const total=axis===0?fe.w:fe.d,e=ext[axis],off=axis===0?col.offsetX:col.offsetY;return [0,(total-e)/2+off,(total+e)/2+off,total];};
+   // dimension chain: footing edges + both faces of every column along the axis
+   const fe=footingExtent(input),cols=footingColumns(input),chain=(axis:number)=>{const total=axis===0?fe.w:fe.d;
+    return [...new Set([0,total,...cols.flatMap(c=>{const e=c.shape==='circle'?c.diameter:axis===0?c.width:c.depth,off=axis===0?c.offsetX:c.offsetY;return [(total-e)/2+off,(total+e)/2+off];})].map(v=>Math.round(v*10)/10))].sort((x,y)=>x-y);};
    out.push({dir:'h',stops:chain(a),side:'end'});
    if(normal===undefined)out.push({dir:'v',stops:chain(b),side:'end'});
   }

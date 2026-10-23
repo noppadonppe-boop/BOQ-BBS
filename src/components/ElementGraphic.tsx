@@ -1,7 +1,7 @@
 import {useMemo,useState,type ReactNode} from 'react';
 import {Maximize2,Minimize2} from 'lucide-react';
 import type {Member} from '../domain/model';
-import type {ElementInput} from '../domain/elementInput';
+import {footingColumns,type ElementInput} from '../domain/elementInput';
 import {buildView,defaultCuts,markColors,renderView,viewHeight,type ViewRow,type ViewSpec} from '../domain/elementViews';
 import {PrimsSvg} from './PrimsSvg';
 
@@ -45,6 +45,6 @@ function Cut({label,value,max,onChange}:{label:string;value:number;max:number;on
 export function coverText(input:ElementInput){
  const names:Record<string,string>={bottom:'ล่าง',top:'บน',side:'ข้าง',edge:'ขอบ',face:'ผิว'};
  const base=Object.entries(input.cover).map(([k,v])=>`${names[k]||k} ${v}`).join(' · ');
- const col=input.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?'เสาตอม่อ':'Starter'}${input.column.columnNo?` ${input.column.columnNo}`:''} ${input.column.cover}`:'';
+ const col=input.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?'เสาตอม่อ':'Starter'}${footingColumns(input).map(c=>c.columnNo).filter(Boolean).map(n=>` ${n}`).join(',')} ${input.column.cover}`:'';
  return `Cover (mm): ${base}${col}`;
 }
