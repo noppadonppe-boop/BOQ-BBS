@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {footingColumns,footingExtent,footingOutline,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {footingColumns,footingExtent,footingLevels,footingOutline,footingPour,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
@@ -101,9 +101,23 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   }
   return {row:r,lines,dots};
  });
+ // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
+ const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u:number;v:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
+ if(normal!==undefined&&input?.category==='Foundation'){
+  const pr=footingPour(input),conc=rects.filter(r=>r.kind==='concrete'),T=input.thickness,ord=['First','Second','Third','Fourth','Fifth','Sixth'];
+  const right=(z:number)=>Math.max(...conc.filter(r=>r.v0-1e-6<=z&&z<=r.v1+1e-6).map(r=>r.u1),-Infinity);
+  if(pr.stages.length>1){
+   for(const J of pr.levels)for(const r of conc)if(r.v0-1e-6<=J&&J<r.v1-1e-6)joints.push({v:J,u0:r.u0,u1:r.u1});
+   for(const st of pr.stages){const band=conc.filter(r=>r.v0<st.z1-1e-6&&r.v1>st.z0+1e-6);if(!band.length)continue;const wide=band.reduce((x,y)=>y.u1-y.u0>x.u1-x.u0?y:x);
+    stageText.push({u:(wide.u0+wide.u1)/2,v:(Math.max(st.z0,wide.v0)+Math.min(st.z1,wide.v1))/2,text:`${ord[st.stage-1]||`Stage ${st.stage}`}-stage concrete pouring`});}}
+  if(input.levels.enabled){const lv=footingLevels(input),sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`,at=(z:number,t:string)=>{const u=right(z);if(Number.isFinite(u))levels.push({u,v:z,text:`${t} ${sg(lv.bottom+z/1000)}`});};
+   at(T,'T.O.F.');at(0,'B.O.F.');for(const J of pr.stages.length>1?pr.levels:[])if(Math.abs(J-T)>1)at(J,'C.J.');
+   const Hp=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;if(Hp>0)at(T+Hp,'T.O.P.');
+   if(earth&&e.depth>0){const u=Math.max(...conc.map(r=>r.u1));levels.push({u:u+300,v:ground,text:`NGL ${sg(input.levels.ground)}`});}}
+ }
  const us=[...rects.flatMap(r=>[r.u0,r.u1]),...polys.flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
  const vs=[...rects.flatMap(r=>[r.v0,r.v1]),...polys.flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
- return {member:m,input,axes,normal,cut,rects,polys,holes,edges,piles,guides,bars,u:[Math.min(0,...us),Math.max(1,...us)] as [number,number],v:[Math.min(0,...vs),Math.max(1,...vs)] as [number,number],ground:normal!==undefined&&earth&&e.depth>0?ground:undefined};
+ return {member:m,input,axes,normal,cut,rects,polys,holes,edges,piles,guides,bars,joints,stageText,levels,u:[Math.min(0,...us),Math.max(1,...us)] as [number,number],v:[Math.min(0,...vs),Math.max(1,...vs)] as [number,number],ground:normal!==undefined&&earth&&e.depth>0?ground:undefined};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
@@ -128,7 +142,7 @@ function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number
    if(normal===undefined)out.push({dir:'v',stops:chain(b),side:'end'});
   }
   if(normal!==undefined){
-   const zs=[0,T,...(H>0?[T+H]:[]),...(col.type!=='none'&&col.projection>0?[T+H+col.projection]:[])];
+   const zs=[0,T,...footingPour(input).levels,...(H>0?[T+H]:[]),...(col.type!=='none'&&col.projection>0?[T+H+col.projection]:[])];
    out.push({dir:'v',stops:[...new Set([...(underside(m)>m.lean.thickness?[-underside(m)]:[]),...(m.lean.thickness>0?[-m.lean.thickness]:[]),...zs])],side:'start'});
    if(m.excavation.depth>0)out.push({dir:'v',stops:[-underside(m),m.excavation.depth-underside(m)],side:'end'});
   }
@@ -145,7 +159,9 @@ export function viewHeight(v:ViewData,width:number,maxHeight:number,k=1){
  * (k = 1 for px, ≈ 0.26 for mm on an A3 sheet). */
 export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};fontScale?:number}):Prim[]{
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
- const s=Math.min((box.w-2*M)/spanU,(box.h-2*M)/spanV),offU=(box.w-2*M-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
+ // level marks sit right of the concrete: keep room for their text inside the box
+ const lvW=v.levels.length?Math.max(...v.levels.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
+ const s=Math.min((box.w-2*M-lvW)/spanU,(box.h-2*M)/spanV),offU=(box.w-2*M-lvW-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
  const X=(x:number)=>box.x+M+offU+(x-u[0])*s,Y=(y:number)=>box.y+box.h-M-offV-(y-vr[0])*s,out:Prim[]=[];
  const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>out.push(r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
@@ -157,7 +173,12 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  for(const p of v.piles){const dash=[4*k,2*k];if(p.square)out.push({t:'rect',x:X(p.u-p.size/2),y:Y(p.v+p.size/2),w:p.size*s,h:p.size*s,stroke:'#6b5b45',width:k,dash});else{out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/2*s,stroke:'#6b5b45',width:k,dash});if(p.hollow)out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/4*s,stroke:'#6b5b45',width:k,dash});}}
  v.rects.filter(r=>r.kind!=='lean'&&r.kind!=='sand').forEach(rect);
  for(const g of v.guides)out.push({t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#a07b54',width:.8*k,dash:[6*k,4*k]});
- if(v.ground!==undefined)out.push({t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
+ if(v.ground!==undefined&&!v.levels.length)out.push({t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
+ // pour stages: joint lines (red dashed) and the stage names; level marks: ▽ + text right of the concrete face
+ for(const j of v.joints)out.push({t:'line',x1:X(j.u0),x2:X(j.u1),y1:Y(j.v),y2:Y(j.v),stroke:'#c0392b',width:1.1*k,dash:[6*k,3*k]});
+ for(const t of v.stageText)out.push({t:'text',x:X(t.u),y:Y(t.v)+3*k,text:t.text,size:9*k*fs,color:'#8a4a3f',anchor:'middle',halo:true});
+ for(const l of v.levels){const x=X(l.u)+10*k,y=Y(l.v),h=5*k;
+  out.push({t:'line',x1:X(l.u),x2:x+textWidth(l.text,9*k*fs)+4*k,y1:y,y2:y,stroke:'#3f5459',width:.6*k},{t:'poly',pts:[[x,y],[x-h*.6,y-h],[x+h*.6,y-h]],closed:true,stroke:'#3f5459',width:.6*k},{t:'text',x:x+h,y:y-2*k,text:l.text,size:9*k*fs,color:'#3f5459',halo:true});}
  const cuts=opts.cuts;
  if(cuts){const cs={stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]};out.push({t:'line',x1:X(u[0]),x2:X(u[1]),y1:Y(cuts.y),y2:Y(cuts.y),...cs},{t:'line',x1:X(cuts.x),x2:X(cuts.x),y1:Y(vr[0]),y2:Y(vr[1]),...cs});
   const ts={size:11*k*fs,color:'#5b6b70',bold:true};out.push({t:'text',x:X(u[0])-6*k,y:Y(cuts.y)+4*k,text:'X',anchor:'end',...ts},{t:'text',x:X(u[1])+6*k,y:Y(cuts.y)+4*k,text:'X',...ts},{t:'text',x:X(cuts.x),y:Y(vr[1])-6*k,text:'Y',anchor:'middle',...ts},{t:'text',x:X(cuts.x),y:Y(vr[0])+14*k,text:'Y',anchor:'middle',...ts});}

@@ -1,4 +1,4 @@
-import {columnExtent,footingColumns,footingEarth,type FoundationInput} from '../domain/elementInput';
+import {columnExtent,footingColumns,footingEarth,footingLevels,type FoundationInput} from '../domain/elementInput';
 
 const fmt=(m:number)=>`${m>0?'+':m<0?'−':'±'}${Math.abs(m).toFixed(3)}`;
 /** Live section X–X of the footing pit: ground line, sloped / vertical sides, working space,
@@ -25,7 +25,8 @@ export function FootingEarthworkSketch({input}:{input:FoundationInput}){
    {input.subbase.compaction.enabled&&e.depth>0&&<line className="compaction" x1={X(-e.bx/2)} x2={X(e.bx/2)} y1={Y(pit)+fs*.3} y2={Y(pit)+fs*.3}/>}
    {label(-half+fs*.4,ground+fs*.4,lv?`NGL ${fmt(input.levels.ground)}`:'ระดับดิน')}
    {e.depth>0&&label(-half+fs*.4,pit-fs*1.2,lv&&e.bottomLevel!==undefined?`ก้นขุด ${fmt(e.bottomLevel)}`:`ลึก ${Math.round(e.depth)} mm`)}
-   {lv&&label(e.X/2+fs*.4,T+fs*.3,`หลังฐาน ${fmt(input.levels.top)}`)}
+   {lv&&label(e.X/2+fs*.4,T+fs*.3,`T.O.F. ${fmt(footingLevels(input).top)}`)}
+   {lv&&label(e.X/2+fs*.4,fs*.3,`B.O.F. ${fmt(footingLevels(input).bottom)}`)}
    {e.depth>0&&input.excavation.slope>0&&label(-(e.bx+e.grow*.5)/2-fs*.3,ground/2,`1:${input.excavation.slope}`,'end')}
    {e.depth>0&&label(0,pit-fs*2.4,`กว้างก้นหลุม ${Math.round(e.bx)} mm`,'middle')}
   </svg>

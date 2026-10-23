@@ -143,16 +143,27 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  /** Columns 2–10 on the same footing (C1 = `column`): own number and offsets; linked = same section,
   * bars and height as C1. All columns share C1's type (pedestal / starter). */
  extraColumns:z.array(footingColumnSchema.extend({linked:z.boolean()}).strict()).max(9),
- levels:z.object({enabled:z.boolean(),ground:level,top:level}).strict(),
+ /** ref = which face carries the given level: top of footing (`top`) or bottom of footing (`bottom`); the other follows
+  * from the thickness. Levels in m, + above / − below the project datum. */
+ levels:z.object({enabled:z.boolean(),ground:level,ref:z.enum(['top','bottom']),top:level,bottom:level}).strict(),
  /** Sub-base under the footing: sand bed (projection per side from the footing edge), plastic sheet
   * (= lean area, or sand area without lean), compaction of the whole pit bottom. */
  subbase:z.object({sand:z.object({enabled:z.boolean(),thickness:mm,projection:mm}).strict(),sheet:z.object({enabled:z.boolean()}).strict(),compaction:z.object({enabled:z.boolean()}).strict()}).strict(),
  /** Concrete pour stages: `count` stages from the footing bottom; `heights` = height of stages 1 … count−1 (mm),
   * the last stage takes the rest up to the top of the pedestals. */
- pour:z.object({count:z.number().int().min(1).max(6),heights:z.array(mm).max(5)}).strict(),
+ pour:z.object({count:z.number().int().min(1).max(6),heights:z.array(mm).max(5),
+  /** bars at each construction joint k (between stage k+1 and k+2): a mesh at the top of the lower stage or the
+   * bottom of the upper stage (`cover` from the joint), and vertical bars through the joint (embed `below` into the
+   * lower stage, up to under the top layer of the upper stage; legs in multiples of d) */
+  joints:z.array(z.object({
+   mesh:z.object({enabled:z.boolean(),at:z.enum(['lower','upper']),cover:mm,x:z.object({diameter:dia,spacing:mm}).strict(),y:z.object({diameter:dia,spacing:mm}).strict()}).strict(),
+   dowel:z.object({enabled:z.boolean(),diameter:dia,spacingX:mm,spacingY:mm,below:mm,shape:z.enum(['00','11','21','z']),topLeg:mm,bottomLeg:mm}).strict(),
+  }).strict()).max(5)}).strict(),
 }).strict();
-export const DEFAULT_FOOTING_LEVELS={enabled:false,ground:0,top:-1.2};
-export const DEFAULT_FOOTING_POUR={count:1,heights:[] as number[]};
+export const DEFAULT_FOOTING_LEVELS={enabled:false,ground:0,ref:'top' as 'top'|'bottom',top:-1.2,bottom:-1.8};
+export const DEFAULT_JOINT_REBAR={mesh:{enabled:false,at:'lower' as 'lower'|'upper',cover:50,x:{diameter:16,spacing:250},y:{diameter:16,spacing:250}},
+ dowel:{enabled:false,diameter:16,spacingX:500,spacingY:500,below:400,shape:'z' as '00'|'11'|'21'|'z',topLeg:15,bottomLeg:12}};
+export const DEFAULT_FOOTING_POUR={count:1,heights:[] as number[],joints:[] as (typeof DEFAULT_JOINT_REBAR)[]};
 export const DEFAULT_FOOTING_SUBBASE={sand:{enabled:false,thickness:100,projection:100},sheet:{enabled:false},compaction:{enabled:false}};
 export type ExtraFootingColumn=FootingColumn&{linked:boolean};
 /** Every column on the footing: C1 (`column`) then the extra ones resolved (linked → C1's section, bars and height
@@ -185,15 +196,21 @@ export function footingPour(i:FoundationInput){
  stages.push({stage:n,z0:z,z1:total,height:total-z});
  return {total,stages,levels:stages.slice(0,-1).map(s=>s.z1)};
 }
+/** Levels (m) of the top and bottom of the footing from the chosen reference face. */
+export function footingLevels(i:FoundationInput){
+ const T=i.thickness/1000,top=i.levels.ref==='bottom'?i.levels.bottom+T:i.levels.top;return {top,bottom:top-T};
+}
+/** Joint bars of joint k (defaults when not set yet). */
+export const jointRebar=(i:FoundationInput,k:number)=>i.pour.joints[k]??DEFAULT_JOINT_REBAR;
 export function footingEarth(i:FoundationInput){
  const {w:X,d:Y}=footingExtent(i),sb=i.subbase,lean=i.lean.thickness,sand=sb.sand.enabled?sb.sand.thickness:0,below=lean+sand;
- const depth=i.levels.enabled?Math.max(0,Math.round((i.levels.ground-i.levels.top)*1000+i.thickness+below)):i.excavation.depth;
+ const depth=i.levels.enabled?Math.max(0,Math.round((i.levels.ground-footingLevels(i).top)*1000+i.thickness+below)):i.excavation.depth;
  const lx=X+2*i.lean.projection,ly=Y+2*i.lean.projection,sx=X+2*sb.sand.projection,sy=Y+2*sb.sand.projection;
  const bx=Math.max(lean>0?lx:0,sand>0?sx:0,X+2*i.excavation.workingSpace),by=Math.max(lean>0?ly:0,sand>0?sy:0,Y+2*i.excavation.workingSpace),grow=2*depth*i.excavation.slope;
  const sheet=sb.sheet.enabled?(lean>0?[lx,ly]:sand>0?[sx,sy]:[X,Y]):[0,0];
  return {X,Y,lean,sand,below,depth,lx,ly,sx,sy,bx,by,grow,sheet,
   /** levels (m) of the pit bottom and of the footing bottom */
-  bottomLevel:i.levels.enabled?i.levels.top-(i.thickness+below)/1000:undefined};
+  bottomLevel:i.levels.enabled?footingLevels(i).bottom-below/1000:undefined};
 }
 export const DEFAULT_FOOTING_SLAB={enabled:false,thickness:150,extend:1000};
 export const DEFAULT_FOOTING_SIDE={enabled:false,diameter:16,spacing:200};
@@ -357,10 +374,12 @@ function migrateFootingSite(raw:any):unknown{
  if(raw?.version!==2||raw.category!=='Foundation'||'levels' in raw&&'subbase' in raw&&'extraColumns' in raw)return raw;
  const v=structuredClone(raw);v.levels??={...DEFAULT_FOOTING_LEVELS};v.subbase??=structuredClone(DEFAULT_FOOTING_SUBBASE);v.extraColumns??=[];return v;
 }
-/** Footings saved before pour stages → one pour (same quantities). */
+/** Footings saved before pour stages / joint bars / the level reference → one pour, no joint bars, level given at the top. */
 function migrateFootingPour(raw:any):unknown{
- if(raw?.version!==2||raw.category!=='Foundation'||'pour' in raw)return raw;
- return {...structuredClone(raw),pour:structuredClone(DEFAULT_FOOTING_POUR)};
+ if(raw?.version!==2||raw.category!=='Foundation'||'pour' in raw&&'joints' in raw.pour&&(!raw.levels||'ref' in raw.levels))return raw;
+ const v=structuredClone(raw);v.pour??=structuredClone(DEFAULT_FOOTING_POUR);v.pour.joints??=[];
+ if(v.levels&&!('ref' in v.levels))v.levels={...v.levels,ref:'top',bottom:Number(((v.levels.top??0)-(v.thickness??0)/1000).toFixed(3))};
+ return v;
 }
 /** Footings saved before the slab-cast option / side loops → both off (same bars). */
 function migrateFootingSlab(raw:any):unknown{
@@ -448,7 +467,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.shape==='circle')need(input.diameter,'เส้นผ่านศูนย์กลางฐานราก');else{need(input.width,'ความกว้างฐานราก (X)');need(input.length,'ความยาวฐานราก (Y)');}
    if(input.shape==='L'||input.shape==='U'){need(input.armX,'ความหนาขาแนว X ของฐาน');need(input.armY,'ความหนาขาแนว Y ของฐาน');if(input.armY>=(input.shape==='U'?input.width/2:input.width)||input.armX>=input.length)p.push('ฐานราก: ความหนาขาต้องน้อยกว่าขนาดฐาน');}
    if((input.shape==='hex'||input.shape==='oct')&&input.chamfer>0&&(input.chamfer*2>=input.width||(input.shape==='oct'&&input.chamfer*2>=input.length)))p.push('ฐานราก: ระยะตัดมุมต้องน้อยกว่าครึ่งของขนาดฐาน');
-   need(input.thickness,'ความหนาฐานราก');need(input.excavation.depth,'ความลึกงานขุด');
+   need(input.thickness,'ความหนาฐานราก');if(!input.levels.enabled)need(input.excavation.depth,'ความลึกงานขุด');
    need(input.cover.bottom,'cover ด้านล่าง');need(input.cover.top,'cover ด้านบน');need(input.cover.side,'cover ด้านข้าง');
    layer(input.rebar.bottomX,'เหล็กล่างทิศ X');layer(input.rebar.bottomY,'เหล็กล่างทิศ Y');
    if(input.rebar.topX.enabled)layer(input.rebar.topX,'เหล็กบนทิศ X');if(input.rebar.topY.enabled)layer(input.rebar.topY,'เหล็กบนทิศ Y');
@@ -494,7 +513,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.subbase.sand.enabled)need(input.subbase.sand.thickness,'ความหนาทรายรองพื้น');
    if(input.pour.count>1){const pr=footingPour(input);pr.stages.slice(0,-1).forEach(s=>need(s.height,`ความสูงการเท Stage ${s.stage}`));
     if(pr.stages.at(-1)!.height<=0)p.push(`ความสูงการเท Stage 1–${input.pour.count-1} รวม ${Math.round(pr.stages.at(-1)!.z0)} mm ต้องน้อยกว่าความสูงฐาน + ตอม่อ ${Math.round(pr.total)} mm`);}
-   if(input.levels.enabled&&input.levels.top>input.levels.ground)p.push('ระดับหลังฐานรากสูงกว่าระดับดินเดิม · ตรวจระดับอ้างอิง');
+   if(input.levels.enabled&&footingLevels(input).top>input.levels.ground)p.push('ระดับหลังฐานรากสูงกว่าระดับดินเดิม · ตรวจระดับอ้างอิง');
    else if(earth.depth>0&&earth.depth<input.thickness+earth.below)p.push(`ความลึกงานขุดน้อยกว่าความหนาฐานราก + Lean${earth.sand?' + ทราย':''}`);
    break;}
   case 'Column':{
@@ -917,6 +936,49 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  mesh('bottom-y','เหล็กล่าง · ทิศ Y',r.bottomY,false,zY,true,r.bottomX.shape==='41'?r.bottomX.diameter:0);
  if(r.topX.enabled)mesh('top-x','เหล็กบน · ทิศ X',r.topX,true,T-c.top-r.topX.diameter/2,false);
  if(r.topY.enabled)mesh('top-y','เหล็กบน · ทิศ Y',r.topY,false,T-c.top-(r.topX.enabled?r.topX.diameter:0)-r.topY.diameter/2,false);
+ // ---- construction joints between pour stages (inside the footing thickness): joint mesh and vertical bars through the joint
+ const pour=footingPour(i);
+ pour.levels.forEach((J,k)=>{
+  const jr=jointRebar(i,k),tag=`รอยต่อการเท ${k+1} (Stage ${k+1}/${k+2} ที่ +${Math.round(J)})`;
+  if(!jr.mesh.enabled&&!jr.dowel.enabled)return;
+  if(J>=T-c.top-topStack-1){warn(`${tag}: อยู่เหนือตะแกรงบนของฐาน · ไม่ใส่เหล็กที่รอยต่อนี้`);return;}
+  const ms=jr.mesh,flat=(l:{diameter:number;spacing:number})=>({...l,shape:'00',leg:0,radius:0}) as Shaped&{spacing:number};
+  if(ms.enabled){const dx=ms.x.diameter,dy=ms.y.diameter,lower=ms.at==='lower',sgn=lower?-1:1;
+   const zx=J+sgn*(ms.cover+dx/2),zy=J+sgn*(ms.cover+dx+dy/2),where=lower?'ผิวบน Stage ล่าง':'ผิวล่าง Stage บน';
+   if(Math.min(zx,zy)<c.bottom+r.bottomX.diameter+r.bottomY.diameter||Math.max(zx,zy)>T-c.top-topStack)warn(`${tag}: ตะแกรงที่รอยต่อชนตะแกรงล่าง/บนของฐาน ตรวจระยะ`);
+   mesh(`joint${k+1}-x`,`ตะแกรงรอยต่อการเท ${k+1} · ${where} · ทิศ X`,flat(ms.x),true,zx,true);
+   mesh(`joint${k+1}-y`,`ตะแกรงรอยต่อการเท ${k+1} · ${where} · ทิศ Y`,flat(ms.y),false,zy,true);}
+  const dw=jr.dowel;
+  if(dw.enabled){const d=dw.diameter,rad=radius(d,det),meshAbove=ms.enabled&&ms.at==='upper'?ms.cover+ms.x.diameter+ms.y.diameter:0;
+   // top: under the top mesh of the footing, or under the next joint (and its mesh) when more stages follow
+   const next=pour.levels[k+1],nj=next!==undefined?jointRebar(i,k+1):undefined;
+   const zt=next!==undefined&&next<T-c.top-topStack?next-(nj!.mesh.enabled&&nj!.mesh.at==='lower'?nj!.mesh.cover+nj!.mesh.x.diameter+nj!.mesh.y.diameter:50)-d/2:T-c.top-topStack-d/2;
+   const meshBelow=c.bottom+r.bottomX.diameter+r.bottomY.diameter+d/2,zb=Math.max(meshBelow,J-dw.below);
+   if(zb>J-dw.below+.5)warn(`${tag}: เหล็กแนวตั้งฝังลง Stage ล่างได้ ${Math.round(J-zb)} mm (ถึงตะแกรงล่าง)`);
+   if(zt<=J+meshAbove+d){warn(`${tag}: ไม่มีที่ว่างเหนือรอยต่อสำหรับเหล็กแนวตั้ง`);return;}
+   const top=dw.shape==='11'||dw.shape==='21'||dw.shape==='z'?dw.topLeg*d:0,bot=dw.shape==='21'||dw.shape==='z'?dw.bottomLeg*d:0;
+   // grid inside the side bars / loops, skipping the column footprints (their own bars run there)
+   const inner=inset(plan,c.side+sideIn+100+d/2),room=inset(plan,c.side+sideIn+d/2),lo=(ax:0|1)=>Math.min(...inner.map(q=>q[ax])),hi=(ax:0|1)=>Math.max(...inner.map(q=>q[ax]));
+   const sy=spread(lo(1),hi(1),dw.spacingY),boxes=footingColumns(i).map(cl=>{const e=columnExtent(cl),x0=(X-e.w)/2+cl.offsetX,y0=(Y-e.d)/2+cl.offsetY;return [x0-50,y0-50,x0+e.w+50,y0+e.d+50];});
+   const pts:{x:number;y:number;s:1|-1}[]=[];
+   if(sy)for(let n=0;n<sy.count;n++){const y=sy.count===1?sy.from:sy.from+(sy.to-sy.from)*n/(sy.count-1);
+    const cl=lineIntervals(room,0,y);
+    for(const [a0,b0] of lineIntervals(inner,0,y)){
+     // legs turn inward (toward the middle of the run); a Z bar's lower leg points outward, so keep it inside the cover
+     const [A,B]=cl.find(([p,q])=>p<=a0+1e-6&&q>=b0-1e-6)??[a0,b0],out=dw.shape==='z'?bot:0,a=Math.max(a0,A+out),b=Math.min(b0,B-out),sx=spread(a,b,dw.spacingX);if(!sx)continue;
+     for(let m2=0;m2<sx.count;m2++){const x=sx.count===1?sx.from:sx.from+(sx.to-sx.from)*m2/(sx.count-1);
+      if(boxes.some(([x0,y0,x1,y1])=>x>x0&&x<x1&&y>y0&&y<y1))continue;
+      // legs point +X; near the X+ face they turn back (−X) so they stay inside the concrete
+      pts.push({x,y,s:x<=(A+B)/2?1:-1});}}}
+   if(!pts.length){warn(`${tag}: วางเหล็กแนวตั้งไม่ได้`);return;}
+   if(top+bot>=Math.min(X,Y)/2)warn(`${tag}: ขางอเหล็กแนวตั้งยาวเกินครึ่งฐาน ตรวจ`);
+   const tpl=(p:{x:number;y:number;s:1|-1}):V3[]=>[...(bot?[[p.x+(dw.shape==='z'?-1:1)*p.s*bot,p.y,zb] as V3]:[]),[p.x,p.y,zb],[p.x,p.y,zt],...(top?[[p.x+p.s*top,p.y,zt] as V3]:[])];
+   const p0=pts[0],points=tpl(p0),pv=points.at(-1)!,d0=[pv[0]-p0.x,pv[1]-p0.y];
+   const turns=pts.map(p=>p.s===p0.s?0:180),offsets:V3[]=pts.map((p,n)=>{const t=turns[n]*Math.PI/180,cs=Math.cos(t),sn=Math.sin(t);return [p.x-p0.x-d0[0]+d0[0]*cs-d0[1]*sn,p.y-p0.y-d0[1]+d0[0]*sn+d0[1]*cs,0];});
+   const code=dw.shape==='z'?'99':dw.shape,what=dw.shape==='z'?`รูปตัว Z ขาบน ${dw.topLeg}d ขาล่าง ${dw.bottomLeg}d`:dw.shape==='21'?`งอสองปลาย ขาบน ${dw.topLeg}d ขาล่าง ${dw.bottomLeg}d`:dw.shape==='11'?`งอปลายบน ${dw.topLeg}d`:'ตรง';
+   out.push({role:`joint${k+1}-dowel`,note:`เหล็กแนวตั้งทะลุรอยต่อการเท ${k+1} (V.D.B) @ ${dw.spacingX} × ${dw.spacingY} mm · ฝังลง Stage ล่าง ${Math.round(J-zb)} · ขึ้นถึง +${Math.round(zt)} · ${what}`,
+    diameter:d,grade:g,count:pts.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,...(turns.some(t=>t)?{turns}:{})});}
+ });
  // Side face loops: horizontal closed loops just inside the bottom-bar legs, spaced from the bottom mesh to the top mesh
  if(r.side.enabled){
   const dl=r.side.diameter,legs=[r.bottomX,r.bottomY].some(l=>l.shape!=='00')?Math.max(r.bottomX.diameter,r.bottomY.diameter):0;
