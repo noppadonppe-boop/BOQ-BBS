@@ -13,7 +13,7 @@ type Text={
  quantity:(n:number,where:string)=>string;noLocation:string;dashes:string;perPiece:(mark:string,count:number)=>string;
  cols:[string,string,string,string,string,string,string,string];noBars:string;totalWeight:(kg:string,n:number)=>string;
  boqHead:(n:number)=>[string,string,string,string];provisional:string;
- boq:{concrete:string;stage:(s:number)=>string;formwork:string;excavation:string;backfill:string;lean:string;sand:string;sheet:string;compaction:string;pile:(size:number,len:number)=>string;pileLength:string;pileCut:(mm:number)=>string;steel:(bar:string,grade:string)=>string;steelTotal:string;piece:string};
+ boq:{concrete:string;stage:(s:number)=>string;stageForm:(s:number)=>string;joint:string;formwork:string;excavation:string;backfill:string;lean:string;sand:string;sheet:string;compaction:string;pile:(size:number,len:number)=>string;pileLength:string;pileCut:(mm:number)=>string;steel:(bar:string,grade:string)=>string;steelTotal:string;piece:string};
  tb:{company:string;project:string;title:string;defaultTitle:(cat:string,code:string)=>string;client:string;contractor:string;sub:string;drawn:string;checked:string;approved:string;number:string;rev:string;date:string;size:string;sheet:string;status:string};
  unsaved:string;
 };
@@ -29,7 +29,7 @@ const th:Text={
  perPiece:(m,c)=>`${m} · ${c} เส้น/ชิ้น`,cols:['Mark','ตำแหน่ง','Ø / เกรด','รูปดัด','ยาว/เส้น','ต่อชิ้น','รวมเส้น','น้ำหนัก kg'],
  noBars:'ยังไม่มีชุดเหล็ก · ใช้ข้อมูลพื้นฐานเพื่อสร้าง Bar cut list',totalWeight:(kg,n)=>`น้ำหนักเหล็กรวม ${kg} kg (${n} ชิ้น)`,
  boqHead:n=>['รายการ','หน่วย','ต่อ 1 ชิ้น',`รวม ${n} ชิ้น`],provisional:'ค่าพรีวิว · ยังไม่ยืนยันที่มาข้อมูลปริมาณ (Provisional)',
- boq:{concrete:'คอนกรีต',stage:s=>`  คอนกรีต Stage ${s}`,formwork:'แบบหล่อ',excavation:'งานขุดดิน',backfill:'ถมดินกลับ',sand:'ทรายรองพื้น',sheet:'แผ่นพลาสติกรองพื้น',compaction:'บดอัดดิน',lean:'คอนกรีตหยาบ (Lean)',pile:(s,l)=>`เสาเข็ม ${s} mm × ${l} m`,pileLength:'ความยาวเสาเข็มรวม',pileCut:mm=>`ตัดหัวเข็ม (${mm} mm/ต้น)`,steel:(b,g)=>`เหล็ก ${b} (${g})`,steelTotal:'เหล็กรวม',piece:'ต้น'},
+ boq:{concrete:'คอนกรีต',stage:s=>`  คอนกรีต Stage ${s}`,stageForm:s=>`  แบบหล่อ Stage ${s}`,joint:'รอยต่อการเทคอนกรีต (Construction joint)',formwork:'แบบหล่อ',excavation:'งานขุดดิน',backfill:'ถมดินกลับ',sand:'ทรายรองพื้น',sheet:'แผ่นพลาสติกรองพื้น',compaction:'บดอัดดิน',lean:'คอนกรีตหยาบ (Lean)',pile:(s,l)=>`เสาเข็ม ${s} mm × ${l} m`,pileLength:'ความยาวเสาเข็มรวม',pileCut:mm=>`ตัดหัวเข็ม (${mm} mm/ต้น)`,steel:(b,g)=>`เหล็ก ${b} (${g})`,steelTotal:'เหล็กรวม',piece:'ต้น'},
  tb:{company:'บริษัท / ผู้ออกแบบ',project:'โครงการ',title:'ชื่อแบบ',defaultTitle:(c,code)=>`แบบเหล็กเสริม ${c} ${code} · BBS & BOQ`,client:'Client',contractor:'Contractor',sub:'Sub Contract',drawn:'เขียนแบบ',checked:'ตรวจ',approved:'อนุมัติ',number:'เลขที่แบบ',rev:'Revision',date:'วันที่',size:'ขนาด / มาตราส่วน',sheet:'แผ่นที่',status:'สถานะ'},
  unsaved:'DRAFT · ยังไม่บันทึก',
 };
@@ -45,7 +45,7 @@ const en:Text={
  perPiece:(m,c)=>`${m} · ${c} bars/element`,cols:['Mark','Description','Ø / grade','Shape','Length/bar','Per elem.','Total bars','Weight kg'],
  noBars:'No bars yet · use the element input to create the bar cut list',totalWeight:(kg,n)=>`Total steel weight ${kg} kg (${n} nos)`,
  boqHead:n=>['Item','Unit','Per element',`Total ${n} nos`],provisional:'Preview values · quantity basis not yet confirmed (Provisional)',
- boq:{concrete:'Concrete',stage:s=>`  Concrete stage ${s}`,formwork:'Formwork',excavation:'Excavation',backfill:'Backfill',sand:'Sand bed',sheet:'Plastic sheet',compaction:'Compaction',lean:'Lean concrete',pile:(s,l)=>`Piles ${s} mm × ${l} m`,pileLength:'Total pile length',pileCut:mm=>`Pile head cut-off (${mm} mm/pile)`,steel:(b,g)=>`Steel ${b} (${g})`,steelTotal:'Total steel',piece:'nos'},
+ boq:{concrete:'Concrete',stage:s=>`  Concrete stage ${s}`,stageForm:s=>`  Formwork stage ${s}`,joint:'Construction joint',formwork:'Formwork',excavation:'Excavation',backfill:'Backfill',sand:'Sand bed',sheet:'Plastic sheet',compaction:'Compaction',lean:'Lean concrete',pile:(s,l)=>`Piles ${s} mm × ${l} m`,pileLength:'Total pile length',pileCut:mm=>`Pile head cut-off (${mm} mm/pile)`,steel:(b,g)=>`Steel ${b} (${g})`,steelTotal:'Total steel',piece:'nos'},
  tb:{company:'Company / Designer',project:'Project',title:'Drawing title',defaultTitle:(c,code)=>`Reinforcement detail ${c} ${code} · BBS & BOQ`,client:'Client',contractor:'Contractor',sub:'Sub Contract',drawn:'Drawn',checked:'Checked',approved:'Approved',number:'Drawing No.',rev:'Revision',date:'Date',size:'Size / Scale',sheet:'Sheet',status:'Status'},
  unsaved:'DRAFT · not saved',
 };
@@ -61,7 +61,7 @@ const zh:Text={
  perPiece:(m,c)=>`${m} · ${c} 根/件`,cols:['编号','位置','Ø / 等级','形状','单根长','每件','总根数','重量 kg'],
  noBars:'尚无钢筋 · 请用基本数据生成钢筋下料表',totalWeight:(kg,n)=>`钢筋总重 ${kg} kg (${n} 件)`,
  boqHead:n=>['项目','单位','每件',`合计 ${n} 件`],provisional:'预览值 · 工程量依据尚未确认 (Provisional)',
- boq:{concrete:'混凝土',stage:s=>`  混凝土 第 ${s} 次`,formwork:'模板',excavation:'土方开挖',backfill:'回填土',sand:'砂垫层',sheet:'塑料薄膜',compaction:'压实',lean:'垫层混凝土',pile:(s,l)=>`桩 ${s} mm × ${l} m`,pileLength:'桩总长',pileCut:mm=>`截桩头 (${mm} mm/根)`,steel:(b,g)=>`钢筋 ${b} (${g})`,steelTotal:'钢筋合计',piece:'根'},
+ boq:{concrete:'混凝土',stage:s=>`  混凝土 第 ${s} 次`,stageForm:s=>`  模板 第 ${s} 次`,joint:'施工缝',formwork:'模板',excavation:'土方开挖',backfill:'回填土',sand:'砂垫层',sheet:'塑料薄膜',compaction:'压实',lean:'垫层混凝土',pile:(s,l)=>`桩 ${s} mm × ${l} m`,pileLength:'桩总长',pileCut:mm=>`截桩头 (${mm} mm/根)`,steel:(b,g)=>`钢筋 ${b} (${g})`,steelTotal:'钢筋合计',piece:'根'},
  tb:{company:'公司 / 设计单位',project:'项目',title:'图名',defaultTitle:(c,code)=>`${c} ${code} 配筋图 · BBS & BOQ`,client:'业主',contractor:'总承包',sub:'分包',drawn:'制图',checked:'校对',approved:'审核',number:'图号',rev:'版次',date:'日期',size:'图幅 / 比例',sheet:'张次',status:'状态'},
  unsaved:'草稿 · 未保存',
 };

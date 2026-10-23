@@ -38,13 +38,18 @@ export function pathClearance(path:Vec3[],surfaces:Surface[],required:number){
 export function solidQuantities(m:Member):{volume:number;formwork:number;surfaces:Surface[];errors:string[]}{
  if(m.shapeModel){const g=shapeGeometry(m.shapeModel);return {volume:g.volume,formwork:g.formwork,surfaces:g.surfaces,errors:g.errors};}
  if(m.prismGeometry)return prismQuantities(m.prismGeometry);
+ const {cells:_,...q}=boxCells(m);return q;
+}
+type Cell={origin:Vec3;size:Vec3;mid:Vec3;formwork:number};
+/** Box members as a grid of cells (solid edges + `extraZ` levels): volume, formed faces, each cell's own formwork. */
+function boxCells(m:Member,extraZ:number[]=[]):{volume:number;formwork:number;surfaces:Surface[];errors:string[];cells:Map<string,Cell>;edges:number[][]}{
  const solids=solidsOf(m),voids=m.geometry?.voids||[],boxes=[...solids,...voids],errors:string[]=[];
- const edges=[0,1,2].map(axis=>[...new Set(boxes.flatMap(s=>[s.origin[axis],s.origin[axis]+s.size[axis]]))].sort((a,b)=>a-b));
- const [nx,ny,nz]=edges.map(e=>e.length-1);if(nx*ny*nz>100000)return {volume:0,formwork:0,surfaces:[],errors:['เรขาคณิตซับซ้อนเกิน 100,000 cells แยกสมาชิกก่อน']};
- const cells=new Map<string,{origin:Vec3;size:Vec3;mid:Vec3}>();
+ const edges=[0,1,2].map(axis=>[...new Set([...boxes.flatMap(s=>[s.origin[axis],s.origin[axis]+s.size[axis]]),...(axis===2?extraZ:[])])].sort((a,b)=>a-b));
+ const [nx,ny,nz]=edges.map(e=>e.length-1);if(nx*ny*nz>100000)return {volume:0,formwork:0,surfaces:[],errors:['เรขาคณิตซับซ้อนเกิน 100,000 cells แยกสมาชิกก่อน'],cells:new Map(),edges};
+ const cells=new Map<string,Cell>();
  for(let i=0;i<nx;i++)for(let j=0;j<ny;j++)for(let k=0;k<nz;k++){
   const ijk=[i,j,k],origin=ijk.map((n,a)=>edges[a][n]) as Vec3,size=ijk.map((n,a)=>edges[a][n+1]-edges[a][n]) as Vec3,mid=origin.map((v,a)=>v+size[a]/2) as Vec3;
-  if(solids.some(s=>interior(mid,s))&&!voids.some(s=>interior(mid,s)))cells.set(`${i},${j},${k}`,{origin,size,mid});
+  if(solids.some(s=>interior(mid,s))&&!voids.some(s=>interior(mid,s)))cells.set(`${i},${j},${k}`,{origin,size,mid,formwork:0});
  }
  let volume=0,formwork=0;const surfaces:Surface[]=[];
  for(const [key,cell] of cells){volume+=cell.size[0]*cell.size[1]*cell.size[2];const ijk=key.split(',').map(Number);
@@ -53,9 +58,31 @@ export function solidQuantities(m:Member):{volume:number;formwork:number;surface
    const exteriorForm=solids.some(s=>insideBox(point,s)&&Math.abs(point[axis]-(s.origin[axis]+(positive?s.size[axis]:0)))<1e-6&&s.faces[face]);
    const openingForm=voids.some(v=>insideBox(point,v)&&Math.abs(point[axis]-(v.origin[axis]+(positive?0:v.size[axis])))<1e-6&&v.faces[axis*2+(positive?0:1)]);
    const size=[...cell.size] as Vec3;size[axis]=0;const origin=[...cell.origin] as Vec3;origin[axis]=point[axis];const formed=exteriorForm||openingForm;
-   surfaces.push({origin,size,axis,positive,formed});if(formed)formwork+=cell.size[(axis+1)%3]*cell.size[(axis+2)%3];
+   surfaces.push({origin,size,axis,positive,formed});if(formed){const f=cell.size[(axis+1)%3]*cell.size[(axis+2)%3];formwork+=f;cell.formwork+=f;}
   }
  }
  if(!cells.size)errors.push('ไม่มีปริมาตรคอนกรีตหลังหักช่องเปิด');
- return {volume:volume/1e9,formwork:formwork/1e6,surfaces,errors};
+ return {volume:volume/1e9,formwork:formwork/1e6,surfaces,errors,cells,edges};
+}
+export type PourStage={stage:number;z0:number;z1:number;concrete:number;formwork:number;joint:number};
+/** Pour stages of a box member (`m.pourStages.levels` = top of each stage but the last, mm from the member bottom):
+ * net concrete and formwork per stage and the construction-joint area at the top of each stage (m²).
+ * Deductions with `zRange` are spread over that height; others in proportion to each stage's gross amount. */
+export function pourStageQuantities(m:Member):PourStage[]{
+ if(m.shapeModel||m.prismGeometry||!m.pourStages?.levels.length)return [];
+ const zMax=boundsOf(m)[2],zMin=Math.min(...solidsOf(m).map(s=>s.origin[2]));
+ const levels=[...new Set(m.pourStages.levels)].filter(z=>z>zMin+1e-6&&z<zMax-1e-6).sort((a,b)=>a-b);if(!levels.length)return [];
+ const {cells,edges}=boxCells(m,levels),bounds=[zMin,...levels,zMax];
+ const out:PourStage[]=bounds.slice(1).map((z1,k)=>({stage:k+1,z0:bounds[k],z1,concrete:0,formwork:0,joint:0}));
+ const band=(z:number)=>Math.max(0,bounds.findIndex((b,k)=>k>0&&z<b)-1);
+ for(const [key,c] of cells){const st=out[band(c.mid[2])];st.concrete+=c.size[0]*c.size[1]*c.size[2]/1e9;st.formwork+=c.formwork/1e6;
+  // joint: the cell above belongs to the next stage
+  const [i,j,k]=key.split(',').map(Number),top=edges[2][k+1];if(levels.some(z=>Math.abs(z-top)<1e-6)&&cells.has(`${i},${j},${k+1}`))st.joint+=c.size[0]*c.size[1]/1e6;}
+ const gross={v:out.reduce((n,s)=>n+s.concrete,0),f:out.reduce((n,s)=>n+s.formwork,0)},share=out.map(s=>({v:gross.v?s.concrete/gross.v:0,f:gross.f?s.formwork/gross.f:0}));
+ for(const d of m.deductions)out.forEach((s,k)=>{let w:{v:number;f:number};
+  if(d.zRange&&d.zRange[1]>d.zRange[0]){const f=Math.max(0,Math.min(s.z1,d.zRange[1])-Math.max(s.z0,d.zRange[0]))/(d.zRange[1]-d.zRange[0]);w={v:f,f};}else w=share[k];
+  s.concrete-=d.volume*w.v;s.formwork-=d.formwork*w.f;
+  // a deduction through the stage top (cut-off corners of round footings …) also takes its plan area off the joint
+  if(d.zRange&&k<out.length-1&&d.zRange[0]<s.z1-1e-6&&d.zRange[1]>s.z1+1e-6)s.joint=Math.max(0,s.joint-d.volume/((d.zRange[1]-d.zRange[0])/1000));});
+ return out;
 }

@@ -7,6 +7,7 @@ import {Field,number} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
 import {ColumnTieEditor} from './ColumnTieEditor';
 import {FootingEarthworkSketch} from './FootingEarthworkSketch';
+import {FootingPourEditor} from './FootingPourEditor';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
@@ -140,7 +141,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
       <tr><td>{check('บดอัดดินก้นหลุม','subbase.compaction.enabled')}</td><td>—</td><td className="muted">เต็มก้นหลุม</td><td className="num">{q&&input.subbase.compaction.enabled?`${number(q.compaction)} m²`:'—'}</td></tr>
      </tbody></table>
      {q&&<p className="muted">ขุด {number(q.excavation)} m³ · ถมกลับ {number(q.backfill)} m³ (= ขุด − Lean{earth.sand?' − ทราย':''} − คอนกรีตใต้ดิน) · ต่อ 1 ฐาน</p>}
-    </div><FootingEarthworkSketch input={input}/></div>;})()}</>}
+    </div><FootingEarthworkSketch input={input}/></div>;})()}
+   <FootingPourEditor input={input} readOnly={readOnly} stages={preview&&!('error' in preview)?preview.q.pourStages:undefined} edit={f=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const next=structuredClone(prev);f(next);return next;})}/></>}
   {input.category==='Column'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบเสา">{([['single','เสาชั้นเดียว'],['stack','เสาหลายชั้น · ตารางเสา (Coupler / ปลอกตาม H)']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Column'?prev:v==='stack'?columnStackFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>}
   {input.category==='Column'&&input.layout==='stack'&&<ColumnStackEditor input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);f(next);return next;})}/>}
   {input.category==='Column'&&input.layout!=='stack'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>

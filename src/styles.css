@@ -286,6 +286,10 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .earthwork-input{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;align-items:start}
 @media(max-width:900px){.earthwork-input{grid-template-columns:minmax(0,1fr)}}
 .earthwork-input b.computed{display:block;padding:7px 0;font-weight:600}
+.stage-swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle;border:1px solid #0002}
+.pour-sketch{width:100%;max-width:300px;color:var(--text,#222)}
+.footing-pour .actions{margin:6px 0}
+.error-text{color:#c0392b}
 .slope-field{margin:10px 0}.slope-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.slope-row label.inline{display:inline-flex;gap:6px;align-items:center;font-size:13px}.slope-row label.inline input{width:72px}
 .subbase-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}.subbase-table th,.subbase-table td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:left;vertical-align:middle}.subbase-table th{font-weight:500;color:var(--text-2)}
 .subbase-table td input{width:100%;min-width:60px;max-width:120px}.subbase-table td .check{margin:0}.subbase-table .num{text-align:right;white-space:nowrap}

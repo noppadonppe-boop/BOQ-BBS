@@ -2,6 +2,7 @@ import type {Bar,Member,Project,Vec3} from './model';
 import {barPaths} from './engine';
 import {shapePileQuantities} from './shapeGeometry';
 import {shapeStageVolumes} from './shapeApply';
+import {pourStageQuantities} from './solids';
 import type {ElementInput} from './elementInput';
 import {footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
@@ -27,7 +28,11 @@ export function sheetBoq(s:SheetData):BoqLine[]{
  const q=s.takeoff,n=s.quantity,m=s.member,B=sheetText[sheetLangOf(s.project)].boq,out:BoqLine[]=[{item:B.concrete,unit:'m³',each:q.concrete,total:q.concrete*n}];
  // shape model with several pour stages: concrete per stage (manual deductions stay in the total above)
  const stages=m.shapeModel?shapeStageVolumes(m.shapeModel):[];if(stages.length>1)for(const st of stages)out.push({item:B.stage(st.stage),unit:'m³',each:st.volume,total:st.volume*n});
+ // footing (box) pour stages: concrete and formwork per stage, construction joints between stages
+ const pour=pourStageQuantities(m);if(pour.length>1)for(const st of pour)out.push({item:B.stage(st.stage),unit:'m³',each:st.concrete,total:st.concrete*n});
  out.push({item:B.formwork,unit:'m²',each:q.formwork,total:q.formwork*n});
+ if(pour.length>1){for(const st of pour)out.push({item:B.stageForm(st.stage),unit:'m²',each:st.formwork,total:st.formwork*n});
+  const joint=pour.reduce((t,st)=>t+st.joint,0);if(joint>0)out.push({item:B.joint,unit:'m²',each:joint,total:joint*n});}
  if(m.category==='Foundation'||m.shapeModel?.site)out.push({item:B.excavation,unit:'m³',each:q.excavation,total:q.excavation*n},{item:B.backfill,unit:'m³',each:q.backfill,total:q.backfill*n},{item:B.lean,unit:'m³',each:q.lean,total:q.lean*n});
  else if(q.lean>0)out.push({item:B.lean,unit:'m³',each:q.lean,total:q.lean*n});
  // sub-base layers and manual items (any category)
@@ -85,6 +90,7 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
   det?T.hooks(det.hook90,det.hook135,det.hook135Min,det.lapTable?T.lapSpec(det.lapTable.map(r=>`Ø${r.bar}=${r.length}`).join(', ')):`${det.lap}d`):'',
   T.rounding(s.project.spec.rounding,s.project.spec.bsEdition||'',det?`${det.mainGrade} / ${T.tie} ${det.tieGrade}`:T.perTable),
   input?.category==='Foundation'&&input.foundationType==='pile'?(()=>{const p=pileQuantities(input);return T.pile(p.count,p.size,p.lengthEach,Math.round(p.cutLengthEach*1000),input.pile.embed,false);})():'',
+  pourStageQuantities(m).length>1?T.stages(pourStageQuantities(m).length,pourStageQuantities(m).map(x=>`Stage ${x.stage} = ${Math.round(x.z0)}–${Math.round(x.z1)} mm ${x.concrete.toFixed(2)} m³`).join(' · ')):'',
   // shape-model (custom) members: pour stages, piles and the rule used for sketched bars
   ...(m.shapeModel?[(()=>{const st=shapeStageVolumes(m.shapeModel);return st.length>1?T.stages(st.length,st.map(x=>`Stage ${x.stage} = ${x.volume.toFixed(2)} m³`).join(' · ')):'';})(),
    m.shapeModel.piles?.positions.length?(()=>{const p=shapePileQuantities(m.shapeModel);return T.pile(p.count,p.size,p.lengthEach,Math.round(p.cutLengthEach*1000),m.shapeModel.piles!.embed,true);})():'',
