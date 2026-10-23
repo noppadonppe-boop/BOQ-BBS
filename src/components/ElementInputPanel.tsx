@@ -1,13 +1,14 @@
 import {lazy,Suspense,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {beamGroupFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
 import {ColumnTieEditor} from './ColumnTieEditor';
 import {FootingEarthworkSketch} from './FootingEarthworkSketch';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
+import {BeamGroupEditor} from './BeamGroupEditor';
 import {SiteItemsEditor} from './SiteItemsEditor';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
 import {detailingFromSpec,specLabel} from '../domain/specProfiles';
@@ -38,7 +39,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const [manualBars,setManualBars]=useState(()=>m.bars.filter(b=>!isGeneratedBar(b)));
  const [view3d,setView3d]=useState(false);
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
- const [colSel,setColSel]=useState(0);
+ const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0);
  const spec=project.spec;
  const base=useMemo(()=>withSiteWork({...m,occurrences,bars:[...m.bars.filter(isGeneratedBar),...manualBars]},{...(m.siteWork||emptySiteWork()),items}),[m,occurrences,manualBars,items]);
  const problems=useMemo(()=>input?elementInputProblems(input):[],[input]);
@@ -140,7 +141,11 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Column'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
    <label className="field"><span>รูปร่างหน้าตัด</span><select disabled={readOnly} value={input.shape} onChange={e=>set('shape',e.target.value)}><option value="rect">สี่เหลี่ยม</option><option value="circle">วงกลม</option></select></label>
    {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div><HeightFromLevels what="เสา" readOnly={readOnly} onUse={h=>set('height',h)}/></>}
-  {input.category==='Beam'&&<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
+  {input.category==='Beam'&&<>
+   <div className="segmented beam-layout" role="group" aria-label="รูปแบบคาน">{([['single','คานช่วงเดียว'],['group','กลุ่มคาน · หลายช่วง / คานยื่น / กริด']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Beam'?prev:v==='group'?beamGroupFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>
+   {input.layout==='group'?<BeamGroupEditor input={input} readOnly={readOnly} selected={Math.min(beamSel,Math.max(0,input.spans.length-1))} onSelect={setBeamSel} edit={f=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const next=structuredClone(prev);f(next);return next;})}/>
+    :<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
+   {groundFields('คาน')}</>}
   {input.category==='Slab'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
   {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
   {input.category==='Wall'&&<HeightFromLevels what="ผนัง" readOnly={readOnly} onUse={h=>set('height',h)}/>}
@@ -205,7 +210,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <p className="muted">ปลายบนต่อขึ้นเหนือระดับบนเสา · ปลายล่างต่อลงใต้ระดับล่างเสา · Crank เริ่ม Slope ที่ระดับปลายเสา ดัดเยื้องเข้า 1 × Ø ความชัน 1:6 (ยาวดัด 6Ø) แล้วต่อระยะทาบ</p>
    <h4>เหล็กปลอก · 2 ชุด × 3 โซน</h4>
    <ColumnTieEditor input={input} readOnly={readOnly} set={set} num={num} dia={dia}/></>}
-  {input.category==='Beam'&&<>{shapedCount('เหล็กบน','rebar.top')}{shapedCount('เหล็กล่าง','rebar.bottom')}{spacing('เหล็กปลอก','rebar.stirrup')}<p className="muted">เหล็กบนงอ/ขอลง · เหล็กล่างงอ/ขอขึ้น · ปลายอยู่ที่ cover ปลายคาน</p></>}
+  {input.category==='Beam'&&input.layout==='group'&&<p className="muted">กลุ่มคาน: เหล็กบน / ล่าง / ปลอก กำหนดต่อช่วงในตารางด้านบน · เหล็กเสริมบนกำหนดที่กริด</p>}
+  {input.category==='Beam'&&input.layout!=='group'&&<>{shapedCount('เหล็กบน','rebar.top')}{shapedCount('เหล็กล่าง','rebar.bottom')}{spacing('เหล็กปลอก','rebar.stirrup')}<p className="muted">เหล็กบนงอ/ขอลง · เหล็กล่างงอ/ขอขึ้น · ปลายอยู่ที่ cover ปลายคาน</p></>}
   {input.category==='Slab'&&<>{mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}<p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · จำกัดตามความหนาพื้น − cover</p></>}
   {input.category==='Wall'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p></>}
 

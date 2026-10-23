@@ -91,6 +91,8 @@ export const detailingSchema=z.object({
  lapTable:z.array(z.object({bar:dia,length:mm}).strict()).max(20).optional(),
  /** Spec the defaults were taken from (display only). */
  specRef:z.string().max(200).optional(),
+ /** Beam top-bar extensions (× clear span) from the spec's typical beam details: end (discontinuous) / continuous support. */
+ beam:z.object({topEnd:z.number().finite().min(0).max(2),topCont:z.number().finite().min(0).max(2),bottomZone:z.number().finite().min(0).max(2)}).strict().optional(),
 }).strict();
 /** Lap length for diameter d: project-spec table (exact size, else the next larger size) or lap × d. */
 export function lapLength(det:Detailing,d:number){
@@ -219,11 +221,6 @@ const columnSchema=z.object({...base,category:z.literal('Column'),
  cover:z.object({side:mm}).strict(),
  rebar:z.object({main:columnMain,tie:columnTie,bottom:columnEnd,top:columnEnd}).strict(),
 }).strict();
-const beamSchema=z.object({...base,category:z.literal('Beam'),
- width:mm,depth:mm,length:mm,
- cover:z.object({top:mm,bottom:mm,side:mm}).strict(),
- rebar:z.object({top:shapedCount,bottom:shapedCount,stirrup:spacingLayer}).strict(),
-}).strict();
 /** Element cast on the ground (slab / beam on ground) or elevated (formed soffit). On ground: optional layers under
  * the concrete, top → bottom: lean concrete and plastic sheet, sand bed, compacted subgrade; projections per side. */
 const groundSchema=z.object({support:z.enum(['elevated','ground']),
@@ -239,6 +236,25 @@ export function groundLayers(g:GroundInput,L:number,W:number){
  return {lean:lean?{x:lx,y:ly,thickness:g.lean.thickness}:{x:0,y:0,thickness:0},sand:sand?{x:sx,y:sy,thickness:g.sand.thickness}:{x:0,y:0,thickness:0},
   sheet:on&&g.sheet.enabled?(lean?{x:lx,y:ly}:{x:L,y:W}):{x:0,y:0},compaction:on&&g.compaction.enabled?{x:bottom[0],y:bottom[1]}:{x:0,y:0}};
 }
+/** One span of a beam group, grid to grid (cantilever: grid to tip). `top` = top of beam from the group datum
+ * (mm, − = dropped). Stirrups: `endSpacing` over `endLength` from each support face, `spacing` between. */
+const beamSpanSchema=z.object({mark:z.string().trim().min(1).max(32),kind:z.enum(['span','cantilever']),length:mm,width:mm,depth:mm,
+ top:z.number().finite().min(-20000).max(20000),
+ rebar:z.object({top:countLayer,bottom:countLayer,stirrup:z.object({diameter:dia,spacing:mm,endSpacing:mm,endLength:mm}).strict()}).strict()}).strict();
+/** Grid line: label, support (column) width along the beam (0 = no column, e.g. on a girder / free end),
+ * extra top bars over the support (count 0 = none). */
+const beamGridSchema=z.object({label:z.string().trim().max(20),support:mm,extraTop:countLayer}).strict();
+export type BeamSpan=z.infer<typeof beamSpanSchema>;export type BeamGrid=z.infer<typeof beamGridSchema>;
+const beamSchema=z.object({...base,category:z.literal('Beam'),
+ width:mm,depth:mm,length:mm,
+ cover:z.object({top:mm,bottom:mm,side:mm}).strict(),
+ rebar:z.object({top:shapedCount,bottom:shapedCount,stirrup:spacingLayer}).strict(),
+ /** single = one span (fields above); group = beam group along grid lines (`grids` = spans + 1), BBS for the whole group */
+ layout:z.enum(['single','group']),
+ grids:z.array(beamGridSchema).max(13),
+ spans:z.array(beamSpanSchema).max(12),
+ ground:groundSchema,
+}).strict();
 const slabSchema=z.object({...base,category:z.literal('Slab'),
  lengthX:mm,lengthY:mm,thickness:mm,
  /** slab on ground (sub-base layers, no soffit formwork) or elevated slab */
@@ -262,10 +278,12 @@ function migrateElementInput(raw:unknown):unknown{
  if((raw as any).version===1)return migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw)))))));
  return migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw))))));
 }
-/** Slabs saved before the on-ground option → elevated slab (same quantities). */
+/** Slabs / beams saved before the on-ground option → elevated (same quantities); beams → single span. */
 function migrateGround(raw:any):unknown{
- if(raw?.version!==2||raw.category!=='Slab'||'ground' in raw)return raw;
- return {...structuredClone(raw),ground:structuredClone(DEFAULT_GROUND)};
+ if(raw?.version!==2||raw.category!=='Slab'&&raw.category!=='Beam'||'ground' in raw)return raw;
+ const v={...structuredClone(raw),ground:structuredClone(DEFAULT_GROUND)};
+ if(raw.category==='Beam'){v.layout??='single';v.grids??=[];v.spans??=[];}
+ return v;
 }
 /** Footings saved before reference levels / sub-base layers → levels off, no sand / sheet / compaction (same quantities). */
 function migrateFootingSite(raw:any):unknown{
@@ -340,7 +358,7 @@ export function defaultElementInput(category:InputCategory,mode:'manual'|'drawin
  switch(category){
   case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE)};
   case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}}};
-  case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}}};
+  case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}},layout:'single',grids:[],spans:[],ground:structuredClone(DEFAULT_GROUND)};
   case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,ground:structuredClone(DEFAULT_GROUND),cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
   case 'Wall':return {...common,category,length:6000,thickness:200,height:3000,cover:{face:30,edge:30},rebar:{layers:2,vertical:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},horizontal:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},lap:true}};
  }
@@ -428,8 +446,21 @@ export function elementInputProblems(input:ElementInput):string[]{
    }
    break;}
   case 'Beam':{
-   need(input.width,'ความกว้างคาน');need(input.depth,'ความลึกคาน');need(input.length,'ความยาวคาน');
    need(input.cover.top,'cover ด้านบน');need(input.cover.bottom,'cover ด้านล่าง');need(input.cover.side,'cover ด้านข้าง');
+   if(input.layout==='group'){
+    const sp=input.spans,gr=input.grids;
+    if(!sp.length){p.push('เพิ่มช่วงคานอย่างน้อย 1 ช่วง');break;}
+    if(gr.length!==sp.length+1)p.push('จำนวนกริดต้องเท่ากับจำนวนช่วง + 1');
+    sp.forEach((s,k)=>{const nm=`${s.mark} ช่วงที่ ${k+1}`;need(s.length,`${nm}: ความยาว`);need(s.width,`${nm}: ความกว้าง`);need(s.depth,`${nm}: ความลึก`);
+     fits(s.depth,input.cover.top,input.cover.bottom,`${nm}: ความลึก`);fits(s.width,input.cover.side,input.cover.side,`${nm}: ความกว้าง`);
+     if(s.rebar.top.count<1&&s.rebar.bottom.count<1)p.push(`${nm}: ระบุเหล็กบนหรือเหล็กล่าง`);
+     if(s.rebar.top.count>0)need(s.rebar.top.diameter,`${nm}: ขนาดเหล็กบน`);if(s.rebar.bottom.count>0)need(s.rebar.bottom.diameter,`${nm}: ขนาดเหล็กล่าง`);
+     need(s.rebar.stirrup.diameter,`${nm}: ขนาดเหล็กปลอก`);need(s.rebar.stirrup.spacing,`${nm}: ระยะปลอก`);
+     if(s.kind==='cantilever'){if(k!==0&&k!==sp.length-1)p.push(`${nm}: ช่วงยื่นต้องเป็นช่วงแรกหรือช่วงสุดท้าย`);else if(sp.length===1)p.push(`${nm}: ช่วงยื่นต้องมีช่วงหลังยึด`);else{const tip=k===0?gr[0]:gr[k+1];if(tip&&tip.support>0)p.push(`${nm}: ปลายช่วงยื่นต้องไม่มีเสา (กว้างเสา 0)`);}}
+     const sl=(gr[k]?.support||0)/2,sr=(gr[k+1]?.support||0)/2;if(s.length>0&&s.length-sl-sr<=100)p.push(`${nm}: ช่วงสุทธิระหว่างผิวเสาสั้นเกินไป`);});
+    gr.forEach((g,k)=>{if(g.extraTop.count>0)need(g.extraTop.diameter,`กริด ${g.label||k+1}: ขนาดเหล็กเสริมบน`);});
+    break;}
+   need(input.width,'ความกว้างคาน');need(input.depth,'ความลึกคาน');need(input.length,'ความยาวคาน');
    fits(input.depth,input.cover.top,input.cover.bottom,'ความลึกคาน');fits(input.width,input.cover.side,input.cover.side,'ความกว้างคาน');
    if(input.rebar.top.count<1&&input.rebar.bottom.count<1)p.push('ระบุจำนวนเหล็กบนหรือเหล็กล่าง');
    if(input.rebar.top.count>0)need(input.rebar.top.diameter,'ขนาดเหล็กบน');if(input.rebar.bottom.count>0)need(input.rebar.bottom.diameter,'ขนาดเหล็กล่าง');
@@ -947,7 +978,104 @@ function columnRegions(i:ColumnInput,det:Detailing):RegionV2{
  return out;
 }
 
+/** A new span / grid for a beam group (from the single-beam fields or the previous span). */
+export function newBeamSpan(i:BeamInput,prev?:BeamSpan):BeamSpan{
+ return prev?{...structuredClone(prev),kind:'span'}:{mark:'B1',kind:'span',length:i.length||6000,width:i.width||300,depth:i.depth||600,top:0,
+  rebar:{top:{count:i.rebar.top.count||2,diameter:i.rebar.top.diameter||16},bottom:{count:i.rebar.bottom.count||3,diameter:i.rebar.bottom.diameter||16},
+   stirrup:{diameter:i.rebar.stirrup.diameter||9,spacing:i.rebar.stirrup.spacing||200,endSpacing:Math.min(100,i.rebar.stirrup.spacing||150),endLength:Math.round(2*(i.depth||600))}}};
+}
+export const newBeamGrid=(label:string,support=300):BeamGrid=>({label,support,extraTop:{count:0,diameter:16}});
+/** Beam group converted from the single-beam fields: one span between two 300 mm columns. */
+export function beamGroupFrom(i:BeamInput):BeamInput{
+ return {...i,layout:'group',spans:i.spans.length?i.spans:[newBeamSpan(i)],grids:i.grids.length?i.grids:[newBeamGrid('1'),newBeamGrid('2')]};
+}
+/** Positions along the beam group (x from the outer face of the first support), concrete per span between
+ * support faces, levels from the lowest soffit (z = 0) and the column reference boxes. */
+export function beamGroupLayout(i:BeamInput){
+ const sp=i.spans,gr=i.grids,gx=[0];sp.forEach((s,k)=>gx.push(gx[k]+s.length));
+ const x0=(gr[0]?.support||0)/2,grid=gx.map(x=>x+x0),hi=Math.max(...sp.map(s=>s.top)),lo=Math.min(...sp.map(s=>s.top-s.depth)),W=Math.max(...sp.map(s=>s.width));
+ const spans=sp.map((s,k)=>{const sl=(gr[k]?.support||0)/2,sr=(gr[k+1]?.support||0)/2,a=grid[k]+sl,b=grid[k+1]-sr;
+  return {...s,k,a,b,clear:b-a,z0:s.top-s.depth-lo,z1:s.top-lo,y0:(W-s.width)/2,y1:(W+s.width)/2,label:`${s.mark} (${gr[k]?.label||'ปลาย'}–${gr[k+1]?.label||'ปลาย'})`};});
+ const n=sp.length,L=grid[n]+(gr[n]?.support||0)/2;
+ const columns=gr.flatMap((g,k)=>{if(!(g.support>0))return [];const adj=spans.filter(s=>s.k===k||s.k===k-1);if(!adj.length)return [];
+  return [{k,label:g.label,x0:grid[k]-g.support/2,x1:grid[k]+g.support/2,z0:Math.min(...adj.map(s=>s.z0)),z1:Math.max(...adj.map(s=>s.z1))}];});
+ return {grid,spans,columns,W,H:hi-lo,L,datum:-lo};
+}
+type GroupSpan=ReturnType<typeof beamGroupLayout>['spans'][number];
+/** Beam group bars: bottom bars per span (into interior supports to the far face − 50, hooked into end supports),
+ * continuous top bars merged across supports at the same level and size (hooked into end supports, bent down at
+ * free ends), extra top bars over supports to topCont (continuous) / topEnd (end support) × clear span
+ * (cantilever: whole cantilever + back span), stirrups with end zones. */
+function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
+ const out:GenBar[]=[],{spans,grid,columns}=beamGroupLayout(i),c=i.cover,gr=i.grids,rules=det.beam||{topEnd:.25,topCont:.3,bottomZone:.125},g=det.mainGrade;
+ const col=(k:number)=>columns.find(q=>q.k===k);
+ const zTop=(s:GroupSpan,d:number)=>s.z1-c.top-s.rebar.stirrup.diameter-d/2,zBot=(s:GroupSpan,d:number)=>s.z0+c.bottom+s.rebar.stirrup.diameter+d/2;
+ const across=(s:GroupSpan,d:number)=>({lo:s.y0+c.side+s.rebar.stirrup.diameter+d/2,hi:s.y1-c.side-s.rebar.stirrup.diameter-d/2});
+ const hookLeg=(d:number)=>det.hook90*d+radius(d,det);
+ /** run end at grid k anchored in the column: its far face − cover; without a column the concrete end − cover */
+ const anchorX=(k:number,dir:-1|1,d:number,s:GroupSpan)=>{const q=col(k);return q?(dir<0?q.x0+c.side+d/2:q.x1-c.side-d/2):dir<0?s.a+c.side+d/2:s.b-c.side-d/2;};
+ const down=(s:GroupSpan,z:number,d:number)=>-Math.max(0,Math.min(hookLeg(d),z-(s.z0+c.bottom+s.rebar.stirrup.diameter+d)));
+ const run=(x0:number,x1:number,z:number,h0:number,h1:number):[number,number][]=>[...(h0?[[x0,z+h0] as [number,number]]:[]),[x0,z],[x1,z],...(h1?[[x1,z+h1] as [number,number]]:[])];
+ const push=(role:string,note:string,d:number,count:number,pts:[number,number][],face:Bar['face'],lo:number,hi:number,hooks:number)=>{
+  const from=count===1?(lo+hi)/2:lo,to=count===1?from:hi;
+  out.push({role,note,diameter:d,grade:g,count,points:pts.map(([x,z])=>[Number(x.toFixed(3)),from,Number(z.toFixed(3))] as V3),axis:'X',face,radius:hooks?radius(d,det):0,shapeCode:hooks===0?'00':hooks===1?'11':'21',distributionAxis:'Y',from,to});
+ };
+ // ---- bottom bars, one set per span
+ for(const s of spans){const b=s.rebar.bottom,d=b.diameter;if(b.count<1||!d)continue;
+  const z=zBot(s,d),{lo,hi}=across(s,d);if(hi<lo){warn(`${s.label} เหล็กล่าง: คานแคบเกินไป`);continue;}
+  const end=(side:'a'|'b')=>{const k=side==='a'?s.k:s.k+1,other=side==='a'?spans[s.k-1]:spans[s.k+1],q=col(k),dir=side==='a'?-1:1;
+   if(!q)return {x:anchorX(k,dir,d,s),hook:0};
+   if(other&&other.kind!=='cantilever'&&s.kind!=='cantilever'&&Math.abs(other.z0-s.z0)<25)return {x:dir<0?q.x0+50:q.x1-50,hook:0};
+   return {x:anchorX(k,dir,d,s),hook:Math.max(0,Math.min(hookLeg(d),s.z1-c.top-s.rebar.stirrup.diameter-d-z))};};
+  const A=end('a'),B=end('b');
+  push(`s${s.k+1}-bottom`,`${s.label} · เหล็กล่าง${s.kind==='cantilever'?' (ช่วงยื่น)':''}`,d,b.count,run(A.x,B.x,z,A.hook,B.hook),'bottom',lo,hi,(A.hook?1:0)+(B.hook?1:0));
+ }
+ // ---- continuous top bars: merge neighbouring spans of the same size, count and top level
+ let k=0;
+ while(k<spans.length){const s=spans[k],t=s.rebar.top,d=t.diameter;if(t.count<1||!d){k++;continue;}
+  let e=k;while(e+1<spans.length&&spans[e+1].rebar.top.count===t.count&&spans[e+1].rebar.top.diameter===d&&Math.abs(spans[e+1].z1-s.z1)<25)e++;
+  const parts=spans.slice(k,e+1),last=spans[e],z=zTop(s,d),lo=Math.max(...parts.map(p=>across(p,d).lo)),hi=Math.min(...parts.map(p=>across(p,d).hi));
+  const A={x:anchorX(s.k,-1,d,s),hook:down(s,z,d)},B={x:anchorX(last.k+1,1,d,last),hook:down(last,z,d)};
+  if(B.x-A.x>det.stockLength)warn(`${parts.map(p=>p.mark).join(', ')} เหล็กบนต่อเนื่อง: ยาว ${Math.round(B.x-A.x)} mm เกินเหล็กเส้น ${det.stockLength} mm ต้องต่อทาบ (ต่อบริเวณกลางช่วง)`);
+  const marks=[...new Set(parts.map(p=>p.mark))].join(' / ');
+  push(`top-${k+1}${e>k?`-${e+1}`:''}`,`${parts.length>1?`${marks} (${gr[s.k]?.label||'ปลาย'}–${gr[last.k+1]?.label||'ปลาย'})`:s.label} · เหล็กบนต่อเนื่อง`,d,t.count,run(A.x,B.x,z,A.hook,B.hook),'top',lo,hi,(A.hook?1:0)+(B.hook?1:0));
+  k=e+1;}
+ // ---- extra top bars over the supports
+ gr.forEach((gd,gk)=>{const x=gd.extraTop,d=x.diameter;if(x.count<1||!d)return;
+  const L0=spans[gk-1],R0=spans[gk];if(!L0&&!R0)return;
+  // top of beam changes at this support: one bar per side, each anchored in the column
+  const split=!!L0&&!!R0&&Math.abs(L0.z1-R0.z1)>=25;
+  for(const [L,R,tag] of (split?[[L0,undefined,'-l'],[undefined,R0,'-r']]:[[L0,R0,'']]) as [GroupSpan|undefined,GroupSpan|undefined,string][]){
+  const ref=(L&&R?(L.z1>=R.z1?L:R):(L||R))!,main=ref.rebar.top,z0=zTop(ref,main.diameter||d),{lo,hi}=across(ref,d),q=col(gk);
+  // between the continuous bars when they leave room, else a second layer under them
+  let z=z0,from=lo,to=hi;
+  if(main.count>=2&&x.count<=main.count-1){const gap=(hi-lo)/(main.count-1);from=lo+gap/2;to=from+gap*(x.count-1);}
+  else if(main.count>0)z=z0-(main.diameter||d)/2-Math.max(25,d)-d/2;
+  const faceL=q?q.x0:grid[gk],faceR=q?q.x1:grid[gk],both=!!L&&!!R&&L.kind!=='cantilever'&&R.kind!=='cantilever';
+  // extension into a span: continuous support → topCont × the longer clear span; end support → topEnd × clear span
+  const reach=(s:GroupSpan,other?:GroupSpan)=>other?.kind==='cantilever'?Math.max(other.clear,rules.topCont*s.clear):both?rules.topCont*Math.max(L!.clear,R!.clear):rules.topEnd*s.clear;
+  let a:number,ha=0,b:number,hb=0;
+  if(!L){a=anchorX(gk,-1,d,R!);ha=down(R!,z,d);}else if(L.kind==='cantilever'){a=L.a+c.side+d/2;ha=down(L,z,d);}else a=faceL-reach(L,R);
+  if(!R){b=anchorX(gk,1,d,L!);hb=down(L!,z,d);}else if(R.kind==='cantilever'){b=R.b-c.side-d/2;hb=down(R,z,d);}else b=faceR+reach(R,L);
+  const f=x.count===1?(from+to)/2:from,t=x.count===1?f:to;
+  out.push({role:`g${gk+1}-extra-top${tag}`,note:`เหล็กเสริมบนที่กริด ${gd.label||gk+1} (${[L?.mark,R?.mark].filter(Boolean).join(' / ')}) · ยื่นจากผิวเสา ${L?Math.round(faceL-a):0} / ${R?Math.round(b-faceR):0} mm`,diameter:d,grade:g,count:x.count,
+   points:run(a,b,z,ha,hb).map(([px,pz])=>[Number(px.toFixed(3)),f,Number(pz.toFixed(3))] as V3),axis:'X',face:'top',radius:ha||hb?radius(d,det):0,shapeCode:ha&&hb?'21':ha||hb?'11':'00',distributionAxis:'Y',from:f,to:t});
+ }});
+ // ---- stirrups per span: close spacing over `endLength` from each support face (cantilever: support side only)
+ for(const s of spans){const st=s.rebar.stirrup,dt=st.diameter;if(!dt||!(st.spacing>0))continue;
+  const tc=c.side+dt/2,rad=radius(dt,det,true),x0=s.a+50,x1=s.b-50,ez=st.endSpacing>0&&st.endLength>0?Math.min(st.endLength,(x1-x0)/2):0;
+  const tipA=s.kind==='cantilever'&&!(gr[s.k]?.support>0)&&s.k===0,tipB=s.kind==='cantilever'&&!tipA;
+  const zones:[string,number,number,number][]=!ez?[['m',x0,x1,st.spacing]]:[
+   ...(tipA?[]:[['a',x0,x0+ez,st.endSpacing] as [string,number,number,number]]),
+   ['m',tipA?x0:x0+ez+st.spacing,tipB?x1:x1-ez-st.spacing,st.spacing],
+   ...(tipB?[]:[['b',x1-ez,x1,st.endSpacing] as [string,number,number,number]])];
+  for(const [zn,a,b,sp] of zones){if(b<a-1e-6)continue;const sx=spread(a,b,sp);if(!sx)continue;
+   out.push({role:`s${s.k+1}-stirrup-${zn}`,note:`${s.label} · เหล็กปลอก${zn==='m'?'ช่วงกลาง':'ช่วงปลาย'} @${sp}`,diameter:dt,grade:det.tieGrade,count:sx.count,points:link(1,2,0,s.y0+tc,s.y1-tc,s.z0+c.bottom+dt/2,s.z1-c.top-dt/2,sx.from,det.hook90*dt,rad,dt),axis:'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});}
+ }
+ return out;
+}
 function beamBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
+ if(i.layout==='group')return beamGroupBars(i,det,warn);
  const out:GenBar[]=[],{width:W,depth:Dp,length:L,cover:c,rebar:r}=i,dt=r.stirrup.diameter;
  const main=(role:string,note:string,l:Shaped&{count:number},top:boolean)=>{
   if(l.count<1)return;const d=l.diameter,z=top?Dp-c.top-dt-d/2:c.bottom+dt+d/2,lo=c.side+dt+d/2,hi=W-c.side-dt-d/2;
@@ -1053,7 +1181,21 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    const context=[...keep,...columnRegions(input,det)].slice(0,6),{placementContext:_c,...rest}=next;
    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:rect?input.width:D,y:rect?input.depth:D,z:H,cover:input.cover.side,faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions:rect?deductions:[...deductions,{reason:`${AUTO}หน้าตัดวงกลม Ø${D} (แปลงจากกล่อง ${D} × ${D})`,volume:(D*D-Math.PI*D*D/4)*H/1e9,formwork:(4*D-Math.PI*D)*H/1e6}]};
    gen=columnBars(input,det,rounding,warn);break;}
-  case 'Beam':next={...next,x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=beamBars(input,det,warn);break;
+  case 'Beam':{
+   const onGround=input.ground.support==='ground';
+   if(input.layout==='group'&&input.spans.length){
+    // beam group: one concrete box per span between support faces; supporting columns are reference regions
+    const lay=beamGroupLayout(input),last=lay.spans.length-1;
+    const solids=lay.spans.map(sp=>({id:`span${sp.k+1}`,label:sp.label.slice(0,80),origin:[sp.a,sp.y0,sp.z0] as V3,size:[Math.max(1,sp.clear),sp.y1-sp.y0,sp.z1-sp.z0] as V3,
+     faces:[sp.k===0&&!(input.grids[0]?.support>0),sp.k===last&&!(input.grids[last+1]?.support>0),true,true,!onGround,false]}));
+    const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('genbcol')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
+    const cols=lay.columns.map(q=>({id:`genbcol${q.k+1}`,label:`เสา ${q.label||q.k+1} (อ้างอิง)`.slice(0,80),origin:[q.x0,0,q.z0] as V3,size:[q.x1-q.x0,lay.W,Math.max(1,q.z1-q.z0)] as V3,reference:'เสาที่รองรับคาน · ระยะฝัง/งอเหล็กคาน · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:input.cover.side,openings:[]}));
+    const context=[...keep.slice(0,Math.max(0,REGION_LIMIT-cols.length)),...cols].slice(0,REGION_LIMIT);
+    if(keep.length+cols.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ · ตัดพื้นที่กำหนดเองบางส่วนออก`);
+    const {placementContext:_c,...rest}=next;
+    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:lay.L,y:lay.W,z:lay.H,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions,geometry:{solids,voids:[]}} as Member;
+   }else next={...next,x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions};
+   gen=beamBars(input,det,warn);break;}
   case 'Slab':next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
   case 'Wall':next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions};gen=wallBars(input,det,rounding,warn);break;
  }
@@ -1062,6 +1204,9 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
  // slab on ground: lean concrete / sand / sheet / compaction under the slab, no soffit formwork
  if(input.category==='Slab'&&input.ground.support==='ground'){const g=groundLayers(input.ground,input.lengthX,input.lengthY);
   next=withSiteWork({...next,lean:g.lean,faces:[true,true,true,true,false,false]},{...(m.siteWork||emptySiteWork()),sand:g.sand,sheet:g.sheet,compaction:g.compaction});}
+ // beam on ground: layers along the whole beam (group: outer face to outer face of the end supports)
+ if(input.category==='Beam'&&input.ground.support==='ground'){const lay=input.layout==='group'&&input.spans.length?beamGroupLayout(input):undefined,g=groundLayers(input.ground,lay?lay.L:input.length,lay?lay.W:input.width);
+  next=withSiteWork({...next,lean:g.lean},{...(m.siteWork||emptySiteWork()),sand:g.sand,sheet:g.sheet,compaction:g.compaction});}
  if(opts.withBars===false)return {member:next,warnings,generated:[]};
  const manual=m.bars.filter(b=>!isGeneratedBar(b)),used=new Set(manual.map(b=>b.mark)),prefix=markPrefix[input.category];
  let n=0;const nextMark=()=>{let mark='';do{n++;mark=`${prefix}${String(n).padStart(2,'0')}`;}while(used.has(mark));used.add(mark);return mark;};

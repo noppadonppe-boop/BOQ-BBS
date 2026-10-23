@@ -6,6 +6,7 @@ import {shapeStageVolumes} from './shapeApply';
 import {labels} from './model';
 import type {ElementInput} from './elementInput';
 import {footingColumns,pileQuantities} from './elementInput';
+import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
 import {buildView,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
 import {textWidth,wrapText,type Prim} from './drawingPrims';
 
@@ -43,7 +44,7 @@ export function sheetBoq(s:SheetData):BoqLine[]{
 function layout(s:SheetData){
  const S=SHEET,sx=S.w-S.margin-S.strip,titleTop=S.h-S.margin-S.title,boq=sheetBoq(s),boqH=7+5+boq.length*S.boqRow+(s.provisional?5:0),boqTop=titleTop-3-boqH,tableTop=S.margin+8;
  const perPage=Math.max(1,Math.floor((boqTop-4-tableTop-S.bbsHead)/S.bbsRow));
- return {sx,titleTop,boq,boqTop,tableTop,perPage,pages:Math.max(1,Math.ceil(s.rows.length/perPage))};
+ return {sx,titleTop,boq,boqTop,tableTop,perPage,pages:Math.max(1,Math.ceil(s.rows.length/perPage),beamSheetPages(s.input))};
 }
 export function sheetPageCount(s:SheetData){return layout(s).pages;}
 
@@ -62,14 +63,17 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  text(`${s.project.code} · ${s.project.name}`,S.left+4,S.margin+10.5,2.6,{color:'#4b6166'});
  line(S.left,S.margin+13,sx,S.margin+13,.3,ink);
  const left=S.left+2,colW=(sx-S.left-6)/2,topY=S.margin+15,topH=128,botY=topY+topH+3,botH=S.h-S.margin-botY-2;
- const views=[{title:'แปลน',box:{x:left,y:topY,w:colW,h:topH},spec:{axes:[0,1] as [number,number]},cuts},{title:`รูปตัด X–X (Y = ${Math.round(cuts.y)})`,box:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},{title:`รูปตัด Y–Y (X = ${Math.round(cuts.x)})`,box:{x:left,y:botY,w:colW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}}];
+ // beam group: elevation + cross-sections (paged) instead of plan / sections X–Y
+ const bg=beamGroupSheet(m,s.rows,input,{x:left,y:topY,w:sx-left-2,h:S.h-S.margin-topY-2},page,k);
+ const views=bg?bg.views:[{title:'แปลน',box:{x:left,y:topY,w:colW,h:topH},spec:{axes:[0,1] as [number,number]},cuts},{title:`รูปตัด X–X (Y = ${Math.round(cuts.y)})`,box:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},{title:`รูปตัด Y–Y (X = ${Math.round(cuts.x)})`,box:{x:left,y:botY,w:colW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}}];
  for(const v of views){
   out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2});
   text(v.title,v.box.x+2,v.box.y+4,2.8,{bold:true});
   out.push(...renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined}));
  }
+ if(bg)out.push(...bg.marks);
  // Notes and Mark legend.
- const nb={x:left+colW+2,y:botY,w:colW,h:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
+ const nb=bg?bg.notes:{x:left+colW+2,y:botY,w:colW,h:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
  text('หมายเหตุ',nb.x+2,nb.y+4.5,3,{bold:true});
  const det=input?.detailing,names:Record<string,string>={bottom:'ล่าง',top:'บน',side:'ข้าง',edge:'ขอบ',face:'ผิว'};
  const notes=[

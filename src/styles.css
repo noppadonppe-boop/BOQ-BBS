@@ -298,3 +298,11 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .column-detail-title{margin:10px 0 4px}
 .ground-fields{margin:10px 0}.ground-fields .subbase-table{max-width:720px}
 .height-levels{margin:6px 0 10px}.height-levels summary{cursor:pointer;color:var(--brand);font-size:13px}
+/* beam group: elevation + span / grid tables */
+.beam-layout{margin-bottom:10px}.beam-group .actions{margin:8px 0}
+.beam-elevation{width:100%;max-height:260px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2)}
+.beam-elevation .grid{stroke:#9aa7ad;stroke-dasharray:8 5;stroke-width:1;vector-effect:non-scaling-stroke}.beam-elevation .bubble{fill:#fff;stroke:#4a5a66;stroke-width:1.2;vector-effect:non-scaling-stroke}
+.beam-elevation .support{fill:#dfe5ea;stroke:#7a8994;stroke-width:1;vector-effect:non-scaling-stroke}.beam-elevation .span{fill:#e9efec;stroke:#51706a;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
+.beam-elevation .span.cantilever{fill:#f1ece2}.beam-elevation .span.active{fill:#cdd9f5;stroke:#1d4ed8;stroke-width:2.5}
+.beam-elevation text{fill:#18242c;font-family:inherit}.beam-elevation text.dim{fill:#4a5a66}.beam-elevation text.drop{fill:#b45309}
+.beam-spans td,.beam-grids td{white-space:nowrap}.beam-spans tr{cursor:pointer}.beam-spans tr.active td{background:var(--brand-50)}.bar-cell{display:inline-flex;gap:4px;align-items:center}.bar-cell select{min-width:64px}

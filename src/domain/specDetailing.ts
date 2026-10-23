@@ -20,5 +20,5 @@ export function detailingFromSpec(spec:Spec,base:Detailing):Detailing{
  const ratio=(rows:{bar:number;D:number}[],lo:number,hi:number)=>avg(rows.filter(r=>r.bar>=lo&&r.bar<=hi&&r.bar>0).map(r=>r.D/2/r.bar));
  const bendSmall=step(ratio(v.endHooks,1,16))||base.bendSmall,bendLarge=step(ratio(v.endHooks,20,32))||base.bendLarge,tieBend=step(ratio(v.stirrupHooks,1,16))||base.tieBend;
  const lapTable=table.map(r=>({bar:r.bar,length:r.ftlTension}));
- return {...base,mainGrade:design.grade,bendSmall,bendLarge,tieBend,hook90:12,hook135:6,hook135Min:75,lap:Math.round(avg(table.map(r=>r.ftlTension/r.bar)))||base.lap,lapTable,specRef};
+ return {...base,mainGrade:design.grade,bendSmall,bendLarge,tieBend,hook90:12,hook135:6,hook135Min:75,lap:Math.round(avg(table.map(r=>r.ftlTension/r.bar)))||base.lap,lapTable,specRef,beam:{...v.beam}};
 }
