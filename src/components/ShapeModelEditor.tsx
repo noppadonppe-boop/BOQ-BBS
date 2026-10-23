@@ -1,12 +1,12 @@
 import {useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
 import {Copy,Plus,Trash2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {proposalGaps,proposalToShape,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
+import {isCoverQuestion,proposalGaps,proposalToShape,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
 import {aiShapeConfigured,analyseShapeWithAI} from '../data/aiShapeAnalysis';
 import {drawingViews} from '../data/drawingViews';
 import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
 import {normaliseShape,partPolygon,shapeFootprint,shapePileQuantities} from '../domain/shapeGeometry';
-import {applyShapeModel,shapeProblems,shapeStageVolumes,starterShape} from '../domain/shapeApply';
+import {applyShapeModel,shapeProblems,shapeStageVolumes,standardCover,starterShape} from '../domain/shapeApply';
 import {takeoff} from '../domain/engine';
 import {buildView,renderView,viewHeight} from '../domain/elementViews';
 import {Field,number} from './EditorControls';
@@ -22,6 +22,8 @@ const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
 /** Custom element · step 3 “ยืนยันรูปทรง”: parts list, interactive plan, sections, 3D, checks and quantities. */
 export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply}:{member:Member;project:Project;attachments?:Attachment[];readOnly:boolean;onApply:(m:Member)=>void}){
  const [draft,setDraft]=useState<ShapeModel>(()=>structuredClone(member.shapeModel||starterShape(member)));
+ // cover: the member's value, or the drawing's / standard value once an AI shape is used (editable)
+ const [cover,setCover]=useState(member.cover),[coverSource,setCoverSource]=useState('');
  const [sel,setSel]=useState(draft.parts[0]?.id||''),[snap,setSnap]=useState(50),[cut,setCut]=useState<P2>(()=>[member.x/2,member.y/2]);
  const part=draft.parts.find(p=>p.id===sel);
  const put=(id:string,patch:Partial<ShapePart>)=>setDraft(d=>({...d,confirmed:false,parts:d.parts.map(p=>p.id===id?{...p,...patch} as ShapePart:p)}));
@@ -42,11 +44,12 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  const stages=useMemo(()=>{try{return shapeStageVolumes(normaliseShape(draft).model);}catch{return [];}},[draft]);
  const piles=draft.piles?shapePileQuantities(draft):undefined;
  const blocked=readOnly||!preview||checks.blockers.length>0;
- const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;onApply(applyShapeModel(member,draft));};
+ const std=standardCover(draft);
+ const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;onApply({...applyShapeModel(member,draft),cover:Math.max(0,cover)});};
  return <section className="panel padded shape-editor">
   <div className="section-heading"><div><h3>รูปทรงหลายชิ้นส่วน · {member.code}</h3><p className="muted">ประกอบจากชิ้นส่วน (กล่อง · หลายเหลี่ยม · ทรงกระบอก/ผนังกลม · ปล่อง) และช่องเปิด · ชิ้นส่วนซ้อนกันนับครั้งเดียว · แก้ได้ทั้งในแปลนและช่องคุณสมบัติ · มิติ mm</p></div>
    <div className="actions"><label className="field compact"><span>Snap</span><select value={snap} onChange={e=>setSnap(Number(e.target.value))}>{[1,10,25,50,100].map(v=><option key={v} value={v}>{v} mm</option>)}</select></label></div></div>
-  <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={shape=>{setDraft(shape);setSel(shape.parts[0].id);}}/>
+  <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={(shape,c)=>{setDraft(shape);setSel(shape.parts[0].id);setCover(c??standardCover(shape));setCoverSource(c?'จากแบบ':'มาตรฐาน');}}/>
   <div className="shape-layout">
    <aside className="shape-parts">
     <h4>ชิ้นส่วน ({draft.parts.length}/40)</h4>
@@ -77,6 +80,8 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
      {piles&&piles.count>0&&<><tr><td>เสาเข็ม</td><td>{piles.count} ต้น · {number(piles.totalLength,2)} m</td></tr>{piles.cutCount>0&&<tr><td>ตัดหัวเข็ม</td><td>{piles.cutCount} ต้น</td></tr>}</>}
      <tr><td>ขนาดรวม X/Y/Z</td><td>{fmt(preview!.x)} / {fmt(preview!.y)} / {fmt(preview!.z)}</td></tr></tbody></table>:<p className="muted">—</p>}
     <p className="muted">ทรงกลมคำนวณด้วยรูปหลายเหลี่ยมพื้นที่เท่าวงกลม (ปริมาตรตรง · แนวขอบต่างไม่เกิน ~2 mm)</p>
+    <label className="field"><span>Cover คอนกรีตหุ้มเหล็ก (mm) · {coverSource||(cover===member.cover?'ของสมาชิก':'แก้แล้ว')}</span><input type="number" min={0} disabled={readOnly} value={cover} onChange={e=>{setCover(Math.max(0,Number(e.target.value)||0));setCoverSource('');}}/></label>
+    {cover!==std&&<button type="button" className="link-button" disabled={readOnly} onClick={()=>{setCover(std);setCoverSource('มาตรฐาน');}}>ใช้ค่ามาตรฐาน {std} mm ({std===75?'คอนกรีตสัมผัสดิน / บนเสาเข็ม':'ทั่วไป'})</button>}
     <label className="check"><input type="checkbox" disabled={readOnly} checked={draft.confirmed} onChange={e=>setDraft(d=>({...d,confirmed:e.target.checked}))}/>ตรวจมิติทุกชิ้นกับแบบแล้ว (ยืนยันรูปทรง)</label>
     <button className="primary shape-apply" disabled={blocked} onClick={apply}>ใช้รูปทรงนี้กับสมาชิก</button>
     <p className="muted">หลังใช้: ตรวจรูปในแท็บ “แบบ & BBS” แล้วเพิ่มชุดเหล็ก · กดบันทึกสมาชิก</p>
@@ -88,7 +93,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
 const faceLabels:Record<string,string>={B:'ตะแกรงล่าง',T:'ตะแกรงบน',EF:'แนวตั้งผิวข้าง',LOOP:'ปลอกรอบผิว',ADD:'เสริมเพิ่ม',NOTE:'ข้อกำหนด'};
 const roles=['แปลน (Top view)','รูปตัด X–X','รูปตัด Y–Y','รูปตัดอื่น','3D / Axonometric','หลายรูปในหน้าเดียว'];
 /** Steps 1–2: send the member's drawings to the AI one after another (each refines the previous proposal), answer the gaps, use as shape. */
-function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member;project:Project;attachments:Attachment[];readOnly:boolean;onUse:(s:ShapeModel)=>void}){
+function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member;project:Project;attachments:Attachment[];readOnly:boolean;onUse:(s:ShapeModel,cover:number|null)=>void}){
  const [pick,setPick]=useState<Record<string,string>>(()=>Object.fromEntries(attachments.map(a=>[a.id,'หลายรูปในหน้าเดียว']))),[on,setOn]=useState<Record<string,boolean>>({});
  const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[proposal,setProposal]=useState<ShapeProposal|null>(null),[replies,setReplies]=useState<Record<string,string>>({});
  const files=attachments.filter(a=>on[a.id]),configured=aiShapeConfigured(),gaps=proposal?proposalGaps(proposal):[];
@@ -97,7 +102,7 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
   const at=`ไฟล์ ${i+1}/${files.length}`;setProgress(`${at} · กำลังเตรียมภาพขยายของแบบ…`);
   const views=await drawingViews(a).catch(()=>undefined);
   cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,answers,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur){setProposal(cur);setReplies({});}}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
- const shapeQs=proposal?.missing.filter(x=>x.kind!=='rebar')||[],rebarQs=proposal?.missing.filter(x=>x.kind==='rebar')||[];
+ const shapeQs=proposal?.missing.filter(x=>x.kind!=='rebar'&&!isCoverQuestion(x))||[],rebarQs=proposal?.missing.filter(x=>x.kind==='rebar'&&!isCoverQuestion(x))||[];
  const qKey=(x:{part:string;question:string})=>`${x.part}|${x.question}`,answers:ShapeAnswer[]=(proposal?.missing||[]).map(x=>({part:x.part,question:x.question,answer:(replies[qKey(x)]||'').trim()})).filter(a=>a.answer);
  const ask=(x:{part:string;question:string},i:number)=><label key={i} className="shape-ai-q"><span>❓ {x.part?`${x.part}: `:''}{x.question}</span><textarea rows={2} disabled={readOnly||busy} placeholder="พิมพ์คำตอบ เช่น ขอบเขต / ระดับ / ค่าที่ใช้ (เว้นว่างได้)" value={replies[qKey(x)]||''} onChange={e=>setReplies(r=>({...r,[qKey(x)]:e.target.value}))}/></label>;
  const answer=(g:{part:number;field:string},value:number)=>setProposal(p=>{if(!p)return p;if(g.part<0)return {...p,piles:p.piles?{...p.piles,[g.field]:value}:p.piles};return {...p,parts:p.parts.map((q,i)=>i===g.part?{...q,[g.field]:value}:q)};});
@@ -111,6 +116,7 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
    {!proposal.parts.some(q=>q.role==='solid')&&<p className="notice warning">AI ไม่ได้สร้างชิ้นส่วนคอนกรีต · ผลอ่านแบบแต่ละครั้งไม่เท่ากัน ลองกด “อ่านรูปทรงจาก {files.length} ไฟล์” อีกครั้ง หรือเลือกโมเดลที่อ่านภาพได้ดีกว่าและเปิด thinking ในหน้า “จัดการ API”</p>}
    <table className="shape-qty"><thead><tr><th>ชิ้นส่วน</th><th>ชนิด</th><th>มิติ</th><th>ที่มา</th></tr></thead><tbody>{proposal.parts.map((q,i)=><tr key={i}><td>{q.role==='void'?'(ช่องเปิด) ':''}{q.label}</td><td>{shapeKindLabels[q.shape]}</td><td>{q.shape==='circle'?`Ø${q.diameter??'?'}${q.inner?` / Ø${q.inner}`:''}`:q.shape==='polygon'?`${q.points?.length||0} จุด`:`${q.w??'?'} × ${q.d??'?'}`} · z {q.z0??'?'} · h {q.height??'?'}</td><td><small>{q.source}</small></td></tr>)}</tbody></table>
    {!!proposal.levels?.length&&<p className="muted">ระดับที่อ่านได้: {proposal.levels.map(l=>`${l.name}${l.elevation!==null?` ${l.elevation.toFixed(3)}`:''}${l.z!==null?` (z ${fmt(l.z)})`:''}`).join(' · ')}</p>}
+   <p className="muted">Cover: {proposal.cover?`${proposal.cover} mm จากแบบ`:`แบบไม่ระบุ · ใช้ค่ามาตรฐาน ${standardCover(proposalToShape(proposal))} mm`} · แก้ได้ในช่อง Cover ก่อนกด “ใช้รูปทรงนี้กับสมาชิก” หรือใน 3D Modal</p>
    {!!proposal.checks?.length&&<ul className="shape-check ok">{proposal.checks.map((t,i)=><li key={i}>✔ {t}</li>)}</ul>}
    {(gaps.length>0||shapeQs.length>0)&&<><h4>ข้อมูลรูปทรงที่ขาด — ตอบก่อนใช้ ({gaps.length+shapeQs.length})</h4>
     {gaps.map(g=><label key={`${g.part}-${g.field}`} className="shape-gap"><span>⚠ {g.label}</span>{g.field!=='points'&&<input type="number" placeholder="mm" onChange={e=>{const v=Number(e.target.value);if(e.target.value!==''&&Number.isFinite(v))answer(g,v);}}/>}</label>)}
@@ -122,7 +128,7 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
    {proposal.references.length>0&&<p className="muted">โครงสร้างอ้างอิง (ไม่คิดปริมาณ): {proposal.references.map(r=>r.label).join(' · ')}</p>}
    {proposal.missing.length>0&&<div className="actions"><button disabled={readOnly||busy||!configured||!files.length||!answers.length} onClick={()=>void run(answers)}>{busy?'กำลังอ่าน…':`อ่านแบบใหม่พร้อมคำตอบ (${answers.length}/${proposal.missing.length})`}</button>
     <span className="muted">{files.length?'AI อ่านไฟล์ที่ติ๊กไว้อีกครั้ง โดยใช้ผลนี้และคำตอบของคุณ แล้วถามเฉพาะส่วนที่ยังขาด':'ติ๊กไฟล์ด้านบนก่อนอ่านใหม่'}</span></div>}
-   <div className="actions"><button className="primary" disabled={readOnly} onClick={()=>{if(gaps.length&&!confirm(`ยังมี ${gaps.length} ค่าที่ไม่ได้ตอบ · ระบบจะใส่ค่าชั่วคราวและทำเครื่องหมาย ⚠ ไว้ที่ชิ้นส่วน ใช้ต่อ?`))return;onUse(proposalToShape(proposal));}}>ใช้ผล AI เป็นรูปทรง (แทนที่ด้านล่าง)</button>
+   <div className="actions"><button className="primary" disabled={readOnly} onClick={()=>{if(gaps.length&&!confirm(`ยังมี ${gaps.length} ค่าที่ไม่ได้ตอบ · ระบบจะใส่ค่าชั่วคราวและทำเครื่องหมาย ⚠ ไว้ที่ชิ้นส่วน ใช้ต่อ?`))return;onUse(proposalToShape(proposal),proposal.cover??null);}}>ใช้ผล AI เป็นรูปทรง (แทนที่ด้านล่าง)</button>
     <span className="muted">ตรวจ 3D / รูปตัดด้านล่าง → ติ๊ก “ตรวจมิติทุกชิ้นกับแบบแล้ว” → ใช้รูปทรง → ระบบพาไปขั้นใส่เหล็กจาก Note</span></div>
   </div>}
  </details>;

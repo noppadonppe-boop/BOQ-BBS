@@ -8,7 +8,11 @@ export type ShapeProposal={version:1;task:'shape';analysisId:string;provider?:st
  site:{leanThickness:N;leanProjection:N;excavationDepth:N;workingSpace:N;slope:N}|null;
  references:{label:string;source:string}[];rebarNotes:ProposalNote[];missing:{kind?:'shape'|'rebar';part:string;field:string;question:string}[];conflicts:string[];warnings:string[];
  /** gateway v2: sheet inventory, level table and arithmetic checks (absent from older gateways) */
- views?:{name:string;kind:string;note:string}[];levels?:{name:string;elevation:N;z:N;source:string}[];checks?:string[]};
+ views?:{name:string;kind:string;note:string}[];levels?:{name:string;elevation:N;z:N;source:string}[];checks?:string[];
+ /** concrete cover read from the drawings (mm); null / absent = not given, the standard cover is used */
+ cover?:N};
+/** Cover questions are not asked: a standard cover is applied and can be edited later. */
+export const isCoverQuestion=(m:{field:string;question:string})=>/cover/i.test(m.field)||/ระยะหุ้ม|คอนกรีตหุ้ม|cover/i.test(m.question);
 /** User reply to one AI question, sent back with the next read of the drawings. */
 export type ShapeAnswer={part:string;question:string;answer:string};
 export type ProposalNote={text:string;meaning:string;source:string;part?:string;face?:RebarNoteFace|'';dir?:'X'|'Y'|'XY'|'V'|'';level?:string};
@@ -37,7 +41,7 @@ export function proposalToShape(p:ShapeProposal):ShapeModel{
  const partId=(label?:string)=>{const k=(label||'').trim().toLowerCase();return k?parts.find(q=>q.label.trim().toLowerCase()===k)?.id:undefined;};
  const notes=p.rebarNotes.filter(n=>n.text.trim()).slice(0,60).map(n=>{const id=partId(n.part);return {text:n.text.trim().slice(0,120),meaning:n.meaning.slice(0,200),source:n.source.slice(0,200),
   ...(id?{partId:id}:{}),...(n.face?{face:n.face}:{}),...(n.dir?{dir:n.dir}:{})};});
- const questions=p.missing.filter(m=>m.kind==='rebar').slice(0,30).map(m=>`${m.part?`${m.part}: `:''}${m.question}`.slice(0,300));
+ const questions=p.missing.filter(m=>m.kind==='rebar'&&!isCoverQuestion(m)).slice(0,30).map(m=>`${m.part?`${m.part}: `:''}${m.question}`.slice(0,300));
  return {version:1,confirmed:false,note:`อ่านด้วย AI (${p.fileName}) · ${p.confidence}`.slice(0,1000),...(notes.length?{rebarNotes:notes}:{}),...(questions.length?{rebarQuestions:questions}:{}),
   parts:parts.length?parts:[{id:'ai1',label:'ชิ้นส่วนหลัก',role:'solid',stage:1,z0:0,height:1000,formSides:true,formBottom:false,source:'⚠ AI ไม่พบชิ้นส่วน',shape:'box',x:0,y:0,w:1000,d:1000}],
   ...(pl&&pl.positions.length?{piles:{type:pl.type,size:Math.max(1,v(pl.size,600)),length:Math.max(0,v(pl.length,0)),cutoff:Math.max(0,pl.cutoff),embed:Math.max(0,pl.embed),positions:pl.positions.slice(0,100)}}:{}),

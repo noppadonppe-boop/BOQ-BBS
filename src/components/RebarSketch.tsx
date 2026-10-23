@@ -1,5 +1,7 @@
 import {lazy,Suspense,useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
 import {Box,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,Trash2,Undo2} from 'lucide-react';
+import {isCoverQuestion} from '../domain/shapeProposal';
+import {standardCover} from '../domain/shapeApply';
 import {barsFromSuggestions,suggestFromNotes,type NoteAction,type Suggestion} from '../domain/rebarNotes';
 import type {Bar,Member,Project} from '../domain/model';
 import {takeoff,validateMember} from '../domain/engine';
@@ -140,7 +142,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
 const actionLabels:Record<NoteAction,string>={bottom:'ตะแกรงล่าง',top:'ตะแกรงบน',loops:'ลูปรอบผิว',vertical:'แนวตั้งรอบผิว',skip:'ข้าม'};
 /** Phase 3: reinforcement notes (AI-read or typed) → suggested bar sets to confirm one by one. */
 function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOnly:boolean;gradeOf:(d:number)=>string;onNotes:(n:NonNullable<NonNullable<Member['shapeModel']>['rebarNotes']>)=>void;onCreate:(b:Bar[])=>void}){
- const saved=m.shapeModel?.rebarNotes||[],questions=m.shapeModel?.rebarQuestions||[],[text,setText]=useState(saved.map(n=>n.text).join('\n')||'Y32-150 (B)\nY32-150 (T)\nY16-200 LOOPS\n15d');
+ const saved=m.shapeModel?.rebarNotes||[],questions=(m.shapeModel?.rebarQuestions||[]).filter(q=>!isCoverQuestion({field:'',question:q})),[text,setText]=useState(saved.map(n=>n.text).join('\n')||'Y32-150 (B)\nY32-150 (T)\nY16-200 LOOPS\n15d');
  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean).slice(0,60);
  const first=useMemo(()=>saved.length&&!m.bars.some(isSketchBar)?suggestFromNotes(m,lines,saved):[],[]);
  const [list,setList]=useState<Suggestion[]>(first),[picked,setPicked]=useState<Record<string,boolean>>(()=>Object.fromEntries(first.map(x=>[x.id,x.action!=='skip'])));
@@ -159,6 +161,7 @@ function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOnly:bool
   setCreating(false);},30);};
  return <div className="sketch-sub notes-tool"><h4>Note เหล็กในแบบ → ชุดเหล็ก</h4>
   <p className="muted">หนึ่งบรรทัดต่อหนึ่ง Note เช่น Y32-150 (B), DB16@200 LOOPS, ADD Y20-150, 15d {saved.length?`· มี ${saved.length} Note จากผลอ่านแบบ (ตำแหน่ง / ชิ้นส่วนตามที่ AI อ่าน)`:''}</p>
+  <p className="muted">Cover ที่ใช้สร้างเหล็ก: <b>{m.cover} mm</b>{m.shapeModel&&m.cover===standardCover(m.shapeModel)?' (ค่ามาตรฐาน)':''} · แก้ได้ในแท็บ “รูปทรง” หรือคลิกขวา “องค์ประกอบ (คอนกรีต)” ใน 3D Modal แล้วสร้างชุดเหล็กใหม่</p>
   {questions.length>0&&<div className="notice warning"><b>ข้อมูลเหล็กที่แบบไม่ได้ระบุ — ตรวจ / กำหนดก่อนยืนยัน</b>{questions.map((q,i)=><div key={i}>❓ {q}</div>)}</div>}
   <textarea rows={5} disabled={readOnly} value={text} onChange={e=>setText(e.target.value)}/>
   <button type="button" className="primary" disabled={readOnly||!lines.length} onClick={suggest}>เสนอชุดเหล็กจาก Note</button>

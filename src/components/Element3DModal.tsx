@@ -11,7 +11,7 @@ import {surfaceTriangles} from '../domain/prismGeometry';
 import {placementViewBounds} from '../domain/placementContext';
 import {bsEnabled} from '../domain/bs8666';
 import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
-import {applyShapeModel,shapeProblems} from '../domain/shapeApply';
+import {applyShapeModel,shapeProblems,standardCover} from '../domain/shapeApply';
 import {normaliseShape} from '../domain/shapeGeometry';
 import {Field,number} from './EditorControls';
 
@@ -292,7 +292,7 @@ export function Custom3DModal({member,spec,readOnly,onChange,onClose}:{member:Me
  const q=useMemo(()=>takeoff(member,spec),[member,spec]),rows=q.rows,qty=Math.max(1,q.quantity||1);
  const keyOf=useMemo(()=>(id:string)=>`bar:${id}`,[]);
  const items=useMemo<Item[]>(()=>{
-  const list:Omit<Item,'color'>[]=[{key:'element',label:'องค์ประกอบ (คอนกรีต)',sub:`${number(member.x,0)} × ${number(member.y,0)} × ${number(member.z,0)} mm · ${sm.parts.length} ชิ้นส่วน · cover ${member.cover}`,rows:[],editable:false,removable:false}];
+  const list:Omit<Item,'color'>[]=[{key:'element',label:'องค์ประกอบ (คอนกรีต)',sub:`${number(member.x,0)} × ${number(member.y,0)} × ${number(member.z,0)} mm · ${sm.parts.length} ชิ้นส่วน · cover ${member.cover} mm`,rows:[],editable:true,removable:false}];
   for(const p of sm.parts)list.push({key:`part:${p.id}`,label:`${p.role==='void'?'◌ ':''}${p.label}`,sub:partSummary(p),rows:[],editable:true,removable:p.role==='void'||sm.parts.filter(x=>x.role==='solid').length>1});
   if(sm.piles)list.push({key:'pile',label:'เสาเข็ม',sub:`${sm.piles.type==='square'?'สี่เหลี่ยม':'กลม'} ${sm.piles.size} mm · ${sm.piles.positions.length} ต้น · ยาว ${sm.piles.length} m`,rows:[],editable:true,removable:false});
   for(const b of member.bars)list.push({key:`bar:${b.id}`,label:`${b.mark} · ${b.diameter<=9?'RB':'DB'}${b.diameter} × ${b.count}`,sub:b.note,rows:rows.filter(r=>r.id===b.id),editable:true,removable:true});
@@ -320,6 +320,8 @@ export function Custom3DModal({member,spec,readOnly,onChange,onClose}:{member:Me
   if(key.startsWith('part:')){const p=sm.parts.find(x=>`part:${x.id}`===key);if(!p)return;
    return setEditing({title:`${p.label} · ${member.code}`,draft:structuredClone(p),fields:partFields as (d:any)=>F[],note:p.shape==='polygon'?'แก้จุดยอดแปลนของชิ้นหลายเหลี่ยมในแท็บ “รูปทรง (หลายชิ้นส่วน)”':'แก้ขนาดชิ้นส่วน · ปริมาณและมุมมองคำนวณใหม่ · ตำแหน่งเหล็กต้องยืนยันใหม่',
     commit:d=>commitShape({...sm,parts:sm.parts.map(x=>x.id===p.id?d:x)})});}
+  if(key==='element')return setEditing({title:`Cover · ${member.code}`,draft:{cover:member.cover},fields:()=>[{k:'num',label:'Cover คอนกรีตหุ้มเหล็ก (mm)',path:'cover'}],note:`ค่ามาตรฐาน ${standardCover(sm)} mm (${standardCover(sm)===75?'คอนกรีตสัมผัสดิน / บนเสาเข็ม':'ทั่วไป'}) · แก้แล้วตำแหน่งเหล็กต้องยืนยันใหม่ และเหล็กที่สร้างแล้วอาจชิด cover ใหม่ ให้สร้างชุดเหล็กจาก Note ใหม่`,
+   commit:d=>{onChange({...member,cover:Math.max(0,Number(d.cover)||0),bars:member.bars.map(b=>({...b,placementConfirmed:false}))});return true;}});
   if(key==='pile'&&sm.piles)return setEditing({title:`เสาเข็ม · ${member.code}`,draft:structuredClone(sm.piles),fields:pileFields,note:'ตำแหน่งเข็มแก้ในแท็บ “รูปทรง (หลายชิ้นส่วน)”',commit:d=>commitShape({...sm,piles:d})});
   const b=member.bars.find(x=>`bar:${x.id}`===key);
   if(b)setEditing({title:`ชุดเหล็ก ${b.mark} · ${member.code}`,draft:structuredClone(b),fields:barFields,commit:commitBar,note:'แก้ขนาด / จำนวน / ช่วงกระจาย · แก้รูปทรงเหล็กด้วยการลากจุดในแท็บ “ใส่เหล็ก (วาดบนรูปตัด)”',info:rowsTable(itemOf(key)?.rows||[])});
@@ -330,7 +332,7 @@ export function Custom3DModal({member,spec,readOnly,onChange,onClose}:{member:Me
   const b=member.bars.find(x=>`bar:${x.id}`===key);if(b&&confirm(`ลบชุดเหล็ก ${b.mark}?`)){onChange({...member,bars:member.bars.filter(x=>x.id!==b.id)});setSelected('');}
  };
  const sel=itemOf(selected);
- const openMenu=(key:string,x:number,y:number)=>{if(key==='element'||!itemOf(key))return;setMenu({key,x:Math.max(8,Math.min(x,innerWidth-270)),y:Math.max(8,Math.min(y,innerHeight-140))});};
+ const openMenu=(key:string,x:number,y:number)=>{if(!itemOf(key))return;setMenu({key,x:Math.max(8,Math.min(x,innerWidth-270)),y:Math.max(8,Math.min(y,innerHeight-140))});};
  return createPortal(<div className="e3d-shade" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
   <section className="e3d-modal" role="dialog" aria-modal="true" aria-label={`3D Modal ${member.code}`}>
    <header className="e3d-header"><div><div className="eyebrow">3D MODAL · INTERACTIVE</div><h2>{member.code} · {labels[member.category]}</h2><p className="muted">ลากเพื่อหมุน · ล้อเมาส์ซูม · คลิกขวาลากเพื่อเลื่อน · คลิกเลือกรายการ · คลิกขวา → Edit เพื่อแก้ไข</p></div>

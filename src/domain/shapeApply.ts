@@ -25,6 +25,8 @@ export function shapeProblems(input:ShapeModel):{blockers:string[];notes:string[
  return {blockers,notes};
 }
 
+/** Standard cover (mm) when the drawings give none: 75 for concrete cast on ground / piles (site or piles present), else 40. */
+export const standardCover=(sm:Pick<ShapeModel,'piles'|'site'>)=>sm.piles||sm.site?75:40;
 /** Applies a shape model to a member: normalised geometry, member bounds, pile-head deduction, earthwork. */
 export function applyShapeModel(m:Member,input:ShapeModel):Member{
  const sm=normaliseShape(shapeModelSchema.parse(input)).model,g=shapeGeometry(sm),[x,y,z]=g.max,piles=shapePileQuantities(sm);
