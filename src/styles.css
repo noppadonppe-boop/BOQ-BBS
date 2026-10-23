@@ -306,3 +306,5 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .beam-elevation .span.cantilever{fill:#f1ece2}.beam-elevation .span.active{fill:#cdd9f5;stroke:#1d4ed8;stroke-width:2.5}
 .beam-elevation text{fill:#18242c;font-family:inherit}.beam-elevation text.dim{fill:#4a5a66}.beam-elevation text.drop{fill:#b45309}
 .beam-spans td,.beam-grids td{white-space:nowrap}.beam-spans tr{cursor:pointer}.beam-spans tr.active td{background:var(--brand-50)}.bar-cell{display:inline-flex;gap:4px;align-items:center}.bar-cell select{min-width:64px}
+.template-dialog{display:flex;flex-direction:column;gap:10px;min-width:min(640px,90vw)}.template-dialog footer{display:flex;justify-content:flex-end;gap:8px}
+.template-picker{display:grid;gap:6px;margin:10px 0}.template-picker h3{margin:0}

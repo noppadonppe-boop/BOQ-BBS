@@ -9,6 +9,8 @@ import {ColumnTieEditor} from './ColumnTieEditor';
 import {FootingEarthworkSketch} from './FootingEarthworkSketch';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
+import {SaveTemplateButton} from './ElementTemplates';
+import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
 import {detailingFromSpec,specLabel} from '../domain/specProfiles';
@@ -95,7 +97,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
 
  return <section className="panel padded element-input">
   <div className="section-heading"><div><h3>ข้อมูลพื้นฐาน & เหล็กเสริม · {m.code}</h3><p className="muted">เลือกวิธีป้อนข้อมูล · ทั้งสองวิธีให้ผลเป็นข้อมูลชุดเดียวกัน แล้วใช้คำนวณ BOQ และสร้าง Bar cut list</p></div>
-   <div className="actions"><button className="view3d-button" onClick={()=>setView3d(true)} title="มุมมอง 3D · หมุน ซูม คลิกขวาเพื่อแก้ไขขนาดและเหล็กเสริม"><Box size={15}/>3D Modal</button>
+   <div className="actions"><SaveTemplateButton project={project} category={m.category} defaultName={m.code} payload={()=>templatePayload(m,{elementInput:input,siteItems:items,bars:manualBars})}/><button className="view3d-button" onClick={()=>setView3d(true)} title="มุมมอง 3D · หมุน ซูม คลิกขวาเพื่อแก้ไขขนาดและเหล็กเสริม"><Box size={15}/>3D Modal</button>
    <div className="segmented mode-switch" role="group" aria-label="วิธีป้อนข้อมูล">{(['manual','drawing'] as const).map(mode=><button key={mode} disabled={readOnly} className={input.mode===mode?'active':''} onClick={()=>set('mode',mode)}>{mode==='manual'?'กรอกเอง':'อ่านจากแบบ'}</button>)}</div></div></div>
   {view3d&&<Suspense fallback={<div className="e3d-shade"><div className="notice">กำลังเปิดมุมมอง 3D…</div></div>}><Element3DModal member={m} input={input} manualBars={manualBars} preview={preview&&!('error' in preview)?preview:undefined} error={preview&&'error' in preview?preview.error:undefined} problems={problems} qty={qty} spec={spec} readOnly={readOnly} onInput={setInput} onManualBars={setManualBars} onApply={()=>apply(true)} onClose={()=>setView3d(false)}/></Suspense>}
 
