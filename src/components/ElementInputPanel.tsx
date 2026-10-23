@@ -1,7 +1,7 @@
 import {lazy,Suspense,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
@@ -177,7 +177,13 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     {input.slab.enabled&&<><div className="form-grid">{num('ความหนาพื้น (อ้างอิง)','slab.thickness')}{num('เหล็กบนยื่นเข้าพื้น จากขอบฐาน','slab.extend')}</div>
      <p className="muted">พื้นแสดงเป็นพื้นที่อ้างอิงรอบฐาน (ไม่คิดคอนกรีต/เหล็กพื้น) · เหล็กบนทั้งสองทิศยื่นเข้าพื้นตามระยะที่กำหนด · หักแบบหล่อผิวข้างฐานช่วงความหนาพื้น · รองรับแปลนสี่เหลี่ยม</p></>}</div>
    {mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}
-   <div className="mesh-layer">{check('มีเหล็กรอบข้าง (LOOPS · ปลอกแนวนอนรอบผิวข้างฐาน)','rebar.side.enabled')}{input.rebar.side.enabled&&spacing('เหล็กรอบข้าง (เรียงตามความลึก)','rebar.side')}</div>
+   <div className="mesh-layer">{check('มีเหล็กรอบข้าง (LOOPS · ปลอกแนวนอนรอบผิวข้างฐาน)','rebar.side.enabled')}{input.rebar.side.enabled&&spacing('เหล็กรอบข้าง (เรียงตามความลึก)','rebar.side')}
+    {input.rebar.side.enabled&&input.pour.count>1&&(()=>{const st=footingPour(input).stages.filter(s=>s.z0<input.thickness),on=(n:number)=>!input.rebar.side.stages.length||input.rebar.side.stages.includes(n);
+     const toggle=(n:number,v:boolean)=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const all=footingPour(prev).stages.map(s=>s.stage),cur=prev.rebar.side.stages.length?prev.rebar.side.stages:all,next=v?[...new Set([...cur,n])].sort((a,b)=>a-b):cur.filter(x=>x!==n);
+      return {...prev,rebar:{...prev.rebar,side:{...prev.rebar.side,stages:next.length===all.length?[]:next}}};});
+     return <div className="field loop-stages"><span>ใส่เหล็กรอบข้างใน Stage</span><div className="joint-end-row">{st.map(s=><label key={s.stage} className="check"><input type="checkbox" disabled={readOnly||on(s.stage)&&st.filter(x=>on(x.stage)).length===1} checked={on(s.stage)} onChange={e=>toggle(s.stage,e.target.checked)}/>Stage {s.stage} <small className="muted">({Math.round(s.z0)}–{Math.round(Math.min(s.z1,input.thickness))})</small></label>)}
+      <button type="button" disabled={readOnly} onClick={()=>setInput(prev=>prev?.category!=='Foundation'?prev:{...prev,rebar:{...prev.rebar,side:{...prev.rebar.side,stages:[1]}}})}>Stage 1 อย่างเดียว</button></div>
+</div>;})()}</div>
    <div className="mesh-layer">{check('มีเหล็กแนวตั้งผิวข้าง (รอบฐาน · ชั้นนอกสุด)','rebar.sideBars.enabled')}{input.rebar.sideBars.enabled&&<div className="form-grid">{dia('เหล็กแนวตั้งผิวข้าง · ขนาด','rebar.sideBars.diameter')}{num('เหล็กแนวตั้งผิวข้าง · ระยะห่าง @','rebar.sideBars.spacing')}
     {select('ปลายบน','rebar.sideBars.top',[['inward','งอฉากเข้าใน (ใต้เหล็กบน)'],['straight','ปลายตรง']])}{select('ปลายล่าง','rebar.sideBars.bottom',[['straight','ปลายตรง (ที่ cover ล่าง)'],['inward','งอฉากเข้าใน (เหนือเหล็กล่าง)']])}
     {(input.rebar.sideBars.top==='inward'||input.rebar.sideBars.bottom==='inward')&&num(`ระยะงอเข้าใน (0 = 15d = ${15*input.rebar.sideBars.diameter})`,'rebar.sideBars.leg')}</div>}</div>

@@ -132,7 +132,9 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  cover:z.object({bottom:mm,top:mm,side:mm}).strict(),
  /** side = horizontal closed loops around the footing perimeter (face reinforcement), spaced up the depth. */
  /** sideBars = vertical face bars around the perimeter (outermost layer); ends straight or turned inward 90° (leg 0 = 15d). */
- rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh,side:z.object({enabled:z.boolean(),diameter:dia,spacing:mm}).strict(),
+ rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh,side:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,
+  /** pour stages that get loops (1 = first pour); empty = every stage */
+  stages:z.array(z.number().int().min(1).max(6)).max(6)}).strict(),
   sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm}).strict()}).strict(),
  /** Footing cast monolithic with the floor slab: top flush with the slab top; the slab (thickness) is a
   * reference region only (no slab concrete / bars); top bars extend `extend` mm beyond the footing into the slab. */
@@ -215,7 +217,7 @@ export function footingEarth(i:FoundationInput){
   bottomLevel:i.levels.enabled?footingLevels(i).bottom-below/1000:undefined};
 }
 export const DEFAULT_FOOTING_SLAB={enabled:false,thickness:150,extend:1000};
-export const DEFAULT_FOOTING_SIDE={enabled:false,diameter:16,spacing:200};
+export const DEFAULT_FOOTING_SIDE={enabled:false,diameter:16,spacing:200,stages:[] as number[]};
 export const DEFAULT_FOOTING_SIDE_BARS={enabled:false,diameter:16,spacing:200,top:'inward' as const,bottom:'straight' as const,leg:0};
 /** Main-bar end condition at the column bottom / top joint.
  * none = stops at cover; lap = straight extension of `lap` beyond the joint;
@@ -378,8 +380,8 @@ function migrateFootingSite(raw:any):unknown{
 }
 /** Footings saved before pour stages / joint bars / the level reference → one pour, no joint bars, level given at the top. */
 function migrateFootingPour(raw:any):unknown{
- if(raw?.version!==2||raw.category!=='Foundation'||'pour' in raw&&'joints' in raw.pour&&raw.pour.joints.every((j:any)=>'end' in (j?.mesh||{}))&&(!raw.levels||'ref' in raw.levels))return raw;
- const v=structuredClone(raw);v.pour??=structuredClone(DEFAULT_FOOTING_POUR);v.pour.joints??=[];for(const j of v.pour.joints)if(j?.mesh&&!('end' in j.mesh))j.mesh={...j.mesh,end:'straight',leg:300};
+ if(raw?.version!==2||raw.category!=='Foundation'||'pour' in raw&&'joints' in raw.pour&&raw.pour.joints.every((j:any)=>'end' in (j?.mesh||{}))&&(!raw.rebar?.side||'stages' in raw.rebar.side)&&(!raw.levels||'ref' in raw.levels))return raw;
+ const v=structuredClone(raw);v.pour??=structuredClone(DEFAULT_FOOTING_POUR);if(v.rebar?.side&&!('stages' in v.rebar.side))v.rebar.side={...v.rebar.side,stages:[]};v.pour.joints??=[];for(const j of v.pour.joints)if(j?.mesh&&!('end' in j.mesh))j.mesh={...j.mesh,end:'straight',leg:300};
  if(v.levels&&!('ref' in v.levels))v.levels={...v.levels,ref:'top',bottom:Number(((v.levels.top??0)-(v.thickness??0)/1000).toFixed(3))};
  return v;
 }
@@ -988,10 +990,18 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // Side face loops: horizontal closed loops just inside the bottom-bar legs, spaced from the bottom mesh to the top mesh
  if(r.side.enabled){
   const dl=r.side.diameter,legs=[r.bottomX,r.bottomY].some(l=>l.shape!=='00')?Math.max(r.bottomX.diameter,r.bottomY.diameter):0;
-  const ring=inset(plan,c.side+sideIn+legs+dl/2),rad=radius(dl,det),sz=spread(c.bottom+r.bottomX.diameter+r.bottomY.diameter+dl/2,T-c.top-topStack-dl/2,r.side.spacing);
+  const ring=inset(plan,c.side+sideIn+legs+dl/2),rad=radius(dl,det),zLo=c.bottom+r.bottomX.diameter+r.bottomY.diameter+dl/2,zHi=T-c.top-topStack-dl/2;
+  // only in the chosen pour stages (contiguous stages = one run); 50 mm clear of each construction joint
+  const pr=footingPour(i),sel=pr.stages.length>1&&r.side.stages.length>0&&pr.stages.some(st=>!r.side.stages.includes(st.stage)),runs:{lo:number;hi:number;name:string}[]=[];
+  if(!sel)runs.push({lo:zLo,hi:zHi,name:''});
+  else for(const st of pr.stages){if(!r.side.stages.includes(st.stage)||st.z0>=zHi)continue;
+   const prev=runs.at(-1),hi=Math.min(zHi,st.stage<pr.stages.length?st.z1-50-dl/2:st.z1);
+   if(prev&&r.side.stages.includes(st.stage-1)){prev.hi=hi;prev.name=`${prev.name.split('–')[0]}–${st.stage}`;}
+   else runs.push({lo:Math.max(zLo,st.stage>1?st.z0+50+dl/2:st.z0),hi,name:`${st.stage}`});}
   if(i.shape==='circle')warn('เหล็กรอบข้าง (LOOPS): ฐานกลมยังไม่รองรับ ให้เพิ่มเองในแท็บ “แบบ & BBS”');
-  else if(!sz)warn('เหล็กรอบข้าง (LOOPS): ความหนาฐานไม่พอ');
-  else out.push({role:'side-loop',note:`เหล็กรอบข้าง (LOOPS) · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(ring,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});
+  else runs.forEach((run,n)=>{const sz=run.hi>run.lo?spread(run.lo,run.hi,r.side.spacing):undefined;
+   if(!sz){warn(`เหล็กรอบข้าง (LOOPS)${sel?` Stage ${run.name}`:''}: ความสูงไม่พอ`);return;}
+   out.push({role:n?`side-loop-${n+1}`:'side-loop',note:`เหล็กรอบข้าง (LOOPS)${sel?` · Stage ${run.name}`:''} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(ring,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});});
  }
  // Vertical face bars on every face of the plan outline, ends straight or turned inward 90°.
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).
