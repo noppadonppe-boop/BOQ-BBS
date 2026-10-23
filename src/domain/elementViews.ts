@@ -44,8 +44,8 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  const isFooting=(id:string)=>!!foot&&(id==='main'||id.startsWith('footing'));
  const boxes=[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:'context' as const}))];
  const sm=m.shapeModel,earth=m.category==='Foundation'||!!sm?.site,holes:Pt[][]=[],edges:Line[]=[];
- if(earth&&m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
- if(earth)rects.push(...sandRect(m,a,b,normal,cut));
+ if(m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
+ rects.push(...sandRect(m,a,b,normal,cut));
  // shape model: plan = footprint (holes white) + thin outlines of every part; section = cut rectangles per level band
  if(sm){
   if(normal===undefined){const r=shapePlanRings(sm);polys.push(...r.outer);holes.push(...r.holes);

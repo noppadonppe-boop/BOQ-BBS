@@ -28,6 +28,7 @@ export function sheetBoq(s:SheetData):BoqLine[]{
  const stages=m.shapeModel?shapeStageVolumes(m.shapeModel):[];if(stages.length>1)for(const st of stages)out.push({item:`  คอนกรีต Stage ${st.stage}`,unit:'m³',each:st.volume,total:st.volume*n});
  out.push({item:'แบบหล่อ',unit:'m²',each:q.formwork,total:q.formwork*n});
  if(m.category==='Foundation'||m.shapeModel?.site)out.push({item:'งานขุดดิน',unit:'m³',each:q.excavation,total:q.excavation*n},{item:'ถมดินกลับ',unit:'m³',each:q.backfill,total:q.backfill*n},{item:'คอนกรีตหยาบ (Lean)',unit:'m³',each:q.lean,total:q.lean*n});
+ else if(q.lean>0)out.push({item:'คอนกรีตหยาบ (Lean)',unit:'m³',each:q.lean,total:q.lean*n});
  // sub-base layers and manual items (any category)
  for(const k of siteKinds){const v=q[k]??0;if(v>0)out.push({item:siteLabels[k],unit:siteUnits[k],each:v,total:v*n});}
  for(const it of m.siteWork?.items||[])if(it.quantity>0)out.push({item:it.label,unit:it.unit,each:it.quantity,total:it.quantity*n});

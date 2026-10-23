@@ -102,7 +102,8 @@ export function takeoff(m:Member,spec:Spec){
  // earthwork: footings, and shape-model members that carry site data (custom pile caps, pits, shafts …)
  const earth=m.category==='Foundation'||!!m.shapeModel?.site;
  const excavation=earth?e.depth*(e.bottomX*e.bottomY+(e.bottomX*dy+e.bottomY*dx)/2+dx*dy/3)/1e9:0;
- const lean=earth?m.lean.x*m.lean.y*m.lean.thickness/1e9:0;
+ // lean concrete: footings / site work, and slabs or beams cast on ground (other members carry zero lean)
+ const lean=m.lean.x*m.lean.y*m.lean.thickness/1e9;
  const buried=buriedConcreteBasis(m,spec,concrete).volume;
  const site=siteQuantities(m.siteWork),sand=site.sand;
  // sub-base sand inside the pit is not backfilled (same as lean concrete)

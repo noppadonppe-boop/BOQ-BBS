@@ -224,8 +224,25 @@ const beamSchema=z.object({...base,category:z.literal('Beam'),
  cover:z.object({top:mm,bottom:mm,side:mm}).strict(),
  rebar:z.object({top:shapedCount,bottom:shapedCount,stirrup:spacingLayer}).strict(),
 }).strict();
+/** Element cast on the ground (slab / beam on ground) or elevated (formed soffit). On ground: optional layers under
+ * the concrete, top → bottom: lean concrete and plastic sheet, sand bed, compacted subgrade; projections per side. */
+const groundSchema=z.object({support:z.enum(['elevated','ground']),
+ lean:z.object({enabled:z.boolean(),thickness:mm,projection:mm}).strict(),sand:z.object({enabled:z.boolean(),thickness:mm,projection:mm}).strict(),
+ sheet:z.object({enabled:z.boolean()}).strict(),compaction:z.object({enabled:z.boolean()}).strict()}).strict();
+export type GroundInput=z.infer<typeof groundSchema>;
+export const DEFAULT_GROUND:GroundInput={support:'elevated',lean:{enabled:false,thickness:50,projection:0},sand:{enabled:false,thickness:50,projection:0},sheet:{enabled:false},compaction:{enabled:false}};
+/** Plan rectangles (mm) of the layers under an on-ground element of plan L × W (centred like the lean concrete). */
+export function groundLayers(g:GroundInput,L:number,W:number){
+ const on=g.support==='ground',lean=on&&g.lean.enabled&&g.lean.thickness>0,sand=on&&g.sand.enabled&&g.sand.thickness>0;
+ const lx=L+2*g.lean.projection,ly=W+2*g.lean.projection,sx=L+2*g.sand.projection,sy=W+2*g.sand.projection;
+ const bottom=sand?[sx,sy]:lean?[lx,ly]:[L,W];
+ return {lean:lean?{x:lx,y:ly,thickness:g.lean.thickness}:{x:0,y:0,thickness:0},sand:sand?{x:sx,y:sy,thickness:g.sand.thickness}:{x:0,y:0,thickness:0},
+  sheet:on&&g.sheet.enabled?(lean?{x:lx,y:ly}:{x:L,y:W}):{x:0,y:0},compaction:on&&g.compaction.enabled?{x:bottom[0],y:bottom[1]}:{x:0,y:0}};
+}
 const slabSchema=z.object({...base,category:z.literal('Slab'),
  lengthX:mm,lengthY:mm,thickness:mm,
+ /** slab on ground (sub-base layers, no soffit formwork) or elevated slab */
+ ground:groundSchema,
  cover:z.object({top:mm,bottom:mm,edge:mm}).strict(),
  rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh}).strict(),
 }).strict();
@@ -242,8 +259,13 @@ export const DEFAULT_PILE:PileInput={type:'square',size:300,layout:'standard',co
 /** Version 1 stored input (pedestal box + single end-hook flag) → version 2. */
 function migrateElementInput(raw:unknown):unknown{
  if(!raw||typeof raw!=='object')return raw;
- if((raw as any).version===1)return migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw))))));
- return migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw)))));
+ if((raw as any).version===1)return migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw)))))));
+ return migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw))))));
+}
+/** Slabs saved before the on-ground option → elevated slab (same quantities). */
+function migrateGround(raw:any):unknown{
+ if(raw?.version!==2||raw.category!=='Slab'||'ground' in raw)return raw;
+ return {...structuredClone(raw),ground:structuredClone(DEFAULT_GROUND)};
 }
 /** Footings saved before reference levels / sub-base layers → levels off, no sand / sheet / compaction (same quantities). */
 function migrateFootingSite(raw:any):unknown{
@@ -319,7 +341,7 @@ export function defaultElementInput(category:InputCategory,mode:'manual'|'drawin
   case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE)};
   case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}}};
   case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}}};
-  case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
+  case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,ground:structuredClone(DEFAULT_GROUND),cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
   case 'Wall':return {...common,category,length:6000,thickness:200,height:3000,cover:{face:30,edge:30},rebar:{layers:2,vertical:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},horizontal:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},lap:true}};
  }
 }
@@ -1037,6 +1059,9 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
  }
  if(m.category!=='Foundation')next={...next,excavation:{bottomX:0,bottomY:0,topX:0,topY:0,depth:0,buriedConcrete:0},lean:{x:0,y:0,thickness:0}};
  if(m.category!=='Foundation')next=withSiteWork(next,m.siteWork&&{...emptySiteWork(),items:m.siteWork.items});
+ // slab on ground: lean concrete / sand / sheet / compaction under the slab, no soffit formwork
+ if(input.category==='Slab'&&input.ground.support==='ground'){const g=groundLayers(input.ground,input.lengthX,input.lengthY);
+  next=withSiteWork({...next,lean:g.lean,faces:[true,true,true,true,false,false]},{...(m.siteWork||emptySiteWork()),sand:g.sand,sheet:g.sheet,compaction:g.compaction});}
  if(opts.withBars===false)return {member:next,warnings,generated:[]};
  const manual=m.bars.filter(b=>!isGeneratedBar(b)),used=new Set(manual.map(b=>b.mark)),prefix=markPrefix[input.category];
  let n=0;const nextMark=()=>{let mark='';do{n++;mark=`${prefix}${String(n).padStart(2,'0')}`;}while(used.has(mark));used.add(mark);return mark;};

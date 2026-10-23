@@ -296,3 +296,4 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .columns-plan .draggable{cursor:grab}.columns-plan text{fill:#18242c;font-family:inherit;pointer-events:none}.columns-plan text.offset{fill:#1d4ed8}.columns-plan text.hint{fill:#4a5a66}
 .columns-table tr{cursor:pointer}.columns-table tr.active td{background:var(--brand-50)}.columns-table td input[type=checkbox]{width:auto;min-width:0}
 .column-detail-title{margin:10px 0 4px}
+.ground-fields{margin:10px 0}.ground-fields .subbase-table{max-width:720px}

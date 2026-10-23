@@ -1,7 +1,7 @@
 import {lazy,Suspense,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
@@ -71,6 +71,15 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const mesh=(label:string,path:string,optionalLayer=false)=><div key={path} className="mesh-layer">{optionalLayer&&check(`มี${label}`,`${path}.enabled`)}{(!optionalLayer||get(`${path}.enabled`))&&<div className="form-grid">{dia(`${label} · ขนาด`,`${path}.diameter`)}{num(`${label} · ระยะห่าง @`,`${path}.spacing`)}{shapeFields(label,path)}</div>}</div>;
  const shapedCount=(label:string,path:string)=><div key={path} className="mesh-layer"><div className="form-grid"><Field label={`${label} · จำนวน (เส้น)`} type="number" value={get(`${path}.count`)} onChange={v=>set(`${path}.count`,Math.max(0,Math.trunc(Number(v)||0)))} disabled={readOnly}/>{dia(`${label} · ขนาด`,`${path}.diameter`)}{get(`${path}.count`)>0&&shapeFields(label,path)}</div></div>;
 
+ // on ground / elevated + layers under the concrete (slab now, beam later): path = 'ground'
+ const groundFields=(what:string)=>{const g=get('ground') as GroundInput,on=g.support==='ground',q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string)=><input aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,Math.max(0,Number(e.target.value)||0))}/>;
+  return <div className="ground-fields"><div className="segmented" role="group" aria-label={`ตำแหน่ง${what}`}>{([['elevated',`${what}ลอย (มีไม้แบบท้อง)`],['ground',`${what}บนดิน`]] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={g.support===v?'active':''} onClick={()=>set('ground.support',v)}>{t}</button>)}</div>
+   {on&&<><table className="subbase-table"><thead><tr><th>ชั้นใต้{what} (บน → ล่าง)</th><th>หนา (mm)</th><th>ยื่นจากขอบ (mm)</th><th className="num">ต่อ 1 ชิ้น</th></tr></thead><tbody>
+    <tr><td>{check('Lean concrete','ground.lean.enabled')}</td><td>{g.lean.enabled?cell('ground.lean.thickness'):'—'}</td><td>{g.lean.enabled?cell('ground.lean.projection'):'—'}</td><td className="num">{q&&g.lean.enabled?`${number(q.lean)} m³`:'—'}</td></tr>
+    <tr><td>{check('แผ่นพลาสติก','ground.sheet.enabled')}</td><td>—</td><td className="muted">{g.lean.enabled?'เท่า Lean':`เท่า${what}`}</td><td className="num">{q&&g.sheet.enabled?`${number(q.sheet)} m²`:'—'}</td></tr>
+    <tr><td>{check('ทรายรองพื้น','ground.sand.enabled')}</td><td>{g.sand.enabled?cell('ground.sand.thickness'):'—'}</td><td>{g.sand.enabled?cell('ground.sand.projection'):'—'}</td><td className="num">{q&&g.sand.enabled?`${number(q.sand)} m³`:'—'}</td></tr>
+    <tr><td>{check('บดอัดดินเดิม','ground.compaction.enabled')}</td><td>—</td><td className="muted">เท่าชั้นล่างสุด</td><td className="num">{q&&g.compaction.enabled?`${number(q.compaction)} m²`:'—'}</td></tr>
+   </tbody></table><p className="muted">{what}บนดิน: ไม่คิดไม้แบบท้อง{what} · ไม่คิดงานขุด / ถม (ใส่เป็นรายการเพิ่มเองได้)</p></>}</div>;};
  const fillFromDrawing=()=>{if(!m.drawingExtraction)return;const r=inputFromExtraction(input,m.drawingExtraction as any);setInput(r.input);setFilled(r.filled);};
  const apply=(withBars:boolean)=>{
   if(!preview||'error' in preview)return;
@@ -132,7 +141,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <label className="field"><span>รูปร่างหน้าตัด</span><select disabled={readOnly} value={input.shape} onChange={e=>set('shape',e.target.value)}><option value="rect">สี่เหลี่ยม</option><option value="circle">วงกลม</option></select></label>
    {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div></>}
   {input.category==='Beam'&&<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
-  {input.category==='Slab'&&<div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>}
+  {input.category==='Slab'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
   {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
 
   <SiteItemsEditor items={items} onChange={setItems} readOnly={readOnly}/>
@@ -210,7 +219,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {preview&&'error' in preview&&<div className="notice danger">{preview.error}</div>}
   {preview&&!('error' in preview)&&<>
    <h4>ผลคำนวณ (พรีวิวก่อนใช้)</h4>
-   <div className="kpis compact">{[['คอนกรีต',preview.q.concrete,'m³'],['แบบหล่อ',preview.q.formwork,'m²'],...(m.category==='Foundation'?[['งานขุด',preview.q.excavation,'m³'],['ถมกลับ',preview.q.backfill,'m³'],['Lean concrete',preview.q.lean,'m³']]:[]),...siteKinds.filter(k=>preview.q[k]>0).map(k=>[siteLabels[k],preview.q[k],siteUnits[k]]),['เหล็กรวม',preview.q.rebar,'kg']].map(([l,v,u])=><div key={l as string}><small>{l}</small><strong>{number((v as number)*qty)} <em>{u}</em></strong><span>ต่อชิ้น {number(v as number)} {u} × {qty}</span></div>)}</div>
+   <div className="kpis compact">{[['คอนกรีต',preview.q.concrete,'m³'],['แบบหล่อ',preview.q.formwork,'m²'],...(m.category==='Foundation'?[['งานขุด',preview.q.excavation,'m³'],['ถมกลับ',preview.q.backfill,'m³'],['Lean concrete',preview.q.lean,'m³']]:preview.q.lean>0?[['Lean concrete',preview.q.lean,'m³']]:[]),...siteKinds.filter(k=>preview.q[k]>0).map(k=>[siteLabels[k],preview.q[k],siteUnits[k]]),['เหล็กรวม',preview.q.rebar,'kg']].map(([l,v,u])=><div key={l as string}><small>{l}</small><strong>{number((v as number)*qty)} <em>{u}</em></strong><span>ต่อชิ้น {number(v as number)} {u} × {qty}</span></div>)}</div>
    {input.category==='Foundation'&&input.foundationType==='pile'&&(()=>{const p=pileQuantities(input);return <p className="pile-boq"><b>งานเสาเข็ม</b> {number(p.count*qty,0)} ต้น · {number(p.totalLength*qty,2)} m <b>งานตัดหัวเข็ม</b> {number(p.cutCount*qty,0)} ต้น · {number(p.totalCutLength*qty,2)} m <span className="muted">(ต่อฐาน {p.count} ต้น × {qty} ฐาน)</span></p>;})()}
    {sizes.length>0&&<p className="muted">เหล็กแยกขนาด (รวม {qty} ชิ้น): {sizes.map(([d,w])=>`${d<=9?'RB':'DB'}${d} = ${number(w*qty,2)} kg`).join(' · ')}</p>}
    <div className="table-scroll"><table><thead><tr><th>Mark</th><th>ตำแหน่ง</th><th>Ø / เกรด</th><th>Shape</th><th className="num">ยาวตัด mm</th><th className="num">ต่อชิ้น</th><th className="num">รวมเส้น</th><th className="num">รวม kg</th></tr></thead><tbody>{preview.q.rows.map(r=><tr key={r.id}><td>{r.mark}{!isGeneratedBar(r)&&<small className="block">เพิ่มเอง</small>}</td><td>{r.note}</td><td>{r.diameter} / {r.grade}</td><td>{r.shapeCode}</td><td className="num">{number(r.cutLength,0)}</td><td className="num">{r.count}</td><td className="num">{r.count*qty}</td><td className="num">{number(r.weight*qty,2)}</td></tr>)}</tbody></table></div>
