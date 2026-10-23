@@ -11,6 +11,10 @@ export type ShapeProposal={version:1;task:'shape';analysisId:string;provider?:st
  views?:{name:string;kind:string;note:string}[];levels?:{name:string;elevation:N;z:N;source:string}[];checks?:string[];
  /** concrete cover read from the drawings (mm); null / absent = not given, the standard cover is used */
  cover?:N};
+/** AI inventory of one drawing file (gateway task "inventory"): element marks and whether each can be modelled. */
+export type InventoryElement={mark:string;kind:'beam'|'footing'|'pilecap'|'column'|'slab'|'wall'|'pit'|'stair'|'other';title:string;quantity:number|null;pages:number[];views:{name:string;page:number|null}[];
+ size:string;levels:string;rebar:string[];status:'ready'|'partial'|'insufficient';missing:string[];note:string};
+export type ElementInventory={version:1;task:'inventory';provider?:string;model?:string;attachmentId:string;fileName:string;sheet:string;notes:string[];elements:InventoryElement[];warnings:string[]};
 /** Cover questions are not asked: a standard cover is applied and can be edited later. */
 export const isCoverQuestion=(m:{field:string;question:string})=>/cover/i.test(m.field)||/ระยะหุ้ม|คอนกรีตหุ้ม|cover/i.test(m.question);
 /** User reply to one AI question, sent back with the next read of the drawings. */

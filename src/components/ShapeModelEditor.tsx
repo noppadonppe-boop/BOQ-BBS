@@ -1,8 +1,8 @@
 import {useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
 import {Copy,Plus,Trash2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {isCoverQuestion,proposalGaps,proposalToShape,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
-import {aiShapeConfigured,analyseShapeWithAI} from '../data/aiShapeAnalysis';
+import {isCoverQuestion,proposalGaps,proposalToShape,type ElementInventory,type InventoryElement,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
+import {aiShapeConfigured,analyseShapeWithAI,inventoryWithAI} from '../data/aiShapeAnalysis';
 import {prepareDrawing} from '../data/drawingViews';
 import {isModelFile,modelFileLabel} from '../domain/fileTypes';
 import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
@@ -91,6 +91,8 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  </section>;
 }
 
+const kindLabels:Record<InventoryElement['kind'],string>={beam:'คาน',footing:'ฐานราก',pilecap:'ฐานเข็ม',column:'เสา',slab:'พื้น',wall:'ผนัง',pit:'บ่อ',stair:'บันได',other:'อื่นๆ'};
+const statusLabels:Record<InventoryElement['status'],string>={ready:'พร้อมขึ้นโมเดล',partial:'ขาดบางค่า',insufficient:'ข้อมูลไม่พอ'};
 const faceLabels:Record<string,string>={B:'ตะแกรงล่าง',T:'ตะแกรงบน',EF:'แนวตั้งผิวข้าง',LOOP:'ปลอกรอบผิว',ADD:'เสริมเพิ่ม',NOTE:'ข้อกำหนด'};
 const roles=['แปลน (Top view)','รูปตัด X–X','รูปตัด Y–Y','รูปตัดอื่น','3D / Axonometric','หลายรูปในหน้าเดียว'];
 /** Steps 1–2: send the member's drawings to the AI one after another (each refines the previous proposal), answer the gaps, use as shape. */
@@ -98,11 +100,21 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
  const [pick,setPick]=useState<Record<string,string>>(()=>Object.fromEntries(attachments.map(a=>[a.id,'หลายรูปในหน้าเดียว']))),[on,setOn]=useState<Record<string,boolean>>({});
  const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[proposal,setProposal]=useState<ShapeProposal|null>(null),[replies,setReplies]=useState<Record<string,string>>({});
  const files=attachments.filter(a=>on[a.id]),configured=aiShapeConfigured(),gaps=proposal?proposalGaps(proposal):[];
- /** First read, or a re-read that refines `proposal` with the user's replies to its questions. */
- const run=async(answers?:ShapeAnswer[])=>{setBusy(true);setError('');let cur:ShapeProposal|undefined=answers?proposal||undefined:undefined;try{for(const [i,a] of files.entries()){
-  const at=`ไฟล์ ${i+1}/${files.length}`;setProgress(`${at} · ${isModelFile(a)?`กำลังอ่านไฟล์ ${modelFileLabel(a.contentType)} ในเบราว์เซอร์…`:'กำลังเตรียมภาพขยายของแบบ…'}`);
-  const {views,text}=await prepareDrawing(a,[member.code,a.name.replace(/\.[^.]+$/,'')]);
-  cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,cadText:text,answers,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur){setProposal(cur);setReplies({});}}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
+ // step 1: inventory of the element marks in the ticked files · step 2: model one chosen mark (target), or read all ticked files directly
+ const [inventory,setInventory]=useState<{file:Attachment;inv:ElementInventory}[]|null>(null),[choice,setChoice]=useState(''),[target,setTarget]=useState<{file:Attachment;el:InventoryElement}|null>(null);
+ const rows=(inventory||[]).flatMap(({file,inv})=>inv.elements.map(el=>({key:`${file.id}|${el.mark}`,file,el})));
+ const runInventory=async()=>{setBusy(true);setError('');try{const out:{file:Attachment;inv:ElementInventory}[]=[];for(const [i,a] of files.entries()){
+  const at=`ไฟล์ ${i+1}/${files.length}`;setProgress(`${at} · ${isModelFile(a)?`กำลังอ่านไฟล์ ${modelFileLabel(a.contentType)} ในเบราว์เซอร์…`:'กำลังเตรียมภาพทุกหน้า…'}`);
+  const {views,text}=await prepareDrawing(a,[],{overview:true});
+  out.push({file:a,inv:await inventoryWithAI({attachment:a,member,project,views,cadText:text,onProgress:p=>setProgress(`${at} · ${p.label}`)})});}
+  setInventory(out);const first=out.flatMap(o=>o.inv.elements.map(el=>({o,el}))).find(x=>x.el.status!=='insufficient');setChoice(first?`${first.o.file.id}|${first.el.mark}`:'');}
+  catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
+ /** First read (all ticked files, or the chosen mark), or a re-read that refines `proposal` with the user's replies to its questions. */
+ const run=async(answers?:ShapeAnswer[],chosen?:{file:Attachment;el:InventoryElement}|null)=>{setBusy(true);setError('');const tg=chosen===undefined?(answers?target:null):chosen;if(!answers)setTarget(tg);
+  let cur:ShapeProposal|undefined=answers?proposal||undefined:undefined;const list=tg?[tg.file]:files;try{for(const [i,a] of list.entries()){
+  const at=tg?`เบอร์ ${tg.el.mark}`:`ไฟล์ ${i+1}/${list.length}`;setProgress(`${at} · ${isModelFile(a)?`กำลังอ่านไฟล์ ${modelFileLabel(a.contentType)} ในเบราว์เซอร์…`:'กำลังเตรียมภาพขยายของแบบ…'}`);
+  const {views,text}=await prepareDrawing(a,tg?[tg.el.mark,member.code]:[member.code,a.name.replace(/\.[^.]+$/,'')],{pages:tg?.el.pages});
+  cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,cadText:text,answers,target:tg?.el,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur){setProposal(cur);setReplies({});}}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
  const shapeQs=proposal?.missing.filter(x=>x.kind!=='rebar'&&!isCoverQuestion(x))||[],rebarQs=proposal?.missing.filter(x=>x.kind==='rebar'&&!isCoverQuestion(x))||[];
  const qKey=(x:{part:string;question:string})=>`${x.part}|${x.question}`,answers:ShapeAnswer[]=(proposal?.missing||[]).map(x=>({part:x.part,question:x.question,answer:(replies[qKey(x)]||'').trim()})).filter(a=>a.answer);
  const ask=(x:{part:string;question:string},i:number)=><label key={i} className="shape-ai-q"><span>❓ {x.part?`${x.part}: `:''}{x.question}</span><textarea rows={2} disabled={readOnly||busy} placeholder="พิมพ์คำตอบ เช่น ขอบเขต / ระดับ / ค่าที่ใช้ (เว้นว่างได้)" value={replies[qKey(x)]||''} onChange={e=>setReplies(r=>({...r,[qKey(x)]:e.target.value}))}/></label>;
@@ -110,8 +122,22 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
  return <details className="shape-ai" open={!member.shapeModel}><summary>✨ ขั้นที่ 1–2 · ให้ AI อ่านรูปทรงจากแบบต้นทาง ({attachments.length} ไฟล์)</summary>
   {!configured&&<p className="notice warning">ยังไม่ได้ตั้งค่าบริการ AI (VITE_AI_DRAWING_ANALYSIS_ENDPOINT) · สร้างรูปทรงด้วยมือได้ด้านล่าง</p>}
   {!attachments.length?<p className="muted">อัปโหลดแบบ (แปลน / รูปตัด / 3D) ในแท็บ “แบบต้นทาง / อ่านจากแบบ” ก่อน</p>:<table className="shape-ai-files"><thead><tr><th/><th>ไฟล์</th><th>บทบาทของรูป</th></tr></thead><tbody>{attachments.map(a=><tr key={a.id}><td><input type="checkbox" disabled={busy||a.contentType==='image/vnd.dwg'} checked={!!on[a.id]&&a.contentType!=='image/vnd.dwg'} onChange={e=>setOn({...on,[a.id]:e.target.checked})}/></td><td>{a.name}<small className="block">{isModelFile(a)?`${modelFileLabel(a.contentType)} · `:''}{a.kind||''} {a.revision?`Rev ${a.revision}`:''}</small>{a.contentType==='image/vnd.dwg'&&<small className="block warn-text">อ่าน DWG ไม่ได้ · ใน AutoCAD ใช้ Save As → DXF (2018) แล้วอัปโหลด DXF</small>}{a.contentType==='application/x-step'&&<small className="block muted">อ่านรูปทรง 3D และเหล็ก (IfcReinforcingBar) จากโมเดลโดยตรง</small>}{a.contentType==='image/vnd.dxf'&&<small className="block muted">อ่านพิกัด มิติ และข้อความจริงจากไฟล์</small>}</td><td><select disabled={busy} value={pick[a.id]||roles[5]} onChange={e=>setPick({...pick,[a.id]:e.target.value})}>{roles.map(r=><option key={r}>{r}</option>)}</select></td></tr>)}</tbody></table>}
-  <div className="actions"><button className="primary" disabled={readOnly||busy||!configured||!files.length} onClick={()=>void run()}>{busy?'กำลังอ่าน…':`อ่านรูปทรงจาก ${files.length} ไฟล์`}</button>{progress&&<span role="status" className="muted">{progress}</span>}</div>
-  <p className="muted">AI อ่านทีละไฟล์ตามลำดับ ไฟล์ถัดไปใช้ผลก่อนหน้าเติมให้ครบ · ค่าที่อ่านไม่ได้จะถามด้านล่าง ไม่เดาค่า</p>
+  <div className="actions"><button className="primary" disabled={readOnly||busy||!configured||!files.length} onClick={()=>void runInventory()}>{busy?'กำลังอ่าน…':`1 · ตรวจรายการองค์ประกอบในแบบ (${files.length} ไฟล์)`}</button>
+   <button disabled={readOnly||busy||!configured||!files.length} onClick={()=>void run(undefined,null)} title="ใช้เมื่อไฟล์มีองค์ประกอบเดียว">อ่านรูปทรงทันที (ทั้งไฟล์)</button>{progress&&<span role="status" className="muted">{progress}</span>}</div>
+  <p className="muted">ขั้นที่ 1 AI สำรวจว่าแบบมีองค์ประกอบกี่เบอร์ และแต่ละเบอร์มีระยะ / ขนาด / ระดับ / เหล็กครบพอจะขึ้นโมเดลหรือไม่ · ขั้นที่ 2 เลือกเบอร์เดียวแล้วสร้างโมเดลทีละรายการ · ค่าที่อ่านไม่ได้จะถามด้านล่าง ไม่เดาค่า</p>
+  {inventory&&<div className="shape-ai-inventory"><h4>รายการองค์ประกอบในแบบ ({rows.length} เบอร์){inventory.map(x=>x.inv.sheet).filter(Boolean).length?` · ${inventory.map(x=>x.inv.sheet).filter(Boolean).join(' / ')}`:''}</h4>
+   {inventory.flatMap(x=>x.inv.notes).length>0&&<p className="muted">Note ทั่วไป: {inventory.flatMap(x=>x.inv.notes).join(' · ')}</p>}
+   {!rows.length?<p className="notice warning">AI ไม่พบเบอร์องค์ประกอบในไฟล์ที่เลือก · ใช้ “อ่านรูปทรงทันที” หรือตรวจไฟล์</p>:
+   <table className="shape-qty inventory-table"><thead><tr><th/><th>เบอร์</th><th>ชนิด</th><th>ไฟล์ / หน้า · รูป</th><th>ขนาด · ระดับ</th><th>เหล็ก</th><th>สถานะ</th></tr></thead><tbody>{rows.map(r=><tr key={r.key} className={choice===r.key?'active':''} onClick={()=>!busy&&setChoice(r.key)}>
+    <td><input type="radio" name="inventory-pick" disabled={busy} checked={choice===r.key} onChange={()=>setChoice(r.key)}/></td>
+    <td><b>{r.el.mark}</b>{r.el.quantity?<small className="block muted">{r.el.quantity} ตัว</small>:null}{r.el.title&&<small className="block muted">{r.el.title}</small>}</td><td>{kindLabels[r.el.kind]}</td>
+    <td><small>{rows.some(x=>x.file.id!==r.file.id)?`${r.file.name} · `:''}{r.el.pages.length?`หน้า ${r.el.pages.join(', ')}`:''}{r.el.views.length?` · ${r.el.views.map(v=>v.name).join(' / ')}`:''}</small></td>
+    <td><small>{r.el.size}{r.el.levels&&<span className="block muted">{r.el.levels}</span>}</small></td><td><small>{r.el.rebar.join(' · ')||'-'}</small></td>
+    <td><span className={`badge ${r.el.status==='ready'?'success':r.el.status==='partial'?'warning':'danger'}`}>{statusLabels[r.el.status]}</span>{r.el.missing.length>0&&<small className="block warn-text">ขาด: {r.el.missing.join(' · ')}</small>}{r.el.note&&<small className="block muted">{r.el.note}</small>}</td></tr>)}</tbody></table>}
+   {(()=>{const r=rows.find(x=>x.key===choice);return r&&<div className="actions"><button className="primary" disabled={readOnly||busy||!configured} onClick={()=>void run(undefined,{file:r.file,el:r.el})}>{`2 · สร้างโมเดลเบอร์ ${r.el.mark}`}</button>
+    {r.el.status==='insufficient'&&<span className="warn-text">ข้อมูลของเบอร์นี้ไม่พอ · AI จะถามค่าที่ขาด</span>}{member.code!==r.el.mark&&<span className="muted">สมาชิกนี้ชื่อ {member.code} · แก้ Member no. เป็น {r.el.mark} ได้ที่ “แก้มิติ / ตำแหน่ง” · เบอร์อื่นสร้างเป็นสมาชิกใหม่ทีละรายการ</span>}</div>;})()}
+  </div>}
+  {target&&proposal&&<p className="muted">ผล AI ด้านล่างเป็นของเบอร์ <b>{target.el.mark}</b> ({target.file.name}{target.el.pages.length?` · หน้า ${target.el.pages.join(', ')}`:''})</p>}
   {error&&<p className="notice danger">{error}</p>}
   {proposal&&<div className="shape-ai-result"><h4>ผล AI · ความมั่นใจ {proposal.confidence} · {proposal.parts.length} ชิ้นส่วน{proposal.piles?` · เสาเข็ม ${proposal.piles.positions.length} ต้น`:''}{proposal.model?` · ${proposal.provider||'AI'} / ${proposal.model}`:''}</h4>
    {!proposal.parts.some(q=>q.role==='solid')&&<p className="notice warning">AI ไม่ได้สร้างชิ้นส่วนคอนกรีต · ผลอ่านแบบแต่ละครั้งไม่เท่ากัน ลองกด “อ่านรูปทรงจาก {files.length} ไฟล์” อีกครั้ง หรือเลือกโมเดลที่อ่านภาพได้ดีกว่าและเปิด thinking ในหน้า “จัดการ API”</p>}

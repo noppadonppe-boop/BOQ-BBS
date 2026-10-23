@@ -219,7 +219,9 @@ function shapeInstruction(context, file) {
   const answers = (Array.isArray(context.answers) ? context.answers : []).slice(0, 40)
     .map((a) => ({part: stringValue(a?.part).slice(0, 80), question: stringValue(a?.question).slice(0, 300), answer: stringValue(a?.answer).slice(0, 500)}))
     .filter((a) => a.question && a.answer);
+  const target = stringValue(context.targetMark).slice(0, 60), targetInfo = stringValue(context.targetInfo).slice(0, 600);
   return [
+    target ? `สร้างโมเดลเฉพาะองค์ประกอบเบอร์ "${target}"${targetInfo ? ` (${targetInfo})` : ''} เท่านั้น · ไฟล์อาจมีหลายเบอร์ ให้ใช้เฉพาะแปลน / รูปตัด / ตาราง / Note ของเบอร์นี้ ห้ามรวมเบอร์อื่นเป็นชิ้นส่วน` : '',
     'คุณเป็นวิศวกรตรวจแบบโครงสร้าง ช่วยอ่าน "รูปทรงคอนกรีต" และ "Note เหล็กเสริม" ขององค์ประกอบพิเศษ (ฐานรากหลายระดับ / บ่อ / ตอม่อ ฯลฯ) จากไฟล์แบบที่แนบ เพื่อสร้างโมเดล 3D ที่พร้อมใส่เหล็ก ตอบเป็น JSON object เท่านั้น ห้ามมี Markdown',
     views ? `แนบภาพขยายของแบบเดียวกัน ${views} ภาพต่อจากไฟล์ต้นฉบับ (ภาพแรก = ทั้งแผ่น, ภาพถัดไป = ส่วนย่อยตามชื่อภาพ) ใช้ภาพขยายอ่านตัวเลขมิติ / ระดับ / ข้อความเหล็กให้ถูกต้อง` : '',
     'ทำงานตามขั้นตอนนี้ก่อนตอบ (คิดให้ครบ แต่ตอบเฉพาะ JSON):',
@@ -258,6 +260,41 @@ ${cadText}` : '',
       conflicts: [], warnings: []}),
     'ค่า 0 ในตัวอย่างแสดงชนิดข้อมูลเท่านั้น ต้องตอบเป็น JSON หนึ่ง object',
   ].filter(Boolean).join('\n');
+}
+// ---------- task "inventory": list the element marks in a drawing file and whether each can be modelled ----------
+function inventoryInstruction(context, file) {
+  const cadText = stringValue(context.cadText).slice(0, 60000);
+  return [
+    'คุณเป็นวิศวกรตรวจแบบโครงสร้าง ตรวจไฟล์แบบที่แนบแล้ว "สำรวจรายการองค์ประกอบ" (เบอร์ / Mark เช่น B1, B2A, F12-03, PC1) ที่มีในไฟล์ทั้งหมดทุกหน้า ตอบเป็น JSON object เท่านั้น ห้ามมี Markdown',
+    'ยังไม่ต้องสร้างโมเดล ให้เน้นตรวจว่าแต่ละเบอร์มีข้อมูลระยะ / ขนาด / ระดับ / เหล็กเสริม ครบพอจะสร้างโมเดล 3D และใส่เหล็กได้หรือไม่',
+    'ต่อหนึ่งเบอร์: mark (ชื่อตามแบบ), kind = beam | footing | pilecap | column | slab | wall | pit | stair | other, title (ชื่อเต็ม / คำอธิบาย), quantity (จำนวนตัวในแบบ ถ้ามีระบุ เช่น "B1 (6 ตัว)" มิฉะนั้น null), pages [เลขหน้า], views [{name ชื่อรูป เช่น "Plan", "Section 1-1", "Elevation", page}], size (ขนาดหลักที่อ่านได้ เช่น "300 × 600 · ยาว 6000 · 3 ช่วง" หรือ "2400 × 2400 × 600"), levels (ระดับที่อ่านได้ เช่น "B.O.F -1.500 / T.O.F -0.900"), rebar [ข้อความเหล็กของเบอร์นี้ เช่น "Top 3-DB20", "Stirrup RB9@150"], status = ready (ขนาด ระดับ และเหล็กครบ สร้างโมเดลได้ทันที) | partial (สร้างรูปทรงได้แต่ขาดบางค่า) | insufficient (ข้อมูลไม่พอ), missing [ข้อมูลที่ขาด], note',
+    'นับทุกเบอร์ที่มีรายละเอียดของตัวเองในไฟล์ (แปลน / รูปตัด / ตาราง) · ตาราง schedule ที่มีหลายเบอร์ให้แยกเป็นรายการละเบอร์ · ห้ามรวมเบอร์ต่างกันเป็นรายการเดียว · เบอร์ที่ปรากฏแค่ในแปลนรวมโดยไม่มีรายละเอียดให้ status = insufficient',
+    'sheet = ชื่อแบบ / เลขแบบ / scale ที่อ่านได้ · notes = Note ทั่วไปที่ใช้กับทุกเบอร์ (เช่น cover, f\'c, เกรดเหล็ก, ระยะทาบ)',
+    cadText ? `ไฟล์นี้เป็น CAD ที่ระบบอ่านแล้ว ข้อมูลจริงจากไฟล์:\n${cadText}` : '',
+    `ไฟล์: ${stringValue(context.fileName, file.filename)} · จำนวนหน้า: ${Number(context.pages) || 1}`,
+    'รูปแบบ JSON:',
+    JSON.stringify({version: 1, sheet: 'S-201 Beam details 1:25', notes: ['Cover 40 mm'], elements: [{mark: 'B1', kind: 'beam', title: 'คานชั้นล่าง', quantity: null, pages: [1], views: [{name: 'Section A-A', page: 1}],
+      size: '300 × 600 · ยาว 6000', levels: '', rebar: ['Top 3-DB20'], status: 'partial', missing: ['ความยาวช่วงคาน'], note: ''}], warnings: []}),
+    'ค่าในตัวอย่างแสดงชนิดข้อมูลเท่านั้น ต้องตอบเป็น JSON หนึ่ง object',
+  ].filter(Boolean).join('\n');
+}
+function normaliseInventory(raw, context, providerName, model) {
+  const r = raw?.result || raw || {};
+  const text = (v, max = 200) => stringValue(v).slice(0, max);
+  const list = (v, map, max = 60) => (Array.isArray(v) ? v : []).slice(0, max).map(map).filter(Boolean);
+  const kinds = ['beam', 'footing', 'pilecap', 'column', 'slab', 'wall', 'pit', 'stair', 'other'];
+  return {
+    version: 1, task: 'inventory', provider: providerName, model, attachmentId: stringValue(context.attachmentId), fileName: stringValue(context.fileName),
+    sheet: text(r.sheet), notes: list(r.notes, (x) => text(x, 300) || null, 30),
+    elements: list(r.elements, (e) => text(e?.mark, 60) ? {
+      mark: text(e.mark, 60), kind: kinds.includes(e?.kind) ? e.kind : 'other', title: text(e?.title), quantity: Number.isFinite(Number(e?.quantity)) && e?.quantity !== null ? Number(e.quantity) : null,
+      pages: list(e?.pages, (p) => Number.isInteger(Number(p)) && Number(p) > 0 ? Number(p) : null, 20),
+      views: list(e?.views, (v) => text(v?.name, 80) ? {name: text(v.name, 80), page: Number(v?.page) || null} : null, 20),
+      size: text(e?.size, 300), levels: text(e?.levels, 300), rebar: list(e?.rebar, (x) => text(x, 120) || null, 40),
+      status: ['ready', 'partial', 'insufficient'].includes(e?.status) ? e.status : 'partial', missing: list(e?.missing, (x) => text(x, 200) || null, 20), note: text(e?.note, 300),
+    } : null, 200),
+    warnings: list(r.warnings, (x) => text(x, 300) || null, 20),
+  };
 }
 function normaliseShapeProposal(raw, context, providerName, model) {
   const r = raw?.result || raw || {};
@@ -556,11 +593,11 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     const configSnapshot = await db.doc(providerConfigPath()).get();
     const config = configSnapshot.exists ? decodeStorage(configSnapshot.data()) : null;
     const {activeProvider, provider} = selectedProvider(config);
-    const shapeTask = context.task === 'shape';
-    if (shapeTask) stored.file.views = readViews(parsed.context);
-    if (CAD_TYPES.includes(stored.file.mimeType) && (!shapeTask || !stored.file.views?.length)) throw new GatewayError('ไฟล์ CAD / BIM ต้องอ่านผ่านแท็บรูปทรง (ระบบแปลงเป็นภาพและข้อมูลในเบราว์เซอร์ก่อน)', 400, 'invalid-argument');
+    const shapeTask = context.task === 'shape', inventoryTask = context.task === 'inventory';
+    if (shapeTask || inventoryTask) stored.file.views = readViews(parsed.context);
+    if (CAD_TYPES.includes(stored.file.mimeType) && (!(shapeTask || inventoryTask) || !stored.file.views?.length)) throw new GatewayError('ไฟล์ CAD / BIM ต้องอ่านผ่านแท็บรูปทรง (ระบบแปลงเป็นภาพและข้อมูลในเบราว์เซอร์ก่อน)', 400, 'invalid-argument');
     context.views = (stored.file.views || []).map((v) => ({label: v.label}));
-    const prompt = shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
+    const prompt = inventoryTask ? inventoryInstruction(context, stored.file) : shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
     writeSse(res, {type: 'progress', phase: 'sending-to-ai', label: 'ดึงไฟล์จาก Storage แล้ว กำลังส่งไฟล์ต้นฉบับให้ AI อ่าน…', detail: `${stored.file.filename} · ${(stored.file.size / 1024 / 1024).toFixed(2)} MiB`});
     writeSse(res, {type: 'progress', phase: 'analyzing', label: `AI กำลังอ่านและวิเคราะห์แบบ…`, detail: `${activeProvider === 'openai' ? 'OpenAI' : activeProvider === 'anthropic' ? 'Anthropic' : 'Google AI Studio'} · ${provider.model}`});
     providerController = new AbortController();
@@ -571,7 +608,7 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     if (activeProvider === 'google-ai-studio') raw = await callGoogle(provider.apiKey, provider.model, provider.thinking, stored.file, prompt, providerController.signal);
     if (clientClosed) return;
     writeSse(res, {type: 'progress', phase: 'preparing-json', label: 'AI อ่านแบบเสร็จแล้ว กำลังเตรียมผลลัพธ์ JSON…'});
-    const result = shapeTask ? normaliseShapeProposal(parseModelJson(raw), context, activeProvider, provider.model) : normaliseAnalysis(parseModelJson(raw), context, stored.file, activeProvider, provider.model);
+    const result = inventoryTask ? normaliseInventory(parseModelJson(raw), context, activeProvider, provider.model) : shapeTask ? normaliseShapeProposal(parseModelJson(raw), context, activeProvider, provider.model) : normaliseAnalysis(parseModelJson(raw), context, stored.file, activeProvider, provider.model);
     logger.info('AI drawing analysis completed', {requestId, uid: authContext.decodedToken.uid, projectId, provider: activeProvider, model: provider.model, fileSize: stored.file.size});
     writeSse(res, {type: 'progress', phase: 'complete', label: 'วิเคราะห์เสร็จแล้ว กำลังนำผลไปแสดง…'});
     writeSse(res, {type: 'result', result});
