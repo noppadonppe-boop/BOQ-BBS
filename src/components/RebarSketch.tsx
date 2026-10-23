@@ -1,5 +1,5 @@
-import {useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
-import {MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,Trash2,Undo2} from 'lucide-react';
+import {lazy,Suspense,useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
+import {Box,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,Trash2,Undo2} from 'lucide-react';
 import {barsFromSuggestions,suggestFromNotes,type NoteAction,type Suggestion} from '../domain/rebarNotes';
 import type {Bar,Member,Project} from '../domain/model';
 import {takeoff,validateMember} from '../domain/engine';
@@ -16,10 +16,11 @@ const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
 type Tool='draw'|'select'|'mesh'|'loop'|'notes';
 const viewOfBar=(b:Bar):SketchView|undefined=>b.shape==='polyline'&&b.distributionAxis&&b.points.length>=2?{kind:b.distributionAxis==='Y'?'sx':b.distributionAxis==='X'?'sy':'plan',at:b.distributionStart}:undefined;
 
+const Custom3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Custom3DModal})));
 /** Phase 2 · Revit-like rebar sketching on sections / plan levels of a shape-model member. */
 export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;project:Project;readOnly:boolean;onChange:(next:Member)=>void}){
  const g=useMemo(()=>m.shapeModel?shapeGeometry(m.shapeModel):undefined,[m.shapeModel]);
- const [view,setView]=useState<SketchView>({kind:'sx',at:Math.round(m.y/2)}),[tool,setTool]=useState<Tool>(()=>m.shapeModel?.rebarNotes?.length&&!m.bars.some(isSketchBar)?'notes':'draw');
+ const [view,setView]=useState<SketchView>({kind:'sx',at:Math.round(m.y/2)}),[view3d,setView3d]=useState(false),[tool,setTool]=useState<Tool>(()=>m.shapeModel?.rebarNotes?.length&&!m.bars.some(isSketchBar)?'notes':'draw');
  const [dia,setDia]=useState(16),[cover,setCover]=useState(m.cover),[extra,setExtra]=useState(0),[grid,setGrid]=useState(25),[ortho,setOrtho]=useState(true);
  const grades=codeValues(project.spec.codeData,project.spec.designCode).grades,gradeOf=(d:number)=>grades.find(r=>r.bar===d)?.grade||(d<=9?'SR24':'SD40');
  const [layout,setLayout]=useState<LayoutRule>(()=>{const [from,to]=defaultRange(m,{kind:'sx',at:0},m.cover,16);return {rule:'spacing',spacing:200,count:5,from,to};});
@@ -67,8 +68,9 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  const viewLabel=view.kind==='sx'?`รูปตัด X–X · Y = ${fmt(view.at)}`:view.kind==='sy'?`รูปตัด Y–Y · X = ${fmt(view.at)}`:`แปลน · Z = ${fmt(view.at)}`;
  if(!m.shapeModel)return <section className="panel padded"><p className="notice">สร้างรูปทรงในแท็บ “รูปทรง (หลายชิ้นส่วน)” และกดใช้กับสมาชิกก่อน แล้วจึงวาดเหล็กบนรูปตัด</p></section>;
  return <section className="panel padded rebar-sketch">
-  <div className="section-heading"><div><h3>ใส่เหล็ก · วาดบนรูปตัด / แปลน (Sketch Rebar)</h3><p className="muted">คลิกเพื่อวางจุด · เส้นจะ Snap กับแนว cover (เส้นประส้ม) มุม และแนวฉาก · ดับเบิลคลิก/Enter = จบเส้น · Backspace = ลบจุดล่าสุด · Esc = ยกเลิก · Delete = ลบชุดที่เลือก</p></div></div>
-  <div className="sketch-layout">
+  {view3d&&m.shapeModel&&<Suspense fallback={<div className="e3d-shade"><div className="notice">กำลังเปิดมุมมอง 3D…</div></div>}><Custom3DModal member={m} spec={project.spec} readOnly={readOnly} onChange={onChange} onClose={()=>setView3d(false)}/></Suspense>}
+  <div className="section-heading"><div><h3>ใส่เหล็ก · วาดบนรูปตัด / แปลน (Sketch Rebar)</h3><p className="muted">คลิกเพื่อวางจุด · เส้นจะ Snap กับแนว cover (เส้นประส้ม) มุม และแนวฉาก · ดับเบิลคลิก/Enter = จบเส้น · Backspace = ลบจุดล่าสุด · Esc = ยกเลิก · Delete = ลบชุดที่เลือก</p></div><div className="actions"><button className="view3d-button" onClick={()=>setView3d(true)} title="มุมมอง 3D · หมุน ซูม คลิกขวาเพื่อแก้ไขชิ้นส่วนและเหล็กเสริม"><Box size={15}/>3D Modal</button></div></div>
+  <div className={`sketch-layout${tool==='notes'?' notes-open':''}`}>
    <aside className="sketch-tools">
     <h4>มุมมอง</h4>
     <div className="segmented">{([['sx','รูปตัด X–X'],['sy','รูปตัด Y–Y'],['plan','แปลน']] as const).map(([k,l])=><button key={k} className={view.kind===k?'active':''} onClick={()=>{setPts([]);setView({kind:k,at:k==='sx'?Math.round(m.y/2):k==='sy'?Math.round(m.x/2):Math.round(cover+dia/2)});}}>{l}</button>)}</div>
@@ -145,6 +147,16 @@ function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOnly:bool
  const suggest=()=>{const s=suggestFromNotes(m,lines,saved);setList(s);setPicked(Object.fromEntries(s.map(x=>[x.id,x.action!=='skip'])));onNotes(lines.map(t=>{const n=saved.find(x=>x.text===t);return n?{...n,text:t.slice(0,120)}:{text:t.slice(0,120),meaning:'',source:''};}));};
  const put=(id:string,patch:Partial<Suggestion>)=>setList(l=>l.map(s=>s.id===id?{...s,...patch}:s));
  const chosen=list.filter(s=>picked[s.id]&&s.action!=='skip');
+ const [creating,setCreating]=useState(false),[result,setResult]=useState<{ok:boolean;text:string}|null>(null);
+ /** Builds per suggestion so one failing note is reported without losing the others; yields first so the busy state paints. */
+ const create=()=>{setCreating(true);setResult(null);setTimeout(()=>{
+  const made:Bar[]=[],fails:string[]=[],empty:string[]=[];let work=m;
+  for(const s of chosen){try{const bars=barsFromSuggestions(work,[s],gradeOf);if(!bars.length)empty.push(s.note.text);made.push(...bars);work={...work,bars:[...work.bars,...bars]};}
+   catch(e){fails.push(`${s.note.text}: ${e instanceof Error?e.message:String(e)}`);}}
+  if(made.length)onCreate(made);
+  setResult({ok:made.length>0&&!fails.length,text:[made.length?`สร้างแล้ว ${made.length} ชุด (${made.map(b=>b.mark).join(', ')}) · ดูในรายการเหล็กและมุมมองด้านขวา`:'ไม่ได้สร้างเหล็ก',
+   empty.length?`ไม่พบช่วงคอนกรีตที่ระดับ Z ที่กำหนด: ${empty.join(' · ')} (ตรวจ Z / ระดับของรูปทรง)`:'',fails.length?`ผิดพลาด: ${fails.join(' · ')}`:''].filter(Boolean).join('\n')});
+  setCreating(false);},30);};
  return <div className="sketch-sub notes-tool"><h4>Note เหล็กในแบบ → ชุดเหล็ก</h4>
   <p className="muted">หนึ่งบรรทัดต่อหนึ่ง Note เช่น Y32-150 (B), DB16@200 LOOPS, ADD Y20-150, 15d {saved.length?`· มี ${saved.length} Note จากผลอ่านแบบ (ตำแหน่ง / ชิ้นส่วนตามที่ AI อ่าน)`:''}</p>
   {questions.length>0&&<div className="notice warning"><b>ข้อมูลเหล็กที่แบบไม่ได้ระบุ — ตรวจ / กำหนดก่อนยืนยัน</b>{questions.map((q,i)=><div key={i}>❓ {q}</div>)}</div>}
@@ -162,7 +174,8 @@ function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOnly:bool
     {(s.action==='loops'||s.action==='vertical')&&<Field label="Z บน" type="number" disabled={readOnly} value={Math.round(s.zTop)} onChange={v=>put(s.id,{zTop:Number(v)||0})}/>}
     {(s.action==='bottom'||s.action==='top'||s.action==='vertical')&&<Field label={s.action==='vertical'?'ขางอเข้าใน (0 = ตรง)':'ขางอ (+ขึ้น / −ลง)'} type="number" disabled={readOnly} value={s.leg} onChange={v=>put(s.id,{leg:Number(v)||0})}/>}
    </div>:null}</div>;})}
-   <button type="button" className="primary" disabled={readOnly||!chosen.length} onClick={()=>onCreate(barsFromSuggestions(m,chosen,gradeOf))}>สร้างชุดเหล็กที่เลือก ({chosen.length})</button>
+   <button type="button" className="primary" disabled={readOnly||creating||!chosen.length} onClick={create}>{creating?'กำลังสร้างชุดเหล็ก…':`สร้างชุดเหล็กที่เลือก (${chosen.length})`}</button>
+   {result&&<p className={`notice ${result.ok?'':'warning'}`} role="status" style={{whiteSpace:'pre-line'}}>{result.text}</p>}
    <p className="muted">ทุกชุดอยู่ในแนว cover ของสมาชิก · ลูป/เหล็กแนวตั้งหยุดก่อนระดับที่แปลนเปลี่ยน · ตรวจผลในมุมมองและรายการด้านขวาก่อนบันทึก</p></div>}
  </div>;
 }

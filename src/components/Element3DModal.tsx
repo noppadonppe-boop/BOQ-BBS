@@ -10,6 +10,9 @@ import {solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
 import {placementViewBounds} from '../domain/placementContext';
 import {bsEnabled} from '../domain/bs8666';
+import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
+import {applyShapeModel,shapeProblems} from '../domain/shapeApply';
+import {normaliseShape} from '../domain/shapeGeometry';
 import {Field,number} from './EditorControls';
 
 type Row=ReturnType<typeof takeoff>['rows'][number];
@@ -149,7 +152,7 @@ const barFields=(d:Bar):F[]=>{
    ...(d.shape!=='straight'?[{k:'num',label:d.shape==='link'?'ขอปลอก (mm)':'ความยาวขอ / ขางอ (mm)',path:'tail'} as F]:[]),
    {k:'num',label:'รัศมีดัด (mm)',path:'radius'} as F,
    {k:'head',label:'การกระจายเหล็ก'} as F,{k:'num',label:'ตำแหน่งเริ่ม (mm, 0 = ตาม cover)',path:'distributionStart'} as F,{k:'num',label:'ตำแหน่งสิ้นสุด (mm, 0 = ตาม cover)',path:'distributionEnd'} as F,
-  ]:[{k:'num',label:'รัศมีดัด (mm)',path:'radius'} as F]),
+  ]:[{k:'num',label:'รัศมีดัด (mm)',path:'radius'} as F,...(d.distributionAxis?[{k:'head',label:`การกระจายเหล็ก (แนว ${d.distributionAxis})`} as F,{k:'num',label:'ตำแหน่งเริ่ม (mm)',path:'distributionStart'} as F,{k:'num',label:'ตำแหน่งสิ้นสุด (mm)',path:'distributionEnd'} as F]:[])]),
   {k:'head',label:'ความยาวตัด'},{k:'text',label:'Shape code',path:'shapeCode',max:40},{k:'num',label:'ยาวตัดกำหนดเอง (mm, 0 = คำนวณ)',path:'cutOverride'},{k:'text',label:'หมายเหตุ',path:'note',max:500},
  ];
 };
@@ -269,6 +272,97 @@ export function Element3DModal({member,input,manualBars,preview,error,problems,q
  </div>,document.body);
 }
 
+const rowsTable=(list:Row[])=>list.length?<table className="e3d-rows"><thead><tr><th>Mark</th><th>Ø</th><th className="num">ต่อชิ้น</th><th className="num">ยาวตัด</th><th className="num">kg</th></tr></thead><tbody>{list.map(r=><tr key={r.id}><td>{r.mark}</td><td>{r.diameter<=9?'RB':'DB'}{r.diameter}</td><td className="num">{r.count}</td><td className="num">{number(r.cutLength,0)}</td><td className="num">{number(r.weight,2)}</td></tr>)}</tbody></table>:null;
+/** Edit fields of one shape-model part (plan position / size in member coordinates, level, stage). */
+const partFields=(p:ShapePart):F[]=>[
+ {k:'text',label:'ชื่อชิ้นส่วน',path:'label',max:80},{k:'int',label:'Stage การเท',path:'stage',min:1,max:9},
+ {k:'num',label:'ระดับล่าง z0 (mm)',path:'z0',signed:true},{k:'num',label:'ความสูง (mm)',path:'height'},
+ ...(p.shape==='box'||p.shape==='shaft'?[{k:'num',label:'มุม X (mm)',path:'x',signed:true} as F,{k:'num',label:'มุม Y (mm)',path:'y',signed:true} as F,{k:'num',label:'กว้าง X (mm)',path:'w'} as F,{k:'num',label:'ยาว Y (mm)',path:'d'} as F]:[]),
+ ...(p.shape==='shaft'?[{k:'num',label:'ผนังหนา (mm)',path:'wall'} as F]:[]),
+ ...(p.shape==='circle'?[{k:'num',label:'ศูนย์กลาง X (mm)',path:'cx',signed:true} as F,{k:'num',label:'ศูนย์กลาง Y (mm)',path:'cy',signed:true} as F,{k:'num',label:'Ø นอก (mm)',path:'diameter'} as F,{k:'num',label:'Ø ใน (mm, 0 = ตัน)',path:'inner'} as F]:[]),
+ {k:'chk',label:'คิดแบบหล่อผิวข้าง',path:'formSides'},{k:'chk',label:'คิดแบบหล่อใต้ท้อง',path:'formBottom'},{k:'text',label:'ที่มาของมิติ',path:'source',max:200},
+];
+const pileFields=():F[]=>[{k:'sel',label:'ชนิด',path:'type',opts:[['round','กลม'],['square','สี่เหลี่ยม']]},{k:'num',label:'ขนาด (mm)',path:'size'},{k:'num',label:'ความยาว (m)',path:'length'},{k:'num',label:'ตัดหัวเข็ม (mm)',path:'cutoff'},{k:'num',label:'ฝังในคอนกรีต (mm)',path:'embed'}];
+const partSummary=(p:ShapePart)=>`${shapeKindLabels[p.shape]}${p.role==='void'?' (ช่องเปิด)':''} · ${p.shape==='polygon'?`${p.points.length} จุด`:p.shape==='circle'?`Ø${p.diameter}${p.inner?` / Ø${p.inner}`:''}`:`${p.w} × ${p.d}`} · z ${p.z0} · สูง ${p.height} · Stage ${p.stage}`;
+
+/** 3D Modal for Custom members with a shape model: view / rotate / zoom, edit parts, piles and bar sets. */
+export function Custom3DModal({member,spec,readOnly,onChange,onClose}:{member:Member;spec:Spec;readOnly:boolean;onChange:(next:Member)=>void;onClose:()=>void}){
+ const sm=member.shapeModel!;
+ const [selected,setSelected]=useState(''),[menu,setMenu]=useState<Menu|null>(null),[editing,setEditing]=useState<Editing|null>(null);
+ const q=useMemo(()=>takeoff(member,spec),[member,spec]),rows=q.rows,qty=Math.max(1,q.quantity||1);
+ const keyOf=useMemo(()=>(id:string)=>`bar:${id}`,[]);
+ const items=useMemo<Item[]>(()=>{
+  const list:Omit<Item,'color'>[]=[{key:'element',label:'องค์ประกอบ (คอนกรีต)',sub:`${number(member.x,0)} × ${number(member.y,0)} × ${number(member.z,0)} mm · ${sm.parts.length} ชิ้นส่วน · cover ${member.cover}`,rows:[],editable:false,removable:false}];
+  for(const p of sm.parts)list.push({key:`part:${p.id}`,label:`${p.role==='void'?'◌ ':''}${p.label}`,sub:partSummary(p),rows:[],editable:true,removable:p.role==='void'||sm.parts.filter(x=>x.role==='solid').length>1});
+  if(sm.piles)list.push({key:'pile',label:'เสาเข็ม',sub:`${sm.piles.type==='square'?'สี่เหลี่ยม':'กลม'} ${sm.piles.size} mm · ${sm.piles.positions.length} ต้น · ยาว ${sm.piles.length} m`,rows:[],editable:true,removable:false});
+  for(const b of member.bars)list.push({key:`bar:${b.id}`,label:`${b.mark} · ${b.diameter<=9?'RB':'DB'}${b.diameter} × ${b.count}`,sub:b.note,rows:rows.filter(r=>r.id===b.id),editable:true,removable:true});
+  let n=0;return list.map(it=>({...it,color:it.key==='element'||it.key.startsWith('part:')?0xc8d2d1:it.key==='pile'?0x8f9ca1:PALETTE[n++%PALETTE.length]}));
+ },[member,sm,rows]);
+ const colorOf=useMemo(()=>{const map=new Map(items.map(i=>[i.key,i.color]));return (k:string)=>map.get(k)??0x5a6b73;},[items]);
+ const itemOf=(k:string)=>items.find(i=>i.key===k);
+ useEffect(()=>{
+  const key=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.stopPropagation();if(menu)setMenu(null);else if(editing)setEditing(null);else onClose();};
+  document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);
+ },[menu,editing,onClose]);
+ /** Applies a changed shape; bars keep their coordinates, so a shift of the lowest corner is confirmed first. */
+ const commitShape=(next:ShapeModel)=>{
+  const p=shapeProblems({...next,confirmed:false});if(p.blockers.length){alert(p.blockers.join('\n'));return false;}
+  const shift=normaliseShape(next).shift;
+  if(member.bars.length&&shift.some(v=>Math.abs(v)>.5)&&!confirm(`การแก้นี้ย้ายจุดอ้างอิงของรูปทรง (${shift.map(v=>Math.round(v)).join(', ')} mm) แต่เหล็กที่วาดไว้จะไม่ย้ายตาม · ทำต่อ?`))return false;
+  onChange(applyShapeModel(member,{...next,confirmed:false}));return true;
+ };
+ const commitBar=(d:Bar)=>{
+  const v=barSchema.safeParse(d);if(!v.success){alert(issues(v.error));return false;}
+  if(member.bars.some(b=>b.id!==d.id&&b.mark===v.data.mark)){alert(`Mark ${v.data.mark} ซ้ำกับชุดเหล็กอื่น`);return false;}
+  onChange({...member,bars:member.bars.map(b=>b.id===d.id?{...v.data,placementConfirmed:false,bsDimensionsConfirmed:false}:b)});setSelected(`bar:${d.id}`);return true;
+ };
+ const openEdit=(key:string)=>{
+  if(key.startsWith('part:')){const p=sm.parts.find(x=>`part:${x.id}`===key);if(!p)return;
+   return setEditing({title:`${p.label} · ${member.code}`,draft:structuredClone(p),fields:partFields as (d:any)=>F[],note:p.shape==='polygon'?'แก้จุดยอดแปลนของชิ้นหลายเหลี่ยมในแท็บ “รูปทรง (หลายชิ้นส่วน)”':'แก้ขนาดชิ้นส่วน · ปริมาณและมุมมองคำนวณใหม่ · ตำแหน่งเหล็กต้องยืนยันใหม่',
+    commit:d=>commitShape({...sm,parts:sm.parts.map(x=>x.id===p.id?d:x)})});}
+  if(key==='pile'&&sm.piles)return setEditing({title:`เสาเข็ม · ${member.code}`,draft:structuredClone(sm.piles),fields:pileFields,note:'ตำแหน่งเข็มแก้ในแท็บ “รูปทรง (หลายชิ้นส่วน)”',commit:d=>commitShape({...sm,piles:d})});
+  const b=member.bars.find(x=>`bar:${x.id}`===key);
+  if(b)setEditing({title:`ชุดเหล็ก ${b.mark} · ${member.code}`,draft:structuredClone(b),fields:barFields,commit:commitBar,note:'แก้ขนาด / จำนวน / ช่วงกระจาย · แก้รูปทรงเหล็กด้วยการลากจุดในแท็บ “ใส่เหล็ก (วาดบนรูปตัด)”',info:rowsTable(itemOf(key)?.rows||[])});
+ };
+ const remove=(key:string)=>{
+  if(readOnly)return;
+  if(key.startsWith('part:')){const p=sm.parts.find(x=>`part:${x.id}`===key);if(p&&confirm(`ลบชิ้นส่วน ${p.label}?`)&&commitShape({...sm,parts:sm.parts.filter(x=>x.id!==p.id)}))setSelected('');return;}
+  const b=member.bars.find(x=>`bar:${x.id}`===key);if(b&&confirm(`ลบชุดเหล็ก ${b.mark}?`)){onChange({...member,bars:member.bars.filter(x=>x.id!==b.id)});setSelected('');}
+ };
+ const sel=itemOf(selected);
+ const openMenu=(key:string,x:number,y:number)=>{if(key==='element'||!itemOf(key))return;setMenu({key,x:Math.max(8,Math.min(x,innerWidth-270)),y:Math.max(8,Math.min(y,innerHeight-140))});};
+ return createPortal(<div className="e3d-shade" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+  <section className="e3d-modal" role="dialog" aria-modal="true" aria-label={`3D Modal ${member.code}`}>
+   <header className="e3d-header"><div><div className="eyebrow">3D MODAL · INTERACTIVE</div><h2>{member.code} · {labels[member.category]}</h2><p className="muted">ลากเพื่อหมุน · ล้อเมาส์ซูม · คลิกขวาลากเพื่อเลื่อน · คลิกเลือกรายการ · คลิกขวา → Edit เพื่อแก้ไข</p></div>
+    <div className="actions"><button className="e3d-close" onClick={onClose} aria-label="ปิด 3D Modal">×</button></div></header>
+   <div className="e3d-body">
+    <div className="e3d-stage">
+     <Viewer member={member} rows={rows} keyOf={keyOf} colorOf={colorOf} labelOf={k=>itemOf(k)?.label||k} selected={selected} onPick={setSelected} onMenu={openMenu}/>
+     <div className="e3d-selbar">{sel?<><span className="swatch" style={{background:hex(sel.color)}}/><b>{sel.label}</b><button disabled={!sel.editable} onClick={()=>openEdit(sel.key)}><Pencil size={13}/>{readOnly?'ดูรายละเอียด':'Edit'}</button><button disabled={readOnly||!sel.removable} onClick={()=>remove(sel.key)}><Trash2 size={13}/>ลบ</button></>:<span className="muted">ยังไม่ได้เลือกรายการ</span>}</div>
+    </div>
+    <aside className="e3d-side">
+     <div className="e3d-kpis">{[['คอนกรีต',q.concrete,'m³'],['แบบหล่อ',q.formwork,'m²'],['เหล็กรวม',q.rebar,'kg']].map(([l,v,u])=><div key={l as string}><small>{l}</small><strong>{number((v as number)*qty,u==='kg'?2:3)} <em>{u}</em></strong><span>ต่อชิ้น {number(v as number,u==='kg'?2:3)} × {qty}</span></div>)}</div>
+     <h3>รายการ <small className="muted">· คลิกขวาที่รายการหรือในโมเดลเพื่อ Edit</small></h3>
+     <ul className="e3d-items">{items.map(it=><li key={it.key} className={selected===it.key?'active':''} tabIndex={0} onClick={()=>setSelected(it.key)} onDoubleClick={()=>it.editable&&openEdit(it.key)} onKeyDown={e=>{if(e.key==='Enter'&&it.editable)openEdit(it.key);}} onContextMenu={e=>{e.preventDefault();setSelected(it.key);openMenu(it.key,e.clientX,e.clientY);}}>
+      <div className="e3d-item-head"><span className="swatch" style={{background:hex(it.color)}}/><b>{it.label}</b>{it.rows.length>0&&<small>{number(it.rows.reduce((n,r)=>n+r.weight,0),2)} kg</small>}</div>
+      {it.sub&&<small className="block muted">{it.sub}</small>}
+      {it.rows.map(r=><small key={r.id} className="block e3d-row-line">ยาวตัด {number(r.cutLength,0)} mm{r.shapeCode?` · ${r.shapeCode}`:''}</small>)}
+     </li>)}</ul>
+     <p className="muted">การแก้ไขใน 3D Modal อัปเดตรูปทรง เหล็ก และปริมาณของสมาชิกทันที · ยืนยันตำแหน่งเหล็กใน “แบบ & BBS” แล้วบันทึกสมาชิก</p>
+    </aside>
+   </div>
+  </section>
+  {menu&&<div className="e3d-menu-backdrop" onMouseDown={()=>setMenu(null)} onContextMenu={e=>{e.preventDefault();setMenu(null);}}>
+   <div className="e3d-menu" style={{left:menu.x,top:menu.y}} onMouseDown={e=>e.stopPropagation()} onContextMenu={e=>e.preventDefault()}>
+    <div className="e3d-menu-title">{itemOf(menu.key)?.label}</div>
+    {itemOf(menu.key)?.editable&&<button onClick={()=>{setMenu(null);openEdit(menu.key);}}><Pencil size={13}/>{readOnly?'ดูรายละเอียด…':'Edit (แก้ไข)…'}</button>}
+    {itemOf(menu.key)?.removable&&<button className="danger-text" disabled={readOnly} onClick={()=>{setMenu(null);remove(menu.key);}}><Trash2 size={13}/>ลบ</button>}
+   </div>
+  </div>}
+  {editing&&<EditDialog editing={editing} readOnly={readOnly} onClose={()=>setEditing(null)}/>}
+ </div>,document.body);
+}
+
 function EditDialog({editing,readOnly,onClose}:{editing:Editing;readOnly:boolean;onClose:()=>void}){
  const [draft,setDraft]=useState(editing.draft);
  const live=editing.check?.(draft)||[];
@@ -317,7 +411,7 @@ function axisTriad(len:number){
  return g;
 }
 
-function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}:{member:Member;rows:Row[];input:ElementInput;keyOf:(id:string)=>string;colorOf:(k:string)=>number;labelOf:(k:string)=>string;selected:string;onPick:(k:string)=>void;onMenu:(k:string,x:number,y:number)=>void}){
+function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}:{member:Member;rows:Row[];input?:ElementInput;keyOf:(id:string)=>string;colorOf:(k:string)=>number;labelOf:(k:string)=>string;selected:string;onPick:(k:string)=>void;onMenu:(k:string,x:number,y:number)=>void}){
  const host=useRef<HTMLDivElement>(null),api=useRef<{view:(a:string)=>void;paint:(sel:string,hov:string)=>void}|null>(null),cam=useRef<{pos:THREE.Vector3;target:THREE.Vector3}|null>(null);
  const [hover,setHover]=useState(''),[error,setError]=useState('');
  const cb=useRef({onPick,onMenu,selected,hover});cb.current={onPick,onMenu,selected,hover};
@@ -340,7 +434,9 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
   const mats=new Map<string,THREE.MeshLambertMaterial>(),mat=(k:string)=>{let m=mats.get(k);if(!m){m=new THREE.MeshLambertMaterial({color:colorOf(k),...(k==='pile'?{transparent:true,opacity:.55}:{})});mats.set(k,m);}return m;};
   const pickables:THREE.Mesh[]=[];
   for(const r of rows){const k=keyOf(r.id);for(const path of r.paths){const pts=path.map(P);if(pts.length<2)continue;const mesh=new THREE.Mesh(new THREE.TubeGeometry(new PolyCurve(pts),Math.max(2,(pts.length-1)*2),Math.max(r.diameter,4)/2000,6,false),mat(k));mesh.userData.key=k;scene.add(mesh);pickables.push(mesh);}}
-  if(input.category==='Foundation'&&input.foundationType==='pile'){
+  const sp=member.shapeModel?.piles;
+  if(sp)for(const [x,y] of sp.positions){const len=Math.min(Math.max(sp.length*1000-sp.cutoff,500),2500),g=sp.type==='square'?new THREE.BoxGeometry(sp.size/1000,len/1000,sp.size/1000):new THREE.CylinderGeometry(sp.size/2000,sp.size/2000,len/1000,28);const mesh=new THREE.Mesh(g,mat('pile'));mesh.position.copy(P([x,y,sp.embed-len/2]));mesh.userData.key='pile';scene.add(mesh);pickables.push(mesh);}
+  if(input?.category==='Foundation'&&input.foundationType==='pile'){
    const pl=input.pile,len=Math.min(Math.max(pl.length*1000-pl.cutoff,500),2500),square=pl.type==='square'||pl.type==='I';
    for(const [x,y] of pilePositions(input)){const g=square?new THREE.BoxGeometry(pl.size/1000,len/1000,pl.size/1000):new THREE.CylinderGeometry(pl.size/2000,pl.size/2000,len/1000,28);const mesh=new THREE.Mesh(g,mat('pile'));mesh.position.copy(P([x,y,pl.embed-len/2]));mesh.userData.key='pile';scene.add(mesh);pickables.push(mesh);}
   }
