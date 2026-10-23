@@ -9,6 +9,8 @@ export type ShapeProposal={version:1;task:'shape';analysisId:string;provider?:st
  references:{label:string;source:string}[];rebarNotes:ProposalNote[];missing:{kind?:'shape'|'rebar';part:string;field:string;question:string}[];conflicts:string[];warnings:string[];
  /** gateway v2: sheet inventory, level table and arithmetic checks (absent from older gateways) */
  views?:{name:string;kind:string;note:string}[];levels?:{name:string;elevation:N;z:N;source:string}[];checks?:string[]};
+/** User reply to one AI question, sent back with the next read of the drawings. */
+export type ShapeAnswer={part:string;question:string;answer:string};
 export type ProposalNote={text:string;meaning:string;source:string;part?:string;face?:RebarNoteFace|'';dir?:'X'|'Y'|'XY'|'V'|'';level?:string};
 
 const fieldsOf:Record<ShapePart['shape'],string[]>={box:['x','y','w','d'],shaft:['x','y','w','d','wall'],circle:['cx','cy','diameter','inner'],polygon:[]};

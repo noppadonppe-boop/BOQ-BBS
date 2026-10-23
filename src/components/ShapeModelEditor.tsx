@@ -1,7 +1,7 @@
 import {useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
 import {Copy,Plus,Trash2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {proposalGaps,proposalToShape,type ShapeProposal} from '../domain/shapeProposal';
+import {proposalGaps,proposalToShape,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
 import {aiShapeConfigured,analyseShapeWithAI} from '../data/aiShapeAnalysis';
 import {drawingViews} from '../data/drawingViews';
 import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
@@ -90,13 +90,16 @@ const roles=['แปลน (Top view)','รูปตัด X–X','รูปต�
 /** Steps 1–2: send the member's drawings to the AI one after another (each refines the previous proposal), answer the gaps, use as shape. */
 function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member;project:Project;attachments:Attachment[];readOnly:boolean;onUse:(s:ShapeModel)=>void}){
  const [pick,setPick]=useState<Record<string,string>>(()=>Object.fromEntries(attachments.map(a=>[a.id,'หลายรูปในหน้าเดียว']))),[on,setOn]=useState<Record<string,boolean>>({});
- const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[proposal,setProposal]=useState<ShapeProposal|null>(null);
+ const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[proposal,setProposal]=useState<ShapeProposal|null>(null),[replies,setReplies]=useState<Record<string,string>>({});
  const files=attachments.filter(a=>on[a.id]),configured=aiShapeConfigured(),gaps=proposal?proposalGaps(proposal):[];
- const run=async()=>{setBusy(true);setError('');let cur:ShapeProposal|undefined;try{for(const [i,a] of files.entries()){
+ /** First read, or a re-read that refines `proposal` with the user's replies to its questions. */
+ const run=async(answers?:ShapeAnswer[])=>{setBusy(true);setError('');let cur:ShapeProposal|undefined=answers?proposal||undefined:undefined;try{for(const [i,a] of files.entries()){
   const at=`ไฟล์ ${i+1}/${files.length}`;setProgress(`${at} · กำลังเตรียมภาพขยายของแบบ…`);
   const views=await drawingViews(a).catch(()=>undefined);
-  cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur)setProposal(cur);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
+  cur=await analyseShapeWithAI({attachment:a,member,project,role:pick[a.id]||roles[5],current:cur,views,answers,onProgress:p=>setProgress(`${at} · ${p.label}`)});}if(cur){setProposal(cur);setReplies({});}}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);setProgress('');}};
  const shapeQs=proposal?.missing.filter(x=>x.kind!=='rebar')||[],rebarQs=proposal?.missing.filter(x=>x.kind==='rebar')||[];
+ const qKey=(x:{part:string;question:string})=>`${x.part}|${x.question}`,answers:ShapeAnswer[]=(proposal?.missing||[]).map(x=>({part:x.part,question:x.question,answer:(replies[qKey(x)]||'').trim()})).filter(a=>a.answer);
+ const ask=(x:{part:string;question:string},i:number)=><label key={i} className="shape-ai-q"><span>❓ {x.part?`${x.part}: `:''}{x.question}</span><textarea rows={2} disabled={readOnly||busy} placeholder="พิมพ์คำตอบ เช่น ขอบเขต / ระดับ / ค่าที่ใช้ (เว้นว่างได้)" value={replies[qKey(x)]||''} onChange={e=>setReplies(r=>({...r,[qKey(x)]:e.target.value}))}/></label>;
  const answer=(g:{part:number;field:string},value:number)=>setProposal(p=>{if(!p)return p;if(g.part<0)return {...p,piles:p.piles?{...p.piles,[g.field]:value}:p.piles};return {...p,parts:p.parts.map((q,i)=>i===g.part?{...q,[g.field]:value}:q)};});
  return <details className="shape-ai" open={!member.shapeModel}><summary>✨ ขั้นที่ 1–2 · ให้ AI อ่านรูปทรงจากแบบต้นทาง ({attachments.length} ไฟล์)</summary>
   {!configured&&<p className="notice warning">ยังไม่ได้ตั้งค่าบริการ AI (VITE_AI_DRAWING_ANALYSIS_ENDPOINT) · สร้างรูปทรงด้วยมือได้ด้านล่าง</p>}
@@ -108,14 +111,16 @@ function AiShapePanel({member,project,attachments,readOnly,onUse}:{member:Member
    <table className="shape-qty"><thead><tr><th>ชิ้นส่วน</th><th>ชนิด</th><th>มิติ</th><th>ที่มา</th></tr></thead><tbody>{proposal.parts.map((q,i)=><tr key={i}><td>{q.role==='void'?'(ช่องเปิด) ':''}{q.label}</td><td>{shapeKindLabels[q.shape]}</td><td>{q.shape==='circle'?`Ø${q.diameter??'?'}${q.inner?` / Ø${q.inner}`:''}`:q.shape==='polygon'?`${q.points?.length||0} จุด`:`${q.w??'?'} × ${q.d??'?'}`} · z {q.z0??'?'} · h {q.height??'?'}</td><td><small>{q.source}</small></td></tr>)}</tbody></table>
    {!!proposal.levels?.length&&<p className="muted">ระดับที่อ่านได้: {proposal.levels.map(l=>`${l.name}${l.elevation!==null?` ${l.elevation.toFixed(3)}`:''}${l.z!==null?` (z ${fmt(l.z)})`:''}`).join(' · ')}</p>}
    {!!proposal.checks?.length&&<ul className="shape-check ok">{proposal.checks.map((t,i)=><li key={i}>✔ {t}</li>)}</ul>}
-   {(gaps.length>0||shapeQs.length>0)&&<><h4>ข้อมูลรูปทรงที่ขาด — ตอบก่อนใช้ ({gaps.length})</h4>
+   {(gaps.length>0||shapeQs.length>0)&&<><h4>ข้อมูลรูปทรงที่ขาด — ตอบก่อนใช้ ({gaps.length+shapeQs.length})</h4>
     {gaps.map(g=><label key={`${g.part}-${g.field}`} className="shape-gap"><span>⚠ {g.label}</span>{g.field!=='points'&&<input type="number" placeholder="mm" onChange={e=>{const v=Number(e.target.value);if(e.target.value!==''&&Number.isFinite(v))answer(g,v);}}/>}</label>)}
-    {shapeQs.map((x,i)=><p key={i} className="shape-ai-q">❓ {x.part?`${x.part}: `:''}{x.question}</p>)}</>}
+    {shapeQs.map(ask)}</>}
    {proposal.conflicts.length>0&&<div className="notice warning">{proposal.conflicts.join('\n')}</div>}
    {proposal.rebarNotes.length>0&&<><h4>Note เหล็กจากแบบ ({proposal.rebarNotes.length}) · ใช้สร้างเหล็กในขั้นถัดไป</h4>
     <table className="shape-qty"><thead><tr><th>Note</th><th>ชิ้นส่วน</th><th>ตำแหน่ง</th><th>ความหมาย</th></tr></thead><tbody>{proposal.rebarNotes.map((n,i)=><tr key={i}><td><b>{n.text}</b></td><td>{n.part||'-'}</td><td>{[n.face&&faceLabels[n.face],n.dir,n.level].filter(Boolean).join(' · ')||'-'}</td><td><small>{n.meaning}{n.source?` · ${n.source}`:''}</small></td></tr>)}</tbody></table></>}
-   {rebarQs.length>0&&<><h4>ข้อมูลเหล็กที่แบบไม่ได้ระบุ ({rebarQs.length})</h4>{rebarQs.map((x,i)=><p key={i} className="shape-ai-q">❓ {x.part?`${x.part}: `:''}{x.question}</p>)}<p className="muted">คำถามเหล่านี้จะแสดงอีกครั้งในขั้นใส่เหล็ก</p></>}
+   {rebarQs.length>0&&<><h4>ข้อมูลเหล็กที่แบบไม่ได้ระบุ ({rebarQs.length})</h4>{rebarQs.map(ask)}<p className="muted">คำถามเหล่านี้จะแสดงอีกครั้งในขั้นใส่เหล็ก</p></>}
    {proposal.references.length>0&&<p className="muted">โครงสร้างอ้างอิง (ไม่คิดปริมาณ): {proposal.references.map(r=>r.label).join(' · ')}</p>}
+   {proposal.missing.length>0&&<div className="actions"><button disabled={readOnly||busy||!configured||!files.length||!answers.length} onClick={()=>void run(answers)}>{busy?'กำลังอ่าน…':`อ่านแบบใหม่พร้อมคำตอบ (${answers.length}/${proposal.missing.length})`}</button>
+    <span className="muted">{files.length?'AI อ่านไฟล์ที่ติ๊กไว้อีกครั้ง โดยใช้ผลนี้และคำตอบของคุณ แล้วถามเฉพาะส่วนที่ยังขาด':'ติ๊กไฟล์ด้านบนก่อนอ่านใหม่'}</span></div>}
    <div className="actions"><button className="primary" disabled={readOnly} onClick={()=>{if(gaps.length&&!confirm(`ยังมี ${gaps.length} ค่าที่ไม่ได้ตอบ · ระบบจะใส่ค่าชั่วคราวและทำเครื่องหมาย ⚠ ไว้ที่ชิ้นส่วน ใช้ต่อ?`))return;onUse(proposalToShape(proposal));}}>ใช้ผล AI เป็นรูปทรง (แทนที่ด้านล่าง)</button>
     <span className="muted">ตรวจ 3D / รูปตัดด้านล่าง → ติ๊ก “ตรวจมิติทุกชิ้นกับแบบแล้ว” → ใช้รูปทรง → ระบบพาไปขั้นใส่เหล็กจาก Note</span></div>
   </div>}

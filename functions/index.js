@@ -211,6 +211,9 @@ function providerInstruction(context, file) {
 function shapeInstruction(context, file) {
   const current = context.currentShape && typeof context.currentShape === 'object' ? context.currentShape : null;
   const views = Array.isArray(context.views) ? context.views.length : 0;
+  const answers = (Array.isArray(context.answers) ? context.answers : []).slice(0, 40)
+    .map((a) => ({part: stringValue(a?.part).slice(0, 80), question: stringValue(a?.question).slice(0, 300), answer: stringValue(a?.answer).slice(0, 500)}))
+    .filter((a) => a.question && a.answer);
   return [
     'คุณเป็นวิศวกรตรวจแบบโครงสร้าง ช่วยอ่าน "รูปทรงคอนกรีต" และ "Note เหล็กเสริม" ขององค์ประกอบพิเศษ (ฐานรากหลายระดับ / บ่อ / ตอม่อ ฯลฯ) จากไฟล์แบบที่แนบ เพื่อสร้างโมเดล 3D ที่พร้อมใส่เหล็ก ตอบเป็น JSON object เท่านั้น ห้ามมี Markdown',
     views ? `แนบภาพขยายของแบบเดียวกัน ${views} ภาพต่อจากไฟล์ต้นฉบับ (ภาพแรก = ทั้งแผ่น, ภาพถัดไป = ส่วนย่อยตามชื่อภาพ) ใช้ภาพขยายอ่านตัวเลขมิติ / ระดับ / ข้อความเหล็กให้ถูกต้อง` : '',
@@ -229,6 +232,7 @@ function shapeInstruction(context, file) {
     'ผนัง / เสา / พื้นที่ต่อเนื่องแต่ไม่ใช่องค์ประกอบนี้ (RC WALL, RC COLUMN, FLOOR SLAB) ใส่ใน references ไม่ใช่ parts',
     'ทุกชิ้นส่วนต้องมี source บอกรูป / ตัวเลขที่ใช้ เช่น "Plan F-02 · 650+5350+4400+3850+950" หรือ "Section 2-2 · 2400" · confidence = High เฉพาะเมื่อทุกมิติมาจากตัวเลขในแบบและตรวจผลรวมผ่าน',
     current ? `รูปทรงที่ได้จากไฟล์ก่อนหน้า (ปรับปรุงและเติมให้ครบด้วยไฟล์นี้ คงค่าที่ไม่ขัดแย้ง ใช้ชื่อชิ้นส่วนเดิม): ${JSON.stringify(current).slice(0, 12000)}` : 'ยังไม่มีรูปทรงจากไฟล์ก่อนหน้า',
+    answers.length ? `คำตอบของผู้ใช้ต่อคำถามรอบก่อน (ถือเป็นข้อมูลจริงจากผู้ออกแบบ ใช้ปรับ parts / piles / site / rebarNotes ให้ครบ เช่น สร้าง void ตามคำตอบ ห้ามถามข้อเดิมซ้ำ ถ้าคำตอบยังไม่พอให้ถามเฉพาะส่วนที่ขาด):\n${answers.map((a, i) => `${i + 1}) ${a.part ? `${a.part}: ` : ''}${a.question} → ตอบ: ${a.answer}`).join('\n')}` : '',
     `บทบาทของไฟล์ตามผู้ใช้: ${stringValue(context.drawingRole, 'ไม่ระบุ (อาจมีทั้งแปลนและรูปตัดในหน้าเดียว)')} · ไฟล์: ${stringValue(context.fileName, file.filename)} · หน้า: ${Number(context.pages) || 1}`,
     'รูปแบบ JSON:',
     JSON.stringify({version: 1, confidence: 'Medium',
