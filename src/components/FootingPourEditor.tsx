@@ -1,5 +1,6 @@
 import {DEFAULT_JOINT_REBAR,footingColumns,footingLevels,footingPour,jointRebar,type FoundationInput} from '../domain/elementInput';
 import type {PourStage} from '../domain/solids';
+import {NumInput} from './EditorControls';
 
 type Edit=(f:(i:FoundationInput)=>void)=>void;
 type Joint=FoundationInput['pour']['joints'][number];
@@ -21,7 +22,7 @@ export function FootingPourEditor({input,edit,readOnly,stages}:{input:Foundation
  const lv=input.levels.enabled?footingLevels(input):undefined,levelOf=(z:number)=>lv?signed(lv.bottom+z/1000):undefined;
  // joint k: fill the list with defaults up to k before editing
  const joint=(k:number,f:(j:Joint)=>void)=>edit(i=>{while(i.pour.joints.length<=k)i.pour.joints.push(structuredClone(DEFAULT_JOINT_REBAR));f(i.pour.joints[k]);});
- const num=(v:number,on:(v:number)=>void,label:string,width=64,step=10)=><input aria-label={label} type="number" min={0} step={step} style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Number(e.target.value)||0))}/>;
+ const num=(v:number,on:(v:number)=>void,label:string,width=64,step=10)=><NumInput aria-label={label} type="number" min={0} step={step} style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Number(e.target.value)||0))}/>;
  const dsel=(v:number,on:(v:number)=>void,label:string)=><select aria-label={label} disabled={readOnly} value={v} onChange={e=>on(Number(e.target.value))}>{[...new Set([...diameters,v])].sort((a,b)=>a-b).map(d=><option key={d} value={d}>DB{d}</option>)}</select>;
  // elevation: footing + the highest pedestal, stage bands across, joint bars drawn schematically
  const cols=ped?footingColumns(input):[],W=input.shape==='circle'?input.diameter:input.width,sc=Math.min(200/Math.max(W,1),190/Math.max(pr.total,1));
@@ -37,7 +38,7 @@ export function FootingPourEditor({input,edit,readOnly,stages}:{input:Foundation
      <tbody>{pr.stages.map((s,k)=>{const q=stages?.find(x=>x.stage===s.stage),last=k===n-1;return <tr key={s.stage}>
       <td><span className="stage-swatch" style={{background:fills[k%fills.length]}}/>Stage {s.stage}</td>
       <td>{last?<b className={s.height>0?'computed':'computed error-text'}>{Math.round(s.height)} <small className="muted">(ส่วนที่เหลือ)</small></b>
-       :<input aria-label={`ความสูง Stage ${s.stage}`} type="number" min={0} step={50} style={{width:80}} disabled={readOnly} value={input.pour.heights[k]??0} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);edit(i=>{i.pour.heights[k]=v;});}}/>}</td>
+       :<NumInput aria-label={`ความสูง Stage ${s.stage}`} type="number" min={0} step={50} style={{width:80}} disabled={readOnly} value={input.pour.heights[k]??0} onChange={e=>{const v=Math.max(0,Number(e.target.value)||0);edit(i=>{i.pour.heights[k]=v;});}}/>}</td>
       <td>{Math.round(s.z0)} – {Math.round(s.z1)}{s.z0<T&&s.z1>T?<small className="block muted">ข้ามหลังฐาน</small>:null}</td>
       {lv&&<td>{levelOf(s.z1)}</td>}
       <td className="num">{q?`${fmt(q.concrete)} m³`:'—'}</td><td className="num">{q?`${fmt(q.formwork)} m²`:'—'}</td><td className="num">{last?'—':q?`${fmt(q.joint)} m²`:'—'}</td></tr>;})}</tbody></table></div>

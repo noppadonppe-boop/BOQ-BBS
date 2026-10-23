@@ -1,5 +1,6 @@
 import {ArrowUp,Plus,Trash2} from 'lucide-react';
 import {columnPresets,columnStackLayout,newColumnStorey,tiePatternInfo,tiePatterns,type ColumnInput,type ColumnStorey,type TiePattern} from '../domain/elementInput';
+import {NumInput} from './EditorControls';
 
 const diameters=[12,16,20,25,28,32,36,40];
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
@@ -12,8 +13,8 @@ const tieText=(s:ColumnStorey)=>`${s.tie.sets||''}${barName(s.tie.diameter)}@${s
 /** Column stack = the column table of one mark: a row per storey (top row = highest storey as on the drawings). */
 export function ColumnStackEditor({input,edit,readOnly}:{input:ColumnInput;edit:Edit;readOnly:boolean}){
  const st=input.stack,S=st.storeys,lay=S.length?columnStackLayout(input):undefined;
- const num=(v:number,on:(v:number)=>void,label:string,width=64)=><input aria-label={label} type="number" min={0} step="any" style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Number(e.target.value)||0))}/>;
- const int=(v:number,on:(v:number)=>void,label:string,width=44)=><input aria-label={label} type="number" min={0} step={1} style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Math.trunc(Number(e.target.value)||0)))}/>;
+ const num=(v:number,on:(v:number)=>void,label:string,width=64)=><NumInput aria-label={label} type="number" min={0} step="any" style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Number(e.target.value)||0))}/>;
+ const int=(v:number,on:(v:number)=>void,label:string,width=44)=><NumInput aria-label={label} type="number" min={0} step={1} style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Math.trunc(Number(e.target.value)||0)))}/>;
  const dsel=(v:number,on:(v:number)=>void,label:string,list=diameters)=><select aria-label={label} disabled={readOnly} value={v} onChange={e=>on(Number(e.target.value))}>{[...new Set([...list,v])].sort((a,b)=>a-b).map(d=><option key={d} value={d}>{barName(d)}</option>)}</select>;
  const row=(k:number,f:(s:ColumnStorey)=>void)=>edit(i=>f(i.stack.storeys[k]));
  const preset=(k:number,id:string)=>row(k,s=>{const p=columnPresets.find(x=>x.id===id);if(!p)return;s.width=p.w;s.depth=p.d;

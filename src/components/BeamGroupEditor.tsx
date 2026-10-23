@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {BookmarkPlus,Copy,Download,Plus,Trash2} from 'lucide-react';
 import {beamGroupLayout,beamZoneLabels,beamZones,newBeamGrid,newBeamSpan,type BeamGrid,type BeamInput,type BeamRebar,type BeamSpan,type BeamZone} from '../domain/elementInput';
 import {deleteBeamMark,saveBeamMark,useBeamMarks,type BeamMark} from '../data/beamMarks';
+import {NumInput} from './EditorControls';
 
 const diameters=[6,9,10,12,16,20,25,28,32,36,40];
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
@@ -38,9 +39,9 @@ const sectionSummary=(r:BeamRebar,zones:BeamZone[])=>`บน ${bars(r.top)} · �
 export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId}:{input:BeamInput;edit:Edit;readOnly:boolean;selected:number;onSelect:(k:number)=>void;projectId:string}){
  const sp=input.spans,gr=input.grids,n=sp.length,sel=Math.min(selected,Math.max(0,n-1)),cur=sp[sel],lay=beamGroupLayout(input),zonesOf=(k:number):BeamZone[]=>{const s=lay.spans[k];return s.kind==='cantilever'?['cant']:[...new Set([s.zoneA,'mid' as BeamZone,s.zoneB])];};
  const {marks,error}=useBeamMarks(projectId),[msg,setMsg]=useState('');
- const num=(v:number,on:(v:number)=>void,label:string,neg=false,width=70)=><input aria-label={label} type="number" step="any" style={{width}} disabled={readOnly} value={v} onClick={e=>e.stopPropagation()} onChange={e=>on(neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
+ const num=(v:number,on:(v:number)=>void,label:string,neg=false,width=70)=><NumInput aria-label={label} type="number" step="any" style={{width}} disabled={readOnly} value={v} onClick={e=>e.stopPropagation()} onChange={e=>on(neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
  const barsIn=(v:{count:number;diameter:number},on:(v:{count:number;diameter:number})=>void,label:string)=><span className="bar-cell">
-  <input aria-label={`${label} จำนวน`} type="number" min={0} style={{width:44}} disabled={readOnly} value={v.count} onChange={e=>on({...v,count:Math.max(0,Math.trunc(Number(e.target.value)||0))})}/>
+  <NumInput aria-label={`${label} จำนวน`} type="number" min={0} style={{width:44}} disabled={readOnly} value={v.count} onChange={e=>on({...v,count:Math.max(0,Math.trunc(Number(e.target.value)||0))})}/>
   <select aria-label={`${label} ขนาด`} disabled={readOnly} value={v.diameter} onChange={e=>on({...v,diameter:Number(e.target.value)})}>{[...new Set([...diameters,v.diameter])].sort((a,b)=>a-b).map(d=><option key={d} value={d}>{barName(d)}</option>)}</select></span>;
  const span=(k:number,f:(s:BeamSpan)=>void)=>edit(i=>f(i.spans[k]));
  const grid=(k:number,f:(g:BeamGrid)=>void)=>edit(i=>f(i.grids[k]));

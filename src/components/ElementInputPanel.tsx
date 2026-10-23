@@ -1,9 +1,9 @@
-import {lazy,Suspense,useMemo,useState,type ReactNode} from 'react';
+import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
 import {beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
-import {Field,number} from './EditorControls';
+import {Field,number,NumInput} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
 import {ColumnTieEditor} from './ColumnTieEditor';
 import {FootingEarthworkSketch} from './FootingEarthworkSketch';
@@ -20,7 +20,7 @@ const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const Element3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Element3DModal})));
 
 const diameters=[6,9,10,12,16,20,25,28,32,36,40];
-type Props={member:Member;project:Project;attachments:Attachment[];readOnly:boolean;onApply:(next:Member)=>void;onOpenFiles:()=>void};
+type Props={member:Member;project:Project;attachments:Attachment[];readOnly:boolean;onApply:(next:Member)=>void;onOpenFiles:()=>void;onDirty?:(dirty:boolean)=>void};
 
 function seeded(m:Member,spec:Project['spec']):ElementInput{
  const stored=elementInputSchema.safeParse(m.elementInput);
@@ -36,7 +36,7 @@ function seeded(m:Member,spec:Project['spec']):ElementInput{
  }
 }
 
-export function ElementInputPanel({member:m,project,attachments,readOnly,onApply,onOpenFiles}:Props){
+export function ElementInputPanel({member:m,project,attachments,readOnly,onApply,onOpenFiles,onDirty}:Props){
  const [input,setInput]=useState<ElementInput|null>(()=>supportsElementInput(m.category)?seeded(m,project.spec):null);
  const [occurrences,setOccurrences]=useState(m.occurrences);
  const [filled,setFilled]=useState<string[]>([]);
@@ -45,6 +45,10 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
  const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0);
  const spec=project.spec;
+ // typed but not yet applied = unsaved work (the member popup asks before closing)
+ const snapshot=JSON.stringify([input,occurrences,manualBars,items]),[applied,setApplied]=useState(snapshot),dirty=snapshot!==applied;
+ useEffect(()=>{onDirty?.(dirty);},[dirty]);
+ useEffect(()=>()=>onDirty?.(false),[]);
  const base=useMemo(()=>withSiteWork({...m,occurrences,bars:[...m.bars.filter(isGeneratedBar),...manualBars]},{...(m.siteWork||emptySiteWork()),items}),[m,occurrences,manualBars,items]);
  const problems=useMemo(()=>input?elementInputProblems(input):[],[input]);
  const preview=useMemo(()=>{
@@ -77,7 +81,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const shapedCount=(label:string,path:string)=><div key={path} className="mesh-layer"><div className="form-grid"><Field label={`${label} · จำนวน (เส้น)`} type="number" value={get(`${path}.count`)} onChange={v=>set(`${path}.count`,Math.max(0,Math.trunc(Number(v)||0)))} disabled={readOnly}/>{dia(`${label} · ขนาด`,`${path}.diameter`)}{get(`${path}.count`)>0&&shapeFields(label,path)}</div></div>;
 
  // on ground / elevated + layers under the concrete (slab now, beam later): path = 'ground'
- const groundFields=(what:string)=>{const g=get('ground') as GroundInput,on=g.support==='ground',q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string)=><input aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,Math.max(0,Number(e.target.value)||0))}/>;
+ const groundFields=(what:string)=>{const g=get('ground') as GroundInput,on=g.support==='ground',q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string)=><NumInput aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,Math.max(0,Number(e.target.value)||0))}/>;
   return <div className="ground-fields"><div className="segmented" role="group" aria-label={`ตำแหน่ง${what}`}>{([['elevated',`${what}ลอย (มีไม้แบบท้อง)`],['ground',`${what}บนดิน`]] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={g.support===v?'active':''} onClick={()=>set('ground.support',v)}>{t}</button>)}</div>
    {on&&<><table className="subbase-table"><thead><tr><th>ชั้นใต้{what} (บน → ล่าง)</th><th>หนา (mm)</th><th>ยื่นจากขอบ (mm)</th><th className="num">ต่อ 1 ชิ้น</th></tr></thead><tbody>
     <tr><td>{check('Lean concrete','ground.lean.enabled')}</td><td>{g.lean.enabled?cell('ground.lean.thickness'):'—'}</td><td>{g.lean.enabled?cell('ground.lean.projection'):'—'}</td><td className="num">{q&&g.lean.enabled?`${number(q.lean)} m³`:'—'}</td></tr>
@@ -91,7 +95,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   if(m.geometry||m.prismGeometry||m.beamAssembly){if(!confirm('สมาชิกนี้ใช้รูปทรงขั้นสูง (ชิ้นส่วน/หน้าตัดพิเศษ/คานต่อเนื่อง) การใช้ข้อมูลพื้นฐานจะแทนที่รูปทรงเหล่านั้น ดำเนินการต่อ?'))return;}
   if(withBars&&m.bars.some(isGeneratedBar)&&!confirm('แทนที่ Bar cut list ที่สร้างอัตโนมัติเดิม (รวมค่าที่แก้ไขด้วยมือในชุดที่สร้างอัตโนมัติ) · ชุดเหล็กที่เพิ่มเองยังคงอยู่'))return;
   const next=withBars?preview.member:applyElementInput(base,input,{rounding:spec.rounding,withBars:false}).member;
-  onApply({...next,occurrences});
+  setApplied(snapshot);onApply({...next,occurrences});
  };
  const qty=occurrences.reduce((n,o)=>n+(Number(o.quantity)||0),0);
  const sizes=preview&&!('error' in preview)?[...preview.q.rows.reduce((map,r)=>map.set(r.diameter,(map.get(r.diameter)||0)+r.weight),new Map<number,number>())].sort((a,b)=>a[0]-b[0]):[];
@@ -125,7 +129,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      {num(input.pile.layout==='grid'?'ระยะห่างแนว X (ศูนย์ถึงศูนย์)':'ระยะห่างเข็ม (ศูนย์ถึงศูนย์)','pile.spacingX')}{input.pile.layout==='grid'&&num('ระยะห่างแนว Y','pile.spacingY')}
      <Field label="ความยาวเสาเข็ม (m)" type="number" value={input.pile.length} onChange={v=>set('pile.length',Math.max(0,Number(v)||0))} disabled={readOnly}/>{num('ระยะตัดหัวเข็ม ต่อต้น','pile.cutoff')}{num('ระยะฝังหัวเข็มในฐาน','pile.embed')}{num('ระยะเยื้องกลุ่มเข็ม X (จากกึ่งกลางฐาน)','pile.offsetX')}{num('ระยะเยื้องกลุ่มเข็ม Y (จากกึ่งกลางฐาน)','pile.offsetY')}</div>
     <p className="muted">{pileSummary(input)}</p></>}
-   <h4>งานดินและชั้นรองพื้น</h4>{(()=>{const earth=footingEarth(input),q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string,neg=false)=><input aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
+   <h4>งานดินและชั้นรองพื้น</h4>{(()=>{const earth=footingEarth(input),q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string,neg=false)=><NumInput aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
     return <div className="earthwork-input"><div>
      {check('กำหนดระดับอ้างอิง (คำนวณความลึกขุดให้)','levels.enabled')}
      <div className="form-grid">{input.levels.enabled?<>{<Field label="ระดับดินเดิม NGL (m)" type="number" step="0.001" value={input.levels.ground} onChange={v=>set('levels.ground',Number(v)||0)} disabled={readOnly}/>}<div className="field"><span>กำหนดระดับที่</span><div className="segmented" role="group" aria-label="ระดับอ้างอิงของฐาน">{([['top','Top of Foundation'],['bottom','Bottom of Foundation']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.levels.ref===v?'active':''} onClick={()=>{const l=footingLevels(input);setInput(prev=>prev?.category!=='Foundation'?prev:{...prev,levels:{...prev.levels,ref:v,top:Number(l.top.toFixed(3)),bottom:Number(l.bottom.toFixed(3))}});}}>{t}</button>)}</div></div>
@@ -135,7 +139,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
       :num(`ความลึกขุด (จากระดับดินถึงก้นหลุม = ใต้${earth.sand?'ทราย':'Lean'})`,'excavation.depth')}
       {num('ระยะเผื่อทำงานต่อด้าน','excavation.workingSpace')}</div>
      <div className="field slope-field"><span>ความลาดผนังขุด (ดิ่ง : ราบ)</span><div className="slope-row"><div className="segmented" role="group" aria-label="ความลาดผนังขุด">{slopePresets.map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.excavation.slope===v?'active':''} onClick={()=>set('excavation.slope',v)}>{t}</button>)}</div>
-      <label className="inline">กำหนดเอง 1:<input aria-label="ความลาดกำหนดเอง" type="number" min={0} max={5} step="0.1" disabled={readOnly} value={input.excavation.slope} onChange={e=>set('excavation.slope',Math.max(0,Math.min(5,Number(e.target.value)||0)))}/></label></div></div>
+      <label className="inline">กำหนดเอง 1:<NumInput aria-label="ความลาดกำหนดเอง" type="number" min={0} max={5} step="0.1" disabled={readOnly} value={input.excavation.slope} onChange={e=>set('excavation.slope',Math.max(0,Math.min(5,Number(e.target.value)||0)))}/></label></div></div>
      <table className="subbase-table"><thead><tr><th>ชั้นใต้ฐาน (บน → ล่าง)</th><th>หนา (mm)</th><th>ยื่นจากขอบฐาน (mm)</th><th className="num">ต่อ 1 ฐาน</th></tr></thead><tbody>
       <tr><td>Lean concrete <small className="muted">(หนา 0 = ไม่มี)</small></td><td>{cell('lean.thickness')}</td><td>{cell('lean.projection')}</td><td className="num">{q?`${number(q.lean)} m³`:'—'}</td></tr>
       <tr><td>{check('แผ่นพลาสติก','subbase.sheet.enabled')}</td><td>—</td><td className="muted">เท่าพื้นที่ Lean</td><td className="num">{q&&input.subbase.sheet.enabled?`${number(q.sheet)} m²`:'—'}</td></tr>
@@ -162,7 +166,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   <SiteItemsEditor items={items} onChange={setItems} readOnly={readOnly}/>
 
   <h4>2. จำนวนและตำแหน่ง (จำเป็น) · รวม {qty} ชิ้น</h4>
-  <div className="table-scroll"><table className="occurrence-table"><thead><tr><th>Zone</th><th>ชั้น</th><th>Grid</th><th className="num">จำนวน</th><th/></tr></thead><tbody>{occurrences.map(o=><tr key={o.id}>{(['zone','floor','grid'] as const).map(k=><td key={k}><input aria-label={k} disabled={readOnly} value={o[k]} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,[k]:e.target.value}:n))}/></td>)}<td><input aria-label="จำนวน" disabled={readOnly} type="number" min={1} value={o.quantity} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,quantity:Math.max(1,Math.trunc(Number(e.target.value)||1))}:n))}/></td><td><button disabled={readOnly||occurrences.length===1} onClick={()=>setOccurrences(occurrences.filter(n=>n.id!==o.id))}>ลบ</button></td></tr>)}</tbody></table></div>
+  <div className="table-scroll"><table className="occurrence-table"><thead><tr><th>Zone</th><th>ชั้น</th><th>Grid</th><th className="num">จำนวน</th><th/></tr></thead><tbody>{occurrences.map(o=><tr key={o.id}>{(['zone','floor','grid'] as const).map(k=><td key={k}><input aria-label={k} disabled={readOnly} value={o[k]} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,[k]:e.target.value}:n))}/></td>)}<td><NumInput aria-label="จำนวน" disabled={readOnly} type="number" min={1} value={o.quantity} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,quantity:Math.max(1,Math.trunc(Number(e.target.value)||1))}:n))}/></td><td><button disabled={readOnly||occurrences.length===1} onClick={()=>setOccurrences(occurrences.filter(n=>n.id!==o.id))}>ลบ</button></td></tr>)}</tbody></table></div>
   <button disabled={readOnly} onClick={()=>setOccurrences([...occurrences,{id:crypto.randomUUID(),zone:'',floor:'',grid:'',quantity:1}])}>เพิ่มตำแหน่ง</button>
 
   <h4>3. ระยะหุ้มคอนกรีต Cover</h4>
@@ -209,8 +213,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
         <td><input aria-label={`เลขเสา ${k+1}`} disabled={readOnly} maxLength={50} value={(k?x!.columnNo:input.column.columnNo)} onChange={e=>edit(i=>{(k?i.extraColumns[k-1]:i.column).columnNo=e.target.value.slice(0,50);})}/></td>
         <td>{k?<input type="checkbox" aria-label={`เสา ${k+1} เหมือน C1`} disabled={readOnly} checked={x!.linked} onChange={e=>link(k-1,e.target.checked)}/>:<small className="muted">ต้นแบบ</small>}</td>
         <td><small>{c.shape==='circle'?`Ø${c.diameter}`:`${w}×${d}`}</small></td>
-        <td><input aria-label={`เยื้อง X เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetX} onChange={e=>off(k,'offsetX',Number(e.target.value))}/></td>
-        <td><input aria-label={`เยื้อง Y เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetY} onChange={e=>off(k,'offsetY',Number(e.target.value))}/></td>
+        <td><NumInput aria-label={`เยื้อง X เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetX} onChange={e=>off(k,'offsetX',Number(e.target.value))}/></td>
+        <td><NumInput aria-label={`เยื้อง Y เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetY} onChange={e=>off(k,'offsetY',Number(e.target.value))}/></td>
         {ped&&<td><small>{c.height}</small></td>}</tr>;})}</tbody></table>}</div>
      {n>1&&<h5 className="column-detail-title">รายละเอียด {sel===0?`${input.column.columnNo||'C1'} (ต้นแบบของเสาที่ติ๊ก “เหมือน C1”)`:footingColumnName(cols[sel],sel,true)}</h5>}
      {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields}/>
@@ -326,7 +330,7 @@ function pileSummary(i:FoundationInput){
 function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;onUse:(h:number)=>void}){
  const [bottom,setBottom]=useState(''),[top,setTop]=useState(''),h=Math.round((Number(top)-Number(bottom))*1000),ok=bottom!==''&&top!==''&&Number.isFinite(h)&&h>0;
  return <details className="height-levels"><summary>คำนวณความสูง{what}จากระดับในแบบ</summary><div className="form-grid">
-  <label className="field"><span>ระดับล่าง (m) เช่น หลังฐาน</span><input type="number" step="0.001" disabled={readOnly} value={bottom} onChange={e=>setBottom(e.target.value)}/></label>
-  <label className="field"><span>ระดับบน (m) เช่น ท้องคาน / หลังพื้น</span><input type="number" step="0.001" disabled={readOnly} value={top} onChange={e=>setTop(e.target.value)}/></label>
+  <label className="field"><span>ระดับล่าง (m) เช่น หลังฐาน</span><NumInput type="number" step="0.001" disabled={readOnly} value={bottom} onChange={e=>setBottom(e.target.value)}/></label>
+  <label className="field"><span>ระดับบน (m) เช่น ท้องคาน / หลังพื้น</span><NumInput type="number" step="0.001" disabled={readOnly} value={top} onChange={e=>setTop(e.target.value)}/></label>
   <div className="field"><span>ความสูง</span><button type="button" disabled={readOnly||!ok} onClick={()=>onUse(h)}>{ok?`ใช้ ${h.toLocaleString()} mm`:'กรอกระดับให้ครบ'}</button></div></div></details>;
 }
