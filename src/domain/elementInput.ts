@@ -983,10 +983,9 @@ export function columnStackLayout(i:ColumnInput){
   return {...s,k,z0,z1:z,clear,ox:(W-s.width)/2,oy:(D-s.depth)/2,lower:clear*(first?1/3:1/6),upper:clear/6+s.beamDepth,first};});
  return {storeys,W,D,H:z};
 }
-const storeyKey=(s:ColumnStorey)=>JSON.stringify([s.width,s.depth,s.main]);
 /** Column stack bars: ties per storey (existing column generator, zones by H), main bars over runs of storeys with the
- * same section and bars: bottom into the footing with a 12d hook (or dowelled into the column below where the section
- * changes), top with F.T.A (12d inward) at the last storey or below a section change; joints in every storey by
+ * same bars (sections equal or stepping in < 75 mm per face → crank 1:6 below the floor): bottom into the footing with a
+ * 12d hook (or dowelled into the column below where the run breaks), top with F.T.A (12d inward) at the last storey or below a section change; joints in every storey by
  * mechanical couplers (two groups `stagger` apart, 50 %) or laps. Returns the bars and the coupler count per size. */
 function columnStackBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=>void):{bars:GenBar[];couplers:Map<number,number>}{
  const out:GenBar[]=[],couplers=new Map<number,number>(),lay=columnStackLayout(i),S=lay.storeys,c=i.cover.side,st=i.stack;
@@ -1008,35 +1007,59 @@ function columnStackBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:str
  if(st.footing.enabled&&st.footing.depth>250){const s=S[0],dt=s.tie.diameter,tc=c+dt/2,tz=spread(-(st.footing.depth-150),-100,500);
   // below z = 0: positions as offsets (distribution ranges start at 0)
   if(tz){const step=tz.count>1?(tz.to-tz.from)/(tz.count-1):0;out.push({role:'footing-tie',note:`เหล็กปลอกในฐานราก @≤500`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,s.ox+tc,s.ox+s.width-tc,s.oy+tc,s.oy+s.depth-tc,tz.from,det.hook90*dt,radius(dt,det,true),dt),axis:'Z',face:'side',radius:radius(dt,det,true),shapeCode:'99',offsets:Array.from({length:tz.count},(_,j)=>[0,0,j*step] as V3)});}}
- // ---- main bars over runs of equal storeys
+ // ---- main bars over runs of storeys with the same bars: equal sections, or a section stepping in by less than
+ // 75 mm per face (ACI offset bars: cranked 1:6 just below the floor); larger steps stop the run (hook + dowels)
+ const crankable=(p:ColumnStorey,q:ColumnStorey)=>JSON.stringify(p.main)===JSON.stringify(q.main)&&q.width<=p.width&&q.depth<=p.depth&&p.width-q.width<150&&p.depth-q.depth<150;
+ const cx=lay.W/2,cy=lay.D/2,sg=(v:number)=>Math.sign(v)||1;
+ const inward=(b:ColumnBarPos):Pt=>b.kind==='sideX'?[0,sg(cy-b.y)]:b.kind==='sideY'?[sg(cx-b.x),0]:[sg(cx-b.x)/Math.SQRT2,sg(cy-b.y)/Math.SQRT2];
+ const lengthOf=(ps:V3[])=>ps.slice(1).reduce((s,p,q)=>s+Math.hypot(p[0]-ps[q][0],p[1]-ps[q][1],p[2]-ps[q][2]),0);
  let k=0;
- while(k<S.length){let e=k;while(e+1<S.length&&storeyKey(S[e+1])===storeyKey(S[k]))e++;
-  const s0=S[k],sN=S[e],pos=columnInputBars(asCol(s0)).map(b=>({...b,x:b.x+s0.ox,y:b.y+s0.oy}));
-  const cx=s0.ox+s0.width/2,cy=s0.oy+s0.depth/2,sg=(v:number)=>Math.sign(v)||1;
-  const inward=(b:ColumnBarPos):Pt=>b.kind==='sideX'?[0,sg(cy-b.y)]:b.kind==='sideY'?[sg(cx-b.x),0]:[sg(cx-b.x)/Math.SQRT2,sg(cy-b.y)/Math.SQRT2];
+ while(k<S.length){let e=k;while(e+1<S.length&&crankable(S[e],S[e+1]))e++;
+  const s0=S[k],sN=S[e],run=S.slice(k,e+1),posAt=run.map(s=>columnInputBars(asCol(s)).map(b=>({...b,x:b.x+s.ox,y:b.y+s.oy})));
   const changeBelow=k>0,changeAbove=e<S.length-1,runName=e>k?`${s0.name||`ชั้น ${k+1}`} ถึง ${sN.name||`ชั้น ${e+1}`}`:s0.name||`ชั้น ${k+1}`;
-  if(changeBelow)warn(`${s0.name}: หน้าตัด / เหล็กยืนเปลี่ยนจากชั้นล่าง · เหล็กชั้นล่างงอปิดที่หัวเสา · เหล็กชั้นนี้ฝังลงเสาชั้นล่าง (ตรวจรายละเอียด Crank 1:6 ตามแบบ)`);
-  for(const dm of [...new Set(pos.map(p=>p.d))].sort((a,b)=>b-a)){
+  if(changeBelow)warn(`${s0.name}: หน้าตัด / เหล็กยืนเปลี่ยนจากชั้นล่าง (ร่นเกิน 75 mm ต่อด้าน หรือเหล็กไม่เท่าเดิม) · เหล็กชั้นล่างงอปิดที่หัวเสา · เหล็กชั้นนี้ฝังลงเสาชั้นล่าง ตรวจกับแบบ`);
+  // storey of the run at level z, bar j there
+  const at=(z:number)=>{let t=0;while(t+1<run.length&&run[t+1].z0<=z)t++;return t;};
+  for(const dm of [...new Set(posAt[0].map(p=>p.d))].sort((a,b)=>b-a)){
    // hook legs: 12d + r, limited to the room across the section (side bars hook toward the opposite face)
-   const set=pos.filter(p=>p.d===dm),room=Math.min(s0.width,s0.depth)-2*(c+s0.tie.diameter)-1.5*dm,leg=Math.max(0,Math.min(det.hook90*dm+radius(dm,det),room)),lap=lapLength(det,dm);
+   const idx=posAt[0].map((_,j)=>j).filter(j=>posAt[0][j].d===dm),lap=lapLength(det,dm);
+   const room=Math.min(...run.map(s=>Math.min(s.width,s.depth)-2*(c+s.tie.diameter)))-1.5*dm,leg=Math.max(0,Math.min(det.hook90*dm+radius(dm,det),room));
    if(leg<det.hook90*dm+radius(dm,det)-.5)warn(`${runName} DB${dm}: ขางอที่หัวเสาถูกจำกัดเป็น ${Math.round(leg)} mm ให้อยู่ในหน้าตัด`);
    const zBot=k===0?(st.footing.enabled?-(st.footing.depth-75-dm/2):0):S[k].z0-lap;
    const zTop=sN.z1-c-sN.tie.diameter-dm/2,hookBot=k===0&&st.footing.enabled,hookTop=st.top==='fta'||changeAbove;
-   for(const grp of [0,1]){const bars=set.filter((_,j)=>j%2===grp);if(!bars.length)continue;
+   // bar j from a to b: bottom hook outward (−u), crank 1:6 below each floor where the bar moves in, top hook inward (+u)
+   const path=(j:number,a:number,b:number,hb:boolean,ht:boolean)=>{
+    const t0=at(a),t1=at(b),u=inward(posAt[0][j]),p0=posAt[t0][j],p1=posAt[t1][j],pts:V3[]=[],cranks:string[]=[];
+    if(hb)pts.push([p0.x-u[0]*leg,p0.y-u[1]*leg,a]);
+    pts.push([p0.x,p0.y,a]);
+    for(let t=t0+1;t<=t1;t++){const p=posAt[t-1][j],q=posAt[t][j],off=Math.hypot(q.x-p.x,q.y-p.y),z=run[t].z0;if(off<.5)continue;
+     pts.push([p.x,p.y,Math.max(a+1,z-6*off)],[q.x,q.y,z]);cranks.push(`${run[t].name||`ชั้น ${k+t+1}`} ${Math.round(off)}×${Math.round(6*off)}`);}
+    pts.push([p1.x,p1.y,b]);
+    if(ht)pts.push([p1.x+u[0]*leg,p1.y+u[1]*leg,b]);
+    return {pts,start:p0,cranks};
+   };
+   const ang=(j:number)=>{const u=inward(posAt[0][j]);return Math.atan2(u[1],u[0]);};
+   for(const grp of [0,1]){const bars=idx.filter((_,n)=>n%2===grp);if(!bars.length)continue;
     // joint levels: one per storey of the run, just above the lower tie zone; group B `stagger` higher
-    const joints=S.slice(k,e+1).map(s=>s.z0+Math.round(s.lower/50)*50+50+(grp?st.splice.stagger:0)).filter(z=>z>zBot+500&&z<zTop-500);
+    const joints=run.map(s=>s.z0+Math.round(s.lower/50)*50+50+(grp?st.splice.stagger:0)).filter(z=>z>zBot+500&&z<zTop-500);
     const cuts=[zBot,...joints,zTop],lapLen=st.splice.type==='lap'?lap:0;
     for(let j=0;j<cuts.length-1;j++){
-     const a=cuts[j],b=cuts[j+1]+(j<cuts.length-2?lapLen:0),firstP=j===0,lastP=j===cuts.length-2;
-     const hb=firstP&&hookBot,ht=lastP&&hookTop,p0=bars[0],u0=inward(p0);
-     // template on the first bar: bottom hook outward (−u), top hook inward (+u); other bars by offsets + turns
-     const pts:V3[]=[...(hb?[[p0.x-u0[0]*leg,p0.y-u0[1]*leg,a] as V3]:[]),[p0.x,p0.y,a],[p0.x,p0.y,b],...(ht?[[p0.x+u0[0]*leg,p0.y+u0[1]*leg,b] as V3]:[])];
-     const a0=Math.atan2(u0[1],u0[0]),turns=bars.map(p=>{const u=inward(p);let t=(Math.atan2(u[1],u[0])-a0)*180/Math.PI;while(t>180)t-=360;while(t<=-180)t+=360;return Number(t.toFixed(4));});
-     const pv=pts.at(-1)!,d0=[pv[0]-p0.x,pv[1]-p0.y],offsets:V3[]=bars.map((p,q)=>{const t=turns[q]*Math.PI/180,cs=Math.cos(t),sn=Math.sin(t);return [p.x-p0.x-d0[0]+d0[0]*cs-d0[1]*sn,p.y-p0.y-d0[1]+d0[0]*sn+d0[1]*cs,0];});
-     const hooks=(hb?1:0)+(ht?1:0),what=[firstP?(hb?'ฝังในฐานราก งอ 12d':changeBelow?`ฝังลงเสาชั้นล่าง ${Math.round(lap)}`:'เริ่มที่ฐานเสา'):(st.splice.type==='coupler'?'Coupler':`ทาบ ${Math.round(lap)}`),lastP?(ht?(changeAbove?'งอปิดหัวเสา (หน้าตัดเปลี่ยน)':'F.T.A งอ 12d'):'ตัดที่ cover'):(st.splice.type==='coupler'?'Coupler':'ทาบ')];
-     out.push({role:`main-${runName.replace(/[^a-zA-Z0-9]/g,'')||k}-${dm}-${grp?'b':'a'}-${j+1}`,note:`${runName} · เหล็กยืน ${bars.length} เส้น กลุ่ม ${grp?'B':'A'} ท่อน ${j+1}/${cuts.length-1} · ล่าง: ${what[0]} · บน: ${what[1]}`,
-      diameter:dm,grade:det.mainGrade,count:bars.length,points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),axis:'Z',face:'side',radius:hooks?radius(dm,det):0,shapeCode:hooks===0?'00':hooks===1?'11':'99',
-      offsets,...(hooks?{turns}:{}),...(hooks===2?{cut:roundUp(b-a+2*leg,rounding)}:{})});
+     const a=cuts[j],b=cuts[j+1]+(j<cuts.length-2?lapLen:0),firstP=j===0,lastP=j===cuts.length-2,hb=firstP&&hookBot,ht=lastP&&hookTop;
+     // bars of the same shape (in their own inward frame) share one Mark: template + offsets + turns about its last point
+     const paths=new Map(bars.map(q=>[q,path(q,a,b,hb,ht)])),groups=new Map<string,number[]>();
+     for(const q of bars){const {pts,start}=paths.get(q)!,r=-ang(q),cs=Math.cos(r),sn=Math.sin(r);
+      const key=JSON.stringify(pts.map(p=>{const dx=p[0]-start.x,dy=p[1]-start.y;return [Math.round(dx*cs-dy*sn),Math.round(dx*sn+dy*cs),Math.round(p[2])];}));
+      groups.set(key,[...(groups.get(key)||[]),q]);}
+     let g=0;
+     for(const G of groups.values()){g++;
+      const {pts,start:p0,cranks}=paths.get(G[0])!,a0=ang(G[0]);
+      const turns=G.map(q=>{let t=(ang(q)-a0)*180/Math.PI;while(t>180)t-=360;while(t<=-180)t+=360;return Number(t.toFixed(4));});
+      const pv=pts.at(-1)!,d0=[pv[0]-p0.x,pv[1]-p0.y],offsets:V3[]=G.map((q,n)=>{const p=paths.get(q)!.start,t=turns[n]*Math.PI/180,cs=Math.cos(t),sn=Math.sin(t);return [p.x-p0.x-d0[0]+d0[0]*cs-d0[1]*sn,p.y-p0.y-d0[1]+d0[0]*sn+d0[1]*cs,0];});
+      const hooks=(hb?1:0)+(ht?1:0),bent=hooks+cranks.length,what=[firstP?(hb?'ฝังในฐานราก งอ 12d':changeBelow?`ฝังลงเสาชั้นล่าง ${Math.round(lap)}`:'เริ่มที่ฐานเสา'):(st.splice.type==='coupler'?'Coupler':`ทาบ ${Math.round(lap)}`),lastP?(ht?(changeAbove?'งอปิดหัวเสา (หน้าตัดเปลี่ยน)':'F.T.A งอ 12d'):'ตัดที่ cover'):(st.splice.type==='coupler'?'Coupler':'ทาบ')];
+      out.push({role:`main-${runName.replace(/[^a-zA-Z0-9]/g,'')||k}-${dm}-${grp?'b':'a'}-${j+1}${groups.size>1?`-${g}`:''}`,note:`${runName} · เหล็กยืน ${G.length} เส้น กลุ่ม ${grp?'B':'A'} ท่อน ${j+1}/${cuts.length-1} · ล่าง: ${what[0]} · บน: ${what[1]}${cranks.length?` · Crank 1:6 ใต้ระดับ ${cranks.join(', ')} mm`:''}`,
+       diameter:dm,grade:det.mainGrade,count:G.length,points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),axis:'Z',face:'side',radius:bent?radius(dm,det):0,shapeCode:bent===0?'00':hooks===1&&!cranks.length?'11':'99',
+       offsets,...(bent?{turns}:{}),...(hooks===2||cranks.length&&hooks?{cut:roundUp(lengthOf(pts),rounding)}:{})});
+     }
     }
     if(st.splice.type==='coupler')couplers.set(dm,(couplers.get(dm)||0)+bars.length*Math.max(0,cuts.length-2));
    }
