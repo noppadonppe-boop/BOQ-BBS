@@ -60,7 +60,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
    const sp=snapAt(e,pts.at(-1));setPts(p=>p.length&&Math.hypot(p.at(-1)![0]-sp.p[0],p.at(-1)![1]-sp.p[1])<1?p:[...p,sp.p]);}};
  const move=(e:RPointerEvent)=>{if(tool==='draw'){if(force){const h=coverAt(e)||null;setHoverHit(h);setHover(h?{p:h.p,kind:h.corner?'corner':'cover'}:null);}else setHover(snapAt(e,pts.at(-1)));}
   if(drag!==null&&editable&&selView){const old=selBar!.points.map(p=>toView(selView,p as [number,number,number])),sp=force?coverAt(e)?.p:snapAt(e,old[drag-1]).p;if(sp)updateSel({points:old.map((p,i)=>i===drag?sp:p)});}};
- const key=(e:KeyboardEvent)=>{if(e.key==='Escape')reset();if(e.key==='Enter')finish();if(e.key==='Backspace'&&pts.length){e.preventDefault();setPts(p=>p.slice(0,-1));setHits(x=>x.slice(0,-1));}if(e.key==='Delete'&&selBar&&!readOnly){commitBars(m.bars.filter(b=>b.id!==selBar.id),'');}};
+ const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();reset();}if(e.key==='Enter')finish();if(e.key==='Backspace'&&pts.length){e.preventDefault();setPts(p=>p.slice(0,-1));setHits(x=>x.slice(0,-1));}if(e.key==='Delete'&&selBar&&!readOnly){commitBars(m.bars.filter(b=>b.id!==selBar.id),'');}};
  const via=force&&hits.length&&hoverHit?traceCover(rings,hits.at(-1)!,hoverHit):[];
  const core=pts.length&&hover?[...pts,...via,hover.p]:pts,live=core.length>=2?addHooks(core,hooks,dia,rings,hookTable).points:core,code=detectShapeCode(live),total=polyLength(live);
  const lay=layoutOf(layout),levels=g?[...new Set(g.levels)]:[];
