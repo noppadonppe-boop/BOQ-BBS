@@ -515,8 +515,8 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.subbase.sand.enabled)need(input.subbase.sand.thickness,'ความหนาทรายรองพื้น');
    if(input.pour.count>1){const pr=footingPour(input);pr.stages.slice(0,-1).forEach(s=>need(s.height,`ความสูงการเท Stage ${s.stage}`));
     if(pr.stages.at(-1)!.height<=0)p.push(`ความสูงการเท Stage 1–${input.pour.count-1} รวม ${Math.round(pr.stages.at(-1)!.z0)} mm ต้องน้อยกว่าความสูงฐาน + ตอม่อ ${Math.round(pr.total)} mm`);}
-   if(input.levels.enabled&&footingLevels(input).top>input.levels.ground)p.push('ระดับหลังฐานรากสูงกว่าระดับดินเดิม · ตรวจระดับอ้างอิง');
-   else if(earth.depth>0&&earth.depth<input.thickness+earth.below)p.push(`ความลึกงานขุดน้อยกว่าความหนาฐานราก + Lean${earth.sand?' + ทราย':''}`);
+   // with levels the top of footing may sit above NGL (e.g. level with the floor slab); a typed depth must clear the footing
+   if(!input.levels.enabled&&earth.depth>0&&earth.depth<input.thickness+earth.below)p.push(`ความลึกงานขุดน้อยกว่าความหนาฐานราก + Lean${earth.sand?' + ทราย':''}`);
    break;}
   case 'Column':{
    if(input.layout==='stack'){
@@ -1466,7 +1466,11 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    const col=input.column,T=input.thickness,ped=col.type==='pedestal',H=ped?col.height:0,{w,d}=columnExtent(col),ox=(X-w)/2+col.offsetX,oy=(Y-d)/2+col.offsetY;
    // every column on the footing (C1 + extras): plan box origin and height
    const cols=footingColumns(input),many=cols.length>1,colBox=(c:FootingColumn)=>{const e=columnExtent(c);return {w:e.w,d:e.d,ox:(X-e.w)/2+c.offsetX,oy:(Y-e.d)/2+c.offsetY,h:ped?c.height:0};},Hmax=Math.max(H,...cols.map(c=>colBox(c).h));
-   const buried=(A*T+(ped?cols.reduce((n,c)=>n+columnArea(c)*Math.max(0,Math.min(c.height,depth-earth.below-T)),0):0))/1e9;
+   // concrete below NGL only: the footing up to the ground line (top of footing may be above NGL), then pedestals;
+   // stored as ≥ 1e-9 because the legacy earthwork basis reads 0 as "use the net concrete"
+   const inGround=Math.max(0,Math.min(T,depth-earth.below));
+   if(input.levels.enabled&&inGround<T)warn(`หลังฐานรากสูงกว่าระดับดินเดิม ${Math.round(T-inGround)} mm · งานขุดลึก ${Math.round(depth)} mm · ส่วนเหนือดินไม่หักออกจากดินถมกลับ`);
+   const buried=(A*inGround+(ped?cols.reduce((n,c)=>n+columnArea(c)*Math.max(0,Math.min(c.height,depth-earth.below-T)),0):0))/1e9;
    const footingFaces=[true,true,true,true,false,false],sideFaces=[true,true,true,true,false,false];
    const auto:Member['deductions']=[];
    // Hexagon / octagon / circle: bounding box concrete minus the cut-off corners (exact area and perimeter).
@@ -1493,7 +1497,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    // Default section A-A passes through the first row of column bars so they appear in the section view.
    if(!m.drawingViews)shape={...shape,sectionY:firstBar?Number((oy+firstBar.y).toFixed(1)):Y/2};
    const {placementContext:_c,...rest}=next;
-   next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...cols.map(c=>c.cover)),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth,buriedConcrete:buried},...shape} as Member;
+   next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...cols.map(c=>c.cover)),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth,buriedConcrete:buried>0?buried:1e-9},...shape} as Member;
    next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
    // pour stages: levels between stages (quantities per stage from the geometry, see pourStageQuantities)
    {const pr=footingPour(input),{pourStages:_p,...r2}=next;next=pr.levels.length&&pr.stages.every(s=>s.height>0)?{...r2,pourStages:{levels:pr.levels}}:r2 as Member;}
