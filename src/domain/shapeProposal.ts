@@ -1,4 +1,4 @@
-import type {ShapeModel,ShapePart} from './shapeModelSchema';
+import type {RebarNoteFace,ShapeModel,ShapePart} from './shapeModelSchema';
 
 // AI shape proposal (gateway task "shape"): values may be null when not found in the drawings.
 type N=number|null;
@@ -6,7 +6,10 @@ export type ProposalPart={label:string;role:'solid'|'void';shape:ShapePart['shap
 export type ShapeProposal={version:1;task:'shape';analysisId:string;provider?:string;model?:string;attachmentId:string;fileName:string;confidence:'High'|'Medium'|'Low';
  parts:ProposalPart[];piles:{type:'round'|'square';size:N;length:N;cutoff:number;embed:number;positions:[number,number][]}|null;
  site:{leanThickness:N;leanProjection:N;excavationDepth:N;workingSpace:N;slope:N}|null;
- references:{label:string;source:string}[];rebarNotes:{text:string;meaning:string;source:string}[];missing:{part:string;field:string;question:string}[];conflicts:string[];warnings:string[]};
+ references:{label:string;source:string}[];rebarNotes:ProposalNote[];missing:{kind?:'shape'|'rebar';part:string;field:string;question:string}[];conflicts:string[];warnings:string[];
+ /** gateway v2: sheet inventory, level table and arithmetic checks (absent from older gateways) */
+ views?:{name:string;kind:string;note:string}[];levels?:{name:string;elevation:N;z:N;source:string}[];checks?:string[]};
+export type ProposalNote={text:string;meaning:string;source:string;part?:string;face?:RebarNoteFace|'';dir?:'X'|'Y'|'XY'|'V'|'';level?:string};
 
 const fieldsOf:Record<ShapePart['shape'],string[]>={box:['x','y','w','d'],shaft:['x','y','w','d','wall'],circle:['cx','cy','diameter','inner'],polygon:[]};
 const fieldLabel:Record<string,string>={x:'มุม X',y:'มุม Y',w:'กว้าง X',d:'ยาว Y',wall:'ผนังหนา',cx:'ศูนย์กลาง X',cy:'ศูนย์กลาง Y',diameter:'Ø นอก',inner:'Ø ใน',z0:'ระดับล่าง',height:'ความสูง'};
@@ -29,8 +32,11 @@ export function proposalToShape(p:ShapeProposal):ShapeModel{
   return {...base,shape:'box',x:v(q.x,0),y:v(q.y,0),w:Math.max(1,v(q.w,1000)),d:Math.max(1,v(q.d,1000))};
  });
  const pl=p.piles,st=p.site;
- const notes=p.rebarNotes.filter(n=>n.text.trim()).slice(0,60).map(n=>({text:n.text.trim().slice(0,120),meaning:n.meaning.slice(0,200),source:n.source.slice(0,200)}));
- return {version:1,confirmed:false,note:`อ่านด้วย AI (${p.fileName}) · ${p.confidence}`.slice(0,1000),...(notes.length?{rebarNotes:notes}:{}),
+ const partId=(label?:string)=>{const k=(label||'').trim().toLowerCase();return k?parts.find(q=>q.label.trim().toLowerCase()===k)?.id:undefined;};
+ const notes=p.rebarNotes.filter(n=>n.text.trim()).slice(0,60).map(n=>{const id=partId(n.part);return {text:n.text.trim().slice(0,120),meaning:n.meaning.slice(0,200),source:n.source.slice(0,200),
+  ...(id?{partId:id}:{}),...(n.face?{face:n.face}:{}),...(n.dir?{dir:n.dir}:{})};});
+ const questions=p.missing.filter(m=>m.kind==='rebar').slice(0,30).map(m=>`${m.part?`${m.part}: `:''}${m.question}`.slice(0,300));
+ return {version:1,confirmed:false,note:`อ่านด้วย AI (${p.fileName}) · ${p.confidence}`.slice(0,1000),...(notes.length?{rebarNotes:notes}:{}),...(questions.length?{rebarQuestions:questions}:{}),
   parts:parts.length?parts:[{id:'ai1',label:'ชิ้นส่วนหลัก',role:'solid',stage:1,z0:0,height:1000,formSides:true,formBottom:false,source:'⚠ AI ไม่พบชิ้นส่วน',shape:'box',x:0,y:0,w:1000,d:1000}],
   ...(pl&&pl.positions.length?{piles:{type:pl.type,size:Math.max(1,v(pl.size,600)),length:Math.max(0,v(pl.length,0)),cutoff:Math.max(0,pl.cutoff),embed:Math.max(0,pl.embed),positions:pl.positions.slice(0,100)}}:{}),
   ...(st?{site:{leanThickness:Math.max(0,v(st.leanThickness,0)),leanProjection:Math.max(0,v(st.leanProjection,0)),excavationDepth:Math.max(0,v(st.excavationDepth,0)),workingSpace:Math.max(0,v(st.workingSpace,300)),slope:Math.max(0,Math.min(5,v(st.slope,0)))}}:{})};

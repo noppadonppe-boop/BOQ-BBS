@@ -10,6 +10,8 @@ const len=z.number().finite().positive().max(200000);
 const mm=z.number().finite().min(0).max(200000);
 const pt=z.tuple([coord,coord]);
 export const shapeKinds=['box','polygon','circle','shaft'] as const;
+export const rebarNoteFaces=['B','T','EF','LOOP','ADD','NOTE'] as const;
+export type RebarNoteFace=typeof rebarNoteFaces[number];
 const base={
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().trim().min(1).max(80),
  /** solid = concrete; void = opening / pit / recess subtracted from the solids */
@@ -47,7 +49,11 @@ export const shapeModelSchema=z.object({
  piles:shapePilesSchema.optional(),
  site:shapeSiteSchema.optional(),
  /** reinforcement notes read from the drawings (AI or typed), used to suggest bar sets */
- rebarNotes:z.array(z.object({text:z.string().trim().min(1).max(120),meaning:z.string().max(200).default(''),source:z.string().max(200).default('')}).strict()).max(60).optional(),
+ rebarNotes:z.array(z.object({text:z.string().trim().min(1).max(120),meaning:z.string().max(200).default(''),source:z.string().max(200).default(''),
+  /** where the AI placed the note: part id, face (B/T/EF/LOOP/ADD/NOTE) and direction */
+  partId:z.string().max(40).optional(),face:z.enum(rebarNoteFaces).optional(),dir:z.enum(['X','Y','XY','V']).optional()}).strict()).max(60).optional(),
+ /** reinforcement data the drawings do not give (AI questions), answered before bars are confirmed */
+ rebarQuestions:z.array(z.string().trim().min(1).max(300)).max(30).optional(),
  /** user confirmed every dimension against the drawings */
  confirmed:z.boolean(),
  note:z.string().max(1000).default(''),

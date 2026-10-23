@@ -165,6 +165,21 @@ function selectedProvider(config) {
 function base64Data(file) { return file.buffer.toString('base64'); }
 function dataUrl(file) { return `data:${file.mimeType};base64,${base64Data(file)}`; }
 
+// Zoomed views rendered in the browser from the same source file (A1 sheets are too small to read as one page image).
+const VIEW_LIMITS = {count: 8, bytes: 5 * 1024 * 1024, total: 20 * 1024 * 1024};
+function readViews(context) {
+  const list = Array.isArray(context.views) ? context.views.slice(0, VIEW_LIMITS.count) : [];
+  let total = 0;
+  return list.map((v, i) => {
+    const mimeType = ['image/jpeg', 'image/png'].includes(v?.mimeType) ? v.mimeType : null;
+    const buffer = mimeType && typeof v?.data === 'string' ? Buffer.from(v.data, 'base64') : null;
+    if (!buffer || !buffer.length || buffer.length > VIEW_LIMITS.bytes) throw new GatewayError(`ภาพขยายที่ ${i + 1} ไม่ถูกต้องหรือใหญ่เกิน 5 MB`, 400, 'invalid-argument');
+    total += buffer.length;
+    if (total > VIEW_LIMITS.total) throw new GatewayError('ภาพขยายรวมใหญ่เกิน 20 MB', 400, 'invalid-argument');
+    return {label: stringValue(v?.label, `ภาพขยาย ${i + 1}`).slice(0, 80), mimeType, buffer};
+  });
+}
+
 function providerInstruction(context, file) {
   const requestedFields = Array.isArray(context.requestedFields) ? context.requestedFields : [];
   return [
@@ -195,24 +210,40 @@ function providerInstruction(context, file) {
 // ---------- task "shape": read a custom element's concrete shape (parts + levels + piles) ----------
 function shapeInstruction(context, file) {
   const current = context.currentShape && typeof context.currentShape === 'object' ? context.currentShape : null;
+  const views = Array.isArray(context.views) ? context.views.length : 0;
   return [
-    'คุณเป็นวิศวกรตรวจแบบโครงสร้าง ช่วยอ่าน "รูปทรงคอนกรีต" ขององค์ประกอบพิเศษจากไฟล์แบบที่แนบ (แปลน / รูปตัด / Top view / 3D) และตอบเป็น JSON object เท่านั้น ห้ามมี Markdown',
-    'แยกรูปทรงเป็นชิ้นส่วนแนวตั้ง แต่ละชิ้นคือรูปในแปลนยกขึ้นจากระดับล่าง z0 สูง height: shape = box (x,y,w,d) | polygon (points [[x,y],...]) | circle (cx,cy,diameter,inner: 0 = ทรงกระบอกตัน, >0 = ผนังกลม/ปล่องกลม) | shaft (x,y,w,d,wall ปล่องสี่เหลี่ยม)',
-    'role = solid (คอนกรีต) หรือ void (ช่องเปิด/หลุม/ร่องลดระดับ ที่หักออก) · stage = ลำดับการเท (First-stage = 1, Second-stage = 2) · ชิ้นส่วนซ้อนกันได้ ระบบนับปริมาตรครั้งเดียว',
-    'พิกัด: หน่วย mm เสมอ (แปลงเมตรเป็น mm) · จุดกำเนิด X=0,Y=0 ที่มุมล่างซ้ายของกรอบแปลนคอนกรีตทั้งหมด X ไปทางขวา Y ขึ้นบนในแปลน · Z=0 ที่ผิวล่างของคอนกรีตต่ำสุด (ไม่รวม Lean) Z ขึ้นบน · ใช้ระดับ (เช่น -0.250) และความหนาในรูปตัดหาค่า z0 / height',
-    'ใช้ผลรวมมิติย่อยตรวจกับมิติรวม ถ้าไม่ตรงกันให้ใส่ใน conflicts · ห้ามเดามิติที่ไม่มีในแบบ ให้ใส่คำถามใน missing (part = ชื่อชิ้นส่วน, field, question) และเว้นค่านั้นเป็น null',
-    'เสาเข็ม (ถ้ามี): piles = {type: round|square, size (Ø mm), length (m, null ถ้าไม่ระบุ), cutoff (mm), embed (mm ฝังในคอนกรีต), positions [[x,y],...]} · Lean / ทราย: site = {leanThickness, leanProjection, excavationDepth (null ถ้าไม่ระบุ), workingSpace: null, slope: 0}',
-    'ผนัง/พื้นที่หล่อต่อเนื่องแต่ไม่ใช่ส่วนนี้ (RC WALL, FLOOR SLAB) ให้ใส่ใน references ไม่ใช่ parts · ข้อความเหล็ก (เช่น Y32-150 (B), Y16-200 LOOPS, 15d) ให้ใส่ใน rebarNotes ห้ามสร้างเหล็ก',
-    'ทุกชิ้นส่วนต้องมี source บอกรูป/หน้า/ข้อความที่ใช้ เช่น "Plan F-01 · 9200" หรือ "Section 1-1 · 2000"',
+    'คุณเป็นวิศวกรตรวจแบบโครงสร้าง ช่วยอ่าน "รูปทรงคอนกรีต" และ "Note เหล็กเสริม" ขององค์ประกอบพิเศษ (ฐานรากหลายระดับ / บ่อ / ตอม่อ ฯลฯ) จากไฟล์แบบที่แนบ เพื่อสร้างโมเดล 3D ที่พร้อมใส่เหล็ก ตอบเป็น JSON object เท่านั้น ห้ามมี Markdown',
+    views ? `แนบภาพขยายของแบบเดียวกัน ${views} ภาพต่อจากไฟล์ต้นฉบับ (ภาพแรก = ทั้งแผ่น, ภาพถัดไป = ส่วนย่อยตามชื่อภาพ) ใช้ภาพขยายอ่านตัวเลขมิติ / ระดับ / ข้อความเหล็กให้ถูกต้อง` : '',
+    'ทำงานตามขั้นตอนนี้ก่อนตอบ (คิดให้ครบ แต่ตอบเฉพาะ JSON):',
+    '1) สำรวจแผ่นงาน: มีแปลนกี่รูป รูปตัดอะไรบ้าง (เช่น 1-1, 2-2) แต่ละรูปตัดตัดผ่านแปลนตรงไหน มองไปทางไหน มี 3D / Axonometric / Note ทั่วไปหรือไม่ · ใส่ใน views',
+    '2) ระดับ: รวบรวมระดับทุกค่าจากรูปตัดและ Note (ผิวล่างคอนกรีต, รอยต่อการเท Stage 1/2, ผิวบนแต่ละโซน, ระดับดิน, ±0.000) ระดับที่เขียนแบบ 1.200 ข้างลูกศรใต้ดินมักเป็นค่าลบ ให้ตรวจกับความหนาที่บอกในรูปตัด · ใส่ใน levels พร้อม z (mm จากผิวล่างคอนกรีตต่ำสุด)',
+    '3) แปลน: หาเส้นรอบรูปคอนกรีตจากมิติต่อเนื่อง (chain dimension) รวมให้ได้มิติรวมเสมอ · รูปไม่ใช่สี่เหลี่ยม (ตัว L / มีมุมตัด) ให้ใช้ polygon ตามมุมจริง · ระยะที่ไม่มีตัวเลขให้ใช้ความยาวในรูปตัดที่ตรงกัน หรือวัดจากสเกลและบอกใน source ว่า "วัดจากสเกล"',
+    '4) ชิ้นส่วน: แยกตาม Stage การเท · Stage 1 = ฐานล่าง · Stage 2 = ส่วนที่เทเพิ่มด้านบน · พื้นที่ที่ผิวบนต่ำกว่าระดับข้างเคียง (บ่อ / ห้อง / ร่องลดระดับ) ให้ทำเป็นชิ้นทึบเต็มความสูงแล้วหักด้วย role = void ที่ z0/height ตรงกับช่วงที่ไม่มีคอนกรีต · ใช้ทุกรูปตัดยืนยันขอบเขตของแต่ละโซน',
+    '5) เสาเข็ม: นับจากแปลนและตรวจกับจำนวน/ระยะในทุกรูปตัด ใส่ตำแหน่งศูนย์กลางทุกต้นในพิกัดเดียวกับแปลน · ถ้าจำนวนในแปลนกับรูปตัดไม่ตรงกันให้ใส่ใน conflicts',
+    '6) ตรวจ: ใส่ checks สั้นๆ เช่น "แนว X: 650+5350+4400+3850+950 = 15200 ตรงกับ Section 1-1" · ข้อขัดแย้งใส่ใน conflicts',
+    '7) เหล็ก: ทุกข้อความเหล็กใน rebarNotes 1 รายการต่อ 1 ข้อความ ห้ามสร้างเหล็กเอง · text = ข้อความตามแบบ · part = ชื่อชิ้นส่วนใน parts ที่เหล็กนี้อยู่ · face = B (ตะแกรงล่าง) | T (ตะแกรงบน / บนสุดของ Stage) | EF (เหล็กแนวตั้งผิวข้าง) | LOOP (ปลอกรอบผิวข้าง) | ADD (เหล็กเสริมเพิ่ม/ยื่นเข้าพื้น) | NOTE (ระยะขางอ / ข้อกำหนด เช่น 15d) · dir = X | Y | XY | V · level = ชื่อระดับใน levels ที่เหล็กวางอยู่ (ถ้ามี) · meaning = คำอธิบายภาษาไทย',
+    '8) ข้อมูลที่ขาด: ห้ามเดา ใส่ใน missing (kind = shape | rebar, part, field, question) และเว้นค่าเป็น null · kind = rebar สำหรับข้อมูลที่ต้องใช้ใส่เหล็กแต่ไม่มีในแบบ เช่น cover, ระยะทาบ, ความยาวยึด, ขนาด/ระยะเหล็กในโซนที่ไม่ได้ระบุ · ถามเฉพาะสิ่งที่ต้องใช้จริง',
+    'รูปแบบชิ้นส่วน: แต่ละชิ้นคือรูปในแปลนยกขึ้นจากระดับล่าง z0 สูง height · shape = box (x,y,w,d มุมล่างซ้าย) | polygon (points [[x,y],...] ทวนเข็มหรือตามเข็มก็ได้ ไม่ปิดซ้ำจุดแรก) | circle (cx,cy,diameter,inner: 0 = ทรงกระบอกตัน, >0 = ผนังกลม) | shaft (x,y,w,d,wall ปล่องสี่เหลี่ยม) · ชิ้นส่วนซ้อนกันได้ ระบบนับปริมาตรครั้งเดียว · overlap เป็นของ Stage ที่ต่ำกว่า',
+    'พิกัด: หน่วย mm เสมอ (แปลงเมตรเป็น mm) · X=0,Y=0 ที่มุมล่างซ้ายของกรอบแปลนคอนกรีตทั้งหมด X ไปทางขวา Y ขึ้นบนในแปลน · Z=0 ที่ผิวล่างของคอนกรีตต่ำสุด (ไม่รวม Lean / ทราย) Z ขึ้นบน',
+    'เสาเข็ม: piles = {type: round|square, size (Ø mm), length (m, null ถ้าไม่ระบุ), cutoff (mm), embed (mm ฝังในคอนกรีต), positions [[x,y],...]} · Lean / ทราย: site = {leanThickness, leanProjection, excavationDepth (mm จากระดับดินถึงใต้ Lean/ทราย, null ถ้าไม่ระบุ), workingSpace: null, slope: 0}',
+    'ผนัง / เสา / พื้นที่ต่อเนื่องแต่ไม่ใช่องค์ประกอบนี้ (RC WALL, RC COLUMN, FLOOR SLAB) ใส่ใน references ไม่ใช่ parts',
+    'ทุกชิ้นส่วนต้องมี source บอกรูป / ตัวเลขที่ใช้ เช่น "Plan F-02 · 650+5350+4400+3850+950" หรือ "Section 2-2 · 2400" · confidence = High เฉพาะเมื่อทุกมิติมาจากตัวเลขในแบบและตรวจผลรวมผ่าน',
     current ? `รูปทรงที่ได้จากไฟล์ก่อนหน้า (ปรับปรุงและเติมให้ครบด้วยไฟล์นี้ คงค่าที่ไม่ขัดแย้ง ใช้ชื่อชิ้นส่วนเดิม): ${JSON.stringify(current).slice(0, 12000)}` : 'ยังไม่มีรูปทรงจากไฟล์ก่อนหน้า',
     `บทบาทของไฟล์ตามผู้ใช้: ${stringValue(context.drawingRole, 'ไม่ระบุ (อาจมีทั้งแปลนและรูปตัดในหน้าเดียว)')} · ไฟล์: ${stringValue(context.fileName, file.filename)} · หน้า: ${Number(context.pages) || 1}`,
     'รูปแบบ JSON:',
-    JSON.stringify({version: 1, confidence: 'Medium', parts: [{label: 'ฐานหลัก', role: 'solid', shape: 'box', x: 0, y: 0, w: 0, d: 0, z0: 0, height: 0, stage: 1, source: 'Plan · Section'}],
+    JSON.stringify({version: 1, confidence: 'Medium',
+      views: [{name: 'Section 1-1', kind: 'section', note: 'ตัดแนว X ที่ Y ≈ 8700 มองไปทางเหนือ'}],
+      levels: [{name: 'ผิวล่างคอนกรีต', elevation: -3.2, z: 0, source: 'Section 1-1 · 2000 ใต้ -1.200'}],
+      parts: [{label: 'ฐานหลัก Stage 1', role: 'solid', shape: 'polygon', points: [[0, 0], [0, 0], [0, 0]], z0: 0, height: 0, stage: 1, source: 'Plan · Section'},
+        {label: 'บ่อ', role: 'void', shape: 'box', x: 0, y: 0, w: 0, d: 0, z0: 0, height: 0, stage: 2, source: 'Section 3-3'}],
       piles: {type: 'round', size: 0, length: null, cutoff: 0, embed: 0, positions: [[0, 0]]}, site: {leanThickness: 0, leanProjection: 0, excavationDepth: null, workingSpace: null, slope: 0},
-      references: [{label: 'RC WALL 300', source: 'Section 1-1'}], rebarNotes: [{text: 'Y32-150 (B)', meaning: 'เหล็กล่าง DB32@150', source: 'Section 1-1'}],
-      missing: [{part: 'ตอม่อตัว L', field: 'd', question: 'ความยาวขาแนว Y ไม่พบในแบบ'}], conflicts: [], warnings: []}),
+      references: [{label: 'RC WALL 300', source: 'Section 1-1'}],
+      rebarNotes: [{text: 'Y32-150', meaning: 'เหล็กล่าง DB32@150 สองทาง', part: 'ฐานหลัก Stage 1', face: 'B', dir: 'XY', level: 'ผิวล่างคอนกรีต', source: 'Section 1-1'}],
+      checks: ['แนว X: ... = ... ตรงกับ Section 1-1'],
+      missing: [{kind: 'shape', part: 'เสาเข็ม', field: 'length', question: 'ความยาวเข็มไม่ระบุในแผ่นนี้'}, {kind: 'rebar', part: 'ฐานหลัก Stage 1', field: 'cover', question: 'ระยะหุ้มคอนกรีตไม่ระบุ'}],
+      conflicts: [], warnings: []}),
     'ค่า 0 ในตัวอย่างแสดงชนิดข้อมูลเท่านั้น ต้องตอบเป็น JSON หนึ่ง object',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 function normaliseShapeProposal(raw, context, providerName, model) {
   const r = raw?.result || raw || {};
@@ -237,8 +268,12 @@ function normaliseShapeProposal(raw, context, providerName, model) {
     attachmentId: stringValue(context.attachmentId), fileName: stringValue(context.fileName),
     confidence: ['High', 'Medium', 'Low'].includes(r.confidence) ? r.confidence : 'Low', parts, piles, site,
     references: list(r.references, (x) => text(x?.label) ? {label: text(x.label), source: text(x?.source)} : null),
-    rebarNotes: list(r.rebarNotes, (x) => text(x?.text) ? {text: text(x.text), meaning: text(x?.meaning), source: text(x?.source)} : null),
-    missing: list(r.missing, (x) => text(x?.question) ? {part: text(x?.part, 80), field: text(x?.field, 40), question: text(x.question, 300)} : null),
+    rebarNotes: list(r.rebarNotes, (x) => text(x?.text) ? {text: text(x.text, 120), meaning: text(x?.meaning), source: text(x?.source),
+      part: text(x?.part, 80), face: ['B', 'T', 'EF', 'LOOP', 'ADD', 'NOTE'].includes(x?.face) ? x.face : '', dir: ['X', 'Y', 'XY', 'V'].includes(x?.dir) ? x.dir : '', level: text(x?.level, 80)} : null),
+    missing: list(r.missing, (x) => text(x?.question) ? {kind: x?.kind === 'rebar' ? 'rebar' : 'shape', part: text(x?.part, 80), field: text(x?.field, 40), question: text(x.question, 300)} : null),
+    levels: list(r.levels, (x) => text(x?.name) ? {name: text(x.name, 80), elevation: num(x?.elevation), z: num(x?.z), source: text(x?.source)} : null, 30),
+    views: list(r.views, (x) => text(x?.name) ? {name: text(x.name, 80), kind: text(x?.kind, 40), note: text(x?.note)} : null, 20),
+    checks: list(r.checks, (x) => stringValue(typeof x === 'string' ? x : x?.text).slice(0, 300) || null, 30),
     conflicts: list(r.conflicts, (x) => typeof x === 'string' ? x.slice(0, 300) : text(x?.text || x?.question, 300) || null),
     warnings: list(r.warnings, (x) => stringValue(x).slice(0, 300) || null, 30),
   };
@@ -328,6 +363,7 @@ async function callOpenAi(apiKey, model, thinking, file, prompt, signal) {
   const content = file.mimeType === 'application/pdf'
     ? [{type: 'input_file', filename: file.filename, file_data: dataUrl(file)}, {type: 'input_text', text: prompt}]
     : [{type: 'input_image', image_url: dataUrl(file), detail: 'high'}, {type: 'input_text', text: prompt}];
+  for (const v of (file.views || []).slice().reverse()) content.splice(1, 0, {type: 'input_text', text: v.label}, {type: 'input_image', image_url: dataUrl(v), detail: 'high'});
   const body = {model, store: false, stream: true, input: [{role: 'user', content}]};
   if (thinking?.kind === 'openai-reasoning-effort') body.reasoning = {effort: thinking.effort};
   const response = await fetch('https://api.openai.com/v1/responses', {
@@ -339,11 +375,12 @@ async function callOpenAi(apiKey, model, thinking, file, prompt, signal) {
 function anthropicContent(file, prompt) {
   const source = {type: 'base64', media_type: file.mimeType, data: base64Data(file)};
   const document = file.mimeType === 'application/pdf' ? {type: 'document', source, title: file.filename} : {type: 'image', source};
-  return [document, {type: 'text', text: prompt}];
+  const views = (file.views || []).flatMap((v) => [{type: 'text', text: v.label}, {type: 'image', source: {type: 'base64', media_type: v.mimeType, data: base64Data(v)}}]);
+  return [document, ...views, {type: 'text', text: prompt}];
 }
 
 async function callAnthropic(apiKey, model, thinking, file, prompt, signal) {
-  const body = {model, max_tokens: 12000, stream: true, messages: [{role: 'user', content: anthropicContent(file, prompt)}]};
+  const body = {model, max_tokens: 32000, stream: true, messages: [{role: 'user', content: anthropicContent(file, prompt)}]};
   if (thinking?.kind === 'anthropic-adaptive-effort') {
     body.thinking = {type: 'adaptive'};
     body.output_config = {effort: thinking.effort};
@@ -360,7 +397,8 @@ async function callGoogle(apiKey, model, thinking, file, prompt, signal) {
   if (thinking?.kind === 'gemini-thinking-budget') thinkingConfig.thinkingBudget = thinking.budgetTokens;
   const generationConfig = {responseMimeType: 'application/json'};
   if (Object.keys(thinkingConfig).length) generationConfig.thinkingConfig = thinkingConfig;
-  const body = {contents: [{role: 'user', parts: [{inlineData: {mimeType: file.mimeType, data: base64Data(file)}}, {text: prompt}]}], generationConfig};
+  const views = (file.views || []).flatMap((v) => [{text: v.label}, {inlineData: {mimeType: v.mimeType, data: base64Data(v)}}]);
+  const body = {contents: [{role: 'user', parts: [{inlineData: {mimeType: file.mimeType, data: base64Data(file)}}, ...views, {text: prompt}]}], generationConfig};
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
   const response = await fetch(url, {method: 'POST', headers: {'x-goog-api-key': apiKey, 'content-type': 'application/json'}, body: JSON.stringify(body), signal});
   return readProviderStream(response, 'Google AI Studio');
@@ -504,6 +542,8 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     const config = configSnapshot.exists ? decodeStorage(configSnapshot.data()) : null;
     const {activeProvider, provider} = selectedProvider(config);
     const shapeTask = context.task === 'shape';
+    if (shapeTask) stored.file.views = readViews(parsed.context);
+    context.views = (stored.file.views || []).map((v) => ({label: v.label}));
     const prompt = shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
     writeSse(res, {type: 'progress', phase: 'sending-to-ai', label: 'ดึงไฟล์จาก Storage แล้ว กำลังส่งไฟล์ต้นฉบับให้ AI อ่าน…', detail: `${stored.file.filename} · ${(stored.file.size / 1024 / 1024).toFixed(2)} MiB`});
     writeSse(res, {type: 'progress', phase: 'analyzing', label: `AI กำลังอ่านและวิเคราะห์แบบ…`, detail: `${activeProvider === 'openai' ? 'OpenAI' : activeProvider === 'anthropic' ? 'Anthropic' : 'Google AI Studio'} · ${provider.model}`});

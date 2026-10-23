@@ -20,7 +20,10 @@
   `src/domain/shapeGeometry.ts` (level slabs, polygon-clipping union/difference, equal-area circles, surfaces, contains,
   sections) hooked in `solids.ts`; apply/checks in `shapeApply.ts`; views in `elementViews.ts` / `projection.ts`;
   UI `ShapeModelEditor.tsx` (tab “รูปทรง” for Custom). AI shape reading: gateway task `shape` in `functions/index.js`
-  (owner must deploy) + `src/data/aiShapeAnalysis.ts` + `src/domain/shapeProposal.ts`. Tests: `tmp/shapeModel.test.ts`.
+  (owner must deploy) + `src/data/aiShapeAnalysis.ts` + `src/domain/shapeProposal.ts`; the browser sends zoomed views of
+  the sheet (`src/data/drawingViews.ts`, overview + 3×2 tiles) as `context.views`. Proposal notes carry part / face / dir
+  (`shapeModel.rebarNotes[].partId|face|dir`, questions in `rebarQuestions`) used as hints by `suggestFromNotes`.
+  Tests: `tmp/shapeModel.test.ts`, `tmp/f02.test.ts`.
 - Rebar sketch (Phase 2): `src/domain/rebarSketch.ts` (view regions, cover snap lines, snapping, shape-code detection,
   layout rules, `sketchBar`, `meshBars`, `loopBars`; sketched bars have ids `sk-`, polyline + distributionAxis so the
   view is recovered from the bar) + UI `RebarSketch.tsx` (tab “ใส่เหล็ก (วาดบนรูปตัด)” for shape-model members).

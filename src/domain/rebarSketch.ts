@@ -158,13 +158,22 @@ export function sketchBar(o:{mark:string;view:SketchView;points:P2[];diameter:nu
 
 /** Area reinforcement on a plan level: straight bars along X and/or Y inside the region (cover + d/2 from every edge).
  * Bars of equal length are one Mark (offsets for unequal positions). `legs`: end bends up (+) / down (−) mm. */
+/** Parts of the line at `at` whose whole band at ± half (cover zone) stays inside the region: keeps cover to re-entrant faces parallel to the bar. */
+function bandIntervals(region:Parameters<typeof multiIntervals>[0],along:0|1,at:number,half:number):[number,number][]{
+ let cur=multiIntervals(region,along,at);
+ for(const off of [-half,half]){const next=multiIntervals(region,along,at+off),out:[number,number][]=[];
+  for(const [a,b] of cur)for(const [c,d] of next){const lo=Math.max(a,c),hi=Math.min(b,d);if(hi>lo)out.push([lo,hi]);}cur=out;}
+ return cur;
+}
 export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spacing:number;cover:number;dirs:('X'|'Y')[];leg:number;note:string}):Bar[]{
  const sm=m.shapeModel;if(!sm)return [];const s=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!s)return [];
  const out:Bar[]=[],c=o.cover+o.diameter/2;let work=m;const mark=()=>{const k=nextMark(work);work={...work,bars:[...work.bars,{...blankBar(k)}]};return k;};
  for(const dir of o.dirs){
   const along=(dir==='X'?0:1) as 0|1,across=1-along,vals=s.region.flatMap(p=>(p[0] as P2[]).map(q=>q[across])),lo=Math.min(...vals)+c,hi=Math.max(...vals)-c;if(!(hi>lo))continue;
   const n=Math.ceil((hi-lo)/o.spacing-1e-9)+1,segs:{a:number;b:number;at:number}[]=[];
-  for(let k=0;k<n;k++){const at=n===1?lo:lo+(hi-lo)*k/(n-1);for(const [a,b] of multiIntervals(s.region,along,at))if(b-a>2*c+2*o.diameter)segs.push({a:a+c,b:b-c,at});}
+  // positions on the 0.001 mm grid the stored points use, rounded inward so the outer bars keep full cover
+  const lo3=Math.ceil(lo*1000)/1000,hi3=Math.floor(hi*1000)/1000;
+  for(let k=0;k<n;k++){const at=n===1?lo3:Math.min(hi3,Math.max(lo3,Math.round((lo3+(hi3-lo3)*k/(n-1))*1000)/1000));for(const [a,b] of bandIntervals(s.region,along,at,c-.5))if(b-a>2*c+2*o.diameter)segs.push({a:a+c,b:b-c,at});}
   const groups=new Map<number,typeof segs>();for(const sg of segs){const key=Math.round(sg.b-sg.a);groups.set(key,[...(groups.get(key)||[]),sg]);}
   for(const [len,list] of [...groups.entries()].sort((x,y)=>y[0]-x[0])){
    const f=list[0],pt=(u:number,w:number,z:number):Vec3=>along===0?[u,w,z]:[w,u,z],z=o.z;

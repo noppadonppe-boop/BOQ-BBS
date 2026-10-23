@@ -19,7 +19,7 @@ const viewOfBar=(b:Bar):SketchView|undefined=>b.shape==='polyline'&&b.distributi
 /** Phase 2 · Revit-like rebar sketching on sections / plan levels of a shape-model member. */
 export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;project:Project;readOnly:boolean;onChange:(next:Member)=>void}){
  const g=useMemo(()=>m.shapeModel?shapeGeometry(m.shapeModel):undefined,[m.shapeModel]);
- const [view,setView]=useState<SketchView>({kind:'sx',at:Math.round(m.y/2)}),[tool,setTool]=useState<Tool>('draw');
+ const [view,setView]=useState<SketchView>({kind:'sx',at:Math.round(m.y/2)}),[tool,setTool]=useState<Tool>(()=>m.shapeModel?.rebarNotes?.length&&!m.bars.some(isSketchBar)?'notes':'draw');
  const [dia,setDia]=useState(16),[cover,setCover]=useState(m.cover),[extra,setExtra]=useState(0),[grid,setGrid]=useState(25),[ortho,setOrtho]=useState(true);
  const grades=codeValues(project.spec.codeData,project.spec.designCode).grades,gradeOf=(d:number)=>grades.find(r=>r.bar===d)?.grade||(d<=9?'SR24':'SD40');
  const [layout,setLayout]=useState<LayoutRule>(()=>{const [from,to]=defaultRange(m,{kind:'sx',at:0},m.cover,16);return {rule:'spacing',spacing:200,count:5,from,to};});
@@ -137,15 +137,17 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
 
 const actionLabels:Record<NoteAction,string>={bottom:'ตะแกรงล่าง',top:'ตะแกรงบน',loops:'ลูปรอบผิว',vertical:'แนวตั้งรอบผิว',skip:'ข้าม'};
 /** Phase 3: reinforcement notes (AI-read or typed) → suggested bar sets to confirm one by one. */
-function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOnly:boolean;gradeOf:(d:number)=>string;onNotes:(n:{text:string;meaning:string;source:string}[])=>void;onCreate:(b:Bar[])=>void}){
- const saved=m.shapeModel?.rebarNotes||[],[text,setText]=useState(saved.map(n=>n.text).join('\n')||'Y32-150 (B)\nY32-150 (T)\nY16-200 LOOPS\n15d');
- const [list,setList]=useState<Suggestion[]>([]),[picked,setPicked]=useState<Record<string,boolean>>({});
+function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOnly:boolean;gradeOf:(d:number)=>string;onNotes:(n:NonNullable<NonNullable<Member['shapeModel']>['rebarNotes']>)=>void;onCreate:(b:Bar[])=>void}){
+ const saved=m.shapeModel?.rebarNotes||[],questions=m.shapeModel?.rebarQuestions||[],[text,setText]=useState(saved.map(n=>n.text).join('\n')||'Y32-150 (B)\nY32-150 (T)\nY16-200 LOOPS\n15d');
  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean).slice(0,60);
- const suggest=()=>{const s=suggestFromNotes(m,lines);setList(s);setPicked(Object.fromEntries(s.map(x=>[x.id,x.action!=='skip'])));onNotes(lines.map(t=>({text:t.slice(0,120),meaning:saved.find(n=>n.text===t)?.meaning||'',source:saved.find(n=>n.text===t)?.source||''})));};
+ const first=useMemo(()=>saved.length&&!m.bars.some(isSketchBar)?suggestFromNotes(m,lines,saved):[],[]);
+ const [list,setList]=useState<Suggestion[]>(first),[picked,setPicked]=useState<Record<string,boolean>>(()=>Object.fromEntries(first.map(x=>[x.id,x.action!=='skip'])));
+ const suggest=()=>{const s=suggestFromNotes(m,lines,saved);setList(s);setPicked(Object.fromEntries(s.map(x=>[x.id,x.action!=='skip'])));onNotes(lines.map(t=>{const n=saved.find(x=>x.text===t);return n?{...n,text:t.slice(0,120)}:{text:t.slice(0,120),meaning:'',source:''};}));};
  const put=(id:string,patch:Partial<Suggestion>)=>setList(l=>l.map(s=>s.id===id?{...s,...patch}:s));
  const chosen=list.filter(s=>picked[s.id]&&s.action!=='skip');
  return <div className="sketch-sub notes-tool"><h4>Note เหล็กในแบบ → ชุดเหล็ก</h4>
-  <p className="muted">หนึ่งบรรทัดต่อหนึ่ง Note เช่น Y32-150 (B), DB16@200 LOOPS, ADD Y20-150, 15d {saved.length?`· มี ${saved.length} Note จากผลอ่านแบบ`:''}</p>
+  <p className="muted">หนึ่งบรรทัดต่อหนึ่ง Note เช่น Y32-150 (B), DB16@200 LOOPS, ADD Y20-150, 15d {saved.length?`· มี ${saved.length} Note จากผลอ่านแบบ (ตำแหน่ง / ชิ้นส่วนตามที่ AI อ่าน)`:''}</p>
+  {questions.length>0&&<div className="notice warning"><b>ข้อมูลเหล็กที่แบบไม่ได้ระบุ — ตรวจ / กำหนดก่อนยืนยัน</b>{questions.map((q,i)=><div key={i}>❓ {q}</div>)}</div>}
   <textarea rows={5} disabled={readOnly} value={text} onChange={e=>setText(e.target.value)}/>
   <button type="button" className="primary" disabled={readOnly||!lines.length} onClick={suggest}>เสนอชุดเหล็กจาก Note</button>
   {list.length>0&&<div className="notes-suggest">{list.map(s=>{const ai=saved.find(n=>n.text===s.note.text)?.meaning;return <div key={s.id} className={`note-row ${s.action==='skip'?'skip':''}`}>
