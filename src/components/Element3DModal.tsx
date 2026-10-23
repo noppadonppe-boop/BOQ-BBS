@@ -79,7 +79,7 @@ export function layerDefs(input:ElementInput):Def[]{
     {key:'colTie',label:'เหล็กปลอกเสาตอม่อ',present:c.type==='pedestal',match:roleIs('column-tie'),fields:()=>spacingF('column.tie')},
     {key:'pile',label:'เสาเข็ม',present:input.foundationType==='pile',match:()=>false,fields:pileF,remove:d=>{d.foundationType='spread';},removeLabel:'ลบเสาเข็ม (เปลี่ยนเป็นฐานแผ่)',adds:[['เพิ่มเสาเข็ม',d=>{d.foundationType='pile';}]]},
    ];}
-  case 'Column':return [
+  case 'Column':if(input.layout==='stack')return [];return [
    {key:'main',label:'เหล็กยืน',present:true,match:roleIs('main'),fields:(d:any)=>[...(d.shape==='circle'?countF('rebar.main'):[
     {k:'head',label:'เหล็กมุม (4 มุม)'} as F,{k:'dia',label:'ขนาดเหล็ก',path:'rebar.main.corner.diameter'} as F,{k:'sel',label:'จำนวนต่อมุม',path:'rebar.main.corner.count',opts:[[1,'1 เส้น'],[2,'2 เส้น (มัดคู่)'],[3,'3 เส้น (มัด 3)']]} as F,
     {k:'head',label:'เหล็กด้าน X (ล่าง/บน)'} as F,{k:'dia',label:'ขนาดเหล็ก',path:'rebar.main.sideX.diameter'} as F,{k:'int',label:'จำนวนต่อด้าน (ไม่รวมมุม)',path:'rebar.main.sideX.count',max:200} as F,
@@ -129,7 +129,7 @@ function elementFields(d:any):F[]{
    ...(d.slab?.enabled?[{k:'num',label:'ความหนาพื้น (mm)',path:'slab.thickness'} as F,{k:'num',label:'เหล็กบนยื่นเข้าพื้น (mm)',path:'slab.extend'} as F]:[]),
    {k:'head',label:'งานดิน / Lean concrete'},{k:'num',label:'ความลึกขุด (mm)',path:'excavation.depth'},{k:'num',label:'ระยะเผื่อทำงานต่อด้าน (mm)',path:'excavation.workingSpace'},{k:'num',label:'ความลาดผนังหลุม (H:V)',path:'excavation.slope'},{k:'num',label:'Lean หนา (mm)',path:'lean.thickness'},{k:'num',label:'Lean ยื่นจากขอบต่อด้าน (mm)',path:'lean.projection'},
   ];
-  case 'Column':return [{k:'sel',label:'รูปร่างหน้าตัด',path:'shape',opts:[['rect','สี่เหลี่ยม'],['circle','วงกลม']]},...(d.shape==='rect'?[{k:'num',label:'กว้าง X (mm)',path:'width'} as F,{k:'num',label:'ลึก Y (mm)',path:'depth'} as F]:[{k:'num',label:'เส้นผ่านศูนย์กลาง (mm)',path:'diameter'} as F]),{k:'num',label:'ความสูงเสา (mm)',path:'height'},...cover([['side','รอบหน้าตัด']])];
+  case 'Column':if(d.layout==='stack')return [{k:'head',label:'เสาหลายชั้น · แก้ชั้น หน้าตัด และเหล็กในตารางเสาของแท็บข้อมูลพื้นฐาน'}];return [{k:'sel',label:'รูปร่างหน้าตัด',path:'shape',opts:[['rect','สี่เหลี่ยม'],['circle','วงกลม']]},...(d.shape==='rect'?[{k:'num',label:'กว้าง X (mm)',path:'width'} as F,{k:'num',label:'ลึก Y (mm)',path:'depth'} as F]:[{k:'num',label:'เส้นผ่านศูนย์กลาง (mm)',path:'diameter'} as F]),{k:'num',label:'ความสูงเสา (mm)',path:'height'},...cover([['side','รอบหน้าตัด']])];
   case 'Beam':if(d.layout==='group')return [{k:'head',label:'กลุ่มคาน · แก้ช่วง ขนาด และเหล็กในตารางช่วงของแท็บข้อมูลพื้นฐาน'}];return [{k:'num',label:'กว้าง b (mm)',path:'width'},{k:'num',label:'ลึก h (mm)',path:'depth'},{k:'num',label:'ความยาวคาน (mm)',path:'length'},...cover([['top','ด้านบน'],['bottom','ด้านล่าง'],['side','ด้านข้าง/ปลาย']])];
   case 'Slab':return [{k:'num',label:'ยาว X (mm)',path:'lengthX'},{k:'num',label:'กว้าง Y (mm)',path:'lengthY'},{k:'num',label:'ความหนาพื้น (mm)',path:'thickness'},...cover([['top','ด้านบน'],['bottom','ด้านล่าง'],['edge','ขอบพื้น']])];
   case 'Wall':return [{k:'num',label:'ความยาวผนัง (mm)',path:'length'},{k:'num',label:'ความหนาผนัง (mm)',path:'thickness'},{k:'num',label:'ความสูงผนัง (mm)',path:'height'},...cover([['face','ผิวผนัง'],['edge','ขอบ/บน-ล่าง']])];
@@ -161,7 +161,7 @@ const barFields=(d:Bar):F[]=>{
 function elementSummary(i:ElementInput){
  switch(i.category){
   case 'Foundation':return `${i.shape==='circle'?`Ø${i.diameter}`:`${i.width} × ${i.length}`} × ${i.thickness} mm · cover ${i.cover.bottom}/${i.cover.top}/${i.cover.side}`;
-  case 'Column':return `${i.shape==='circle'?`Ø${i.diameter}`:`${i.width} × ${i.depth}`} · สูง ${i.height} mm · cover ${i.cover.side}`;
+  case 'Column':if(i.layout==='stack')return `เสาหลายชั้น ${i.stack.storeys.length} ชั้น · ${i.stack.storeys.map(s=>`${s.width}×${s.depth}`).join(' / ')} · ${i.stack.splice.type==='coupler'?'Coupler':'ทาบ'}`;return `${i.shape==='circle'?`Ø${i.diameter}`:`${i.width} × ${i.depth}`} · สูง ${i.height} mm · cover ${i.cover.side}`;
   case 'Beam':if(i.layout==='group')return `กลุ่มคาน ${i.spans.length} ช่วง · ${[...new Set(i.spans.map(s=>s.mark))].join(', ')} · cover ${i.cover.top}/${i.cover.bottom}/${i.cover.side}`;return `${i.width} × ${i.depth} · ยาว ${i.length} mm · cover ${i.cover.top}/${i.cover.bottom}/${i.cover.side}`;
   case 'Slab':return `${i.lengthX} × ${i.lengthY} · หนา ${i.thickness} mm · cover ${i.cover.top}/${i.cover.bottom}`;
   case 'Wall':return `ยาว ${i.length} · หนา ${i.thickness} · สูง ${i.height} mm · cover ${i.cover.face}`;

@@ -1,7 +1,7 @@
 import {lazy,Suspense,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {beamGroupFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
@@ -9,6 +9,7 @@ import {ColumnTieEditor} from './ColumnTieEditor';
 import {FootingEarthworkSketch} from './FootingEarthworkSketch';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
+import {ColumnStackEditor} from './ColumnStackEditor';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
@@ -140,7 +141,9 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      </tbody></table>
      {q&&<p className="muted">ขุด {number(q.excavation)} m³ · ถมกลับ {number(q.backfill)} m³ (= ขุด − Lean{earth.sand?' − ทราย':''} − คอนกรีตใต้ดิน) · ต่อ 1 ฐาน</p>}
     </div><FootingEarthworkSketch input={input}/></div>;})()}</>}
-  {input.category==='Column'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
+  {input.category==='Column'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบเสา">{([['single','เสาชั้นเดียว'],['stack','เสาหลายชั้น · ตารางเสา (Coupler / ปลอกตาม H)']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Column'?prev:v==='stack'?columnStackFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>}
+  {input.category==='Column'&&input.layout==='stack'&&<ColumnStackEditor input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);f(next);return next;})}/>}
+  {input.category==='Column'&&input.layout!=='stack'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
    <label className="field"><span>รูปร่างหน้าตัด</span><select disabled={readOnly} value={input.shape} onChange={e=>set('shape',e.target.value)}><option value="rect">สี่เหลี่ยม</option><option value="circle">วงกลม</option></select></label>
    {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div><HeightFromLevels what="เสา" readOnly={readOnly} onUse={h=>set('height',h)}/></>}
   {input.category==='Beam'&&<>
@@ -204,7 +207,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
       :input.extraColumns[sel-1].linked?<p className="notice">ใช้หน้าตัด เหล็กยืน เหล็กปลอก และความสูงเดียวกับ C1 · เอาติ๊ก “เหมือน C1” ออกเพื่อกำหนดเอง</p>
       :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`}/>}
     </div>;})()}</>}
-  {input.category==='Column'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select}/>}
+  {input.category==='Column'&&input.layout==='stack'&&<p className="muted">เสาหลายชั้น: เหล็กยืนและปลอกกำหนดต่อชั้นในตารางเสาด้านบน</p>}
+  {input.category==='Column'&&input.layout!=='stack'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select}/>}
    <h4>End condition เหล็กยืน</h4>
    {([['bottom','ปลายล่าง (Bottom Col)'],['top','ปลายบน (Top Col)']] as const).map(([end,label])=>{const e=input.rebar[end],std=Math.round(lapLength(input.detailing,columnMainMax(input)));return <div className="form-grid rebar-row" key={end}>
     {select(label,`rebar.${end}.mode`,[['none',end==='bottom'?'ไม่มี (เริ่มที่ขอบล่างเสา)':'ไม่มี (ตัดที่ cover)'],['lap','Lap splice length (ทาบตรง)'],['crank','Crank 1:6 + ทาบ']])}

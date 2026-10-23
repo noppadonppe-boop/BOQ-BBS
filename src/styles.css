@@ -312,3 +312,4 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .beam-section-editor{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:10px 0;background:var(--surface-2)}.beam-section-editor .section-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .beam-sections td{white-space:nowrap}.beam-sections th.muted{opacity:.55}
 .beam-spans td input{max-width:none}.beam-spans td small.block{white-space:normal;min-width:260px}
+.column-stack .stack-ends{align-items:end;margin-bottom:8px}.column-table td{white-space:nowrap;vertical-align:top}.column-table td input{max-width:none}

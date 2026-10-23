@@ -93,9 +93,16 @@ export const detailingSchema=z.object({
  /** Spec the defaults were taken from (display only). */
  specRef:z.string().max(200).optional(),
  /** Beam top-bar extensions (× clear span) from the spec's typical beam details: end (discontinuous) / continuous support. */
+ /** Steel grade per bar size from the project spec (e.g. Y12–Y20 SD40, Y25–Y32 SD50); overrides main / tie grade. */
+ grades:z.array(z.object({bar:z.number().int().min(1).max(60),grade:z.string().trim().min(1).max(40)}).strict()).max(30).optional(),
  beam:z.object({topEnd:frac2,topCont:frac2,bottomZone:frac2,bottomEnd:frac2.optional(),bottomCont:frac2.optional(),stirrupZone:frac2.optional()}).strict().optional(),
 }).strict();
 /** Lap length for diameter d: project-spec table (exact size, else the next larger size) or lap × d. */
+/** Grade of a generated bar of diameter d: spec table (exact size, else the next larger size), else `fallback`. */
+export function gradeFor(det:Detailing,d:number,fallback:string){
+ const t=det.grades?.filter(r=>r.bar>=d-1e-6).sort((a,b)=>a.bar-b.bar)[0]||det.grades?.slice().sort((a,b)=>b.bar-a.bar)[0];
+ return t?.grade||fallback;
+}
 export function lapLength(det:Detailing,d:number){
  const t=det.lapTable?.filter(r=>r.bar>=d-1e-6).sort((a,b)=>a.bar-b.bar)[0];
  return t&&t.length>0?t.length:det.lap*d;
@@ -212,15 +219,34 @@ export type TieZoneKey='lower'|'middle'|'upper';
 export const tieZoneKeys:readonly (readonly [TieZoneKey,string])[]=[['lower','โซนล่าง'],['middle','โซนกลาง'],['upper','โซนบน']];
 /** Column main bars. Rect: corner bundles (1–3 bars per corner) + bars per X face (bottom/top) and
  * per Y face (left/right), equal on opposite faces and evenly spaced. Circle: `count` × `diameter`. */
-const columnMain=z.object({corner:z.object({diameter:dia,count:z.number().int().min(1).max(3)}).strict(),sideX:countLayer,sideY:countLayer,diameter:dia,count:z.number().int().min(0).max(200)}).strict();
+const columnMain=z.object({corner:z.object({diameter:dia,count:z.number().int().min(1).max(3)}).strict(),sideX:countLayer,sideY:countLayer,diameter:dia,count:z.number().int().min(0).max(200),
+ /** side bars in bundles of 2 (pairs side by side along the face): side counts are bars, positions = count / 2 */
+ sideBundle:z.number().int().min(1).max(2).optional()}).strict();
 /** Bars per X face / per Y face (excluding corners) for `n` bars spread proportionally on a w × d section. */
 export function splitMainCount(n:number,w:number,d:number){const extra=Math.max(0,n-4),inX=Math.round(extra*w/((w+d)||1)/2)*2||0;return {x:inX/2,y:Math.ceil((extra-inX)/2)};}
 const columnTie=z.object({diameter:dia,spacing:mm,lower:tieZone,upper:tieZone,
  inner:z.object({diameter:dia,lower:innerZone,middle:innerZone,upper:innerZone}).strict()}).strict();
+/** One storey of a column stack (column table row): floor-to-floor height, beam depth at its top (joint),
+ * rectangular section, main bars, ties as on the drawings `nYd@S1(d@S2)`: n pieces per set (check), pattern of the
+ * inner ties, S1 mid-height spacing, S2 end-zone spacing. */
+const columnStoreySchema=z.object({name:z.string().trim().max(40),height:mm,beamDepth:mm,width:mm,depth:mm,main:columnMain,
+ tie:z.object({diameter:dia,sets:z.number().int().min(0).max(30),pattern:z.enum(tiePatterns),s1:mm,s2:mm}).strict()}).strict();
+export type ColumnStorey=z.infer<typeof columnStoreySchema>;
+const columnStackSchema=z.object({storeys:z.array(columnStoreySchema).max(20),
+ /** bars from the footing: embedment below the top of footing (to the bottom mesh), 12d hook outward */
+ footing:z.object({enabled:z.boolean(),depth:mm}).strict(),
+ /** top of the last storey: F.T.A (12d inward) or stop at cover */
+ top:z.enum(['fta','none']),
+ /** main bar joints in every storey: mechanical couplers (50 %, groups `stagger` apart) or laps */
+ splice:z.object({type:z.enum(['coupler','lap']),stagger:mm}).strict()}).strict();
+export const DEFAULT_COLUMN_STACK={storeys:[],footing:{enabled:true,depth:900},top:'fta' as const,splice:{type:'coupler' as const,stagger:1000}};
 const columnSchema=z.object({...base,category:z.literal('Column'),
  shape:z.enum(['rect','circle']),width:mm,depth:mm,diameter:mm,height:mm,
  cover:z.object({side:mm}).strict(),
  rebar:z.object({main:columnMain,tie:columnTie,bottom:columnEnd,top:columnEnd}).strict(),
+ /** single = one storey (fields above); stack = one column mark over several storeys (column table) */
+ layout:z.enum(['single','stack']),
+ stack:columnStackSchema,
 }).strict();
 /** Element cast on the ground (slab / beam on ground) or elevated (formed soffit). On ground: optional layers under
  * the concrete, top → bottom: lean concrete and plastic sheet, sand bed, compacted subgrade; projections per side. */
@@ -289,8 +315,8 @@ export const DEFAULT_PILE:PileInput={type:'square',size:300,layout:'standard',co
 /** Version 1 stored input (pedestal box + single end-hook flag) → version 2. */
 function migrateElementInput(raw:unknown):unknown{
  if(!raw||typeof raw!=='object')return raw;
- if((raw as any).version===1)return migrateBeamSpans(migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw))))))));
- return migrateBeamSpans(migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw)))))));
+ if((raw as any).version===1)return migrateColumnStack(migrateBeamSpans(migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw)))))))));
+ return migrateColumnStack(migrateBeamSpans(migrateGround(migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw))))))));
 }
 /** Slabs / beams saved before the on-ground option → elevated (same quantities); beams → single span. */
 function migrateGround(raw:any):unknown{
@@ -307,6 +333,11 @@ function migrateBeamSpans(raw:any):unknown{
   return {...s,rebar:{top:s.rebar?.top??{...none},bottom:s.rebar?.bottom??{...none},ex:{end:zone(),mid:zone(),con:zone(),cant:zone()},
    stirrup:{diameter:st.diameter??9,legs:2,spacing:{end,mid:st.spacing??200,con:end,cant:end}},side:{count:0,diameter:12,tie:{diameter:9,spacing:600}}}};});
  return v;
+}
+/** Columns saved before the column stack → single storey (same bars). */
+function migrateColumnStack(raw:any):unknown{
+ if(raw?.version!==2||raw.category!=='Column'||'layout' in raw&&'stack' in raw)return raw;
+ return {...structuredClone(raw),layout:raw.layout??'single',stack:raw.stack??structuredClone(DEFAULT_COLUMN_STACK)};
 }
 /** Footings saved before reference levels / sub-base layers → levels off, no sand / sheet / compaction (same quantities). */
 function migrateFootingSite(raw:any):unknown{
@@ -380,7 +411,7 @@ export function defaultElementInput(category:InputCategory,mode:'manual'|'drawin
  const common={version:ELEMENT_INPUT_VERSION,mode,detailing:spec?detailingFromSpec(spec,{...DEFAULT_DETAILING}):{...DEFAULT_DETAILING}};
  switch(category){
   case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE)};
-  case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}}};
+  case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}},layout:'single',stack:structuredClone(DEFAULT_COLUMN_STACK)};
   case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}},layout:'single',grids:[],spans:[],ground:structuredClone(DEFAULT_GROUND)};
   case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,ground:structuredClone(DEFAULT_GROUND),cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
   case 'Wall':return {...common,category,length:6000,thickness:200,height:3000,cover:{face:30,edge:30},rebar:{layers:2,vertical:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},horizontal:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},lap:true}};
@@ -447,6 +478,14 @@ export function elementInputProblems(input:ElementInput):string[]{
    else if(earth.depth>0&&earth.depth<input.thickness+earth.below)p.push(`ความลึกงานขุดน้อยกว่าความหนาฐานราก + Lean${earth.sand?' + ทราย':''}`);
    break;}
   case 'Column':{
+   if(input.layout==='stack'){
+    const S=input.stack.storeys;need(input.cover.side,'cover');if(!S.length){p.push('เพิ่มชั้นของเสาอย่างน้อย 1 ชั้น');break;}
+    if(input.stack.footing.enabled)need(input.stack.footing.depth,'ระยะฝังในฐานราก');if(input.stack.splice.type==='coupler')need(input.stack.splice.stagger,'ระยะเหลื่อม Coupler');
+    S.forEach((s,k)=>{const nm=s.name||`ชั้น ${k+1}`;need(s.width,`${nm}: กว้าง X`);need(s.depth,`${nm}: ลึก Y`);need(s.height,`${nm}: ความสูงชั้น`);
+     if(s.beamDepth>=s.height)p.push(`${nm}: ความลึกคานต้องน้อยกว่าความสูงชั้น`);fits(Math.min(s.width,s.depth),input.cover.side,input.cover.side,`${nm}: หน้าตัด`);
+     need(s.main.corner.diameter,`${nm}: ขนาดเหล็กมุม`);need(s.tie.diameter,`${nm}: ขนาดปลอก`);need(s.tie.s1,`${nm}: ระยะปลอก S1`);need(s.tie.s2,`${nm}: ระยะปลอก S2`);
+     if(k>0){const b=S[k-1];if(s.width>b.width||s.depth>b.depth)p.push(`${nm}: หน้าตัดใหญ่กว่าชั้นล่าง · เหล็กฝังลงเสาชั้นล่างวางไม่ได้ ตรวจแบบ`);}});
+    break;}
    if(input.shape==='rect'){need(input.width,'ความกว้างเสา (X)');need(input.depth,'ความลึกเสา (Y)');fits(Math.min(input.width,input.depth),input.cover.side,input.cover.side,'หน้าตัดเสา');}
    else{need(input.diameter,'เส้นผ่านศูนย์กลางเสา');fits(input.diameter,input.cover.side,input.cover.side,'หน้าตัดเสา');}
    need(input.height,'ความสูงเสา');need(input.cover.side,'cover');
@@ -559,7 +598,9 @@ export type TiePiece={kind:'cross'|'closed';pts:Pt[]};
 export function columnTieLayout(i:ColumnInput,pattern:TiePattern,det:Detailing){
  const c=i.cover.side,dm=columnMainMax(i),dt=i.rebar.tie.diameter,di=i.rebar.tie.inner.diameter||dt,W=i.width,D=i.depth;
  const a=c+dt+i.rebar.main.corner.diameter/2,x0=a,x1=W-a,y0=a,y1=D-a,bars=columnInputBars(i);
- const pick=(kind:ColumnBarPos['kind'],low:boolean)=>bars.filter(b=>b.kind===kind&&(kind==='sideX'?b.y<D/2:b.x<W/2)===low).map(b=>kind==='sideX'?b.x:b.y).sort((p,q)=>p-q);
+ // bundled side bars (pairs closer than 1.6 d) are one tie position at the pair centre
+ const pick=(kind:ColumnBarPos['kind'],low:boolean)=>bars.filter(b=>b.kind===kind&&(kind==='sideX'?b.y<D/2:b.x<W/2)===low).map(b=>kind==='sideX'?b.x:b.y).sort((p,q)=>p-q)
+  .reduce<number[][]>((g,v)=>{const last=g.at(-1);if(last&&v-last.at(-1)!<1.6*dm)last.push(v);else g.push([v]);return g;},[]).map(g=>g.reduce((a,b)=>a+b,0)/g.length);
  const f={bottom:pick('sideX',true),top:pick('sideX',false),left:pick('sideY',true),right:pick('sideY',false)};
  const tc=c+dt/2,R=radius(di,det,true),rr=(dm+di)/2,ext90=det.hook90*di,ext135=Math.max(det.hook135*di,det.hook135Min);
  const hoop=link(0,1,2,tc,W-tc,tc,D-tc,0,det.hook90*dt,radius(dt,det,true),dt).map(p=>[p[0],p[1]] as Pt);
@@ -737,7 +778,10 @@ function columnBarPositions(col:FootingColumn,base:number,symmetric=false):Colum
   // symmetric: side bars keep the same clearance from both corner bundles so opposite faces line up
   const start=nc>=2?dc:0,end=nc>=3||symmetric&&nc>=2?dc:0,span=len-start-end;
   const n=col.shape==='rect'?side.count:Math.max(0,Math.ceil(Hypot(corner[i],corner[j])/m.spacing-1e-9)-1);
-  for(let k=1;k<=n;k++){const t=start+span*k/(n+1);out.push({x:a[0]+e[0]*t,y:a[1]+e[1]*t,d:ds,kind:alongX?'sideX':'sideY'});}
+  // bundled side bars (rect): n / 2 positions, each a pair side by side along the face
+  const nb=col.shape==='rect'&&(m as {sideBundle?:number}).sideBundle===2?2:1,np=Math.ceil(n/nb);
+  for(let k=1;k<=np;k++){const t=start+span*k/(np+1),pair=nb===2&&(k*2<=n);
+   for(const dt of pair?[-ds/2,ds/2]:[0])out.push({x:a[0]+e[0]*(t+dt),y:a[1]+e[1]*(t+dt),d:ds,kind:alongX?'sideX':'sideY'});}
  });
  return out;
 }
@@ -920,6 +964,86 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  return out;
 }
 
+/** A storey of a column stack copied from the single-column fields (or the storey below). */
+export function newColumnStorey(i:ColumnInput,prev?:ColumnStorey,name?:string):ColumnStorey{
+ if(prev)return {...structuredClone(prev),name:name??prev.name};
+ const t=i.rebar.tie,inner=t.inner.middle.pattern;
+ return {name:name??'1st',height:i.height||4000,beamDepth:600,width:i.width||400,depth:i.depth||400,main:structuredClone(i.rebar.main),
+  tie:{diameter:t.diameter,sets:1,pattern:inner,s1:t.spacing,s2:t.lower.spacing||t.spacing}};
+}
+export function columnStackFrom(i:ColumnInput):ColumnInput{
+ return {...i,layout:'stack',shape:'rect',stack:i.stack.storeys.length?i.stack:{...i.stack,storeys:[newColumnStorey(i)]}};
+}
+/** Storey bases (z from the top of footing / first floor), clear heights and tie zones:
+ * first storey on a footing: S2 over H/3, S1 over H/2, S2 over H/6; other storeys H/6 · 2H/3 · H/6 (S2 · S1 · S2);
+ * the top S2 zone continues through the beam depth (joint). */
+export function columnStackLayout(i:ColumnInput){
+ const S=i.stack.storeys,W=Math.max(...S.map(s=>s.width)),D=Math.max(...S.map(s=>s.depth));let z=0;
+ const storeys=S.map((s,k)=>{const z0=z;z+=s.height;const clear=Math.max(1,s.height-s.beamDepth),first=k===0&&i.stack.footing.enabled;
+  return {...s,k,z0,z1:z,clear,ox:(W-s.width)/2,oy:(D-s.depth)/2,lower:clear*(first?1/3:1/6),upper:clear/6+s.beamDepth,first};});
+ return {storeys,W,D,H:z};
+}
+const storeyKey=(s:ColumnStorey)=>JSON.stringify([s.width,s.depth,s.main]);
+/** Column stack bars: ties per storey (existing column generator, zones by H), main bars over runs of storeys with the
+ * same section and bars: bottom into the footing with a 12d hook (or dowelled into the column below where the section
+ * changes), top with F.T.A (12d inward) at the last storey or below a section change; joints in every storey by
+ * mechanical couplers (two groups `stagger` apart, 50 %) or laps. Returns the bars and the coupler count per size. */
+function columnStackBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=>void):{bars:GenBar[];couplers:Map<number,number>}{
+ const out:GenBar[]=[],couplers=new Map<number,number>(),lay=columnStackLayout(i),S=lay.storeys,c=i.cover.side,st=i.stack;
+ const asCol=(s:typeof S[number]):ColumnInput=>({...i,layout:'single',shape:'rect',width:s.width,depth:s.depth,height:s.height,
+  rebar:{main:s.main,tie:{diameter:s.tie.diameter,spacing:s.tie.s1,lower:{length:Math.round(s.lower),spacing:s.tie.s2},upper:{length:Math.round(s.upper),spacing:s.tie.s2},
+   inner:{diameter:s.tie.diameter,lower:{pattern:s.tie.pattern,spacing:s.tie.s2},middle:{pattern:s.tie.pattern,spacing:s.tie.s1},upper:{pattern:s.tie.pattern,spacing:s.tie.s2}}},
+   bottom:{mode:'none',lap:0},top:{mode:'none',lap:0}}});
+ const shift=(b:GenBar,s:typeof S[number]):GenBar=>({...b,points:b.points.map(([x,y,z])=>[x+s.ox,y+s.oy,z+s.z0] as V3),
+  ...(b.distributionAxis==='Z'&&b.from!==undefined?{from:b.from+s.z0,to:(b.to??b.from)+s.z0}:{})});
+ // ---- ties of every storey (set 1 hoop + set 2 pattern), from the single-column generator
+ for(const s of S){
+  const tb=columnBars(asCol(s),det,rounding,warn).filter(b=>!b.role.startsWith('main'));
+  for(const b of tb)out.push({...shift(b,s),role:`s${s.k+1}-${b.role}`,note:`${s.name} · ${b.note}`});
+  // pieces per tie set (as `n` in nYd@S1(d@S2)): hoop + set-2 pieces at one level of the middle zone
+  const hoops=tb.find(b=>b.role==='tie-middle'||b.role==='tie')?.count||1,pieces=1+tb.filter(b=>b.role.startsWith('tie2-middle')).reduce((n,b)=>n+b.count,0)/hoops;
+  if(s.tie.sets>0&&pieces!==s.tie.sets)warn(`${s.name}: ปลอกต่อชุดในแบบ ${s.tie.sets} ชิ้น · รูปแบบที่เลือกให้ ${pieces} ชิ้น · ตรวจรูปแบบปลอกใน`);
+ }
+ // ties inside the footing: hoops ≤ @500 below the top of footing
+ if(st.footing.enabled&&st.footing.depth>250){const s=S[0],dt=s.tie.diameter,tc=c+dt/2,tz=spread(-(st.footing.depth-150),-100,500);
+  // below z = 0: positions as offsets (distribution ranges start at 0)
+  if(tz){const step=tz.count>1?(tz.to-tz.from)/(tz.count-1):0;out.push({role:'footing-tie',note:`เหล็กปลอกในฐานราก @≤500`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,s.ox+tc,s.ox+s.width-tc,s.oy+tc,s.oy+s.depth-tc,tz.from,det.hook90*dt,radius(dt,det,true),dt),axis:'Z',face:'side',radius:radius(dt,det,true),shapeCode:'99',offsets:Array.from({length:tz.count},(_,j)=>[0,0,j*step] as V3)});}}
+ // ---- main bars over runs of equal storeys
+ let k=0;
+ while(k<S.length){let e=k;while(e+1<S.length&&storeyKey(S[e+1])===storeyKey(S[k]))e++;
+  const s0=S[k],sN=S[e],pos=columnInputBars(asCol(s0)).map(b=>({...b,x:b.x+s0.ox,y:b.y+s0.oy}));
+  const cx=s0.ox+s0.width/2,cy=s0.oy+s0.depth/2,sg=(v:number)=>Math.sign(v)||1;
+  const inward=(b:ColumnBarPos):Pt=>b.kind==='sideX'?[0,sg(cy-b.y)]:b.kind==='sideY'?[sg(cx-b.x),0]:[sg(cx-b.x)/Math.SQRT2,sg(cy-b.y)/Math.SQRT2];
+  const changeBelow=k>0,changeAbove=e<S.length-1,runName=e>k?`${s0.name||`ชั้น ${k+1}`} ถึง ${sN.name||`ชั้น ${e+1}`}`:s0.name||`ชั้น ${k+1}`;
+  if(changeBelow)warn(`${s0.name}: หน้าตัด / เหล็กยืนเปลี่ยนจากชั้นล่าง · เหล็กชั้นล่างงอปิดที่หัวเสา · เหล็กชั้นนี้ฝังลงเสาชั้นล่าง (ตรวจรายละเอียด Crank 1:6 ตามแบบ)`);
+  for(const dm of [...new Set(pos.map(p=>p.d))].sort((a,b)=>b-a)){
+   // hook legs: 12d + r, limited to the room across the section (side bars hook toward the opposite face)
+   const set=pos.filter(p=>p.d===dm),room=Math.min(s0.width,s0.depth)-2*(c+s0.tie.diameter)-1.5*dm,leg=Math.max(0,Math.min(det.hook90*dm+radius(dm,det),room)),lap=lapLength(det,dm);
+   if(leg<det.hook90*dm+radius(dm,det)-.5)warn(`${runName} DB${dm}: ขางอที่หัวเสาถูกจำกัดเป็น ${Math.round(leg)} mm ให้อยู่ในหน้าตัด`);
+   const zBot=k===0?(st.footing.enabled?-(st.footing.depth-75-dm/2):0):S[k].z0-lap;
+   const zTop=sN.z1-c-sN.tie.diameter-dm/2,hookBot=k===0&&st.footing.enabled,hookTop=st.top==='fta'||changeAbove;
+   for(const grp of [0,1]){const bars=set.filter((_,j)=>j%2===grp);if(!bars.length)continue;
+    // joint levels: one per storey of the run, just above the lower tie zone; group B `stagger` higher
+    const joints=S.slice(k,e+1).map(s=>s.z0+Math.round(s.lower/50)*50+50+(grp?st.splice.stagger:0)).filter(z=>z>zBot+500&&z<zTop-500);
+    const cuts=[zBot,...joints,zTop],lapLen=st.splice.type==='lap'?lap:0;
+    for(let j=0;j<cuts.length-1;j++){
+     const a=cuts[j],b=cuts[j+1]+(j<cuts.length-2?lapLen:0),firstP=j===0,lastP=j===cuts.length-2;
+     const hb=firstP&&hookBot,ht=lastP&&hookTop,p0=bars[0],u0=inward(p0);
+     // template on the first bar: bottom hook outward (−u), top hook inward (+u); other bars by offsets + turns
+     const pts:V3[]=[...(hb?[[p0.x-u0[0]*leg,p0.y-u0[1]*leg,a] as V3]:[]),[p0.x,p0.y,a],[p0.x,p0.y,b],...(ht?[[p0.x+u0[0]*leg,p0.y+u0[1]*leg,b] as V3]:[])];
+     const a0=Math.atan2(u0[1],u0[0]),turns=bars.map(p=>{const u=inward(p);let t=(Math.atan2(u[1],u[0])-a0)*180/Math.PI;while(t>180)t-=360;while(t<=-180)t+=360;return Number(t.toFixed(4));});
+     const pv=pts.at(-1)!,d0=[pv[0]-p0.x,pv[1]-p0.y],offsets:V3[]=bars.map((p,q)=>{const t=turns[q]*Math.PI/180,cs=Math.cos(t),sn=Math.sin(t);return [p.x-p0.x-d0[0]+d0[0]*cs-d0[1]*sn,p.y-p0.y-d0[1]+d0[0]*sn+d0[1]*cs,0];});
+     const hooks=(hb?1:0)+(ht?1:0),what=[firstP?(hb?'ฝังในฐานราก งอ 12d':changeBelow?`ฝังลงเสาชั้นล่าง ${Math.round(lap)}`:'เริ่มที่ฐานเสา'):(st.splice.type==='coupler'?'Coupler':`ทาบ ${Math.round(lap)}`),lastP?(ht?(changeAbove?'งอปิดหัวเสา (หน้าตัดเปลี่ยน)':'F.T.A งอ 12d'):'ตัดที่ cover'):(st.splice.type==='coupler'?'Coupler':'ทาบ')];
+     out.push({role:`main-${runName.replace(/[^a-zA-Z0-9]/g,'')||k}-${dm}-${grp?'b':'a'}-${j+1}`,note:`${runName} · เหล็กยืน ${bars.length} เส้น กลุ่ม ${grp?'B':'A'} ท่อน ${j+1}/${cuts.length-1} · ล่าง: ${what[0]} · บน: ${what[1]}`,
+      diameter:dm,grade:det.mainGrade,count:bars.length,points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),axis:'Z',face:'side',radius:hooks?radius(dm,det):0,shapeCode:hooks===0?'00':hooks===1?'11':'99',
+      offsets,...(hooks?{turns}:{}),...(hooks===2?{cut:roundUp(b-a+2*leg,rounding)}:{})});
+    }
+    if(st.splice.type==='coupler')couplers.set(dm,(couplers.get(dm)||0)+bars.length*Math.max(0,cuts.length-2));
+   }
+  }
+  k=e+1;}
+ return {bars:out,couplers};
+}
 function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=>void):GenBar[]{
  const out:GenBar[]=[],c=i.cover.side,H=i.height,dt=i.rebar.tie.diameter,{bottom:eb,top:et}=i.rebar;
  const ext=Math.max(det.hook135*dt,det.hook135Min),rect=i.shape==='rect',W=rect?i.width:i.diameter,Dp=rect?i.depth:i.diameter;
@@ -974,7 +1098,8 @@ function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=
   if(!(di>0)||!(z.spacing>0))continue;
   const lay=columnTieLayout(i,z.pattern,det),label=tiePatternInfo[z.pattern].label;
   lay.issues.forEach(s=>warn(`ปลอกชุดที่ 2 ${zone} (${label}): ${s}`));
-  const r=range(key,z.spacing),tz=r&&spread(r[0]+lift,r[1]+lift,z.spacing);
+  // top level: below the hoop instead of above it when stacking above would cut into the top cover
+  const r=range(key,z.spacing),topOk=H-c-di/2,tz=r&&spread(r[0]+lift,r[1]+lift<=topOk+1e-6?r[1]+lift:r[1]-lift,z.spacing);
   if(!lay.pieces.length||!tz)continue;
   const levels=Array.from({length:tz.count},(_,k)=>tz.count===1?tz.from:tz.from+(tz.to-tz.from)*k/(tz.count-1));
   // identical shapes (translation only) share one Mark
@@ -1261,6 +1386,25 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
    gen=foundationBars(input,det,rounding,warn);break;}
   case 'Column':{
+   // generated BOQ items (couplers) are rebuilt on every apply; user items stay
+   const userItems=(next.siteWork?.items||[]).filter(it=>!it.id.startsWith('gen-'));
+   next=withSiteWork(next,next.siteWork||userItems.length?{...(next.siteWork||emptySiteWork()),items:userItems}:undefined);
+   if(input.layout==='stack'&&input.stack.storeys.length){
+    // column stack: one concrete box per storey (floor to floor, centred), footing below as a reference region
+    const lay=columnStackLayout(input),st=input.stack,r=columnStackBars(input,det,rounding,warn),s0=lay.storeys[0];
+    const solids=lay.storeys.map(sx=>({id:`storey${sx.k+1}`,label:(sx.name||`ชั้น ${sx.k+1}`).slice(0,80),origin:[sx.ox,sx.oy,sx.z0] as V3,size:[sx.width,sx.depth,Math.max(1,sx.height)] as V3,faces:[true,true,true,true,false,false]}));
+    const pc=m.placementContext,keep=(pc?.version===2?pc.regions:(pc?.regions||[]).map(x=>({...x,openings:[]}))).filter(x=>!x.id.startsWith('gen'));
+    const reach=Math.max(...s0.main.corner.diameter?[s0.main.corner.diameter]:[32],s0.main.sideX.diameter,s0.main.sideY.diameter)*(det.hook90+4)+150;
+    const foot=st.footing.enabled&&st.footing.depth>0?[{id:'genstk-footing',label:'ฐานราก (อ้างอิง)',origin:[s0.ox-reach,s0.oy-reach,-st.footing.depth] as V3,size:[s0.width+2*reach,s0.depth+2*reach,st.footing.depth] as V3,reference:'ฐานรากใต้เสา · ระยะฝัง/งอ 12d ของเหล็กยืน · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:input.cover.side,openings:[]}]:[];
+    // floor / beam cast around the column where the section steps in: the lower storey's top ring is not a free face
+    const floors=lay.storeys.slice(1).filter((sx,j)=>sx.width<lay.storeys[j].width||sx.depth<lay.storeys[j].depth).map(sx=>{const b=lay.storeys[sx.k-1];
+     return {id:`genstk-floor${sx.k}`,label:`พื้น/คาน ${b.name||sx.k} (อ้างอิง)`.slice(0,80),origin:[b.ox,b.oy,sx.z0] as V3,size:[b.width,b.depth,Math.max(100,Math.min(b.beamDepth||300,sx.height/2))] as V3,reference:'พื้น / คานที่หล่อรอบเสาที่ระดับเปลี่ยนหน้าตัด · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:input.cover.side,openings:[]};});
+    const context=[...keep,...foot,...floors].slice(0,REGION_LIMIT),{placementContext:_c,...rest}=next;
+    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:lay.W,y:lay.D,z:lay.H,cover:input.cover.side,faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions,geometry:{solids,voids:[]}} as Member;
+    gen=r.bars;
+    const cp=[...r.couplers].filter(([,n])=>n>0).sort((a,b)=>b[0]-a[0]).map(([d,n])=>({id:`gen-coupler-${d}`,label:`ข้อต่อเหล็กแบบกลไก (Coupler) ${d<=9?'RB':'DB'}${d}`,unit:'ตัว',quantity:n}));
+    if(cp.length)next=withSiteWork(next,{...(next.siteWork||emptySiteWork()),items:[...userItems,...cp]});
+    break;}
    const rect=input.shape==='rect',D=input.diameter,H=input.height;
    const pc=m.placementContext,keep:RegionV2=(pc?.version===2?pc.regions:(pc?.regions||[]).map(r=>({...r,openings:[]}))).filter(r=>!r.id.startsWith('gencol'));
    const context=[...keep,...columnRegions(input,det)].slice(0,6),{placementContext:_c,...rest}=next;
@@ -1285,7 +1429,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
   case 'Wall':next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions};gen=wallBars(input,det,rounding,warn);break;
  }
  if(m.category!=='Foundation')next={...next,excavation:{bottomX:0,bottomY:0,topX:0,topY:0,depth:0,buriedConcrete:0},lean:{x:0,y:0,thickness:0}};
- if(m.category!=='Foundation')next=withSiteWork(next,m.siteWork&&{...emptySiteWork(),items:m.siteWork.items});
+ if(m.category!=='Foundation')next=withSiteWork(next,next.siteWork&&{...emptySiteWork(),items:next.siteWork.items});
  // slab on ground: lean concrete / sand / sheet / compaction under the slab, no soffit formwork
  if(input.category==='Slab'&&input.ground.support==='ground'){const g=groundLayers(input.ground,input.lengthX,input.lengthY);
   next=withSiteWork({...next,lean:g.lean,faces:[true,true,true,true,false,false]},{...(m.siteWork||emptySiteWork()),sand:g.sand,sheet:g.sheet,compaction:g.compaction});}
@@ -1298,7 +1442,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
  const generated:Bar[]=gen.filter(g=>g.count>0&&g.diameter>0).map(g=>{
   const cut=g.cut&&g.cut>0?g.cut:0;
   if(cut>det.stockLength)warn(`${g.note}: ยาวตัด ${cut} mm เกินเหล็กเส้น ${det.stockLength} mm ต้องต่อทาบ`);
-  return {id:`${GEN_PREFIX}${g.role}`,mark:nextMark(),diameter:g.diameter,grade:g.grade,count:g.count,axis:g.axis,face:g.face,shape:'polyline',shapeCode:g.shapeCode,start:0,end:0,tail:0,radius:Number(g.radius.toFixed(3)),distributionStart:g.offsets?0:g.from||0,distributionEnd:g.offsets?0:g.to||0,points:g.points.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),cutOverride:cut,placementConfirmed:false,note:g.note.slice(0,500),...(['00','11','21'].includes(g.shapeCode)&&!cut?{lengthMethod:'bs8666' as const}:{}),...(g.distributionAxis&&!g.offsets?{distributionAxis:g.distributionAxis}:{}),...(g.offsets?{offsets:g.offsets.map(o=>o.map(v=>Number(v.toFixed(3))) as V3)}:{}),...(g.offsets&&g.turns&&g.turns.some(t=>t!==0)?{offsetTurns:g.turns}:{})};
+  return {id:`${GEN_PREFIX}${g.role}`,mark:nextMark(),diameter:g.diameter,grade:gradeFor(det,g.diameter,g.grade),count:g.count,axis:g.axis,face:g.face,shape:'polyline',shapeCode:g.shapeCode,start:0,end:0,tail:0,radius:Number(g.radius.toFixed(3)),distributionStart:g.offsets?0:g.from||0,distributionEnd:g.offsets?0:g.to||0,points:g.points.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),cutOverride:cut,placementConfirmed:false,note:g.note.slice(0,500),...(['00','11','21'].includes(g.shapeCode)&&!cut?{lengthMethod:'bs8666' as const}:{}),...(g.distributionAxis&&!g.offsets?{distributionAxis:g.distributionAxis}:{}),...(g.offsets?{offsets:g.offsets.map(o=>o.map(v=>Number(v.toFixed(3))) as V3)}:{}),...(g.offsets&&g.turns&&g.turns.some(t=>t!==0)?{offsetTurns:g.turns}:{})};
  });
  return {member:{...next,bars:[...generated,...manual]},warnings,generated};
 }
