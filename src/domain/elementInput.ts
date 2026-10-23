@@ -1193,7 +1193,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
     const context=[...keep.slice(0,Math.max(0,REGION_LIMIT-cols.length)),...cols].slice(0,REGION_LIMIT);
     if(keep.length+cols.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ · ตัดพื้นที่กำหนดเองบางส่วนออก`);
     const {placementContext:_c,...rest}=next;
-    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:lay.L,y:lay.W,z:lay.H,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions,geometry:{solids,voids:[]}} as Member;
+    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:Math.max(...lay.spans.map(sp=>sp.b)),y:lay.W,z:lay.H,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions,geometry:{solids,voids:[]}} as Member;
    }else next={...next,x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions};
    gen=beamBars(input,det,warn);break;}
   case 'Slab':next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
