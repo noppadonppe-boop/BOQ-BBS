@@ -4,7 +4,7 @@ import type {Member,SnapshotBundle,ReportGroup} from './model';
 import {canonical} from './canonical';
 export const quantityComponents=['count','concrete','formwork','excavation','backfill','lean','rebar'] as const;
 export type QuantityComponent=typeof quantityComponents[number];
-export const quantityComponentLabels:Record<QuantityComponent,string>={count:'จำนวนองค์ประกอบ',concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ดินถมกลับ',lean:'Lean concrete',rebar:'ปริมาณเหล็ก BBS ที่กรอก'};
+export const quantityComponentLabels:Record<QuantityComponent,string>={count:'จำนวนองค์ประกอบ',concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ดินถมกลับ',lean:'Lean concrete / ชั้นรองพื้น / รายการเพิ่ม',rebar:'ปริมาณเหล็ก BBS ที่กรอก'};
 const token=z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 const review=z.object({key:z.string().regex(/^[a-f0-9]{64}$/),reference:z.string().trim().min(1).max(500),reviewToken:token}).strict();
 const countReview=review.extend({occurrences:z.array(z.object({id:token,quantity:z.number().int().min(1).max(100000)}).strict()).min(1).max(1000)}).superRefine((v,c)=>{if(new Set(v.occurrences.map(o=>o.id)).size!==v.occurrences.length)c.addIssue({code:'custom',message:'รายการจำนวนที่ตรวจซ้ำ'});});
@@ -15,10 +15,12 @@ export const provisionalQuantityBasis=(reference='มิติเริ่มต
 // Keep v1 review behavior and its historical input key unchanged.
 // shape models are appended only when present so keys of existing members stay unchanged
 const shapeKey=(m:Member)=>m.shapeModel?[{parts:m.shapeModel.parts,piles:m.shapeModel.piles,site:m.shapeModel.site}]:[];
-export const quantityInputKey=(m:Member)=>canonical([m.code,m.category,m.x,m.y,m.z,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.pedestal,m.excavation,m.lean,m.deductions,m.occurrences.map(o=>o.quantity),...shapeKey(m)]);
+// site / sub-base items likewise: appended only when present (reviewed with the lean concrete)
+const siteKey=(m:Member)=>m.siteWork?[{siteWork:m.siteWork}]:[];
+export const quantityInputKey=(m:Member)=>canonical([m.code,m.category,m.x,m.y,m.z,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.pedestal,m.excavation,m.lean,m.deductions,m.occurrences.map(o=>o.quantity),...shapeKey(m),...siteKey(m)]);
 const geometryInput=(m:Member)=>[m.x,m.y,m.z,m.geometry&&{solids:m.geometry.solids.map(({faces,...s})=>s),voids:m.geometry.voids.map(({faces,...s})=>s)},m.prismGeometry,m.beamAssembly,m.pedestal,m.deductions.map(d=>d.volume),...shapeKey(m)];
 export function quantityComponentInputKey(m:Member,component:QuantityComponent){
- const geometry=geometryInput(m),input=component==='count'?[]:component==='concrete'?geometry:component==='formwork'?[geometry,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.deductions.map(d=>d.formwork)]:component==='excavation'?m.excavation:component==='lean'?m.lean:component==='backfill'?[geometry,m.excavation,m.lean]:[m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.beamAssembly,m.placementContext,m.sourceSchedule,m.noRebar,m.bars.map(({placementConfirmed,bsDimensionsConfirmed,note,scheduleRevisionLetter,...b})=>b)];
+ const geometry=geometryInput(m),input=component==='count'?[]:component==='concrete'?geometry:component==='formwork'?[geometry,m.faces,m.geometry,m.prismGeometry,m.beamAssembly,m.deductions.map(d=>d.formwork)]:component==='excavation'?m.excavation:component==='lean'?(m.siteWork?[m.lean,m.siteWork]:m.lean):component==='backfill'?[geometry,m.excavation,m.lean,...(m.siteWork?[m.siteWork.sand]:[])]:[m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.beamAssembly,m.placementContext,m.sourceSchedule,m.noRebar,m.bars.map(({placementConfirmed,bsDimensionsConfirmed,note,scheduleRevisionLetter,...b})=>b)];
  return Array.from(sha256(new TextEncoder().encode(canonical([m.code,m.category,component,input]))),b=>b.toString(16).padStart(2,'0')).join('');
 }
 export function quantityReviewedComponents(m:Member):boolean[]{

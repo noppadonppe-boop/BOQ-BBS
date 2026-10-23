@@ -7,7 +7,7 @@ import {textWidth,type Prim} from './drawingPrims';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 export type ViewSpec={axes:[number,number];normal?:number;cut?:number};
-type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'lean'|'pile';circle?:boolean};
+type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
 export const barPalette=['#167561','#c2410c','#2563eb','#9333ea','#b45309','#0e7490','#be123c','#4d7c0f','#7c3aed','#0369a1','#a16207','#15803d'];
@@ -25,6 +25,15 @@ function leanRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|
  if(normal!==undefined&&(cut!<o[normal]||cut!>o[normal]+s[normal]))return [];
  return [{u0:o[a],u1:o[a]+s[a],v0:o[b],v1:o[b]+s[b],kind:'lean'}];
 }
+/** Sand bed under the lean concrete (site work), centred on the element plan. */
+function sandRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|undefined):Rect[]{
+ const sd=m.siteWork?.sand;if(!sd||sd.thickness<=0)return [];
+ const o=[(m.x-sd.x)/2,(m.y-sd.y)/2,-m.lean.thickness-sd.thickness],s=[sd.x,sd.y,sd.thickness];
+ if(normal!==undefined&&(cut!<o[normal]||cut!>o[normal]+s[normal]))return [];
+ return [{u0:o[a],u1:o[a]+s[a],v0:o[b],v1:o[b]+s[b],kind:'sand'}];
+}
+/** Thickness under the concrete down to the pit bottom: lean + sand (mm). */
+const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
 export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut}:ViewSpec){
@@ -35,6 +44,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  const boxes=[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:'context' as const}))];
  const sm=m.shapeModel,earth=m.category==='Foundation'||!!sm?.site,holes:Pt[][]=[],edges:Line[]=[];
  if(earth&&m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
+ if(earth)rects.push(...sandRect(m,a,b,normal,cut));
  // shape model: plan = footprint (holes white) + thin outlines of every part; section = cut rectangles per level band
  if(sm){
   if(normal===undefined){const r=shapePlanRings(sm);polys.push(...r.outer);holes.push(...r.holes);
@@ -61,10 +71,10 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   else rects.push({u0:s.origin[a],u1:s.origin[a]+s.size[a],v0:s.origin[b],v1:s.origin[b]+s.size[b],kind});
  }
  // Excavation outline and ground line (foundations).
- const e=m.excavation,ground=e.depth-m.lean.thickness;
+ const e=m.excavation,ground=e.depth-underside(m);
  if(earth&&e.depth>0){
   if(normal===undefined){for(const [wx,wy] of [[e.topX,e.topY],[e.bottomX,e.bottomY]]){const u0=(m.x-wx)/2,v0=(m.y-wy)/2;guides.push({a:[u0,v0],b:[u0+wx,v0]},{a:[u0+wx,v0],b:[u0+wx,v0+wy]},{a:[u0+wx,v0+wy],b:[u0,v0+wy]},{a:[u0,v0+wy],b:[u0,v0]});}}
-  else{const size=a===0?m.x:m.y,bw=a===0?e.bottomX:e.bottomY,tw=a===0?e.topX:e.topY,z0=-m.lean.thickness;guides.push({a:[(size-bw)/2,z0],b:[(size+bw)/2,z0]},{a:[(size-bw)/2,z0],b:[(size-tw)/2,ground]},{a:[(size+bw)/2,z0],b:[(size+tw)/2,ground]},{a:[(size-tw)/2-300,ground],b:[(size+tw)/2+300,ground]});}
+  else{const size=a===0?m.x:m.y,bw=a===0?e.bottomX:e.bottomY,tw=a===0?e.topX:e.topY,z0=-underside(m);guides.push({a:[(size-bw)/2,z0],b:[(size+bw)/2,z0]},{a:[(size-bw)/2,z0],b:[(size-tw)/2,ground]},{a:[(size+bw)/2,z0],b:[(size+tw)/2,ground]},{a:[(size-tw)/2-300,ground],b:[(size+tw)/2+300,ground]});}
  }
  // Bars: plan projects everything; sections show bars lying in the nearest plane and dots where bars cross it.
  const bars=rows.map(r=>{
@@ -105,7 +115,7 @@ function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number
  if(m.shapeModel){const sm=m.shapeModel,stops=(axis:number)=>{const vs=sm.parts.flatMap(p=>{const e=partExtent(p);return p.shape==='circle'?[e[axis],e[axis+2],axis?p.cy:p.cx]:partPolygon(p)[0].map(q=>q[axis]);});return [...new Set(vs.map(v=>Math.round(v)))].filter(v=>v>=0&&v<=size[axis]).sort((x,y)=>x-y).slice(0,12);};
   out.push({dir:'h',stops:stops(a),side:'end'});
   if(normal===undefined)out.push({dir:'v',stops:stops(b),side:'end'});
-  else{const zs=[...new Set(sm.parts.flatMap(p=>[p.z0,p.z0+p.height]))].sort((x,y)=>x-y);out.push({dir:'v',stops:m.lean.thickness>0?[-m.lean.thickness,...zs]:zs,side:'start'});if(m.excavation.depth>0)out.push({dir:'v',stops:[-m.lean.thickness,m.excavation.depth-m.lean.thickness],side:'end'});}
+  else{const zs=[...new Set(sm.parts.flatMap(p=>[p.z0,p.z0+p.height]))].sort((x,y)=>x-y);out.push({dir:'v',stops:[...new Set([...(underside(m)>m.lean.thickness?[-underside(m)]:[]),...(m.lean.thickness>0?[-m.lean.thickness]:[]),...zs])],side:'start'});if(m.excavation.depth>0)out.push({dir:'v',stops:[-underside(m),m.excavation.depth-underside(m)],side:'end'});}
   return out;}
  if(input?.category==='Foundation'){
   const col=input.column,T=input.thickness,H=col.type==='pedestal'?col.height:0;
@@ -117,8 +127,8 @@ function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number
   }
   if(normal!==undefined){
    const zs=[0,T,...(H>0?[T+H]:[]),...(col.type!=='none'&&col.projection>0?[T+H+col.projection]:[])];
-   out.push({dir:'v',stops:m.lean.thickness>0?[-m.lean.thickness,...zs]:zs,side:'start'});
-   if(m.excavation.depth>0)out.push({dir:'v',stops:[-m.lean.thickness,m.excavation.depth-m.lean.thickness],side:'end'});
+   out.push({dir:'v',stops:[...new Set([...(underside(m)>m.lean.thickness?[-underside(m)]:[]),...(m.lean.thickness>0?[-m.lean.thickness]:[]),...zs])],side:'start'});
+   if(m.excavation.depth>0)out.push({dir:'v',stops:[-underside(m),m.excavation.depth-underside(m)],side:'end'});
   }
  }else if(normal!==undefined)out.push({dir:'v',stops:[0,size[b]],side:'start'});
  return out;
@@ -135,14 +145,15 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  const s=Math.min((box.w-2*M)/spanU,(box.h-2*M)/spanV),offU=(box.w-2*M-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
  const X=(x:number)=>box.x+M+offU+(x-u[0])*s,Y=(y:number)=>box.y+box.h-M-offV-(y-vr[0])*s,out:Prim[]=[];
- const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
+ const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>out.push(r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
+ v.rects.filter(r=>r.kind==='sand').forEach(rect);
  v.rects.filter(r=>r.kind==='lean').forEach(rect);
  for(const p of v.polys)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,...style.concrete});
  for(const p of v.holes)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,fill:'#ffffff',stroke:style.concrete.stroke,width:style.concrete.width});
  for(const g of v.edges)out.push({t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#7d9690',width:.5*k});
  for(const p of v.piles){const dash=[4*k,2*k];if(p.square)out.push({t:'rect',x:X(p.u-p.size/2),y:Y(p.v+p.size/2),w:p.size*s,h:p.size*s,stroke:'#6b5b45',width:k,dash});else{out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/2*s,stroke:'#6b5b45',width:k,dash});if(p.hollow)out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/4*s,stroke:'#6b5b45',width:k,dash});}}
- v.rects.filter(r=>r.kind!=='lean').forEach(rect);
+ v.rects.filter(r=>r.kind!=='lean'&&r.kind!=='sand').forEach(rect);
  for(const g of v.guides)out.push({t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#a07b54',width:.8*k,dash:[6*k,4*k]});
  if(v.ground!==undefined)out.push({t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
  const cuts=opts.cuts;

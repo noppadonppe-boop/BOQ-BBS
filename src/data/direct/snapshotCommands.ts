@@ -29,7 +29,7 @@ async function capture(pid:string,p:Project):Promise<SnapshotBundle>{
  const [members,attachments,stock,stockLedger,cutPlans]=await Promise.all(['members','attachments','stock','stockLedger','cutPlans'].map(n=>readCollectionPages(pid,n)));
  must(members.length<=5000,'แบ่งโครงการ: Snapshot รองรับไม่เกิน 5,000 สมาชิก');
  const code99Reviews=await qualifiedCode99Reviews(p,members as Member[],attachments as any[],undefined,true);
- const calculations=Object.fromEntries((members as Member[]).map(m=>{const q=takeoff(m,p.spec);return [m.id,{quantity:q.quantity,concrete:q.concrete,formwork:q.formwork,excavation:q.excavation,backfill:q.backfill,lean:q.lean,rebar:q.rebar,bars:q.rows.map(b=>({id:b.id,cutLength:b.cutLength,geometricLength:b.geometricLength,eachWeight:b.eachWeight,weight:b.weight}))}];}));
+ const calculations=Object.fromEntries((members as Member[]).map(m=>{const q=takeoff(m,p.spec);return [m.id,{quantity:q.quantity,concrete:q.concrete,formwork:q.formwork,excavation:q.excavation,backfill:q.backfill,lean:q.lean,rebar:q.rebar,...(q.sand||q.sheet||q.compaction?{sand:q.sand,sheet:q.sheet,compaction:q.compaction}:{}),bars:q.rows.map(b=>({id:b.id,cutLength:b.cutLength,geometricLength:b.geometricLength,eachWeight:b.eachWeight,weight:b.weight}))}];}));
  return clean({schemaVersion:2,project:p,members,attachments,stock,stockLedger,cutPlans,createdAt:now(),status:'Draft',version:p.version,engineVersion:calculationEngine(p.spec),calculations,...(code99Reviews.length?{code99Reviews}:{})}) as SnapshotBundle;
 }
 const anchor=(p:Project)=>canonical({version:p.version,stockEpoch:p.stockEpoch,historyEpoch:p.historyEpoch,revisionCounter:p.revisionCounter});

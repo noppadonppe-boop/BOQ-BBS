@@ -1,6 +1,7 @@
 import {quantityBasisCoverage} from './quantityBasis';
 import {takeoff} from './engine';
 import {reinforcementCoverage} from './reinforcementCoverage';
+import {siteItemKey,siteKinds,siteLabels,siteUnits} from './siteWork';
 import type {Member,SnapshotBundle,ReportGroup} from './model';
 import {boqPricingSchema,priceKey,priceEntryKey,type PriceEntry,type PriceKind,type CostComponent} from './boqPricingSchema';
 export const PRICING_POLICY='boq-pricing-1.0';
@@ -25,11 +26,16 @@ export function exactAmount(quantity:string,rate:string,decimals:number){
  if(minor>MAX_MINOR)throw Error('จำนวนเงินเกินความละเอียดที่รองรับ แบ่งรายการก่อนส่งออก');return {minor:minor.toString(),amount:fixedDecimal(minor,decimals)};
 }
 export const moneyText=(text:string)=>{const [whole,frac]=text.split('.');return whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')+(frac!==undefined?'.'+frac:'');};
-export const priceLabels:Record<PriceKind,string>={concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ถมกลับ',lean:'Lean concrete',rebar:'เหล็ก BBS'};
-export type PriceItem={key:string;kind:PriceKind;diameter?:number;grade?:string;label:string;unit:'m³'|'m²'|'kg';each:number};
+export const priceLabels:Record<PriceKind,string>={concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ถมกลับ',lean:'Lean concrete',rebar:'เหล็ก BBS',sand:siteLabels.sand,sheet:siteLabels.sheet,compaction:siteLabels.compaction,extra:'รายการเพิ่มเอง'};
+export type PriceItem={key:string;kind:PriceKind;diameter?:number;grade?:string;item?:string;label:string;unit:string;each:number};
 export function priceItems(member:Member,bundle:Pick<SnapshotBundle,'project'|'calculations'>):PriceItem[]{
  const frozen=bundle.calculations?.[member.id],q=frozen||takeoff(member,bundle.project.spec),items:PriceItem[]=[];
  for(const kind of ['concrete','formwork','excavation','backfill','lean'] as const){const each=q[kind];if(!Number.isFinite(each)||each<0)throw Error(member.code+': ปริมาณสำหรับคิดราคาไม่ถูกต้อง');if(each>0)items.push({kind,key:priceKey({kind}),label:priceLabels[kind],unit:kind==='formwork'?'m²':'m³',each});}
+ for(const kind of siteKinds){const each=q[kind]??0;if(!Number.isFinite(each)||each<0)throw Error(member.code+': ปริมาณสำหรับคิดราคาไม่ถูกต้อง');if(each>0)items.push({kind,key:priceKey({kind}),label:priceLabels[kind],unit:siteUnits[kind],each});}
+ // manual items: same label and unit add up into one priced line
+ const extras=new Map<string,PriceItem>();
+ for(const it of member.siteWork?.items||[]){const item=siteItemKey(it),key=priceKey({kind:'extra',item}),old=extras.get(key);if(old)old.each+=it.quantity;else extras.set(key,{kind:'extra',item,key,label:it.label,unit:it.unit,each:it.quantity});}
+ items.push(...[...extras.values()].filter(x=>x.each>0));
  const steel=new Map<string,PriceItem>();
  for(const b of member.bars){const weight=frozen?frozen.bars.find(r=>r.id===b.id)?.weight:'rows' in q?q.rows.find(r=>r.id===b.id)?.weight:undefined;if(weight===undefined||!Number.isFinite(weight)||weight<0)throw Error(member.code+'/'+b.mark+': ไม่มีน้ำหนักสำหรับคิดราคา');const key=priceKey({kind:'rebar',diameter:b.diameter,grade:b.grade}),item=steel.get(key)||{key,kind:'rebar',diameter:b.diameter,grade:b.grade,label:`เหล็ก Ø${b.diameter} / ${b.grade}`,unit:'kg',each:0};item.each+=weight;steel.set(key,item);}
  return [...items,...[...steel.values()].filter(s=>s.each>0).sort((a,b)=>a.diameter!-b.diameter!||a.grade!.localeCompare(b.grade!))];

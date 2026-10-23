@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import type {Bar,Category,Member,Spec} from './model';
 import {detailingFromSpec} from './specDetailing';
+import {emptySiteWork,withSiteWork} from './siteWork';
 import type {DrawingExtraction} from './drawingExtraction';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
@@ -108,6 +109,7 @@ const base={
  detailing:detailingSchema,
  appliedAt:z.string().max(40).optional(),
 };
+const level=z.number().finite().min(-1000).max(10000);
 const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  foundationType:z.enum(['spread','pile']),
  /** Plan shape. hex/oct: width × length bounding box with corner chamfer (0 = regular); L/U: arm thicknesses as for columns. */
@@ -125,7 +127,28 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
   * reference region only (no slab concrete / bars); top bars extend `extend` mm beyond the footing into the slab. */
  slab:z.object({enabled:z.boolean(),thickness:mm,extend:mm}).strict(),
  column:footingColumnSchema,
+ /** Reference levels (m): natural ground (NGL) and top of footing. Enabled = excavation depth is computed
+  * from the levels down to the bottom of the lowest sub-base layer (lean, or sand under it). */
+ levels:z.object({enabled:z.boolean(),ground:level,top:level}).strict(),
+ /** Sub-base under the footing: sand bed (projection per side from the footing edge), plastic sheet
+  * (= lean area, or sand area without lean), compaction of the whole pit bottom. */
+ subbase:z.object({sand:z.object({enabled:z.boolean(),thickness:mm,projection:mm}).strict(),sheet:z.object({enabled:z.boolean()}).strict(),compaction:z.object({enabled:z.boolean()}).strict()}).strict(),
 }).strict();
+export const DEFAULT_FOOTING_LEVELS={enabled:false,ground:0,top:-1.2};
+export const DEFAULT_FOOTING_SUBBASE={sand:{enabled:false,thickness:100,projection:100},sheet:{enabled:false},compaction:{enabled:false}};
+/** Excavation slopes offered in the input (H : V per 1 vertical); 0 = vertical sides. */
+export const slopePresets=[[0,'ตั้งตรง'],[1,'1:1'],[1.5,'1:1.5'],[2,'1:2']] as const;
+/** Footing earthwork from the input: thicknesses under the footing, pit depth (levels or entered) and plan sizes. */
+export function footingEarth(i:FoundationInput){
+ const {w:X,d:Y}=footingExtent(i),sb=i.subbase,lean=i.lean.thickness,sand=sb.sand.enabled?sb.sand.thickness:0,below=lean+sand;
+ const depth=i.levels.enabled?Math.max(0,Math.round((i.levels.ground-i.levels.top)*1000+i.thickness+below)):i.excavation.depth;
+ const lx=X+2*i.lean.projection,ly=Y+2*i.lean.projection,sx=X+2*sb.sand.projection,sy=Y+2*sb.sand.projection;
+ const bx=Math.max(lean>0?lx:0,sand>0?sx:0,X+2*i.excavation.workingSpace),by=Math.max(lean>0?ly:0,sand>0?sy:0,Y+2*i.excavation.workingSpace),grow=2*depth*i.excavation.slope;
+ const sheet=sb.sheet.enabled?(lean>0?[lx,ly]:sand>0?[sx,sy]:[X,Y]):[0,0];
+ return {X,Y,lean,sand,below,depth,lx,ly,sx,sy,bx,by,grow,sheet,
+  /** levels (m) of the pit bottom and of the footing bottom */
+  bottomLevel:i.levels.enabled?i.levels.top-(i.thickness+below)/1000:undefined};
+}
 export const DEFAULT_FOOTING_SLAB={enabled:false,thickness:150,extend:1000};
 export const DEFAULT_FOOTING_SIDE={enabled:false,diameter:16,spacing:200};
 export const DEFAULT_FOOTING_SIDE_BARS={enabled:false,diameter:16,spacing:200,top:'inward' as const,bottom:'straight' as const,leg:0};
@@ -196,8 +219,13 @@ export const DEFAULT_PILE:PileInput={type:'square',size:300,layout:'standard',co
 /** Version 1 stored input (pedestal box + single end-hook flag) → version 2. */
 function migrateElementInput(raw:unknown):unknown{
  if(!raw||typeof raw!=='object')return raw;
- if((raw as any).version===1)return migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw)))));
- return migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw))));
+ if((raw as any).version===1)return migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(migrateV1(raw))))));
+ return migrateFootingSite(migrateFootingSlab(migrateShapes(migrateV2Column(migrateV2Foundation(raw)))));
+}
+/** Footings saved before reference levels / sub-base layers → levels off, no sand / sheet / compaction (same quantities). */
+function migrateFootingSite(raw:any):unknown{
+ if(raw?.version!==2||raw.category!=='Foundation'||'levels' in raw&&'subbase' in raw)return raw;
+ const v=structuredClone(raw);v.levels??={...DEFAULT_FOOTING_LEVELS};v.subbase??=structuredClone(DEFAULT_FOOTING_SUBBASE);return v;
 }
 /** Footings saved before the slab-cast option / side loops → both off (same bars). */
 function migrateFootingSlab(raw:any):unknown{
@@ -265,7 +293,7 @@ export type WallInput=z.infer<typeof wallSchema>;
 export function defaultElementInput(category:InputCategory,mode:'manual'|'drawing'='manual',spec?:Spec):ElementInput{
  const common={version:ELEMENT_INPUT_VERSION,mode,detailing:spec?detailingFromSpec(spec,{...DEFAULT_DETAILING}):{...DEFAULT_DETAILING}};
  switch(category){
-  case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN)};
+  case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE)};
   case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}}};
   case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}}};
   case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
@@ -324,7 +352,10 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.rebar.side.enabled)layer(input.rebar.side,'เหล็กรอบข้าง (LOOPS)');
    if(input.rebar.sideBars.enabled){layer(input.rebar.sideBars,'เหล็กแนวตั้งผิวข้าง');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
    if(input.slab.enabled){need(input.slab.thickness,'ความหนาพื้นที่หล่อรวมกับฐาน');if(input.shape!=='rect')p.push('ฐานหล่อรวมพื้น: รองรับแปลนสี่เหลี่ยมเท่านั้น');if(input.slab.thickness>=input.thickness)p.push('ความหนาพื้นต้องน้อยกว่าความหนาฐาน');}
-   if(input.excavation.depth>0&&input.excavation.depth<input.thickness+input.lean.thickness)p.push('ความลึกงานขุดน้อยกว่าความหนาฐานราก + Lean');
+   const earth=footingEarth(input);
+   if(input.subbase.sand.enabled)need(input.subbase.sand.thickness,'ความหนาทรายรองพื้น');
+   if(input.levels.enabled&&input.levels.top>input.levels.ground)p.push('ระดับหลังฐานรากสูงกว่าระดับดินเดิม · ตรวจระดับอ้างอิง');
+   else if(earth.depth>0&&earth.depth<input.thickness+earth.below)p.push(`ความลึกงานขุดน้อยกว่าความหนาฐานราก + Lean${earth.sand?' + ทราย':''}`);
    break;}
   case 'Column':{
    if(input.shape==='rect'){need(input.width,'ความกว้างเสา (X)');need(input.depth,'ความลึกเสา (Y)');fits(Math.min(input.width,input.depth),input.cover.side,input.cover.side,'หน้าตัดเสา');}
@@ -932,9 +963,9 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
  switch(input.category){
   case 'Foundation':{
    const {w:X,d:Y}=footingExtent(input),A=footingArea(input),P=footingPerimeter(input);
-   const lx=X+2*input.lean.projection,ly=Y+2*input.lean.projection,bx=Math.max(lx,X+2*input.excavation.workingSpace),by=Math.max(ly,Y+2*input.excavation.workingSpace),grow=2*input.excavation.depth*input.excavation.slope;
+   const earth=footingEarth(input),{lx,ly,bx,by,grow,depth}=earth;
    const col=input.column,T=input.thickness,ped=col.type==='pedestal',H=ped?col.height:0,{w,d}=columnExtent(col),ox=(X-w)/2+col.offsetX,oy=(Y-d)/2+col.offsetY;
-   const buriedPed=Math.max(0,Math.min(H,input.excavation.depth-input.lean.thickness-T)),buried=(A*T+(ped?columnArea(col)*buriedPed:0))/1e9;
+   const buriedPed=Math.max(0,Math.min(H,depth-earth.below-T)),buried=(A*T+(ped?columnArea(col)*buriedPed:0))/1e9;
    const footingFaces=[true,true,true,true,false,false],sideFaces=[true,true,true,true,false,false];
    const auto:Member['deductions']=[];
    // Hexagon / octagon / circle: bounding box concrete minus the cut-off corners (exact area and perimeter).
@@ -942,7 +973,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    if(ped&&col.shape==='circle')auto.push({reason:`${AUTO}เสาตอม่อกลม Ø${w} (หักจากกล่อง ${w} × ${w})`,volume:(w*w-Math.PI*w*w/4)*H/1e9,formwork:(4*w-Math.PI*w)*H/1e6});
    const piles=pilePositions(input);
    if(piles.length&&input.pile.embed>0)auto.push({reason:`${AUTO}หัวเข็มฝังในฐาน ${piles.length} ต้น × ${input.pile.embed} mm`,volume:piles.length*pileArea(input.pile)*input.pile.embed/1e9,formwork:0});
-   if(input.shape!=='rect'&&(input.lean.thickness>0||input.excavation.depth>0))warn('Lean concrete และงานขุดคิดเป็นกรอบสี่เหลี่ยมคลุมแปลนฐาน (ระยะยื่น/ระยะเผื่อทำงานรอบกรอบ)');
+   if(input.shape!=='rect'&&(input.lean.thickness>0||earth.sand>0||depth>0))warn('Lean concrete ทราย และงานขุดคิดเป็นกรอบสี่เหลี่ยมคลุมแปลนฐาน (ระยะยื่น/ระยะเผื่อทำงานรอบกรอบ)');
    const slabOn=footingSlabOn(input);
    if(slabOn)auto.push({reason:`${AUTO}ผิวข้างฐานช่วงความหนาพื้น ${input.slab.thickness} mm (หล่อรวมกับพื้น ไม่ใช้แบบหล่อ)`,volume:0,formwork:P*input.slab.thickness/1e6});
    if(input.slab.enabled&&!slabOn)warn('ฐานหล่อรวมพื้น: ใช้ได้กับแปลนสี่เหลี่ยมและพื้นบางกว่าฐาน · ยังไม่สร้างพื้นอ้างอิงและไม่ยื่นเหล็กบน');
@@ -961,7 +992,8 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    // Default section A-A passes through the first row of column bars so they appear in the section view.
    if(!m.drawingViews)shape={...shape,sectionY:firstBar?Number((oy+firstBar.y).toFixed(1)):Y/2};
    const {placementContext:_c,...rest}=next;
-   next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...(col.type!=='none'?[col.cover]:[])),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth:input.excavation.depth,buriedConcrete:buried},...shape} as Member;
+   next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...(col.type!=='none'?[col.cover]:[])),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth,buriedConcrete:buried},...shape} as Member;
+   next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
    gen=foundationBars(input,det,rounding,warn);break;}
   case 'Column':{
    const rect=input.shape==='rect',D=input.diameter,H=input.height;
@@ -974,6 +1006,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
   case 'Wall':next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions};gen=wallBars(input,det,rounding,warn);break;
  }
  if(m.category!=='Foundation')next={...next,excavation:{bottomX:0,bottomY:0,topX:0,topY:0,depth:0,buriedConcrete:0},lean:{x:0,y:0,thickness:0}};
+ if(m.category!=='Foundation')next=withSiteWork(next,m.siteWork&&{...emptySiteWork(),items:m.siteWork.items});
  if(opts.withBars===false)return {member:next,warnings,generated:[]};
  const manual=m.bars.filter(b=>!isGeneratedBar(b)),used=new Set(manual.map(b=>b.mark)),prefix=markPrefix[input.category];
  let n=0;const nextMark=()=>{let mark='';do{n++;mark=`${prefix}${String(n).padStart(2,'0')}`;}while(used.has(mark));used.add(mark);return mark;};

@@ -1,4 +1,5 @@
 import type {Bar,Member,Project,Vec3} from './model';
+import {siteKinds,siteLabels,siteUnits} from './siteWork';
 import {barPaths} from './engine';
 import {shapePileQuantities} from './shapeGeometry';
 import {shapeStageVolumes} from './shapeApply';
@@ -13,7 +14,7 @@ import {textWidth,wrapText,type Prim} from './drawingPrims';
 export const SHEET={w:420,h:297,left:20,margin:10,strip:135,title:72,bbsRow:9,bbsHead:6,boqRow:4.4};
 export type SheetRow=ViewRow&{grade:string;shapeCode:string;cutLength:number;weight:number};
 export type SheetData={member:Member;rows:SheetRow[];input?:ElementInput;project:Project;quantity:number;
- takeoff:{concrete:number;formwork:number;excavation:number;backfill:number;lean:number;rebar:number};
+ takeoff:{concrete:number;formwork:number;excavation:number;backfill:number;lean:number;rebar:number;sand?:number;sheet?:number;compaction?:number};
  status:string;revision:string;date:string;provisional:boolean;
  /** Company logo (data URL + pixel size) shown in the title block. */
  logo?:{src:string;width:number;height:number}};
@@ -27,6 +28,9 @@ export function sheetBoq(s:SheetData):BoqLine[]{
  const stages=m.shapeModel?shapeStageVolumes(m.shapeModel):[];if(stages.length>1)for(const st of stages)out.push({item:`  คอนกรีต Stage ${st.stage}`,unit:'m³',each:st.volume,total:st.volume*n});
  out.push({item:'แบบหล่อ',unit:'m²',each:q.formwork,total:q.formwork*n});
  if(m.category==='Foundation'||m.shapeModel?.site)out.push({item:'งานขุดดิน',unit:'m³',each:q.excavation,total:q.excavation*n},{item:'ถมดินกลับ',unit:'m³',each:q.backfill,total:q.backfill*n},{item:'คอนกรีตหยาบ (Lean)',unit:'m³',each:q.lean,total:q.lean*n});
+ // sub-base layers and manual items (any category)
+ for(const k of siteKinds){const v=q[k]??0;if(v>0)out.push({item:siteLabels[k],unit:siteUnits[k],each:v,total:v*n});}
+ for(const it of m.siteWork?.items||[])if(it.quantity>0)out.push({item:it.label,unit:it.unit,each:it.quantity,total:it.quantity*n});
  if(s.input?.category==='Foundation'&&s.input.foundationType==='pile'){const p=pileQuantities(s.input);if(p.count){out.push({item:`เสาเข็ม ${p.size} mm × ${p.lengthEach} m`,unit:'ต้น',each:p.count,total:p.count*n},{item:'ความยาวเสาเข็มรวม',unit:'m',each:p.totalLength,total:p.totalLength*n});if(p.cutCount)out.push({item:`ตัดหัวเข็ม (${Math.round(p.cutLengthEach*1000)} mm/ต้น)`,unit:'ต้น',each:p.cutCount,total:p.cutCount*n});}}
  if(m.shapeModel?.piles){const p=shapePileQuantities(m.shapeModel);if(p.count){out.push({item:`เสาเข็ม ${p.size} mm × ${p.lengthEach} m`,unit:'ต้น',each:p.count,total:p.count*n},{item:'ความยาวเสาเข็มรวม',unit:'m',each:p.totalLength,total:p.totalLength*n});if(p.cutCount)out.push({item:`ตัดหัวเข็ม (${Math.round(p.cutLengthEach*1000)} mm/ต้น)`,unit:'ต้น',each:p.cutCount,total:p.cutCount*n});}}
  const bySize=new Map<string,{d:number;grade:string;w:number}>();

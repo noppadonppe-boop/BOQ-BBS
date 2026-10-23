@@ -1,11 +1,14 @@
 import {lazy,Suspense,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {footingEarth,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
 import {ColumnTieEditor} from './ColumnTieEditor';
+import {FootingEarthworkSketch} from './FootingEarthworkSketch';
+import {SiteItemsEditor} from './SiteItemsEditor';
+import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
 import {detailingFromSpec,specLabel} from '../domain/specProfiles';
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const Element3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Element3DModal})));
@@ -33,8 +36,9 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const [filled,setFilled]=useState<string[]>([]);
  const [manualBars,setManualBars]=useState(()=>m.bars.filter(b=>!isGeneratedBar(b)));
  const [view3d,setView3d]=useState(false);
+ const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
  const spec=project.spec;
- const base=useMemo(()=>({...m,occurrences,bars:[...m.bars.filter(isGeneratedBar),...manualBars]}),[m,occurrences,manualBars]);
+ const base=useMemo(()=>withSiteWork({...m,occurrences,bars:[...m.bars.filter(isGeneratedBar),...manualBars]},{...(m.siteWork||emptySiteWork()),items}),[m,occurrences,manualBars,items]);
  const problems=useMemo(()=>input?elementInputProblems(input):[],[input]);
  const preview=useMemo(()=>{
   if(!input||problems.length)return undefined;
@@ -105,13 +109,31 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      {num(input.pile.layout==='grid'?'ระยะห่างแนว X (ศูนย์ถึงศูนย์)':'ระยะห่างเข็ม (ศูนย์ถึงศูนย์)','pile.spacingX')}{input.pile.layout==='grid'&&num('ระยะห่างแนว Y','pile.spacingY')}
      <Field label="ความยาวเสาเข็ม (m)" type="number" value={input.pile.length} onChange={v=>set('pile.length',Math.max(0,Number(v)||0))} disabled={readOnly}/>{num('ระยะตัดหัวเข็ม ต่อต้น','pile.cutoff')}{num('ระยะฝังหัวเข็มในฐาน','pile.embed')}{num('ระยะเยื้องกลุ่มเข็ม X (จากกึ่งกลางฐาน)','pile.offsetX')}{num('ระยะเยื้องกลุ่มเข็ม Y (จากกึ่งกลางฐาน)','pile.offsetY')}</div>
     <p className="muted">{pileSummary(input)}</p></>}
-   <h4>งานดินและคอนกรีตหยาบ</h4><div className="form-grid">{num('ความลึกขุด (จากระดับดินถึงก้นหลุม)','excavation.depth')}{num('ระยะเผื่อทำงานต่อด้าน','excavation.workingSpace')}<Field label="ความลาดผนังหลุม (H:V, 0 = ตั้งตรง)" type="number" value={input.excavation.slope} onChange={v=>set('excavation.slope',Math.max(0,Number(v)||0))} disabled={readOnly}/>{num('Lean concrete หนา','lean.thickness')}{num('Lean ยื่นจากขอบฐานต่อด้าน','lean.projection')}</div></>}
+   <h4>งานดินและชั้นรองพื้น</h4>{(()=>{const earth=footingEarth(input),q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string,neg=false)=><input aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
+    return <div className="earthwork-input"><div>
+     {check('กำหนดระดับอ้างอิง (คำนวณความลึกขุดให้)','levels.enabled')}
+     <div className="form-grid">{input.levels.enabled?<>{<Field label="ระดับดินเดิม NGL (m)" type="number" step="0.001" value={input.levels.ground} onChange={v=>set('levels.ground',Number(v)||0)} disabled={readOnly}/>}{<Field label="ระดับหลังฐานราก (m)" type="number" step="0.001" value={input.levels.top} onChange={v=>set('levels.top',Number(v)||0)} disabled={readOnly}/>}
+      <div className="field"><span>ความลึกขุด (คำนวณถึงใต้{earth.sand?'ทราย':'Lean'})</span><b className="computed">{number(earth.depth,0)} mm{earth.bottomLevel!==undefined?` · ก้นขุด ${earth.bottomLevel.toFixed(3)} m`:''}</b></div></>
+      :num(`ความลึกขุด (จากระดับดินถึงก้นหลุม = ใต้${earth.sand?'ทราย':'Lean'})`,'excavation.depth')}
+      {num('ระยะเผื่อทำงานต่อด้าน','excavation.workingSpace')}</div>
+     <div className="field slope-field"><span>ความลาดผนังขุด (ดิ่ง : ราบ)</span><div className="slope-row"><div className="segmented" role="group" aria-label="ความลาดผนังขุด">{slopePresets.map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.excavation.slope===v?'active':''} onClick={()=>set('excavation.slope',v)}>{t}</button>)}</div>
+      <label className="inline">กำหนดเอง 1:<input aria-label="ความลาดกำหนดเอง" type="number" min={0} max={5} step="0.1" disabled={readOnly} value={input.excavation.slope} onChange={e=>set('excavation.slope',Math.max(0,Math.min(5,Number(e.target.value)||0)))}/></label></div></div>
+     <table className="subbase-table"><thead><tr><th>ชั้นใต้ฐาน (บน → ล่าง)</th><th>หนา (mm)</th><th>ยื่นจากขอบฐาน (mm)</th><th className="num">ต่อ 1 ฐาน</th></tr></thead><tbody>
+      <tr><td>Lean concrete <small className="muted">(หนา 0 = ไม่มี)</small></td><td>{cell('lean.thickness')}</td><td>{cell('lean.projection')}</td><td className="num">{q?`${number(q.lean)} m³`:'—'}</td></tr>
+      <tr><td>{check('แผ่นพลาสติก','subbase.sheet.enabled')}</td><td>—</td><td className="muted">เท่าพื้นที่ Lean</td><td className="num">{q&&input.subbase.sheet.enabled?`${number(q.sheet)} m²`:'—'}</td></tr>
+      <tr><td>{check('ทรายรองพื้น','subbase.sand.enabled')}</td><td>{input.subbase.sand.enabled?cell('subbase.sand.thickness'):'—'}</td><td>{input.subbase.sand.enabled?cell('subbase.sand.projection'):'—'}</td><td className="num">{q&&input.subbase.sand.enabled?`${number(q.sand)} m³`:'—'}</td></tr>
+      <tr><td>{check('บดอัดดินก้นหลุม','subbase.compaction.enabled')}</td><td>—</td><td className="muted">เต็มก้นหลุม</td><td className="num">{q&&input.subbase.compaction.enabled?`${number(q.compaction)} m²`:'—'}</td></tr>
+     </tbody></table>
+     {q&&<p className="muted">ขุด {number(q.excavation)} m³ · ถมกลับ {number(q.backfill)} m³ (= ขุด − Lean{earth.sand?' − ทราย':''} − คอนกรีตใต้ดิน) · ต่อ 1 ฐาน</p>}
+    </div><FootingEarthworkSketch input={input}/></div>;})()}</>}
   {input.category==='Column'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
    <label className="field"><span>รูปร่างหน้าตัด</span><select disabled={readOnly} value={input.shape} onChange={e=>set('shape',e.target.value)}><option value="rect">สี่เหลี่ยม</option><option value="circle">วงกลม</option></select></label>
    {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div></>}
   {input.category==='Beam'&&<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
   {input.category==='Slab'&&<div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>}
   {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
+
+  <SiteItemsEditor items={items} onChange={setItems} readOnly={readOnly}/>
 
   <h4>2. จำนวนและตำแหน่ง (จำเป็น) · รวม {qty} ชิ้น</h4>
   <div className="table-scroll"><table className="occurrence-table"><thead><tr><th>Zone</th><th>ชั้น</th><th>Grid</th><th className="num">จำนวน</th><th/></tr></thead><tbody>{occurrences.map(o=><tr key={o.id}>{(['zone','floor','grid'] as const).map(k=><td key={k}><input aria-label={k} disabled={readOnly} value={o[k]} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,[k]:e.target.value}:n))}/></td>)}<td><input aria-label="จำนวน" disabled={readOnly} type="number" min={1} value={o.quantity} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,quantity:Math.max(1,Math.trunc(Number(e.target.value)||1))}:n))}/></td><td><button disabled={readOnly||occurrences.length===1} onClick={()=>setOccurrences(occurrences.filter(n=>n.id!==o.id))}>ลบ</button></td></tr>)}</tbody></table></div>
@@ -160,7 +182,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {preview&&'error' in preview&&<div className="notice danger">{preview.error}</div>}
   {preview&&!('error' in preview)&&<>
    <h4>ผลคำนวณ (พรีวิวก่อนใช้)</h4>
-   <div className="kpis compact">{[['คอนกรีต',preview.q.concrete,'m³'],['แบบหล่อ',preview.q.formwork,'m²'],...(m.category==='Foundation'?[['งานขุด',preview.q.excavation,'m³'],['ถมกลับ',preview.q.backfill,'m³'],['Lean concrete',preview.q.lean,'m³']]:[]),['เหล็กรวม',preview.q.rebar,'kg']].map(([l,v,u])=><div key={l as string}><small>{l}</small><strong>{number((v as number)*qty)} <em>{u}</em></strong><span>ต่อชิ้น {number(v as number)} {u} × {qty}</span></div>)}</div>
+   <div className="kpis compact">{[['คอนกรีต',preview.q.concrete,'m³'],['แบบหล่อ',preview.q.formwork,'m²'],...(m.category==='Foundation'?[['งานขุด',preview.q.excavation,'m³'],['ถมกลับ',preview.q.backfill,'m³'],['Lean concrete',preview.q.lean,'m³']]:[]),...siteKinds.filter(k=>preview.q[k]>0).map(k=>[siteLabels[k],preview.q[k],siteUnits[k]]),['เหล็กรวม',preview.q.rebar,'kg']].map(([l,v,u])=><div key={l as string}><small>{l}</small><strong>{number((v as number)*qty)} <em>{u}</em></strong><span>ต่อชิ้น {number(v as number)} {u} × {qty}</span></div>)}</div>
    {input.category==='Foundation'&&input.foundationType==='pile'&&(()=>{const p=pileQuantities(input);return <p className="pile-boq"><b>งานเสาเข็ม</b> {number(p.count*qty,0)} ต้น · {number(p.totalLength*qty,2)} m <b>งานตัดหัวเข็ม</b> {number(p.cutCount*qty,0)} ต้น · {number(p.totalCutLength*qty,2)} m <span className="muted">(ต่อฐาน {p.count} ต้น × {qty} ฐาน)</span></p>;})()}
    {sizes.length>0&&<p className="muted">เหล็กแยกขนาด (รวม {qty} ชิ้น): {sizes.map(([d,w])=>`${d<=9?'RB':'DB'}${d} = ${number(w*qty,2)} kg`).join(' · ')}</p>}
    <div className="table-scroll"><table><thead><tr><th>Mark</th><th>ตำแหน่ง</th><th>Ø / เกรด</th><th>Shape</th><th className="num">ยาวตัด mm</th><th className="num">ต่อชิ้น</th><th className="num">รวมเส้น</th><th className="num">รวม kg</th></tr></thead><tbody>{preview.q.rows.map(r=><tr key={r.id}><td>{r.mark}{!isGeneratedBar(r)&&<small className="block">เพิ่มเอง</small>}</td><td>{r.note}</td><td>{r.diameter} / {r.grade}</td><td>{r.shapeCode}</td><td className="num">{number(r.cutLength,0)}</td><td className="num">{r.count}</td><td className="num">{r.count*qty}</td><td className="num">{number(r.weight*qty,2)}</td></tr>)}</tbody></table></div>

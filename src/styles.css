@@ -272,3 +272,17 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .source-format-guide{margin:10px 0;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#fafcfb}.source-format-guide summary{cursor:pointer;font-weight:600}.source-format-guide .format-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:8px}.source-format-guide h4{margin:0 0 2px;font-size:13px}.source-format-guide ul{margin:4px 0 0;padding-left:18px;font-size:12px}
 .warn-text{color:#9a5a00}
 .shape-ai-inventory{margin-top:10px;padding-top:8px;border-top:1px solid #c9dbf3}.inventory-table tbody tr{cursor:pointer}.inventory-table tbody tr.active{background:#e8f1ff}.inventory-table td{vertical-align:top}
+/* foundation earthwork / sub-base input + live section sketch */
+.earthwork-input{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:900px){.earthwork-input{grid-template-columns:minmax(0,1fr)}}
+.earthwork-input b.computed{display:block;padding:7px 0;font-weight:600}
+.slope-field{margin:10px 0}.slope-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.slope-row label.inline{display:inline-flex;gap:6px;align-items:center;font-size:13px}.slope-row label.inline input{width:72px}
+.subbase-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}.subbase-table th,.subbase-table td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:left;vertical-align:middle}.subbase-table th{font-weight:500;color:var(--text-2)}
+.subbase-table td input{width:100%;min-width:60px;max-width:120px}.subbase-table td .check{margin:0}.subbase-table .num{text-align:right;white-space:nowrap}
+.earthwork-sketch{margin:0;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-2)}.earthwork-sketch svg{width:100%;height:auto;max-height:340px;display:block}
+.earthwork-sketch text{fill:#5b4a32;font-family:inherit}.earthwork-sketch .pit{fill:#f6efe4;stroke:#a07b54;stroke-width:1.5;vector-effect:non-scaling-stroke;stroke-dasharray:6 4}
+.earthwork-sketch .ground{stroke:#8a6a45;stroke-width:1.5;vector-effect:non-scaling-stroke}.earthwork-sketch .concrete{fill:#e9efec;stroke:#51706a;stroke-width:1.5;vector-effect:non-scaling-stroke}
+.earthwork-sketch .lean{fill:#dcd8cf;stroke:#8a857a;stroke-width:1;vector-effect:non-scaling-stroke}.earthwork-sketch .sand{fill:#f3e6bf;stroke:#b39552;stroke-width:1;vector-effect:non-scaling-stroke}
+.earthwork-sketch .sheet{stroke:#2d6fb0;stroke-width:2;vector-effect:non-scaling-stroke}.earthwork-sketch .compaction{stroke:#6b5b45;stroke-width:2;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+.earthwork-sketch figcaption{font-size:12px;margin-top:4px}
+.site-items{margin:16px 0}.site-items td input{max-width:none}.site-items .icon-button{padding:4px 6px}.site-items>button{margin-top:6px;display:inline-flex;gap:4px;align-items:center}
