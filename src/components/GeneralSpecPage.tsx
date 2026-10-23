@@ -1,9 +1,9 @@
 import {useEffect,useMemo,useState} from 'react';
-import {Copy,Plus,RefreshCw,Trash2} from 'lucide-react';
+import {Copy,Plus,RefreshCw,Trash2,Upload} from 'lucide-react';
 import type {Project,Spec} from '../domain/model';
 import {projectMaterialsSchema} from '../domain/projectMaterials';
 import {codeInfo} from '../domain/designCodes';
-import {profileSpec,specLabel,starterProfileSpec,type SpecProfile} from '../domain/specProfiles';
+import {applySpecImport,profileSpec,specImportSchema,specLabel,starterProfileSpec,type SpecProfile} from '../domain/specProfiles';
 import {deleteSpecProfile,saveSpecProfile,syncProjectsToProfile,useSpecProfiles} from '../data/specProfiles';
 import {Field} from './EditorControls';
 import {SpecEditor} from './SpecEditor';
@@ -40,7 +40,15 @@ export function GeneralSpecPage({projects,canManage,canChange,run,onFailure}:Pro
   const {id,version=1}=draft;
   void run(async()=>{await deleteSpecProfile(id,version);setDirty(false);setDraft(null);setSelected(profiles.find(p=>p.id!==id)?.id||'');},'ลบ Spec แล้ว');
  };
- const syncOne=(p:Project)=>current&&run(async()=>{const r=await syncProjectsToProfile(current,[p],canChange,setProgress);setProgress('');if(r.failed.length)throw Error(r.failed.join(' · '));},`อัปเดต ${p.code} ตาม Spec ล่าสุดแล้ว`);
+ const importFile=async(file:File)=>{
+  if(!draft)return;
+  try{
+   const input=specImportSchema.parse(JSON.parse(await file.text())),r=applySpecImport(draft.spec,input);
+   edit({spec:r.spec,...(input.description!==undefined?{description:input.description}:{})});
+   setProgress(`นำเข้า ${file.name}${input.source?` (${input.source})`:''}: ${r.notes.join(' · ')} · ตรวจค่าแล้วกด “บันทึก Spec”`);
+  }catch(e:any){onFailure(`นำเข้าไฟล์ไม่ได้ · ${e?.issues?.[0]?`${e.issues[0].path.join('.')}: ${e.issues[0].message}`:e?.message||e}`);}
+ };
+ const syncOne=(p:Project)=>current&&run(async()=>{const r=await syncProjectsToProfile(current,[p],canChange,setProgress,true);setProgress('');if(r.failed.length)throw Error(r.failed.join(' · '));},`อัปเดต ${p.code} ตาม Spec ล่าสุดแล้ว`);
 
  return <>
   <div className="heading"><div><div className="eyebrow">WORKSPACE STANDARDS</div><h1>General Spec (ส่วนกลาง)</h1><p>คลัง Spec หลายชุด · แต่ละโครงการเลือก Spec ในหน้าสร้าง/แก้ไขโครงการ · แก้ Spec แล้วโครงการที่ผูกไว้ปรับตามทันที (สมาชิกเป็น Draft และสร้าง Bar list อัตโนมัติใหม่)</p></div>
@@ -59,11 +67,12 @@ export function GeneralSpecPage({projects,canManage,canChange,run,onFailure}:Pro
      <Field label="ชื่อ Spec" value={draft.name} disabled={readOnly} onChange={v=>edit({name:String(v).slice(0,120)})}/>
      <label className="field full"><span>คำอธิบาย</span><textarea rows={2} maxLength={1000} disabled={readOnly} value={draft.description} onChange={e=>edit({description:e.target.value})}/></label></div>
      {draft.id&&<div className="actions spec-profile-actions"><button disabled={readOnly} onClick={()=>startNew(draft.spec,`${draft.name} (สำเนา)`)}><Copy size={14}/>ทำสำเนา</button>
+      <label className={`button ${readOnly?'disabled':''}`} title="นำเข้าค่าจากไฟล์ Spec (.json) แล้วกดบันทึก"><Upload size={14}/>นำเข้าจากไฟล์<input type="file" accept=".json,application/json" hidden disabled={readOnly} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importFile(f);}}/></label>
       <label className="check"><input type="checkbox" disabled={readOnly} checked={!!draft.archived} onChange={e=>edit({archived:e.target.checked})}/>เก็บถาวร (ไม่แสดงให้เลือกในโครงการใหม่)</label>
       <button className="danger-text" disabled={readOnly||dirty} title={dirty?'บันทึกหรือยกเลิกการแก้ไขก่อนลบ':linked(draft.id).length?'มีโครงการใช้ Spec นี้อยู่':'ลบ Spec นี้'} onClick={remove}><Trash2 size={14}/>ลบ Spec</button></div>}
     </section>
     <SpecEditor spec={draft.spec} readOnly={readOnly} onChange={spec=>edit({spec})} onSave={draft.name.trim()?spec=>void save(spec):undefined}/>
-    {draft.id&&<section className="panel padded"><h3>โครงการที่ใช้ Spec นี้</h3>{linked(draft.id).length?<div className="table-scroll"><table><thead><tr><th>Project No.</th><th>ชื่อ</th><th>f'c / เกรด</th><th>รุ่น Spec ที่ใช้</th><th/></tr></thead><tbody>{linked(draft.id).map(p=>{const ref=p.spec.profileRef!,old=!!current&&ref.version<current.version;return <tr key={p.id}><td>{p.code}</td><td>{p.name}</td><td>{p.spec.projectDesign?`${p.spec.projectDesign.fc} MPa · ${p.spec.projectDesign.grade}`:'—'}</td><td>v{ref.version}{old?<b className="code-own"> · รออัปเดต</b>:' · ล่าสุด'}</td><td>{old&&<button disabled={!canChange(p)||dirty} onClick={()=>syncOne(p)}><RefreshCw size={14}/>อัปเดตตาม Spec</button>}</td></tr>;})}</tbody></table></div>:<p className="muted">ยังไม่มีโครงการเลือกใช้ · เลือกได้ในหน้าสร้าง/แก้ไขโครงการ</p>}</section>}
+    {draft.id&&<section className="panel padded"><h3>โครงการที่ใช้ Spec นี้</h3>{linked(draft.id).length?<div className="table-scroll"><table><thead><tr><th>Project No.</th><th>ชื่อ</th><th>f'c / เกรด</th><th>รุ่น Spec ที่ใช้</th><th/></tr></thead><tbody>{linked(draft.id).map(p=>{const ref=p.spec.profileRef!,old=!!current&&ref.version<current.version;return <tr key={p.id}><td>{p.code}</td><td>{p.name}</td><td>{p.spec.projectDesign?`${p.spec.projectDesign.fc} MPa · ${p.spec.projectDesign.grade}`:'—'}</td><td>v{ref.version}{old?<b className="code-own"> · รออัปเดต</b>:' · ล่าสุด'}</td><td><button disabled={!canChange(p)||dirty} title={old?'ปรับโครงการเป็น Spec รุ่นล่าสุด':'ใช้ Spec รุ่นนี้กับโครงการอีกครั้ง · คำนวณ detailing และเหล็กอัตโนมัติใหม่ (สมาชิกเป็น Draft)'} onClick={()=>{if(old||confirm(`ใช้ Spec v${current?.version} กับ ${p.code} อีกครั้ง? สมาชิกจะเป็น Draft และสร้างเหล็กอัตโนมัติใหม่`))void syncOne(p);}}><RefreshCw size={14}/>{old?'อัปเดตตาม Spec':'ใช้ Spec อีกครั้ง'}</button></td></tr>;})}</tbody></table></div>:<p className="muted">ยังไม่มีโครงการเลือกใช้ · เลือกได้ในหน้าสร้าง/แก้ไขโครงการ</p>}</section>}
     <footer className="actions spec-profile-save">{progress&&<span role="status">{progress}</span>}<button className="primary" disabled={readOnly||invalid||!dirty} onClick={()=>void save()}>บันทึก Spec{draft.id&&linked(draft.id).length?` และปรับ ${linked(draft.id).length} โครงการ`:''}</button>{dirty&&<button onClick={()=>{setDirty(false);if(!draft.id){setDraft(null);setSelected(profiles[0]?.id||'');}}}>ยกเลิกการแก้ไข</button>}</footer>
     <p className="muted">ใช้กับโครงการ: {draft.id?specLabel({...draft.spec,profileRef:{id:draft.id,version:draft.version||1,name:draft.name}}):draft.name} · การปรับโครงการใช้ขั้นตอนเปลี่ยนสเป็คเดิม (สมาชิกเป็น Draft · ตรวจตำแหน่งเหล็กใหม่ · Revision ที่ตรึงไว้คงเดิม)</p>
    </div>}

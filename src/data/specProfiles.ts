@@ -43,8 +43,8 @@ export async function deleteSpecProfile(id:string,version:number){
 
 /** Re-apply the latest profile to every linked project the user may change (live link).
  * Each project goes through the normal spec-change job (members → Draft, auto bars regenerated). */
-export async function syncProjectsToProfile(profile:SpecProfile,projects:Project[],canChange:(p:Project)=>boolean,progress:(m:string)=>void){
- const linked=projects.filter(p=>p.spec.profileRef?.id===profile.id&&p.spec.profileRef.version<profile.version);
+export async function syncProjectsToProfile(profile:SpecProfile,projects:Project[],canChange:(p:Project)=>boolean,progress:(m:string)=>void,force=false){
+ const linked=projects.filter(p=>p.spec.profileRef?.id===profile.id&&(force||p.spec.profileRef.version<profile.version));
  const done:string[]=[],skipped:string[]=[],failed:string[]=[];
  for(const p of linked){
   if(!canChange(p)||['Applying','RollingBack'].includes(p.specChangeState?.status||'')){skipped.push(p.code);continue;}

@@ -66,7 +66,9 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
  // regenerates the auto bars (gen-*) of members built from element input; manual bars are kept.
  const regenerate=(m:Member):Member|undefined=>{
   if(action!=='beginSpecChange'||!m.elementInput)return;
-  const parsed=elementInputSchema.safeParse(m.elementInput);if(!parsed.success||parsed.data.category!==m.category||!parsed.data.appliedAt)return;
+  const parsed=elementInputSchema.safeParse(m.elementInput);if(!parsed.success||parsed.data.category!==m.category)return;
+  // input not applied yet: only refresh its detailing so the next apply uses the new spec
+  if(!parsed.data.appliedAt)return {...m,elementInput:{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)}};
   try{const r=applyElementInput(m,{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)},{rounding:spec.rounding,withBars:m.bars.some(isGeneratedBar)});return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}
  };
  for(const m0 of selected){const fresh=regenerate(m0),m=fresh||m0;if(!fresh){const errors=validateMember(m0,spec);must(!errors.length,`${m0.code}: ${errors.join('\n')}`,'invalid-argument');}manifest.members.push({id:m0.id,before:m0,after:{...m,...(m.quantityBasis?{quantityBasis:provisionalQuantityBasis(m.quantityBasis.reference)}:{}),noRebar:undefined,status:'Draft',version:m.version+1,inputEpoch:id,updatedAt:manifest.preparedAt,bars:m.bars.map(b=>({...b,placementConfirmed:false,...(b.bsDimensionsConfirmed!==undefined?{bsDimensionsConfirmed:false}:{})}))}});}

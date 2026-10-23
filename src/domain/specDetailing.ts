@@ -1,6 +1,6 @@
 import type {Spec} from './model';
 import type {Detailing} from './elementInput';
-import {codeInfo,codeValues,isCustomCode,tableCode} from './designCodes';
+import {codeInfo,codeValues,isCustomCode,tableCode,type LapRow} from './designCodes';
 
 // Kept free of runtime imports from model / elementInput (both use it) to avoid import cycles.
 export type ProjectDesign={fc:number;grade:'SD40'|'SD50'};
@@ -11,14 +11,18 @@ export const specLabel=(spec:Spec)=>[spec.profileRef?.name||'ไม่ผูก 
 const avg=(v:number[])=>v.length?v.reduce((a,b)=>a+b,0)/v.length:0;
 const step=(v:number,s=.05)=>Number((Math.round(v/s)*s).toFixed(2));
 /** Element-input detailing defaults derived from a project spec: bend radii from the hook tables,
- * per-diameter lap lengths (FTL tension) from the f'c / grade lap table, main grade = project grade. */
+ * per-diameter lap lengths (FTL tension) from the f'c lap table of each bar's grade, main grade = project grade. */
 export function detailingFromSpec(spec:Spec,base:Detailing):Detailing{
  const design=designOf(spec),code=spec.designCode,specRef=specLabel(spec).slice(0,200);
  if(!tableCode(code)){const {lapTable:_l,...rest}=base;return {...rest,mainGrade:spec.projectDesign?design.grade:base.mainGrade,specRef};}
  const v=codeValues(spec.codeData,code),table=v.lap[`${design.fc}-${design.grade}`]||v.lap['28-SD40'];
+ // each bar size laps by its own grade (spec grade per bar, e.g. DB25+ SD50); other grades use the project grade
+ const barGrade=(bar:number)=>{const g=v.grades.find(r=>r.bar===bar)?.grade;return g==='SD40'||g==='SD50'?g:design.grade;};
+ const lapRows=[...new Set(['SD40','SD50'].flatMap(g=>(v.lap[`${design.fc}-${g}`]||[]).map(r=>r.bar)))].sort((a,b)=>a-b)
+  .map(bar=>(v.lap[`${design.fc}-${barGrade(bar)}`]||table).find(r=>r.bar===bar)).filter((r):r is LapRow=>!!r);
  // D = finished (inside) bend diameter → inner radius / d
  const ratio=(rows:{bar:number;D:number}[],lo:number,hi:number)=>avg(rows.filter(r=>r.bar>=lo&&r.bar<=hi&&r.bar>0).map(r=>r.D/2/r.bar));
  const bendSmall=step(ratio(v.endHooks,1,16))||base.bendSmall,bendLarge=step(ratio(v.endHooks,20,32))||base.bendLarge,tieBend=step(ratio(v.stirrupHooks,1,16))||base.tieBend;
- const lapTable=table.map(r=>({bar:r.bar,length:r.ftlTension}));
- return {...base,mainGrade:design.grade,bendSmall,bendLarge,tieBend,hook90:12,hook135:6,hook135Min:75,lap:Math.round(avg(table.map(r=>r.ftlTension/r.bar)))||base.lap,lapTable,specRef,beam:{...v.beam},grades:v.grades.map(r=>({bar:r.bar,grade:r.grade}))};
+ const lapTable=lapRows.map(r=>({bar:r.bar,length:r.ftlTension}));
+ return {...base,mainGrade:design.grade,bendSmall,bendLarge,tieBend,hook90:12,hook135:6,hook135Min:75,lap:Math.round(avg(lapRows.map(r=>r.ftlTension/r.bar)))||base.lap,lapTable,specRef,beam:{...v.beam},grades:v.grades.map(r=>({bar:r.bar,grade:r.grade}))};
 }
