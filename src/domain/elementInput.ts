@@ -156,12 +156,14 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
    * bottom of the upper stage (`cover` from the joint), and vertical bars through the joint (embed `below` into the
    * lower stage, up to under the top layer of the upper stage; legs in multiples of d) */
   joints:z.array(z.object({
-   mesh:z.object({enabled:z.boolean(),at:z.enum(['lower','upper']),cover:mm,x:z.object({diameter:dia,spacing:mm}).strict(),y:z.object({diameter:dia,spacing:mm}).strict()}).strict(),
+   mesh:z.object({enabled:z.boolean(),at:z.enum(['lower','upper']),cover:mm,
+    /** bar ends: straight, standard 90° bend, or a 90° bend with leg `leg` (mm); lower-stage mesh bends down, upper-stage mesh up */
+    end:z.enum(['straight','standard','custom']),leg:mm,x:z.object({diameter:dia,spacing:mm}).strict(),y:z.object({diameter:dia,spacing:mm}).strict()}).strict(),
    dowel:z.object({enabled:z.boolean(),diameter:dia,spacingX:mm,spacingY:mm,below:mm,shape:z.enum(['00','11','21','z']),topLeg:mm,bottomLeg:mm}).strict(),
   }).strict()).max(5)}).strict(),
 }).strict();
 export const DEFAULT_FOOTING_LEVELS={enabled:false,ground:0,ref:'top' as 'top'|'bottom',top:-1.2,bottom:-1.8};
-export const DEFAULT_JOINT_REBAR={mesh:{enabled:false,at:'lower' as 'lower'|'upper',cover:50,x:{diameter:16,spacing:250},y:{diameter:16,spacing:250}},
+export const DEFAULT_JOINT_REBAR={mesh:{enabled:false,at:'lower' as 'lower'|'upper',cover:50,end:'straight' as 'straight'|'standard'|'custom',leg:300,x:{diameter:16,spacing:250},y:{diameter:16,spacing:250}},
  dowel:{enabled:false,diameter:16,spacingX:500,spacingY:500,below:400,shape:'z' as '00'|'11'|'21'|'z',topLeg:15,bottomLeg:12}};
 export const DEFAULT_FOOTING_POUR={count:1,heights:[] as number[],joints:[] as (typeof DEFAULT_JOINT_REBAR)[]};
 export const DEFAULT_FOOTING_SUBBASE={sand:{enabled:false,thickness:100,projection:100},sheet:{enabled:false},compaction:{enabled:false}};
@@ -376,8 +378,8 @@ function migrateFootingSite(raw:any):unknown{
 }
 /** Footings saved before pour stages / joint bars / the level reference → one pour, no joint bars, level given at the top. */
 function migrateFootingPour(raw:any):unknown{
- if(raw?.version!==2||raw.category!=='Foundation'||'pour' in raw&&'joints' in raw.pour&&(!raw.levels||'ref' in raw.levels))return raw;
- const v=structuredClone(raw);v.pour??=structuredClone(DEFAULT_FOOTING_POUR);v.pour.joints??=[];
+ if(raw?.version!==2||raw.category!=='Foundation'||'pour' in raw&&'joints' in raw.pour&&raw.pour.joints.every((j:any)=>'end' in (j?.mesh||{}))&&(!raw.levels||'ref' in raw.levels))return raw;
+ const v=structuredClone(raw);v.pour??=structuredClone(DEFAULT_FOOTING_POUR);v.pour.joints??=[];for(const j of v.pour.joints)if(j?.mesh&&!('end' in j.mesh))j.mesh={...j.mesh,end:'straight',leg:300};
  if(v.levels&&!('ref' in v.levels))v.levels={...v.levels,ref:'top',bottom:Number(((v.levels.top??0)-(v.thickness??0)/1000).toFixed(3))};
  return v;
 }
@@ -909,12 +911,12 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // vertical face bars are the outermost layer: meshes and loops move inside them
  const vb=r.sideBars,sideIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0;
  // below: bars of this layer stop under the other bottom layer's U returns (Shape 41 legs rise to just under the top mesh)
- const mesh=(role:string,note:string,l:Shaped&{spacing:number},runX:boolean,z:number,up:boolean,below=0)=>{
+ const mesh=(role:string,note:string,l:Shaped&{spacing:number},runX:boolean,z:number,up:boolean,below=0,own?:{room:number})=>{
   const d=l.diameter,inner=inset(plan,c.side+sideIn+d/2),ai=runX?1:0,lo=Math.min(...inner.map(p=>p[ai])),hi=Math.max(...inner.map(p=>p[ai])),s=spread(lo,hi,l.spacing);
   if(!s){warn(`${note}: วางเหล็กไม่ได้`);return;}
   // slab-cast footing: top bars run on into the slab by `extend`; their bends/hooks must stay inside the slab thickness
-  const ext=slabOn&&!up?c.side+sideIn+d/2+i.slab.extend:0;
-  const room=up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
+  const ext=slabOn&&!up&&!own?c.side+sideIn+d/2+i.slab.extend:0;
+  const room=own?own.room:up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
   const sh=shapedEnds(l,det,up?1:-1,room,note,warn);
   const segs:{a:number;b:number;at:number}[]=[];
   for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at));for(const [a,b] of lineIntervals(inner,runX?0:1,pos))if(b-a+2*ext>sh.minRun)segs.push({a:a-ext,b:b+ext,at});}
@@ -942,12 +944,16 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const jr=jointRebar(i,k),tag=`รอยต่อการเท ${k+1} (Stage ${k+1}/${k+2} ที่ +${Math.round(J)})`;
   if(!jr.mesh.enabled&&!jr.dowel.enabled)return;
   if(J>=T-c.top-topStack-1){warn(`${tag}: อยู่เหนือตะแกรงบนของฐาน · ไม่ใส่เหล็กที่รอยต่อนี้`);return;}
-  const ms=jr.mesh,flat=(l:{diameter:number;spacing:number})=>({...l,shape:'00',leg:0,radius:0}) as Shaped&{spacing:number};
+  const ms=jr.mesh,flat=(l:{diameter:number;spacing:number})=>({...l,shape:ms.end==='straight'?'00':'21',leg:ms.end==='custom'?ms.leg:0,radius:0}) as Shaped&{spacing:number};
   if(ms.enabled){const dx=ms.x.diameter,dy=ms.y.diameter,lower=ms.at==='lower',sgn=lower?-1:1;
    const zx=J+sgn*(ms.cover+dx/2),zy=J+sgn*(ms.cover+dx+dy/2),where=lower?'ผิวบน Stage ล่าง':'ผิวล่าง Stage บน';
    if(Math.min(zx,zy)<c.bottom+r.bottomX.diameter+r.bottomY.diameter||Math.max(zx,zy)>T-c.top-topStack)warn(`${tag}: ตะแกรงที่รอยต่อชนตะแกรงล่าง/บนของฐาน ตรวจระยะ`);
-   mesh(`joint${k+1}-x`,`ตะแกรงรอยต่อการเท ${k+1} · ${where} · ทิศ X`,flat(ms.x),true,zx,true);
-   mesh(`joint${k+1}-y`,`ตะแกรงรอยต่อการเท ${k+1} · ${where} · ทิศ Y`,flat(ms.y),false,zy,true);}
+   // bends stay in the mesh's own stage: lower-stage mesh down to above the bottom mesh, upper-stage mesh up to under
+   // the top mesh (or under the next joint)
+   const floor=c.bottom+r.bottomX.diameter+r.bottomY.diameter,next=pour.levels[k+1],ceil=next!==undefined&&next<T-c.top-topStack?next-50:T-c.top-topStack;
+   const room=(z:number,d:number)=>({room:lower?z-floor-d:ceil-z-d});
+   mesh(`joint${k+1}-x`,`ตะแกรงรอยต่อการเท ${k+1} · ${where} · ทิศ X`,flat(ms.x),true,zx,!lower,0,room(zx,dx));
+   mesh(`joint${k+1}-y`,`ตะแกรงรอยต่อการเท ${k+1} · ${where} · ทิศ Y`,flat(ms.y),false,zy,!lower,0,room(zy,dy));}
   const dw=jr.dowel;
   if(dw.enabled){const d=dw.diameter,rad=radius(d,det),meshAbove=ms.enabled&&ms.at==='upper'?ms.cover+ms.x.diameter+ms.y.diameter:0;
    // top: under the top mesh of the footing, or under the next joint (and its mesh) when more stages follow

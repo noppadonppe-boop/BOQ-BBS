@@ -329,3 +329,4 @@ td{padding:9px 12px;border-bottom:1px solid var(--border)}tbody tr:hover td{back
 .column-stack .stack-ends{align-items:end;margin-bottom:8px}.column-table td{white-space:nowrap;vertical-align:top}.column-table td input{max-width:none}
 .joint-rebar{border:1px solid var(--line,#d8dfdd);border-radius:6px;padding:6px 10px 8px;margin:8px 0}.joint-rebar legend{font-weight:600;font-size:13px;padding:0 4px}
 .joint-row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:4px 0 8px 22px;font-size:13px}.joint-row label.inline{display:inline-flex;gap:5px;align-items:center}
+.joint-end{flex-basis:100%;margin:0}.joint-end-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
