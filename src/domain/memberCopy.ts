@@ -36,6 +36,6 @@ export function copyMemberInputs(source:Member,input:Pick<MemberCopyRequest,'mem
  m.id=input.memberId;m.code=input.code;m.version=0;m.status='Draft';
  m.occurrences=structuredClone(input.occurrences).map(o=>({...o,id:newId()}));
  delete m.inputEpoch;delete m.updatedAt;delete m.sourceSchedule;delete m.drawingExtraction;
- delete m.drawingSetup;delete m.scheduleSetup;delete m.copySource;delete m.pricing;delete m.noRebar;
+ delete m.drawingSetup;delete m.review;delete m.scheduleSetup;delete m.copySource;delete m.pricing;delete m.noRebar;
  return memberSchema.parse(m);
 }

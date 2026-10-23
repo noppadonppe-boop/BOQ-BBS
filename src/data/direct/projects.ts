@@ -11,7 +11,7 @@ import {actor,directory,directoryRef,profileOperationRef,projectRef,projectTrans
 const logo=z.object({path:z.string().regex(/^projects\/[a-zA-Z0-9_-]{1,80}\/branding\/[a-zA-Z0-9._-]{1,120}$/),name:z.string().min(1).max(250),contentType:z.enum(['image/png','image/jpeg']),size:z.number().int().positive().max(2*1024*1024),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
 // code = Project No., owner = Client, notes = input note.
 const input=z.object({code:z.string().trim().min(1).max(50),name:z.string().trim().min(1).max(200),location:z.string().max(300).default(''),owner:z.string().max(200).default(''),contractor:z.string().max(200).default(''),subcontractor:z.string().max(200).default(''),notes:z.string().max(10000).default(''),logo:logo.nullable().optional()});
-const titleBlock=z.object({company:z.string().max(200),drawnBy:z.string().max(120),checkedBy:z.string().max(120),drawingPrefix:z.string().max(50)});
+const titleBlock=z.object({company:z.string().max(200),drawnBy:z.string().max(120),checkedBy:z.string().max(120),approvedBy:z.string().max(120).optional(),drawingPrefix:z.string().max(50),drawingSuffix:z.string().max(50).optional(),drawingParts:z.array(z.string().max(50)).max(8).optional(),sheetLanguage:z.enum(['th','en','zh']).optional()});
 export async function createDirectProject(data:Record<string,any>,id:string){
  const parsed=input.extend({company:z.string().max(200).default(''),spec:specSchema.optional()}).parse(data.project),inputHash=await digestData({action:'createProject',data});
  if(parsed.logo)must(parsed.logo.path.startsWith(`projects/${id}/`),'ไฟล์โลโก้ไม่ตรงโครงการ','invalid-argument');

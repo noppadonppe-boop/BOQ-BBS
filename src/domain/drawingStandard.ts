@@ -1,12 +1,21 @@
 import {z} from 'zod';
 import type {Member,Project,SnapshotBundle,DrawingLayout} from './model';
 const text=(n:number)=>z.string().trim().max(n);
-export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional()});
+// run / rev = automatic drawing number parts (…segments-Run 001–999-R0–9); number is kept composed for keys and registers
+export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional(),run:z.number().int().min(1).max(999).optional(),rev:z.number().int().min(0).max(9).optional()});
 export type DrawingSetup=z.infer<typeof drawingSetupSchema>;
 export const drawingProfileSchema=z.object({template:z.literal('owner-v1'),language:z.enum(['th','en']),projectName:text(80).min(1),company:text(80),owner:text(80),location:text(80),contract:text(50),discipline:text(50),preparedBy:text(60),checkedBy:text(60),indexNumber:text(80),indexRevision:text(16)});
 export type DrawingProfile=z.infer<typeof drawingProfileSchema>;
-export const titleBlockSchema=z.object({company:z.string().max(300),drawnBy:z.string().max(200),checkedBy:z.string().max(200),drawingPrefix:z.string().max(80)});
+export const titleBlockSchema=z.object({company:z.string().max(300),drawnBy:z.string().max(200),checkedBy:z.string().max(200),approvedBy:z.string().max(200).optional(),drawingPrefix:z.string().max(80),drawingSuffix:z.string().max(80).optional(),drawingParts:z.array(z.string().max(50)).max(8).optional(),sheetLanguage:z.enum(['th','en','zh']).optional()});
 export const drawingNumberKey=(s:string)=>s.normalize('NFC').trim().toLowerCase();
+export const MAX_DRAWING_PARTS=8;
+export const drawingRunText=(run:number)=>String(run).padStart(3,'0');
+export const drawingRevText=(rev:number)=>'R'+rev;
+/** Text segments before the run (user can add / remove / reorder), default Prefix-Suffix-BBS; older projects
+ * without `drawingParts` use drawingPrefix (or the project code) + drawingSuffix + BBS. */
+export function drawingParts(p:Pick<Project,'code'|'titleBlock'>){return p.titleBlock.drawingParts??[p.titleBlock.drawingPrefix||p.code,p.titleBlock.drawingSuffix||'','BBS'];}
+/** Segment1-Segment2-…-Run(001–999)-R(0–9); empty segments are left out, no segment at all falls back to the project code. */
+export function composeDrawingNumber(p:Pick<Project,'code'|'titleBlock'>,run:number|undefined,rev=0){const parts=drawingParts(p).map(s=>s.trim()).filter(Boolean);return [...(parts.length?parts:[p.code]),run?drawingRunText(run):'XXX',drawingRevText(rev)].join('-');}
 export function drawingReferences(b:SnapshotBundle,layout:DrawingLayout){
  if(!b.project.drawingProfile)return [];
  const refs=b.members.map(m=>({memberId:m.id,memberCode:m.code,number:m.drawingSetup?.number||'',revision:m.drawingSetup?.revision||'',title:m.drawingSetup?.title||''}));

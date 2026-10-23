@@ -6,14 +6,15 @@ export const APP_NAME=viteEnv.VITE_APP_NAME||'my-boq-app';
 export const userRoles=['MasterAdmin','SuperAdmin','Admin','admin','Staff','qs','checker','approver','viewer'] as const;
 export type UserRole=typeof userRoles[number];
 export const roleLabels:Record<UserRole,string>={
- MasterAdmin:'MasterAdmin',SuperAdmin:'SuperAdmin',Admin:'Admin',admin:'ผู้ดูแลโครงการ',Staff:'Staff',
+ // stored value 'SuperAdmin' is kept for existing accounts; it is shown as ProjectAdmin
+ MasterAdmin:'MasterAdmin',SuperAdmin:'ProjectAdmin',Admin:'Admin (เดิม)',admin:'ผู้ดูแลโครงการ',Staff:'Staff',
  qs:'ผู้ถอดปริมาณ',checker:'ผู้ตรวจ',approver:'ผู้อนุมัติ',viewer:'ผู้อ่าน'
 };
 export const roleDescriptions:Record<UserRole,string>={
- MasterAdmin:'ดูแลระบบ ผู้ใช้ โครงการ และสิทธิ์ทั้งหมด',
- SuperAdmin:'ดูแลระบบและสิทธิ์ผู้ใช้ระดับสูง',
- Admin:'จัดการโครงการและข้อมูลที่ได้รับมอบหมาย',admin:'จัดการโครงการและทีมแบบเดิม',
- Staff:'ผู้ใช้งานทั่วไป รอการอนุมัติจากผู้ดูแล',
+ MasterAdmin:'ดูแลระบบทั้งหมด · อนุมัติผู้ใช้ กำหนด Role / โครงการ · จัดการ API · ทำได้ทุกอย่างในทุกโครงการ',
+ SuperAdmin:'ผู้ดูแลโครงการที่ได้รับมอบหมาย · สร้างโครงการ · จัดการ General Spec ส่วนกลาง · ทีม สิทธิ์ และ Backup ของโครงการ',
+ Admin:'เหมือน ProjectAdmin (ชื่อ Role แบบเดิม)',admin:'เหมือน ProjectAdmin (ชื่อ Role แบบเดิม)',
+ Staff:'ผู้ใช้งานทั่วไป · อ่านข้อมูลในโครงการที่ได้รับมอบหมาย จนกว่าจะกำหนด Role งาน',
  qs:'เพิ่มและแก้สมาชิก แบบอ้างอิง BOQ และ BBS',
  checker:'ตรวจข้อมูลและยืนยันสถานะ Checked',
  approver:'ตรวจและอนุมัติสมาชิกตามขั้นตอนของโครงการ',

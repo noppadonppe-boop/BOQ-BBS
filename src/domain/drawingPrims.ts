@@ -11,7 +11,7 @@ export type Prim=
  |{t:'image';x:number;y:number;w:number;h:number;src:string;group?:string}
  |{t:'text';x:number;y:number;text:string;size:number;color?:string;anchor?:'start'|'middle'|'end';bold?:boolean;halo?:boolean;group?:string};
 /** Approximate text width (units of `size`): Thai combining marks take no width. */
-export function textWidth(text:string,size:number){let n=0;for(const ch of text){const c=ch.codePointAt(0)!;if(c===0x0e31||(c>=0x0e34&&c<=0x0e3a)||(c>=0x0e47&&c<=0x0e4e))continue;n+=c<128?(/[A-Z0-9]/.test(ch)?.62:.52):.58;}return n*size;}
+export function textWidth(text:string,size:number){let n=0;for(const ch of text){const c=ch.codePointAt(0)!;if(c===0x0e31||(c>=0x0e34&&c<=0x0e3a)||(c>=0x0e47&&c<=0x0e4e))continue;n+=c<128?(/[A-Z0-9]/.test(ch)?.62:.52):c>=0x2e80?1:.58;}return n*size;}
 /** Greedy line wrap with the same width estimate for SVG and PDF. */
 export function wrapText(text:string,size:number,width:number,maxLines=3){
  const words=text.split(/(\s+)/),lines:string[]=[];let cur='';
