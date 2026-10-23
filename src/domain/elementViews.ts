@@ -102,14 +102,14 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   return {row:r,lines,dots};
  });
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
- const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u:number;v:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
+ const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
  if(normal!==undefined&&input?.category==='Foundation'){
   const pr=footingPour(input),conc=rects.filter(r=>r.kind==='concrete'),T=input.thickness,ord=['First','Second','Third','Fourth','Fifth','Sixth'];
   const right=(z:number)=>Math.max(...conc.filter(r=>r.v0-1e-6<=z&&z<=r.v1+1e-6).map(r=>r.u1),-Infinity);
   if(pr.stages.length>1){
    for(const J of pr.levels)for(const r of conc)if(r.v0-1e-6<=J&&J<r.v1-1e-6)joints.push({v:J,u0:r.u0,u1:r.u1});
    for(const st of pr.stages){const band=conc.filter(r=>r.v0<st.z1-1e-6&&r.v1>st.z0+1e-6);if(!band.length)continue;const wide=band.reduce((x,y)=>y.u1-y.u0>x.u1-x.u0?y:x);
-    stageText.push({u:(wide.u0+wide.u1)/2,v:(Math.max(st.z0,wide.v0)+Math.min(st.z1,wide.v1))/2,text:`${ord[st.stage-1]||`Stage ${st.stage}`}-stage concrete pouring`});}}
+    stageText.push({u0:wide.u0,u1:wide.u1,v0:Math.max(st.z0,wide.v0),v1:Math.min(st.z1,wide.v1),text:`${ord[st.stage-1]||`Stage ${st.stage}`}-stage concrete pouring`});}}
   if(input.levels.enabled){const lv=footingLevels(input),sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`,at=(z:number,t:string)=>{const u=right(z);if(Number.isFinite(u))levels.push({u,v:z,text:`${t} ${sg(lv.bottom+z/1000)}`});};
    at(T,'T.O.F.');at(0,'B.O.F.');for(const J of pr.stages.length>1?pr.levels:[])if(Math.abs(J-T)>1)at(J,'C.J.');
    const Hp=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;if(Hp>0)at(T+Hp,'T.O.P.');
@@ -176,7 +176,6 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  if(v.ground!==undefined&&!v.levels.length)out.push({t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
  // pour stages: joint lines (red dashed) and the stage names; level marks: ▽ + text right of the concrete face
  for(const j of v.joints)out.push({t:'line',x1:X(j.u0),x2:X(j.u1),y1:Y(j.v),y2:Y(j.v),stroke:'#c0392b',width:1.1*k,dash:[6*k,3*k]});
- for(const t of v.stageText)out.push({t:'text',x:X(t.u),y:Y(t.v)+3*k,text:t.text,size:9*k*fs,color:'#8a4a3f',anchor:'middle',halo:true});
  for(const l of v.levels){const x=X(l.u)+10*k,y=Y(l.v),h=5*k;
   out.push({t:'line',x1:X(l.u),x2:x+textWidth(l.text,9*k*fs)+4*k,y1:y,y2:y,stroke:'#3f5459',width:.6*k},{t:'poly',pts:[[x,y],[x-h*.6,y-h],[x+h*.6,y-h]],closed:true,stroke:'#3f5459',width:.6*k},{t:'text',x:x+h,y:y-2*k,text:l.text,size:9*k*fs,color:'#3f5459',halo:true});}
  const cuts=opts.cuts;
@@ -204,6 +203,21 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   const pts=[...new Set(d.stops.map(n=>Math.round(n*10)/10))].sort((p,q)=>p-q);if(pts.length<2)continue;
   if(d.dir==='h'){const y=d.side==='start'?Y(vr[0])+22*k:Y(vr[1])-16*k;for(const p of pts)out.push({t:'line',x1:X(p),x2:X(p),y1:y-5*k,y2:y+5*k,...line});out.push({t:'line',x1:X(pts[0]),x2:X(pts.at(-1)!),y1:y,y2:y,...line});pts.slice(1).forEach((p,i)=>{if(X(p)-X(pts[i])>textWidth(fmt(p-pts[i]),dsize)+2*k)out.push({t:'text',x:(X(p)+X(pts[i]))/2,y:y-3*k,text:fmt(p-pts[i]),size:dsize,color:'#3f5459',anchor:'middle'});});}
   else{const x=d.side==='start'?X(u[0])-24*k:X(u[1])+24*k;for(const p of pts)out.push({t:'line',x1:x-5*k,x2:x+5*k,y1:Y(p),y2:Y(p),...line});out.push({t:'line',x1:x,x2:x,y1:Y(pts[0]),y2:Y(pts.at(-1)!),...line});pts.slice(1).forEach((p,i)=>{if(Y(pts[i])-Y(p)>dsize*1.2)out.push({t:'text',x:x+(d.side==='start'?-3*k:3*k),y:(Y(p)+Y(pts[i]))/2+3*k,text:fmt(p-pts[i]),size:dsize,color:'#3f5459',anchor:d.side==='start'?'end':'start'});});}
+ }
+ // Stage names last: framed text at the first spot inside its stage band (spread across, stepping up / down) that
+ // clears every text already on the view (Marks, levels, dimensions); else beside the concrete with a leader.
+ const ss=9*k*fs,pad=3*k,bh=ss+2*pad,taken=out.flatMap(p=>{if(p.t!=='text')return [];const w=textWidth(p.text,p.size),x=p.anchor==='middle'?p.x-w/2:p.anchor==='end'?p.x-w:p.x;return [{x0:x,x1:x+w,y0:p.y-p.size,y1:p.y+p.size*.25}];});
+ for(const t of v.stageText){
+  const tw=textWidth(t.text,ss)+2*pad,x0=X(t.u0),x1=X(t.u1),yt=Y(t.v1),yb=Y(t.v0),mid=(yt+yb)/2,fits=x1-x0>=tw+8*k;
+  const free=(cx:number,cy:number)=>cx-tw/2>=box.x+2*k&&cx+tw/2<=box.x+box.w-2*k&&cy-bh/2>=box.y+2*k&&cy+bh/2<=box.y+box.h-2*k&&
+   !taken.some(q=>cx-tw/2<q.x1+1.5*k&&q.x0<cx+tw/2+1.5*k&&cy-bh/2<q.y1+k&&q.y0<cy+bh/2+k);
+  const steps=Array.from({length:20},(_,n)=>mid+Math.ceil(n/2)*bh*.75*(n%2?-1:1)),inBand=steps.filter(cy=>cy-bh/2>=yt-1e-6&&cy+bh/2<=yb+1e-6);
+  const across=fits?[.5,.25,.75,.15,.85,.35,.65].map(f=>Math.min(x1-tw/2-4*k,Math.max(x0+tw/2+4*k,x0+(x1-x0)*f))):[];
+  const cands:[number,number][]=[...inBand.flatMap(cy=>across.map(cx=>[cx,cy] as [number,number])),...steps.flatMap(cy=>[[x0-tw/2-12*k,cy],[x1+tw/2+12*k,cy]] as [number,number][])];
+  const [cx,cy]=cands.find(([x,y])=>free(x,y))??(inBand.length&&across.length?[across[0],inBand[0]]:[(x0+x1)/2,mid]);
+  if(cx+tw/2<=x0||cx-tw/2>=x1)out.push({t:'line',x1:cx+(cx<x0?tw/2:-tw/2),y1:cy,x2:(x0+x1)/2,y2:mid,stroke:'#8a4a3f',width:.5*k});
+  out.push({t:'rect',x:cx-tw/2,y:cy-bh/2,w:tw,h:bh,stroke:'#8a4a3f',width:.5*k,dash:[3*k,2*k]},{t:'text',x:cx,y:cy+ss*.35,text:t.text,size:ss,color:'#8a4a3f',anchor:'middle',halo:true});
+  taken.push({x0:cx-tw/2,x1:cx+tw/2,y0:cy-bh/2,y1:cy+bh/2});
  }
  const axisName=['X','Y','Z'];
  out.push({t:'text',x:box.x+box.w-6*k,y:box.y+box.h-6*k,text:`${axisName[v.axes[0]]} → · ${axisName[v.axes[1]]} ↑`,size:9*k*fs,color:'#9aa8a6',anchor:'end'});
