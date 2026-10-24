@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {tiePatterns,type ColumnInput,type ColumnStorey,type TiePattern} from './elementInput';
+import {tiePatterns,type ColumnInput,type ColumnStorey,type FootingColumn,type TiePattern} from './elementInput';
 import type {Spec} from './model';
 
 // Project Column Template: the column schedule of a project (one entry per column mark, one row per level range
@@ -105,6 +105,14 @@ export function applyTemplateStack(i:ColumnInput,t:ColumnTemplate,rules:ColumnZo
  v.stack.zones=structuredClone(rules);
  v.template={id:t.id,name:t.name,row:-1,beam:0,linked:opts.linked??true};
  return v;
+}
+/** Pedestal / starter bar on a footing from row `k` of a template: rect section, column no. = template name, main bars;
+ * pedestal ties at the end-zone spacing S2 (the pedestal is below the first storey). Position, height, embedment kept. */
+export function applyTemplateFooting(c:FootingColumn,t:ColumnTemplate,k:number,type:'pedestal'|'starter'):FootingColumn{
+ const r=t.rows[k];if(!r)return c;
+ return {...structuredClone(c),type,columnNo:t.name.slice(0,50),shape:'rect',width:r.width,depth:r.depth,
+  main:{...c.main,corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r)},
+  tie:{diameter:r.tie.diameter,spacing:r.tie.s2||r.tie.s1}};
 }
 /** Re-apply the linked template (spec change / template edit); unlinked or missing templates leave the input as is. */
 export function syncColumnTemplate(i:ColumnInput,spec:Pick<Spec,'columnTemplates'|'columnZoneRules'>):ColumnInput{

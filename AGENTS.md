@@ -61,7 +61,9 @@
   `stack.zones`, `syncColumnTemplate`). Column input `template {id,row,beam,linked}`; linked columns are re-applied in the
   spec-change job (`data/direct/specJobs.ts`). UI: General Spec button → `ColumnTemplateEditor.tsx` (Excel via
   `data/columnTemplateExcel.ts`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx` (default view = schedule grid
-  `ScheduleGrid`: types × level ranges via `scheduleLevels()`, cell = single storey, type header = stack). Test: `tmp/columnTemplate.test.ts`;
+  `ScheduleGrid`: types × level ranges via `scheduleLevels()`, cell = single storey, type header = stack). Footing section 5
+  uses the same grid (`FootingTemplatePicker`, pedestal | starter) → `applyTemplateFooting()` on the selected footing column
+  (ties at S2; test `tmp/footingTemplate.test.ts`). Test: `tmp/columnTemplate.test.ts`;
   J-078 schedule data + Excel generator: `tmp/j078.test.ts` → `tmp/J-078-column-templates.xlsx`.
 - A3 BBS sheet (views + BBS table + BOQ table + title block), layout id `sheet-a3-v10`:
   layout in `src/domain/bbsSheet.ts` → renderer-agnostic primitives (`src/domain/drawingPrims.ts`),

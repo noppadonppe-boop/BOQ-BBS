@@ -1,7 +1,7 @@
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import type {Spec} from '../domain/model';
-import {columnTieLayout,tiePatternInfo,type ColumnInput,type TieZoneKey} from '../domain/elementInput';
-import {applyTemplateRow,applyTemplateStack,fractionText,mainText,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
+import {columnTieLayout,defaultElementInput,tiePatternInfo,type ColumnInput,type FootingColumn,type TieZoneKey} from '../domain/elementInput';
+import {applyTemplateFooting,applyTemplateRow,applyTemplateStack,fractionText,mainText,templateBarName,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
 import {Modal,NumInput} from './EditorControls';
 import {TieElevation,TiePlan} from './ColumnTieEditor';
 
@@ -49,6 +49,29 @@ export function ColumnTemplatePicker({spec,input,onApply,onClose}:{spec:Spec;inp
  </Modal>;
 }
 
+/** Footing: pick a pedestal or starter bar section from the schedule (normally the first storey row) for one column on the footing. */
+export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Spec;col:FootingColumn;target:string;onApply:(next:FootingColumn)=>void;onClose:()=>void}){
+ const list=spec.columnTemplates||[],rules=zoneRulesOf(spec),base=useMemo(()=>defaultElementInput('Column','manual',spec) as ColumnInput,[spec]);
+ const known=list.find(t=>t.name===col.columnNo),firstRow=(t?:ColumnTemplate)=>Math.max(0,t?.rows.findIndex(r=>r.first)??0);
+ const [id,setId]=useState(known?.id||list[0]?.id||''),[row,setRow]=useState(firstRow(known||list[0])),[filter,setFilter]=useState('');
+ const [type,setType]=useState<'pedestal'|'starter'>(col.type==='starter'?'starter':'pedestal');
+ const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0,r=t?.rows[k];
+ const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
+ return <Modal title="ตารางหน้าตัดเสา · เสาตอม่อ / Starter bar บนฐานราก" onClose={onClose}>
+  <div className="ct-picker">
+   {!list.length?<p className="notice">โครงการนี้ยังไม่มี Project Column Template · เพิ่มได้ที่ General Spec ของโครงการ → ปุ่ม “Project Column Template”</p>:<>
+   <div className="ct-viewbar"><div className="segmented" role="group" aria-label="ใช้เป็น">{([['pedestal','เสาตอม่อ (คอนกรีต + เหล็กเสา)'],['starter','Starter bar (เหล็กรอเสา)']] as const).map(([v,l])=><button key={v} type="button" aria-pressed={type===v} className={type===v?'active':''} onClick={()=>setType(v)}>{l}</button>)}</div>
+    {list.length>8&&<input placeholder="ค้นหา C1…" value={filter} onChange={e=>setFilter(e.target.value)}/>}
+    <small className="muted">คลิกช่องหน้าตัด = ใช้หน้าตัดช่วงชั้นนั้น · คลิกชื่อเสา = ช่วงชั้นแรก (บนฐานราก)</small></div>
+   <ScheduleGrid list={shown} input={base} rules={rules} id={id} row={k} onPick={(x,i)=>{setId(x);setRow(i<0?firstRow(list.find(y=>y.id===x)):i);}} bottom/>
+   {t&&r&&<div className="ct-summary"><b>{target} ← {t.name} · {r.level}</b>
+    <p>{type==='pedestal'?'เสาตอม่อ':'Starter bar'} · หน้าตัด {r.width} × {r.depth} · เหล็กยืน {mainText(r)}{type==='pedestal'?` · ปลอก ${templateBarName(r.tie.diameter)}@${r.tie.s2||r.tie.s1} (ระยะโซนปลายเสา S2)`:''}</p>
+    <p className="muted">จะเติมให้: ประเภท · Column no. = {t.name} · หน้าตัดสี่เหลี่ยม · เหล็กมุม / ด้าน X / ด้าน Y{type==='pedestal'?' · เหล็กปลอก':''} · ค่าอื่น (ตำแหน่ง, ความสูงตอม่อ, ระยะโผล่, การฝัง, ปลายบน) คงเดิม{type==='starter'?' · Starter bar ไม่มีเหล็กปลอก':''}</p></div>}
+   <footer className="actions"><span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!t||!r} onClick={()=>{if(t){onApply(applyTemplateFooting(col,t,k,type));onClose();}}}>ใช้หน้าตัดนี้</button></footer></>}
+  </div>
+ </Modal>;
+}
+
 /** Level names of all types in drawing order (bottom → top), each type's own order kept. */
 export function scheduleLevels(list:ColumnTemplate[]){
  const out:string[]=[];
@@ -57,11 +80,13 @@ export function scheduleLevels(list:ColumnTemplate[]){
 }
 
 /** Column schedule as on the drawings: types across, level ranges down (top storey first), section sketch + text per cell. */
-function ScheduleGrid({list,input,rules,id,row,onPick}:{list:ColumnTemplate[];input:ColumnInput;rules:ColumnZoneRules;id:string;row:number;onPick:(id:string,row:number)=>void}){
+function ScheduleGrid({list,input,rules,id,row,onPick,bottom}:{list:ColumnTemplate[];input:ColumnInput;rules:ColumnZoneRules;id:string;row:number;onPick:(id:string,row:number)=>void;bottom?:boolean}){
+ const box=useRef<HTMLDivElement>(null);
+ useEffect(()=>{if(bottom&&box.current)box.current.scrollTop=box.current.scrollHeight;},[bottom]);
  const levels=useMemo(()=>scheduleLevels(list).reverse(),[list]);
  const lays=useMemo(()=>new Map(list.flatMap(t=>t.rows.map((r,k)=>{let lay;try{const p=applyTemplateRow(input,t,k,rules);lay=columnTieLayout(p,t.pattern,p.detailing);}catch{lay=undefined;}return [`${t.id}/${r.level}`,{k,lay}] as const;}))),[list,input,rules]);
  const big=Math.max(1,...list.flatMap(t=>t.rows.map(r=>Math.max(r.width,r.depth))));
- return <div className="ct-sched"><table>
+ return <div className="ct-sched" ref={box}><table>
   <thead><tr><th className="lv">ช่วงชั้น \ เสา</th>{list.map(t=><th key={t.id} className={t.id===id&&row<0?'active':''}><button type="button" title={`${t.name} ทั้งตาราง → เสาหลายชั้น ${t.rows.length} ชั้น${t.note?`\n${t.note}`:''}`} onClick={()=>onPick(t.id,-1)}><b>{t.name}</b><small>{t.rows.length} ชั้น · {tiePatternInfo[t.pattern].label.split(' (')[0]}</small></button></th>)}</tr></thead>
   <tbody>{levels.map(lv=><tr key={lv}><th className="lv">{lv}</th>{list.map(t=>{const c=lays.get(`${t.id}/${lv}`),r=c&&t.rows[c.k];
    if(!c||!r)return <td key={t.id} className="none"/>;

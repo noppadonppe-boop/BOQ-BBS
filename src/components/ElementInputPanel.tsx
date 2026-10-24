@@ -11,7 +11,7 @@ import {FootingPourEditor} from './FootingPourEditor';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
-import {ColumnTemplatePicker} from './ColumnTemplatePicker';
+import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
@@ -152,6 +152,9 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <FootingPourEditor input={input} readOnly={readOnly} stages={preview&&!('error' in preview)?preview.q.pourStages:undefined} edit={f=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const next=structuredClone(prev);f(next);return next;})}/></>}
   {input.category==='Column'&&<ColumnTemplateBar input={input} spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} onUnlink={()=>setInput(prev=>prev?.category==='Column'&&prev.template?{...prev,template:{...prev.template,linked:false}}:prev)}/>}
   {picker&&input.category==='Column'&&<ColumnTemplatePicker spec={spec} input={input} onApply={next=>setInput(next)} onClose={()=>setPicker(false)}/>}
+  {picker&&input.category==='Foundation'&&(()=>{const cols=footingColumns(input),k=cols.length?Math.min(colSel,cols.length-1):0,col=cols[k]??input.column;
+   return <FootingTemplatePicker spec={spec} col={col} target={cols.length>1?footingColumnName(col,k,true):'เสาบนฐานนี้'} onClose={()=>setPicker(false)} onApply={next=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const v=structuredClone(prev);
+    if(k===0)v.column=next;else{v.extraColumns[k-1]={...next,linked:false};v.column.type=next.type;}return v;})}/>;})()}
   {input.category==='Column'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบเสา">{([['single','เสาชั้นเดียว'],['stack','เสาหลายชั้น · ตารางเสา (Coupler / ปลอกตาม H)']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Column'?prev:v==='stack'?columnStackFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>}
   {input.category==='Column'&&input.layout==='stack'&&<ColumnStackEditor input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);f(next);return next;})}/>}
   {input.category==='Column'&&input.layout!=='stack'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
@@ -197,6 +200,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     {(input.rebar.sideBars.top==='inward'||input.rebar.sideBars.bottom==='inward')&&num(`ระยะงอเข้าใน (0 = 15d = ${15*input.rebar.sideBars.diameter})`,'rebar.sideBars.leg')}</div>}</div>
    <p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · ขางอถูกจำกัดไม่ให้เกินความหนาฐาน − cover · ถ้าขอ 180° ไม่พอดีความหนา ปลายนั้นจะเป็นปลายตรง</p>
    <h4>5. เสาตอม่อ / Starter bar</h4>
+   <ColumnTemplateBar spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} note={input.column.type==='none'?'เลือกเสาตอม่อ หรือ Starter bar จากตารางเสาของโครงการ':`เติมให้${footingColumns(input).length>1?` ${footingColumnName(footingColumns(input)[Math.min(colSel,footingColumns(input).length-1)],Math.min(colSel,footingColumns(input).length-1),true)} (ที่เลือกอยู่)`:''}`}/>
    {select('มีเสาร่วมกับฐานรากหรือไม่','column.type',[['none','ไม่มี'],['pedestal','มีเสาตอม่อ (คอนกรีต + เหล็กเสา)'],['starter','Starter bar (เหล็กรอเสา ไม่มีคอนกรีตตอม่อ)']])}
    {input.column.type!=='none'&&(()=>{
     const cols=footingColumns(input),n=cols.length,ext=footingExtent(input),sel=Math.min(colSel,n-1),ped=input.column.type==='pedestal',kind=ped?'เสาตอม่อ':'Starter bar';
@@ -361,12 +365,13 @@ function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;on
 }
 
 /** Project Column Template entry point of a column: pick button + the template / row the section came from. */
-function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink}:{input:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink:()=>void}){
- const n=spec.columnTemplates?.length||0,ref=input.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);
+function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,note}:{input?:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink?:()=>void;note?:string}){
+ const n=spec.columnTemplates?.length||0,ref=input?.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);
  const where=ref?`${ref.name}${ref.row<0?' · ทั้งตาราง':t?.rows[ref.row]?` · ${t.rows[ref.row].level}`:''}`:'';
  return <div className="ct-bar">
   <button type="button" className={n?'ct-open':''} disabled={readOnly} title={n?'เลือกหน้าตัด / เหล็กยืน / เหล็กปลอก จากตารางเสาของโครงการ':'ยังไม่มี Template · เพิ่มที่ General Spec ของโครงการ'} onClick={onPick}><Columns3 size={15}/>ตารางหน้าตัดเสา · Template โครงการ ({n})</button>
   {ref&&<span className={`ct-link ${ref.linked?'on':''}`}>{ref.linked?'ผูกกับ':'มาจาก'} Template <b>{where}</b>{!t&&' (ไม่พบใน Spec แล้ว)'}{ref.linked&&<small> · แก้ค่าในหน้านี้ได้ แต่จะถูกแทนเมื่อ Template ใน Spec เปลี่ยน</small>}</span>}
-  {ref?.linked&&<button type="button" className="icon-button" disabled={readOnly} title="เลิกผูก (ค่าคงเดิม · ไม่ปรับตาม Template อีก)" onClick={onUnlink}><Link2Off size={14}/></button>}
+  {ref?.linked&&onUnlink&&<button type="button" className="icon-button" disabled={readOnly} title="เลิกผูก (ค่าคงเดิม · ไม่ปรับตาม Template อีก)" onClick={onUnlink}><Link2Off size={14}/></button>}
+  {note&&<small className="muted">{note}</small>}
  </div>;
 }
