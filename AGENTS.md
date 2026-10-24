@@ -50,6 +50,9 @@
 - Column ties: set 1 = perimeter hoop (roles `tie` / `tie-<zone>`), set 2 = supplementary ties per zone
   (`rebar.tie.inner`, roles `tie2-<zone>-<n>`, patterns `tiePatterns` / `columnTieLayout()` in `elementInput.ts`).
   UI: `src/components/ColumnTieEditor.tsx` (zone table, elevation strip, pattern gallery).
+- Column pour (single column): `pour {stages 1|2, bottom (m), mode beam|level, beam, joint}` → `columnPour()`; two stages
+  write `member.pourStages.levels = [z]` (stage quantities via `pourStageQuantities()`), sections draw the joint, stage
+  names and B.O.C. / C.J. / T.O.C. (`buildView`). UI `ColumnPourFields` in `ElementInputPanel.tsx`. Test: `tmp/columnPour.test.tsx`.
 - Column main bars (rect): `rebar.main.corner` (bundle 1–3) + `sideX` / `sideY` per face, positions via
   `columnInputBars()` (symmetric spacing); special sections = `columnPresets` / `applyColumnPreset()`.
 - A3 BBS sheet (views + BBS table + BOQ table + title block), layout id `sheet-a3-v10`:

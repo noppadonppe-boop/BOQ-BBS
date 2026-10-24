@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {barCouplerEnds,beamGroupLayout,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {barCouplerEnds,beamGroupLayout,columnPour,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
@@ -124,6 +124,15 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    at(T,'T.O.F.');at(0,'B.O.F.');for(const J of pr.stages.length>1?pr.levels:[])if(Math.abs(J-T)>1)at(J,'C.J.');
    const Hp=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;if(Hp>0)at(T+Hp,'T.O.P.');
    if(earth&&e.depth>0){const u=Math.max(...conc.map(r=>r.u1));levels.push({u:u+300,v:ground,text:`NGL ${sg(input.levels.ground)}`});}}
+ }
+ // single column poured in two stages: joint below the beam, stage names, B.O.C. / C.J. / T.O.C. levels
+ if(normal!==undefined&&normal!==2&&input?.category==='Column'&&input.layout!=='stack'){const cp=columnPour(input);
+  if(cp.on){const conc=rects.filter(r=>r.kind==='concrete'),H=input.height,ord=['First','Second'],sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`;
+   const right=(z:number)=>Math.max(...conc.filter(r=>r.v0-1e-6<=z&&z<=r.v1+1e-6).map(r=>r.u1),-Infinity),at=(z:number,t:string)=>{const u=right(z);if(Number.isFinite(u))levels.push({u,v:z,text:`${t} ${sg(cp.bottom+z/1000)}`});};
+   for(const r of conc)if(r.v0<cp.z&&cp.z<r.v1)joints.push({v:cp.z,u0:r.u0,u1:r.u1});
+   const wide=conc.reduce<Rect|undefined>((x,y)=>!x||y.u1-y.u0>x.u1-x.u0?y:x,undefined);
+   if(wide)[[0,cp.z],[cp.z,H]].forEach(([z0,z1],k)=>stageText.push({u0:wide.u0,u1:wide.u1,v0:z0,v1:z1,text:`${ord[k]}-stage concrete pouring`}));
+   at(H,'T.O.C.');at(cp.z,'C.J.');at(0,'B.O.C.');}
  }
  // concrete cover C: footing bottom / top / side and pedestal side (sections), column side (Z–Z section)
  const covers:{a:[number,number];b:[number,number];text:string}[]=[];

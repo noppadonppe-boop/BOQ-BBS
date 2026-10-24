@@ -1,7 +1,7 @@
 import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
 import {Box,FileUp,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number,NumInput} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
@@ -153,7 +153,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Column'&&input.layout==='stack'&&<ColumnStackEditor input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);f(next);return next;})}/>}
   {input.category==='Column'&&input.layout!=='stack'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
    <label className="field"><span>รูปร่างหน้าตัด</span><select disabled={readOnly} value={input.shape} onChange={e=>set('shape',e.target.value)}><option value="rect">สี่เหลี่ยม</option><option value="circle">วงกลม</option></select></label>
-   {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div><HeightFromLevels what="เสา" readOnly={readOnly} onUse={h=>set('height',h)}/></>}
+   {input.shape==='rect'?<>{num('กว้าง X','width')}{num('ลึก Y','depth')}</>:num('เส้นผ่านศูนย์กลาง','diameter')}{num('ความสูงเสา','height')}</div><HeightFromLevels what="เสา" readOnly={readOnly} onUse={h=>set('height',h)}/>
+   <ColumnPourFields input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);next.pour??={...DEFAULT_COLUMN_POUR};f(next);return next;})}/></>}
   {input.category==='Beam'&&<>
    <div className="segmented beam-layout" role="group" aria-label="รูปแบบคาน">{([['single','คานช่วงเดียว'],['group','กลุ่มคาน · หลายช่วง / คานยื่น / กริด']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Beam'?prev:v==='group'?beamGroupFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>
    {input.layout==='group'?<BeamGroupEditor input={input} projectId={project.id} readOnly={readOnly} selected={Math.min(beamSel,Math.max(0,input.spans.length-1))} onSelect={setBeamSel} edit={f=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const next=structuredClone(prev);f(next);return next;})}/>
@@ -283,6 +284,25 @@ function ColumnMainFields({input,dia,int:num,select}:{input:ColumnInput;dia:(lab
  </>;
 }
 
+/** Column pour: one stage or two (construction joint below the beam framing in at the top) with the levels of both stages. */
+function ColumnPourFields({input,readOnly,edit}:{input:ColumnInput;readOnly:boolean;edit:(f:(i:ColumnInput)=>void)=>void}){
+ const p=input.pour??DEFAULT_COLUMN_POUR,cp=columnPour(input),lv=(v:number)=>v.toFixed(3),two=p.stages===2;
+ const level=(label:string,value:number,onUse:(v:number)=>void)=><Field label={label} type="number" step="0.001" value={Number(value.toFixed(3))} onChange={v=>{const n=Number(v);if(Number.isFinite(n))onUse(n);}} disabled={readOnly}/>;
+ return <div className="column-pour"><h5>การเทคอนกรีตเสา</h5>
+  <div className="segmented" role="group" aria-label="จำนวน Stage การเท">{([[1,'เทครั้งเดียว'],[2,'2 Stage · เทใต้ท้องคานที่มาชนด้านบน']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={p.stages===v?'active':''} onClick={()=>edit(i=>{i.pour.stages=v;})}>{t}</button>)}</div>
+  {two&&<><div className="form-grid">
+   {level('ระดับล่างเสา B.O.C. (m) · เริ่ม Stage 1',p.bottom,v=>edit(i=>{if(i.pour.mode==='level')i.pour.joint+=v-i.pour.bottom;i.pour.bottom=v;}))}
+   <label className="field"><span>กำหนดระดับรอยต่อ (C.J.)</span><select disabled={readOnly} value={p.mode} onChange={e=>edit(i=>{const m=e.target.value as 'beam'|'level';if(m==='level')i.pour.joint=Number(columnPour(i).joint.toFixed(3));else i.pour.beam=Math.max(0,Math.round(i.height-columnPour(i).z));i.pour.mode=m;})}><option value="beam">ใต้ท้องคาน (ระดับบน − ความลึกคาน)</option><option value="level">ระบุระดับเอง</option></select></label>
+   {p.mode==='beam'?<Field label="ความลึกคานที่มาชนเสาด้านบน (mm)" type="number" value={p.beam} onChange={v=>{const n=Number(v);if(Number.isFinite(n)&&n>=0)edit(i=>{i.pour.beam=n;});}} disabled={readOnly}/>
+    :level('ระดับรอยต่อ C.J. (m) · จบ Stage 1 / เริ่ม Stage 2',p.joint,v=>edit(i=>{i.pour.joint=v;}))}
+   {level('ระดับบนเสา T.O.C. (m) · จบ Stage 2',cp.top,v=>edit(i=>{const h=Math.round((v-i.pour.bottom)*1000);if(h>0)i.height=h;}))}</div>
+   <table className="subbase-table"><thead><tr><th>Stage</th><th>ระดับล่าง (m)</th><th>ระดับบน (m)</th><th>สูง (mm)</th></tr></thead><tbody>
+    <tr><td>Stage 1 · เทถึงใต้ท้องคาน</td><td>{lv(cp.bottom)}</td><td>{lv(cp.joint)}</td><td>{Math.round(cp.z)}</td></tr>
+    <tr><td>Stage 2 · เทพร้อมคาน / ส่วนบน</td><td>{lv(cp.joint)}</td><td>{lv(cp.top)}</td><td>{Math.round(input.height-cp.z)}</td></tr></tbody></table>
+   {!cp.on&&<p className="notice warning">ระดับรอยต่อต้องอยู่ระหว่างระดับล่างและระดับบนของเสา</p>}
+   <p className="muted">คิดคอนกรีต / แบบหล่อแยกตาม Stage และพื้นที่รอยต่อการเทใน BOQ · แสดงเส้นรอยต่อ ชื่อ Stage และระดับ B.O.C. / C.J. / T.O.C. ในรูปตัดและแบบ A3 · แก้ระดับบนจะเปลี่ยนความสูงเสา</p></>}
+ </div>;
+}
 type Fields={num:(label:string,path:string,unit?:string)=>ReactNode;dia:(label:string,path:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode;spacing:(label:string,path:string)=>ReactNode;bend:(label:string,path:string,d:number)=>ReactNode;text:(label:string,path:string)=>ReactNode};
 function FootingColumnFields({col,pedestal,field:f,base:P='column'}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string}){
  const kind=pedestal?'เสาตอม่อ':'Starter bar',cpl=col.splice?.type==='coupler',corners={rect:4,circle:0,L:6,U:8}[col.shape],bars=columnSectionPreview(col).bars,by=(k:string)=>bars.filter(b=>b.kind===k).length,name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;

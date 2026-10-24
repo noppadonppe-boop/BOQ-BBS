@@ -279,6 +279,11 @@ const columnStackSchema=z.object({storeys:z.array(columnStoreySchema).max(20),
  /** main bar joints in every storey: mechanical couplers (50 %, groups `stagger` apart) or laps */
  splice:z.object({type:z.enum(['coupler','lap']),stagger:mm}).strict()}).strict();
 export const DEFAULT_COLUMN_STACK={storeys:[],footing:{enabled:true,depth:900},top:'fta' as const,splice:{type:'coupler' as const,stagger:1000}};
+/** Column pour (single column): one stage, or two with a construction joint below the beam framing in at the top.
+ * Levels in m: `bottom` = bottom of column (top = bottom + height); joint = top − `beam` (mode beam) or the level `joint`. */
+const lvl=z.number().finite().min(-1000).max(1000);
+const columnPourSchema=z.object({stages:z.union([z.literal(1),z.literal(2)]),bottom:lvl,mode:z.enum(['beam','level']),beam:mm,joint:lvl}).strict();
+export const DEFAULT_COLUMN_POUR={stages:1 as 1|2,bottom:0,mode:'beam' as 'beam'|'level',beam:600,joint:2.4};
 const columnSchema=z.object({...base,category:z.literal('Column'),
  shape:z.enum(['rect','circle']),width:mm,depth:mm,diameter:mm,height:mm,
  cover:z.object({side:mm}).strict(),
@@ -286,6 +291,7 @@ const columnSchema=z.object({...base,category:z.literal('Column'),
  /** single = one storey (fields above); stack = one column mark over several storeys (column table) */
  layout:z.enum(['single','stack']),
  stack:columnStackSchema,
+ pour:columnPourSchema.default({...DEFAULT_COLUMN_POUR}),
 }).strict();
 /** Element cast on the ground (slab / beam on ground) or elevated (formed soffit). On ground: optional layers under
  * the concrete, top → bottom: lean concrete and plastic sheet, sand bed, compacted subgrade; projections per side. */
@@ -448,6 +454,11 @@ function migrateV1(raw:unknown):unknown{
 }
 export type FoundationInput=z.infer<typeof foundationSchema>;
 export type ColumnInput=z.infer<typeof columnSchema>;
+/** Column pour levels: joint height `z` (mm from the column bottom), levels (m) and whether two stages apply. */
+export function columnPour(i:ColumnInput){
+ const p=i.pour??DEFAULT_COLUMN_POUR,H=i.height,z=p.mode==='beam'?H-p.beam:(p.joint-p.bottom)*1000;
+ return {on:p.stages===2&&z>0&&z<H,z,bottom:p.bottom,joint:p.bottom+z/1000,top:p.bottom+H/1000};
+}
 export type BeamInput=z.infer<typeof beamSchema>;
 export type SlabInput=z.infer<typeof slabSchema>;
 export type WallInput=z.infer<typeof wallSchema>;
@@ -457,7 +468,7 @@ export function defaultElementInput(category:InputCategory,mode:'manual'|'drawin
  const common={version:ELEMENT_INPUT_VERSION,mode,detailing:spec?detailingFromSpec(spec,{...DEFAULT_DETAILING}):{...DEFAULT_DETAILING}};
  switch(category){
   case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE),pour:structuredClone(DEFAULT_FOOTING_POUR)};
-  case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}},layout:'single',stack:structuredClone(DEFAULT_COLUMN_STACK)};
+  case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}},layout:'single',stack:structuredClone(DEFAULT_COLUMN_STACK),pour:{...DEFAULT_COLUMN_POUR}};
   case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}},layout:'single',grids:[],spans:[],ground:structuredClone(DEFAULT_GROUND)};
   case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,ground:structuredClone(DEFAULT_GROUND),cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
   case 'Wall':return {...common,category,length:6000,thickness:200,height:3000,cover:{face:30,edge:30},rebar:{layers:2,vertical:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},horizontal:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},lap:true}};
@@ -537,6 +548,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.shape==='rect'){need(input.width,'ความกว้างเสา (X)');need(input.depth,'ความลึกเสา (Y)');fits(Math.min(input.width,input.depth),input.cover.side,input.cover.side,'หน้าตัดเสา');}
    else{need(input.diameter,'เส้นผ่านศูนย์กลางเสา');fits(input.diameter,input.cover.side,input.cover.side,'หน้าตัดเสา');}
    need(input.height,'ความสูงเสา');need(input.cover.side,'cover');
+   if(input.pour?.stages===2&&input.height>0&&!columnPour(input).on)p.push('ระดับรอยต่อการเท (Stage 1 / 2) ต้องอยู่ระหว่างระดับล่างและระดับบนของเสา');
    const mb=input.rebar.main;
    if(input.shape==='circle'){need(mb.diameter,'ขนาดเหล็กยืน');if(mb.count<6)p.push('เหล็กยืนอย่างน้อย 6 เส้น');}
    else{
@@ -1547,6 +1559,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
   case 'Column':{
    // generated BOQ items (couplers) are rebuilt on every apply; user items stay
    const userItems=(next.siteWork?.items||[]).filter(it=>!it.id.startsWith('gen-'));
+   {const {pourStages:_p,...r}=next;next=r as Member;}
    next=withSiteWork(next,next.siteWork||userItems.length?{...(next.siteWork||emptySiteWork()),items:userItems}:undefined);
    if(input.layout==='stack'&&input.stack.storeys.length){
     // column stack: one concrete box per storey (floor to floor, centred), footing below as a reference region
@@ -1568,6 +1581,8 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    const pc=m.placementContext,keep:RegionV2=(pc?.version===2?pc.regions:(pc?.regions||[]).map(r=>({...r,openings:[]}))).filter(r=>!r.id.startsWith('gencol'));
    const context=[...keep,...columnRegions(input,det)].slice(0,6),{placementContext:_c,...rest}=next;
    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:rect?input.width:D,y:rect?input.depth:D,z:H,cover:input.cover.side,faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions:rect?deductions:[...deductions,{reason:`${AUTO}หน้าตัดวงกลม Ø${D} (แปลงจากกล่อง ${D} × ${D})`,volume:(D*D-Math.PI*D*D/4)*H/1e9,formwork:(4*D-Math.PI*D)*H/1e6}]};
+   // two pour stages: construction joint below the beam framing in (quantities per stage from the box cells)
+   {const cp=columnPour(input);if(cp.on)next={...next,pourStages:{levels:[cp.z]}};}
    gen=columnBars(input,det,rounding,warn);
    // top couplers: one per main bar (a bottom coupler is counted with the element below)
    if(input.rebar.top.mode==='coupler'){const n=new Map<number,number>();for(const b of columnInputBars(input))n.set(b.d,(n.get(b.d)||0)+1);
