@@ -51,11 +51,15 @@ export function PlanView({member:m,spec,selected,onSelect,selectionKey=0}:{membe
  {visible.length>0&&<div className="plan-mark-list"><table><thead><tr><th>Mark ที่แสดงเส้นชี้</th><th>รูปตัด {cut.label} · {cut.axis}={depth} mm</th></tr></thead><tbody>{visible.map(row=><tr key={row.id} className={row.id===focused?'selected':''}><td><button type="button" className="text-button" aria-pressed={row.id===focused} onClick={()=>choose(row.id)}>{row.mark}</button></td><td>{intersections.get(row.id)?'ตัดผ่าน':'ไม่ตัดผ่านรูปตัดนี้'}</td></tr>)}</tbody></table></div>}
  </div>;
 }
-export function Shape({path}:{path:Vec3[]}){
+/** Bar shape thumbnail; `coupler` draws a coupler box at the coupled ends (top = higher Z end). */
+export function Shape({path,coupler}:{path:Vec3[];coupler?:{top:boolean;bottom:boolean}}){
  if(path.length<2)return <span>—</span>;
  let axes:[number,number]=[0,2];const spans=[0,1,2].map(i=>Math.max(...path.map(p=>p[i]))-Math.min(...path.map(p=>p[i])));axes=spans.map((s,i)=>({s,i})).sort((a,b)=>b.s-a.s).slice(0,2).map(x=>x.i) as [number,number];
  const lo=axes.map(a=>Math.min(...path.map(p=>p[a]))),s=Math.min(75/(spans[axes[0]]||1),24/(spans[axes[1]]||1));
- return <svg width="90" height="34" viewBox="0 0 90 34"><polyline points={path.map(p=>`${8+(p[axes[0]]-lo[0])*s},${29-(p[axes[1]]-lo[1])*s}`).join(' ')} fill="none" stroke="currentColor" strokeWidth="1.7"/></svg>;
+ const P=(p:Vec3)=>[8+(p[axes[0]]-lo[0])*s,29-(p[axes[1]]-lo[1])*s],firstHigh=path[0][2]>path.at(-1)![2];
+ const ends=[...(coupler?.top?[firstHigh]:[]),...(coupler?.bottom?[!firstHigh]:[])].map(first=>{const [ex,ey]=P(first?path[0]:path.at(-1)!),[px,py]=P(first?path[1]:path.at(-2)!);return {ex,ey,ang:Math.atan2(ey-py,ex-px)*180/Math.PI};});
+ return <svg width="90" height="34" viewBox="0 0 90 34"><polyline points={path.map(p=>P(p).join(',')).join(' ')} fill="none" stroke="currentColor" strokeWidth="1.7"/>
+  {ends.map((e,k)=><g key={k} transform={`translate(${e.ex} ${e.ey}) rotate(${e.ang})`}><title>Coupler</title><rect x={-4} y={-2.4} width={8} height={4.8} fill="#fff" stroke="currentColor" strokeWidth="1"/><line x1={0} x2={0} y1={-2.4} y2={2.4} stroke="currentColor" strokeWidth=".8"/></g>)}</svg>;
 }
 const LazyModel=lazy(()=>import('./ModelView'));
 export function ModelView(props:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void}){return <Suspense fallback={<div className="empty">กำลังเปิดมุมมอง 3D…</div>}><LazyModel {...props}/></Suspense>;}

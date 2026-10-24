@@ -19,7 +19,9 @@
   `column-main|tie` bars only), under the notes when they leave ≥ 48 mm, else beside section Y–Y. Test: `tmp/starterSheet.test.tsx`.
   Column / starter top end `column.splice` lap | coupler (+ `stagger`: every 2nd bar higher, own Mark `column-main…-cpl2`):
   BOQ items `gen-coupler-<d>` (siteWork, rebuilt on apply); sections draw a box at the bar end + "COUPLER", and
-  cover marks `C=…` (`buildView` → `covers`).
+  cover marks `C=…` (`buildView` → `covers`). Single columns: `rebar.top|bottom.mode = 'coupler'` (bar ends `lap` mm above
+  the joint; top couplers counted as `gen-coupler-<d>`). Coupled bar ends for every graphic come from `barCouplerEnds()`
+  (sections, BBS sketch, `Shape` thumbnail, 3D via `coupler3d.ts`). Test: `tmp/columnCoupler.test.tsx`.
 - Bar layer shapes (footing/slab mesh, beam top/bottom, wall vertical/horizontal): `shape` = BS 8666:2020 code from
   `layerShapes` (00/11/12/13/21/22/99), `leg` (0 = standard), `radius` (R for 12); geometry by `shapedEnds()`;
   old `bend` / `endHook` inputs are migrated in `migrateShapes()`. Shape 41 (U legs full depth + 15d inward, footing only).

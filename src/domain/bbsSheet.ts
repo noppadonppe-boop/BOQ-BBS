@@ -4,9 +4,9 @@ import {shapePileQuantities} from './shapeGeometry';
 import {shapeStageVolumes} from './shapeApply';
 import {pourStageQuantities} from './solids';
 import type {ElementInput} from './elementInput';
-import {footingColumns,pileQuantities} from './elementInput';
+import {barCouplerEnds,footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
-import {buildView,columnSectionCut,couplerRow,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
+import {buildView,columnSectionCut,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
 import {textWidth,wrapText,type Prim} from './drawingPrims';
 import {composeDrawingNumber} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
@@ -76,6 +76,7 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  const notes=[
   T.nts,
   `${T.cover}: ${input?Object.entries(input.cover).map(([k2,v])=>`${names[k2]||k2} ${v}`).join(' · '):m.cover}${input?.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?T.pedestal:'Starter'} ${footingColumns(input).map(c=>c.columnNo).filter(Boolean).join(', ')} ${input.column.cover}`:''}`,
+  input?.category==='Column'&&input.layout!=='stack'&&input.rebar.top.mode==='coupler'?T.coupler((m.siteWork?.items||[]).filter(it=>it.id.startsWith('gen-coupler-')).map(it=>`${it.label.replace(/^.*\) /,'')} × ${it.quantity}`).join(', '),0):'',
   input?.category==='Foundation'&&input.column.type!=='none'&&footingColumns(input).some(c=>c.splice?.type==='coupler')?T.coupler((m.siteWork?.items||[]).filter(it=>it.id.startsWith('gen-coupler-')).map(it=>`${it.label.replace(/^.*\) /,'')} × ${it.quantity}`).join(', '),Math.max(0,...footingColumns(input).filter(c=>c.splice?.type==='coupler').map(c=>c.splice.stagger))):'',
   det?T.bendRadius(det.bendSmall,det.bendLarge,det.tieBend):T.bendPerMark,
   det?T.hooks(det.hook90,det.hook135,det.hook135Min,det.lapTable?T.lapSpec(det.lapTable.map(r=>`Ø${r.bar}=${r.length}`).join(', ')):`${det.lap}d`):'',
@@ -115,7 +116,7 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  const subset=s.rows.slice(page*L.perPage,(page+1)*L.perPage);
  for(const r of subset){x=sx;const values=[r.mark,r.note||'',`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
   const bar=r as unknown as Bar,raw=bar.shape&&!['arc','helix'].includes(bar.shape)?barPaths(m,bar)[0]||[]:[];
-  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],raw,r.diameter,x+5,y+2.6,c.w-10,S.bbsRow-5,colors.get(r.id)||ink,couplerRow(input,r.id));text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+S.bbsRow-.8,1.8,{color:'#4b6166'});}else cell(values[i],x,y,c.w,S.bbsRow,i===1?1.9:2.3,c.align||'start');x+=c.w;});
+  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],raw,r.diameter,x+5,y+2.6,c.w-10,S.bbsRow-5,colors.get(r.id)||ink,barCouplerEnds(input,r.id));text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+S.bbsRow-.8,1.8,{color:'#4b6166'});}else cell(values[i],x,y,c.w,S.bbsRow,i===1?1.9:2.3,c.align||'start');x+=c.w;});
   line(sx,y+S.bbsRow,S.w-S.margin,y+S.bbsRow);y+=S.bbsRow;}
  if(!subset.length){cell(T.noBars,sx,y,S.strip,S.bbsRow);y+=S.bbsRow;}
  x=sx;for(const c of cols.slice(0,-1)){x+=c.w;line(x,L.tableTop,x,y);}
@@ -146,17 +147,18 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
 }
 /** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
  * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */
-function sketch(out:Prim[],path:Vec3[],raw:Vec3[],d:number,x:number,y:number,w:number,h:number,color:string,coupler=false){
+function sketch(out:Prim[],path:Vec3[],raw:Vec3[],d:number,x:number,y:number,w:number,h:number,color:string,coupler:{top:boolean;bottom:boolean}={top:false,bottom:false}){
  if(path.length<2)return;
  const spans=[0,1,2].map(i=>Math.max(...path.map(p=>p[i]))-Math.min(...path.map(p=>p[i]))),axes=spans.map((s,i)=>({s,i})).sort((a,b)=>b.s-a.s).slice(0,2).map(v=>v.i);
  const lo=axes.map(a=>Math.min(...path.map(p=>p[a]))),flat=spans[axes[1]]<1e-6,sx=w/(spans[axes[0]]||1),sy=flat?0:h/spans[axes[1]];
  const P=(p:Vec3):[number,number]=>[x+(p[axes[0]]-lo[0])*sx,flat?y+h/2:y+h-(p[axes[1]]-lo[1])*sy];
  out.push({t:'poly',pts:path.map(P),closed:false,stroke:color,width:.35});
- // mechanical coupler at the top end (higher Z end): box along the end leg with a joint line across it
- if(coupler){const top=path[0][2]>path.at(-1)![2],[ex,ey]=P(top?path[0]:path.at(-1)!),[px,py]=P(top?path[1]:path.at(-2)!),l=Math.hypot(ex-px,ey-py)||1,ux=(ex-px)/l,uy=(ey-py)/l,a=1.3,b=.65;
+ // mechanical couplers at the coupled ends (top = higher Z end): box along the end leg with a joint line across it
+ const ends=(coupler.top?[true]:[]).concat(coupler.bottom?[false]:[]);
+ for(const wantTop of ends){const firstHigh=path[0][2]>path.at(-1)![2],atFirst=wantTop===firstHigh,[ex,ey]=P(atFirst?path[0]:path.at(-1)!),[px,py]=P(atFirst?path[1]:path.at(-2)!),l=Math.hypot(ex-px,ey-py)||1,ux=(ex-px)/l,uy=(ey-py)/l,a=1.3,b=.65,vert=Math.abs(uy)>Math.abs(ux);
   const pt=(s:number,t:number):[number,number]=>[ex+ux*s-uy*t,ey+uy*s+ux*t];
   out.push({t:'poly',pts:[pt(-a,-b),pt(a,-b),pt(a,b),pt(-a,b)],closed:true,fill:'#ffffff',stroke:color,width:.3},{t:'line',x1:pt(0,-b)[0],y1:pt(0,-b)[1],x2:pt(0,b)[0],y2:pt(0,b)[1],stroke:color,width:.2},
-   {t:'text',x:Math.abs(uy)>Math.abs(ux)?ex+1.2:ex,y:Math.abs(uy)>Math.abs(ux)?ey+.6:ey-1.2,text:'COUPLER',size:1.4,color,bold:true,halo:true,anchor:Math.abs(uy)>Math.abs(ux)?'start':'middle'});}
+   {t:'text',x:vert?ex+1.2:ex,y:vert?ey+.6:ey-1.2,text:'COUPLER',size:1.4,color,bold:true,halo:true,anchor:vert?'start':'middle'});}
  if(raw.length<2||raw.length>8)return;
  const cx=x+w/2,size=1.5;
  for(let i=0;i<raw.length-1;i++){

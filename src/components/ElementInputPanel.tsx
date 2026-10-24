@@ -225,9 +225,9 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Column'&&input.layout!=='stack'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select}/>}
    <h4>End condition เหล็กยืน</h4>
    {([['bottom','ปลายล่าง (Bottom Col)'],['top','ปลายบน (Top Col)']] as const).map(([end,label])=>{const e=input.rebar[end],std=Math.round(lapLength(input.detailing,columnMainMax(input)));return <div className="form-grid rebar-row" key={end}>
-    {select(label,`rebar.${end}.mode`,[['none',end==='bottom'?'ไม่มี (เริ่มที่ขอบล่างเสา)':'ไม่มี (ตัดที่ cover)'],['lap','Lap splice length (ทาบตรง)'],['crank','Crank 1:6 + ทาบ']])}
-    {e.mode!=='none'&&num(`ระยะทาบ (0 = ${input.detailing.lapTable?'ตาม Spec':`${input.detailing.lap}d`} = ${std})`,`rebar.${end}.lap`)}</div>;})}
-   <p className="muted">ปลายบนต่อขึ้นเหนือระดับบนเสา · ปลายล่างต่อลงใต้ระดับล่างเสา · Crank เริ่ม Slope ที่ระดับปลายเสา ดัดเยื้องเข้า 1 × Ø ความชัน 1:6 (ยาวดัด 6Ø) แล้วต่อระยะทาบ</p>
+    {select(label,`rebar.${end}.mode`,[['none',end==='bottom'?'ไม่มี (เริ่มที่ขอบล่างเสา)':'ไม่มี (ตัดที่ cover)'],['lap','Lap splice length (ทาบตรง)'],['crank','Crank 1:6 + ทาบ'],['coupler',end==='top'?'Coupler (ข้อต่อทางกล) · คิดใน BOQ':'Coupler (ต่อจาก Coupler ของชิ้นล่าง)']])}
+    {e.mode==='coupler'?num('ระดับ Coupler เหนือรอยต่อ (0 = ที่รอยต่อ)',`rebar.${end}.lap`):e.mode!=='none'&&num(`ระยะทาบ (0 = ${input.detailing.lapTable?'ตาม Spec':`${input.detailing.lap}d`} = ${std})`,`rebar.${end}.lap`)}</div>;})}
+   <p className="muted">ปลายบนต่อขึ้นเหนือระดับบนเสา · ปลายล่างต่อลงใต้ระดับล่างเสา · Crank เริ่ม Slope ที่ระดับปลายเสา ดัดเยื้องเข้า 1 × Ø ความชัน 1:6 (ยาวดัด 6Ø) แล้วต่อระยะทาบ · Coupler: เหล็กตัดพอดีที่ Coupler · นับ Coupler ปลายบน 1 ตัว/เส้นใน BOQ (Coupler ปลายล่างนับกับชิ้นล่าง)</p>
    <h4>เหล็กปลอก · 2 ชุด × 3 โซน</h4>
    <ColumnTieEditor input={input} readOnly={readOnly} set={set} num={num} dia={dia}/></>}
   {input.category==='Beam'&&input.layout==='group'&&<p className="muted">กลุ่มคาน: เหล็กบน / ล่าง / ปลอก กำหนดต่อช่วงในตารางด้านบน · เหล็กเสริมบนกำหนดที่กริด</p>}

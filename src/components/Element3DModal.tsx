@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Pencil,Plus,Trash2,Maximize2} from 'lucide-react';
 import {barSchema,blankBar,labels,type Bar,type Member,type Spec} from '../domain/model';
-import {elementInputProblems,elementInputSchema,layerShapes,shapesFor,pilePositions,pileTypeLabels,tiePatternInfo,tiePatterns,type ElementInput} from '../domain/elementInput';
+import {barCouplerEnds,elementInputProblems,elementInputSchema,layerShapes,shapesFor,pilePositions,pileTypeLabels,tiePatternInfo,tiePatterns,type ElementInput} from '../domain/elementInput';
 import {takeoff} from '../domain/engine';
 import {solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
@@ -14,6 +14,7 @@ import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeMod
 import {applyShapeModel,shapeProblems,standardCover} from '../domain/shapeApply';
 import {normaliseShape} from '../domain/shapeGeometry';
 import {Field,number} from './EditorControls';
+import {couplerMeshes} from './coupler3d';
 
 type Row=ReturnType<typeof takeoff>['rows'][number];
 type Preview={member:Member;warnings:string[];errors:string[];q:ReturnType<typeof takeoff>};
@@ -436,8 +437,9 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
   const bodyMat=new THREE.MeshBasicMaterial({color:BODY,transparent:true,opacity:.18,depthWrite:false,side:THREE.DoubleSide}),body=new THREE.Mesh(bodyGeo,bodyMat);scene.add(body);
   const edgeMat=new THREE.LineBasicMaterial({color:0x8fa3a8});scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(bodyGeo),edgeMat));
   const mats=new Map<string,THREE.MeshLambertMaterial>(),mat=(k:string)=>{let m=mats.get(k);if(!m){m=new THREE.MeshLambertMaterial({color:colorOf(k),...(k==='pile'?{transparent:true,opacity:.55}:{})});mats.set(k,m);}return m;};
-  const pickables:THREE.Mesh[]=[];
-  for(const r of rows){const k=keyOf(r.id);for(const path of r.paths){const pts=path.map(P);if(pts.length<2)continue;const mesh=new THREE.Mesh(new THREE.TubeGeometry(new PolyCurve(pts),Math.max(2,(pts.length-1)*2),Math.max(r.diameter,4)/2000,6,false),mat(k));mesh.userData.key=k;scene.add(mesh);pickables.push(mesh);}}
+  const pickables:THREE.Mesh[]=[],coupMat=new THREE.MeshLambertMaterial({color:0x5b6b70});
+  for(const r of rows){const k=keyOf(r.id);for(const path of r.paths){const pts=path.map(P);if(pts.length<2)continue;const mesh=new THREE.Mesh(new THREE.TubeGeometry(new PolyCurve(pts),Math.max(2,(pts.length-1)*2),Math.max(r.diameter,4)/2000,6,false),mat(k));mesh.userData.key=k;scene.add(mesh);pickables.push(mesh);
+   for(const c of couplerMeshes(pts,r.diameter,barCouplerEnds(member.elementInput,r.id),coupMat)){c.userData.key=k;scene.add(c);pickables.push(c);}}}
   const sp=member.shapeModel?.piles;
   if(sp)for(const [x,y] of sp.positions){const len=Math.min(Math.max(sp.length*1000-sp.cutoff,500),2500),g=sp.type==='square'?new THREE.BoxGeometry(sp.size/1000,len/1000,sp.size/1000):new THREE.CylinderGeometry(sp.size/2000,sp.size/2000,len/1000,28);const mesh=new THREE.Mesh(g,mat('pile'));mesh.position.copy(P([x,y,sp.embed-len/2]));mesh.userData.key='pile';scene.add(mesh);pickables.push(mesh);}
   if(input?.category==='Foundation'&&input.foundationType==='pile'){

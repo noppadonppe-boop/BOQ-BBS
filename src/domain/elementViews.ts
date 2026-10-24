@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {barCouplerEnds,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
@@ -37,11 +37,6 @@ function sandRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|
 /** Thickness under the concrete down to the pit bottom: lean + sand (mm). */
 const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 
-/** Footing column main bars (starter / pedestal) whose top end is a mechanical coupler. */
-export function couplerRow(input:ElementInput|undefined,id:string){
- if(input?.category!=='Foundation'||!/column-main/.test(id))return false;
- const n=id.match(/-c(d+)$/),col=footingColumns(input)[n?Number(n[1])-1:0];return col?.type!=='none'&&col?.splice?.type==='coupler';
-}
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
 export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns}:ViewSpec){
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
@@ -110,8 +105,10 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   }
   // coupler at the top end of footing column bars (vertical sections): a box centred on the bar end
   const couplers:[number,number][]=[];
-  if(normal!==undefined&&normal!==2&&couplerRow(input,r.id)){const zTop=Math.max(...r.paths.flatMap(p=>p.map(q=>q[2])));
-   for(const l of lines){const e=l.a[1]>l.b[1]?l.a:l.b;if(Math.abs(l.a[0]-l.b[0])<.5&&Math.abs(e[1]-zTop)<1)couplers.push(e);}}
+  const ce=barCouplerEnds(input,r.id);
+  if(normal!==undefined&&normal!==2&&(ce.top||ce.bottom)){const zs=r.paths.flatMap(p=>p.map(q=>q[2])),zTop=Math.max(...zs),zBot=Math.min(...zs);
+   for(const l of lines){if(Math.abs(l.a[0]-l.b[0])>=.5)continue;const hi=l.a[1]>l.b[1]?l.a:l.b,lo=hi===l.a?l.b:l.a;
+    if(ce.top&&Math.abs(hi[1]-zTop)<1)couplers.push(hi);if(ce.bottom&&Math.abs(lo[1]-zBot)<1)couplers.push(lo);}}
   return {row:r,lines,dots,couplers};
  });
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)

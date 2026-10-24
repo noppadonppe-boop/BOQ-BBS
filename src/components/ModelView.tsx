@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Member,Spec} from '../domain/model';
 import {schedule} from '../domain/engine';
+import {barCouplerEnds} from '../domain/elementInput';
+import {couplerMeshes} from './coupler3d';
 import {boundsOf,solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
 export default function ModelView({member:m,spec,selected,onSelect}:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void}){
@@ -27,6 +29,7 @@ export default function ModelView({member:m,spec,selected,onSelect}:{member:Memb
   for(const bar of schedule(m,spec)){for(const path of bar.paths){const pts=path.map(p=>new THREE.Vector3(p[0]/1000,p[2]/1000,-p[1]/1000));if(pts.length<2)continue;
    class PolyCurve extends THREE.Curve<THREE.Vector3>{constructor(){super();}getPoint(t:number){const n=t*(pts.length-1),i=Math.min(pts.length-2,Math.floor(n));return pts[i].clone().lerp(pts[i+1],n-i);}}
    const g=new THREE.TubeGeometry(new PolyCurve(),Math.max(2,pts.length*2),bar.diameter/2000,5,false),mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:bar.id===selected?0xe69432:0x168674}));mesh.userData.id=bar.id;scene.add(mesh);meshes.push(mesh);
+   for(const c of couplerMeshes(pts,bar.diameter,barCouplerEnds(m.elementInput,bar.id),new THREE.MeshBasicMaterial({color:0x5b6b70}))){c.userData.id=bar.id;scene.add(c);meshes.push(c);}
   }}
   const ray=new THREE.Raycaster();const click=(ev:MouseEvent)=>{const r=renderer.domElement.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((ev.clientX-r.left)/r.width*2-1,-(ev.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObjects(meshes)[0];if(hit)onSelect(hit.object.userData.id);};renderer.domElement.addEventListener('click',click);
   const resize=()=>{renderer.setSize(host.clientWidth,420);camera.aspect=host.clientWidth/420;camera.updateProjectionMatrix();};const ro=new ResizeObserver(resize);ro.observe(host);resize();

@@ -226,7 +226,9 @@ export const DEFAULT_FOOTING_SIDE_BARS={enabled:false,diameter:16,spacing:200,to
  * none = stops at cover; lap = straight extension of `lap` beyond the joint;
  * crank = 1:6 crank inward by one bar diameter starting at the joint level (top of column
  * going up / bottom of column going down), then `lap` extension. lap 0 = detailing lap × d. */
-const columnEnd=z.object({mode:z.enum(['none','lap','crank']),lap:mm}).strict();
+/** coupler: the bar ends at a mechanical coupler `lap` mm above the joint (top: z = H + lap, bottom: z = lap); a top
+ * coupler is counted in the BOQ, a bottom one belongs to the element below. */
+const columnEnd=z.object({mode:z.enum(['none','lap','crank','coupler']),lap:mm}).strict();
 export type ColumnEnd=z.infer<typeof columnEnd>;
 /** Ties in three zones: lower (from the bottom), middle (`spacing`, remaining height), upper (to the top). Zone length 0 = no zone. */
 const tieZone=z.object({length:mm,spacing:mm}).strict();
@@ -1191,11 +1193,11 @@ function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=
   const q:[number,number]=[p[0]+u[0]*off,p[1]+u[1]*off],P=(a:[number,number],z:number):V3=>[a[0],a[1],z];
   // crank slope starts exactly at the joint: bottom of column (z = 0) going down, top of column (z = H) going up
   // bottom 'none': bars start at the column bottom face (no end cover; they sit on the slab/footing below)
-  const low=eb.mode==='none'?[P(p,0)]:eb.mode==='lap'?[P(p,-Lb)]:[P(q,-rise-Lb),P(q,-rise),P(p,0)];
-  const high=et.mode==='none'?[P(p,H-c-dm/2)]:et.mode==='lap'?[P(p,H+Lt)]:[P(p,H),P(q,H+rise),P(q,H+rise+Lt)];
+  const low=eb.mode==='none'?[P(p,0)]:eb.mode==='coupler'?[P(p,Math.max(0,eb.lap))]:eb.mode==='lap'?[P(p,-Lb)]:[P(q,-rise-Lb),P(q,-rise),P(p,0)];
+  const high=et.mode==='none'?[P(p,H-c-dm/2)]:et.mode==='coupler'?[P(p,H+Math.max(0,et.lap))]:et.mode==='lap'?[P(p,H+Lt)]:[P(p,H),P(q,H+rise),P(q,H+rise+Lt)];
   return [...low,...high];
  };
- const endNote=(e:ColumnEnd,L:number)=>e.mode==='none'?(e===et?'ตัดที่ cover':'เริ่มที่ขอบล่างเสา'):e.mode==='lap'?`ทาบ ${Math.round(L)}`:`Crank 1:6 เริ่มที่ระดับ${e===et?'บน':'ล่าง'}เสา ยาวดัด ${Math.round(rise)} + ทาบ ${Math.round(L)}`;
+ const endNote=(e:ColumnEnd,L:number)=>e.mode==='none'?(e===et?'ตัดที่ cover':'เริ่มที่ขอบล่างเสา'):e.mode==='coupler'?`Coupler ${e.lap>0?`เหนือรอยต่อ ${Math.round(e.lap)}`:'ที่รอยต่อ'}`:e.mode==='lap'?`ทาบ ${Math.round(L)}`:`Crank 1:6 เริ่มที่ระดับ${e===et?'บน':'ล่าง'}เสา ยาวดัด ${Math.round(rise)} + ทาบ ${Math.round(L)}`;
  const mix=(Object.keys(kinds) as ColumnBarPos['kind'][]).map(k=>[k,set.filter(b=>b.kind===k).length] as const).filter(([,m])=>m>0).map(([k,m])=>`${kinds[k]} ${m}`).join(' · ');
  const mainNote=`เหล็กยืน ${n} เส้น (${mix}) · ล่าง: ${endNote(eb,Lb)} · บน: ${endNote(et,Lt)} mm`;
  const cranks=[eb,et].filter(e=>e.mode==='crank').length,plain=eb.mode==='none'&&et.mode==='none';
@@ -1254,7 +1256,7 @@ type RegionV2=Extract<NonNullable<Member['placementContext']>,{version:2}>['regi
 function columnRegions(i:ColumnInput,det:Detailing):RegionV2{
  const W=i.shape==='rect'?i.width:i.diameter,D=i.shape==='rect'?i.depth:i.diameter,dm=columnMainMax(i),c=i.cover.side;
  // the crank (6 × Ø) always lies outside the column, beyond the joint
- const reach=(e:ColumnEnd)=>e.mode==='none'?0:(e.lap>0?e.lap:lapLength(det,dm))+(e.mode==='crank'?6*dm:0);
+ const reach=(e:ColumnEnd)=>e.mode==='none'?0:e.mode==='coupler'?(e===i.rebar.top?Math.max(0,e.lap):0):(e.lap>0?e.lap:lapLength(det,dm))+(e.mode==='crank'?6*dm:0);
  const out:RegionV2=[],top=reach(i.rebar.top),bottom=reach(i.rebar.bottom);
  if(top>0)out.push({id:'gencol-top',label:'เสาต้นบน (อ้างอิง)',origin:[0,0,i.height],size:[W,D,top+c+dm],reference:`เหล็กยืนต่อขึ้นเหนือรอยต่อ ${Math.round(top)} mm · พื้นที่อ้างอิง ไม่คิดปริมาณ`,cover:c,openings:[]});
  // always present: the column bottom face bears on the slab/footing below, so bars may start at it without end cover
@@ -1471,6 +1473,13 @@ function wallBars(i:WallInput,det:Detailing,rounding:number,warn:(s:string)=>voi
  return out;
 }
 
+/** Ends of a generated bar that carry a mechanical coupler (footing starter / pedestal bars, single columns). */
+export function barCouplerEnds(input:unknown,id:string):{top:boolean;bottom:boolean}{
+ const i=input as ElementInput|undefined,no={top:false,bottom:false};
+ if(i?.category==='Foundation'){if(!/column-main/.test(id))return no;const n=id.match(/-c(\d+)$/),col=footingColumns(i)[n?Number(n[1])-1:0];return {top:col?.type!=='none'&&col?.splice?.type==='coupler',bottom:false};}
+ if(i?.category==='Column'&&i.layout!=='stack'&&/^gen-main(-\d+)?$/.test(id))return {top:i.rebar?.top?.mode==='coupler',bottom:i.rebar?.bottom?.mode==='coupler'};
+ return no;
+}
 const AUTO='[auto] ';
 export type AppliedElement={member:Member;warnings:string[];generated:Bar[]};
 /** Converts the structured input to the existing member pattern. Manual bars and
@@ -1552,7 +1561,12 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    const pc=m.placementContext,keep:RegionV2=(pc?.version===2?pc.regions:(pc?.regions||[]).map(r=>({...r,openings:[]}))).filter(r=>!r.id.startsWith('gencol'));
    const context=[...keep,...columnRegions(input,det)].slice(0,6),{placementContext:_c,...rest}=next;
    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:rect?input.width:D,y:rect?input.depth:D,z:H,cover:input.cover.side,faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions:rect?deductions:[...deductions,{reason:`${AUTO}หน้าตัดวงกลม Ø${D} (แปลงจากกล่อง ${D} × ${D})`,volume:(D*D-Math.PI*D*D/4)*H/1e9,formwork:(4*D-Math.PI*D)*H/1e6}]};
-   gen=columnBars(input,det,rounding,warn);break;}
+   gen=columnBars(input,det,rounding,warn);
+   // top couplers: one per main bar (a bottom coupler is counted with the element below)
+   if(input.rebar.top.mode==='coupler'){const n=new Map<number,number>();for(const b of columnInputBars(input))n.set(b.d,(n.get(b.d)||0)+1);
+    const cp=[...n].sort((a,b)=>b[0]-a[0]).map(([d,q])=>({id:`gen-coupler-${d}`,label:`ข้อต่อเหล็กแบบกลไก (Coupler) ${d<=9?'RB':'DB'}${d}`,unit:'ตัว',quantity:q}));
+    next=withSiteWork(next,{...(next.siteWork||emptySiteWork()),items:[...userItems,...cp]});}
+   break;}
   case 'Beam':{
    const onGround=input.ground.support==='ground';
    if(input.layout==='group'&&input.spans.length){
