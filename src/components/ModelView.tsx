@@ -4,8 +4,8 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Member,Spec} from '../domain/model';
 import {schedule} from '../domain/engine';
-import {barCouplerEnds} from '../domain/elementInput';
-import {couplerMeshes} from './coupler3d';
+import {barCouplerEnds,beamColumnBoxes} from '../domain/elementInput';
+import {contextBoxes,couplerMeshes} from './coupler3d';
 import {boundsOf,solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
 export default function ModelView({member:m,spec,selected,onSelect}:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void}){
@@ -25,6 +25,8 @@ export default function ModelView({member:m,spec,selected,onSelect}:{member:Memb
   // shape-model piles (reference only): heads embedded into the concrete, shown down to ~2.5 m
   const sp=m.shapeModel?.piles;if(sp)for(const [x,y] of sp.positions){const len=Math.min(Math.max(sp.length*1000-sp.cutoff,500),2500)/1000,g=sp.type==='square'?new THREE.BoxGeometry(sp.size/1000,len,sp.size/1000):new THREE.CylinderGeometry(sp.size/2000,sp.size/2000,len,28),pile=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0xb39a7c,transparent:true,opacity:.45}));pile.position.set(x/1000,(sp.embed/1000)-len/2,-y/1000);scene.add(pile);}
   const holeIds=new Set(contextOpenings(m).map(h=>h.id)); for(const r of [...contextSolids(m),...contextOpenings(m)]){const g=new THREE.BoxGeometry(r.size[0]/1000,r.size[2]/1000,r.size[1]/1000),e=new THREE.EdgesGeometry(g),outline=new THREE.LineSegments(e,new THREE.LineDashedMaterial({color:holeIds.has(r.id)?0xba654e:0xba9656,dashSize:.08,gapSize:.05}));outline.position.set((r.origin[0]+r.size[0]/2)/1000,(r.origin[2]+r.size[2]/2)/1000,-(r.origin[1]+r.size[1]/2)/1000);outline.computeLineDistances();scene.add(outline);g.dispose();}
+  // beam group: supporting columns (display only)
+  for(const c of contextBoxes(beamColumnBoxes(m.elementInput)))scene.add(c);
   const meshes:THREE.Object3D[]=[];
   for(const bar of schedule(m,spec)){for(const path of bar.paths){const pts=path.map(p=>new THREE.Vector3(p[0]/1000,p[2]/1000,-p[1]/1000));if(pts.length<2)continue;
    class PolyCurve extends THREE.Curve<THREE.Vector3>{constructor(){super();}getPoint(t:number){const n=t*(pts.length-1),i=Math.min(pts.length-2,Math.floor(n));return pts[i].clone().lerp(pts[i+1],n-i);}}

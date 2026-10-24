@@ -47,7 +47,7 @@ export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId
  const grid=(k:number,f:(g:BeamGrid)=>void)=>edit(i=>f(i.grids[k]));
  const nextLabel=(l:string)=>/^\d+$/.test(l)?String(Number(l)+1):/^[A-Z]$/.test(l)?String.fromCharCode(l.charCodeAt(0)+1):'';
  const addSpan=()=>edit(i=>{const src=[...i.spans].reverse().find(s=>s.kind!=='cantilever')||i.spans[n-1];const at=i.spans[n-1]?.kind==='cantilever'?n-1:n;
-  i.spans.splice(at,0,newBeamSpan(i,src));i.grids.splice(at+1,0,newBeamGrid(nextLabel(i.grids[at]?.label||''),i.grids[at]?.support||300));});
+  i.spans.splice(at,0,newBeamSpan(i,src));i.grids.splice(at+1,0,newBeamGrid(nextLabel(i.grids[at]?.label||''),i.grids[at]?.support||300,i.grids[at]?.supportY||0));});
  const addCantilever=(side:'start'|'end')=>edit(i=>{const src=side==='start'?i.spans[0]:i.spans[i.spans.length-1],c={...newBeamSpan(i,src),kind:'cantilever' as const,length:1500};
   if(side==='start'){i.spans.unshift(c);i.grids.unshift(newBeamGrid('',0));}else{i.spans.push(c);i.grids.push(newBeamGrid('',0));}});
  const remove=(k:number)=>edit(i=>{if(i.spans.length<2)return;i.spans.splice(k,1);i.grids.splice(k===0?0:k+1,1);});
@@ -63,15 +63,14 @@ export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId
    <button type="button" disabled={readOnly||hasEnd||n>=12} onClick={()=>addCantilever('end')}><Plus size={14}/>คานยื่นปลาย</button></div>
   {error&&<p className="notice warning">{error}</p>}
   <datalist id="beam-marks">{marks.map(m=><option key={m.id} value={m.mark}>{`${m.width}×${m.depth}`}</option>)}</datalist>
-  <div className="table-scroll"><table className="subbase-table beam-spans"><thead><tr><th>ช่วง</th><th>กริด</th><th>เบอร์คาน</th><th>ยาว c/c</th><th title="ความกว้างเสาตามแนวคาน ที่ Support ซ้าย (0 = ไม่มีเสา)">เสาซ้าย</th><th title="ความกว้างเสาตามแนวคาน ที่ Support ขวา">เสาขวา</th><th>b</th><th>h</th><th title="ระดับหลังคานเทียบระดับอ้างอิงของกลุ่ม (− = Drop ลง)">หลังคาน ±</th><th>หน้าตัด</th><th/></tr></thead>
+  <div className="table-scroll"><table className="subbase-table beam-spans"><thead><tr><th>ช่วง</th><th>กริด</th><th>เบอร์คาน</th><th>ยาว c/c</th><th title="ขนาดเสาที่ Support ซ้าย: X ตามแนวคาน × Y ขวางคาน (X = 0 ไม่มีเสา)">เสาซ้าย X × Y</th><th title="ขนาดเสาที่ Support ขวา: X ตามแนวคาน × Y ขวางคาน">เสาขวา X × Y</th><th>b</th><th>h</th><th title="ระดับหลังคานเทียบระดับอ้างอิงของกลุ่ม (− = Drop ลง)">หลังคาน ±</th><th>หน้าตัด</th><th/></tr></thead>
    <tbody>{sp.map((s,k)=>{const lib=markOf(s.mark);return <tr key={k} className={k===sel?'active':''} onClick={()=>onSelect(k)}>
     <td><small>{k+1}{s.kind==='cantilever'?' · ยื่น':''}</small></td>
     <td><span className="bar-cell"><input aria-label={`ชื่อกริดซ้าย ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={readOnly} value={gr[k]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k,x=>{x.label=e.target.value.slice(0,20);})}/>–<input aria-label={`ชื่อกริดขวา ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={readOnly} value={gr[k+1]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k+1,x=>{x.label=e.target.value.slice(0,20);})}/></span></td>
     <td><span className="bar-cell"><input aria-label="เบอร์คาน" list="beam-marks" maxLength={32} style={{width:70}} disabled={readOnly} value={s.mark} onClick={e=>e.stopPropagation()} onChange={e=>{const v=e.target.value.slice(0,32),m=markOf(v);if(m)fromMark(k,m);else span(k,x=>{x.mark=v;});}}/>
      {lib&&<button type="button" className="icon-button" title={`ใช้ขนาดและเหล็กของ ${lib.mark} จากตารางเบอร์คาน`} disabled={readOnly} onClick={e=>{e.stopPropagation();fromMark(k,lib);}}><Download size={13}/></button>}</span></td>
     <td>{num(s.length,v=>span(k,x=>{x.length=v;}),'ความยาว',false,84)}</td>
-    <td>{num(gr[k]?.support||0,v=>grid(k,x=>{x.support=v;}),`กว้างเสาซ้าย ช่วง ${k+1}`,false,70)}</td>
-    <td>{num(gr[k+1]?.support||0,v=>grid(k+1,x=>{x.support=v;}),`กว้างเสาขวา ช่วง ${k+1}`,false,70)}</td>
+    {([[k,'ซ้าย'],[k+1,'ขวา']] as const).map(([g,side])=><td key={side}><span className="bar-cell">{num(gr[g]?.support||0,v=>grid(g,x=>{x.support=v;}),`เสา${side} X (ตามแนวคาน) ช่วง ${k+1}`,false,62)}×{num(gr[g]?.supportY||gr[g]?.support||0,v=>grid(g,x=>{x.supportY=v;}),`เสา${side} Y (ขวางคาน) ช่วง ${k+1}`,false,62)}</span></td>)}
     <td>{num(s.width,v=>span(k,x=>{x.width=v;}),'กว้าง',false,66)}</td><td>{num(s.depth,v=>span(k,x=>{x.depth=v;}),'ลึก',false,66)}</td>
     <td>{num(s.top,v=>span(k,x=>{x.top=v;}),'ระดับหลังคาน',true,68)}</td>
     <td><small>{zonesOf(k).map(z=>beamZoneLabels[z]).join(' · ')}</small><small className="block muted">{sectionSummary(s.rebar,zonesOf(k))}</small></td>

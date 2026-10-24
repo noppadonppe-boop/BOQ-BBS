@@ -58,7 +58,8 @@
   Plan/section geometry: `src/domain/elementViews.ts` (also used by `ElementGraphic`).
   Beam groups (plan / elevation): `buildView` → `beamCols` (dashed column faces, grid centre lines + bubbles) and
   `exDims` (EX bar extents split at column faces, rows by `exDimRows()`, top above / bottom below); grid c/c chain on top.
-  Test: `tmp/beamGrid.test.tsx`.
+  Test: `tmp/beamGrid.test.tsx`. Column size per grid: `support` (X, along the beam) × `supportY` (across, 0 = X);
+  3D views draw the columns (display only, stub below / above) from `beamColumnBoxes()` via `contextBoxes()`.
 - General Spec is workspace-level (not a project menu): profiles in Firestore `${APP_NAME}/root/specProfiles`
   (`src/domain/specProfiles.ts`, `src/data/specProfiles.ts`, page `src/components/GeneralSpecPage.tsx`,
   editor `SpecEditor.tsx` + `DesignCodeLibrary.tsx`). Projects choose a profile + f'c/grade in `ProjectForm`;

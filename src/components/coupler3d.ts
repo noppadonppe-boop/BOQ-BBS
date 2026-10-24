@@ -11,3 +11,10 @@ export function couplerMeshes(pts:THREE.Vector3[],d:number,ends:{top:boolean;bot
  }
  return out;
 }
+
+/** Translucent boxes (mm in, scene m out, Y up) for display-only context such as the columns of a beam group. */
+export function contextBoxes(boxes:{origin:number[];size:number[]}[],color=0x9aa8ad):THREE.Mesh[]{
+ return boxes.map(b=>{const mesh=new THREE.Mesh(new THREE.BoxGeometry(b.size[0]/1000,b.size[2]/1000,b.size[1]/1000),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.3,depthWrite:false}));
+  mesh.position.set((b.origin[0]+b.size[0]/2)/1000,(b.origin[2]+b.size[2]/2)/1000,-(b.origin[1]+b.size[1]/2)/1000);
+  const edges=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),new THREE.LineBasicMaterial({color:0x6b7b80}));mesh.add(edges);return mesh;});
+}

@@ -320,9 +320,9 @@ export type BeamRebar=z.infer<typeof beamRebarSchema>;
  * (mm, − = dropped). Sections END / MID / CON / CANT are chosen by the span's position. */
 const beamSpanSchema=z.object({mark:z.string().trim().min(1).max(32),kind:z.enum(['span','cantilever']),length:mm,width:mm,depth:mm,
  top:z.number().finite().min(-20000).max(20000),rebar:beamRebarSchema}).strict();
-/** Grid line: label, support (column) width along the beam (0 = no column, e.g. on a girder / free end),
- * extra top bars over the support (count 0 = none). */
-const beamGridSchema=z.object({label:z.string().trim().max(20),support:mm,extraTop:countLayer}).strict();
+/** Grid line: label, support (column) width along the beam (0 = no column, e.g. on a girder / free end), column size
+ * across the beam `supportY` (0 = same as `support`), extra top bars over the support (count 0 = none). */
+const beamGridSchema=z.object({label:z.string().trim().max(20),support:mm,supportY:mm.default(0),extraTop:countLayer}).strict();
 export type BeamSpan=z.infer<typeof beamSpanSchema>;export type BeamGrid=z.infer<typeof beamGridSchema>;
 const beamSchema=z.object({...base,category:z.literal('Beam'),
  width:mm,depth:mm,length:mm,
@@ -1275,7 +1275,7 @@ export function newBeamSpan(i:BeamInput,prev?:BeamSpan):BeamSpan{
  return prev?{...structuredClone(prev),kind:'span'}:{mark:'B1',kind:'span',length:i.length||6000,width:i.width||300,depth:i.depth||600,top:0,
   rebar:plainBeamRebar({count:i.rebar.top.count||2,diameter:i.rebar.top.diameter||16},{count:i.rebar.bottom.count||3,diameter:i.rebar.bottom.diameter||16},{diameter:i.rebar.stirrup.diameter||9,spacing:i.rebar.stirrup.spacing||200})};
 }
-export const newBeamGrid=(label:string,support=300):BeamGrid=>({label,support,extraTop:{count:0,diameter:16}});
+export const newBeamGrid=(label:string,support=300,supportY=0):BeamGrid=>({label,support,supportY,extraTop:{count:0,diameter:16}});
 /** Beam group converted from the single-beam fields: one span between two 300 mm columns. */
 export function beamGroupFrom(i:BeamInput):BeamInput{
  return {...i,layout:'group',spans:i.spans.length?i.spans:[newBeamSpan(i)],grids:i.grids.length?i.grids:[newBeamGrid('1'),newBeamGrid('2')]};
@@ -1291,10 +1291,17 @@ export function beamGroupLayout(i:BeamInput){
   return {...s,k,a,b,clear:b-a,z0:s.top-s.depth-lo,z1:s.top-lo,y0:(W-s.width)/2,y1:(W+s.width)/2,zoneA,zoneB,label:`${s.mark} (${gr[k]?.label||'ปลาย'}–${gr[k+1]?.label||'ปลาย'})`};});
  const n=sp.length,L=grid[n]+(gr[n]?.support||0)/2;
  const columns=gr.flatMap((g,k)=>{if(!(g.support>0))return [];const adj=spans.filter(s=>s.k===k||s.k===k-1);if(!adj.length)return [];
-  return [{k,label:g.label,x0:grid[k]-g.support/2,x1:grid[k]+g.support/2,z0:Math.min(...adj.map(s=>s.z0)),z1:Math.max(...adj.map(s=>s.z1))}];});
+  const sy=g.supportY>0?g.supportY:g.support;
+  return [{k,label:g.label,x0:grid[k]-g.support/2,x1:grid[k]+g.support/2,y0:(W-sy)/2,y1:(W+sy)/2,z0:Math.min(...adj.map(s=>s.z0)),z1:Math.max(...adj.map(s=>s.z1))}];});
  return {grid,spans,columns,W,H:hi-lo,L,datum:-lo};
 }
 type GroupSpan=ReturnType<typeof beamGroupLayout>['spans'][number];
+/** Columns of a beam group for the 3D views (display only): the support box with a stub below / above the beam. */
+export function beamColumnBoxes(input:unknown):{label:string;origin:V3;size:V3}[]{
+ const i=input as ElementInput|undefined;if(i?.category!=='Beam'||i.layout!=='group'||!i.spans?.length)return [];
+ const lay=beamGroupLayout(i),below=1500,above=500;
+ return lay.columns.map(q=>({label:q.label,origin:[q.x0,q.y0,q.z0-below] as V3,size:[q.x1-q.x0,q.y1-q.y0,q.z1-q.z0+below+above] as V3}));
+}
 export const beamZoneLabels:Record<BeamZone,string>={end:'END',mid:'MID',con:'CON',cant:'CANT'};
 /** Beam group bars (rules from the spec's typical beam details, all × clear span from the support face):
  * - main bottom bars per span, into interior supports to the far face − 50, hooked into end supports / level changes;
@@ -1575,7 +1582,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
     const solids=lay.spans.map(sp=>({id:`span${sp.k+1}`,label:sp.label.slice(0,80),origin:[sp.a,sp.y0,sp.z0] as V3,size:[Math.max(1,sp.clear),sp.y1-sp.y0,sp.z1-sp.z0] as V3,
      faces:[sp.k===0&&!(input.grids[0]?.support>0),sp.k===last&&!(input.grids[last+1]?.support>0),true,true,!onGround,false]}));
     const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('genbcol')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
-    const cols=lay.columns.map(q=>({id:`genbcol${q.k+1}`,label:`เสา ${q.label||q.k+1} (อ้างอิง)`.slice(0,80),origin:[q.x0,0,q.z0] as V3,size:[q.x1-q.x0,lay.W,Math.max(1,q.z1-q.z0)] as V3,reference:'เสาที่รองรับคาน · ระยะฝัง/งอเหล็กคาน · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:input.cover.side,openings:[]}));
+    const cols=lay.columns.map(q=>({id:`genbcol${q.k+1}`,label:`เสา ${q.label||q.k+1} (อ้างอิง)`.slice(0,80),origin:[q.x0,Math.min(0,q.y0),q.z0] as V3,size:[q.x1-q.x0,Math.max(lay.W,q.y1-q.y0),Math.max(1,q.z1-q.z0)] as V3,reference:'เสาที่รองรับคาน · ระยะฝัง/งอเหล็กคาน · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:input.cover.side,openings:[]}));
     const context=[...keep.slice(0,Math.max(0,REGION_LIMIT-cols.length)),...cols].slice(0,REGION_LIMIT);
     if(keep.length+cols.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ · ตัดพื้นที่กำหนดเองบางส่วนออก`);
     const {placementContext:_c,...rest}=next;

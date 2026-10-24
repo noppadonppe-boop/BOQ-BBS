@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Pencil,Plus,Trash2,Maximize2} from 'lucide-react';
 import {barSchema,blankBar,labels,type Bar,type Member,type Spec} from '../domain/model';
-import {barCouplerEnds,elementInputProblems,elementInputSchema,layerShapes,shapesFor,pilePositions,pileTypeLabels,tiePatternInfo,tiePatterns,type ElementInput} from '../domain/elementInput';
+import {barCouplerEnds,beamColumnBoxes,elementInputProblems,elementInputSchema,layerShapes,shapesFor,pilePositions,pileTypeLabels,tiePatternInfo,tiePatterns,type ElementInput} from '../domain/elementInput';
 import {takeoff} from '../domain/engine';
 import {solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
@@ -14,7 +14,7 @@ import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeMod
 import {applyShapeModel,shapeProblems,standardCover} from '../domain/shapeApply';
 import {normaliseShape} from '../domain/shapeGeometry';
 import {Field,number} from './EditorControls';
-import {couplerMeshes} from './coupler3d';
+import {contextBoxes,couplerMeshes} from './coupler3d';
 
 type Row=ReturnType<typeof takeoff>['rows'][number];
 type Preview={member:Member;warnings:string[];errors:string[];q:ReturnType<typeof takeoff>};
@@ -131,7 +131,8 @@ function elementFields(d:any):F[]{
    {k:'head',label:'งานดิน / Lean concrete'},{k:'num',label:'ความลึกขุด (mm)',path:'excavation.depth'},{k:'num',label:'ระยะเผื่อทำงานต่อด้าน (mm)',path:'excavation.workingSpace'},{k:'num',label:'ความลาดผนังหลุม (H:V)',path:'excavation.slope'},{k:'num',label:'Lean หนา (mm)',path:'lean.thickness'},{k:'num',label:'Lean ยื่นจากขอบต่อด้าน (mm)',path:'lean.projection'},
   ];
   case 'Column':if(d.layout==='stack')return [{k:'head',label:'เสาหลายชั้น · แก้ชั้น หน้าตัด และเหล็กในตารางเสาของแท็บข้อมูลพื้นฐาน'}];return [{k:'sel',label:'รูปร่างหน้าตัด',path:'shape',opts:[['rect','สี่เหลี่ยม'],['circle','วงกลม']]},...(d.shape==='rect'?[{k:'num',label:'กว้าง X (mm)',path:'width'} as F,{k:'num',label:'ลึก Y (mm)',path:'depth'} as F]:[{k:'num',label:'เส้นผ่านศูนย์กลาง (mm)',path:'diameter'} as F]),{k:'num',label:'ความสูงเสา (mm)',path:'height'},...cover([['side','รอบหน้าตัด']])];
-  case 'Beam':if(d.layout==='group')return [{k:'head',label:'กลุ่มคาน · แก้ช่วง ขนาด และเหล็กในตารางช่วงของแท็บข้อมูลพื้นฐาน'}];return [{k:'num',label:'กว้าง b (mm)',path:'width'},{k:'num',label:'ลึก h (mm)',path:'depth'},{k:'num',label:'ความยาวคาน (mm)',path:'length'},...cover([['top','ด้านบน'],['bottom','ด้านล่าง'],['side','ด้านข้าง/ปลาย']])];
+  case 'Beam':if(d.layout==='group')return [{k:'head',label:'กลุ่มคาน · แก้ช่วง ขนาด และเหล็กในตารางช่วงของแท็บข้อมูลพื้นฐาน'},
+   ...(d.grids as {label:string;support:number}[]).flatMap((g,k)=>[{k:'head',label:`เสา กริด ${g.label||k+1}`} as F,{k:'num',label:'กว้าง X ตามแนวคาน (mm, 0 = ไม่มีเสา)',path:`grids.${k}.support`} as F,{k:'num',label:'ลึก Y ขวางคาน (mm, 0 = เท่า X)',path:`grids.${k}.supportY`} as F])];return [{k:'num',label:'กว้าง b (mm)',path:'width'},{k:'num',label:'ลึก h (mm)',path:'depth'},{k:'num',label:'ความยาวคาน (mm)',path:'length'},...cover([['top','ด้านบน'],['bottom','ด้านล่าง'],['side','ด้านข้าง/ปลาย']])];
   case 'Slab':return [{k:'num',label:'ยาว X (mm)',path:'lengthX'},{k:'num',label:'กว้าง Y (mm)',path:'lengthY'},{k:'num',label:'ความหนาพื้น (mm)',path:'thickness'},...cover([['top','ด้านบน'],['bottom','ด้านล่าง'],['edge','ขอบพื้น']])];
   case 'Wall':return [{k:'num',label:'ความยาวผนัง (mm)',path:'length'},{k:'num',label:'ความหนาผนัง (mm)',path:'thickness'},{k:'num',label:'ความสูงผนัง (mm)',path:'height'},...cover([['face','ผิวผนัง'],['edge','ขอบ/บน-ล่าง']])];
  }
@@ -437,6 +438,7 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
   const bodyMat=new THREE.MeshBasicMaterial({color:BODY,transparent:true,opacity:.18,depthWrite:false,side:THREE.DoubleSide}),body=new THREE.Mesh(bodyGeo,bodyMat);scene.add(body);
   const edgeMat=new THREE.LineBasicMaterial({color:0x8fa3a8});scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(bodyGeo),edgeMat));
   const mats=new Map<string,THREE.MeshLambertMaterial>(),mat=(k:string)=>{let m=mats.get(k);if(!m){m=new THREE.MeshLambertMaterial({color:colorOf(k),...(k==='pile'?{transparent:true,opacity:.55}:{})});mats.set(k,m);}return m;};
+  for(const c of contextBoxes(beamColumnBoxes(member.elementInput)))scene.add(c);
   const pickables:THREE.Mesh[]=[],coupMat=new THREE.MeshLambertMaterial({color:0x5b6b70});
   for(const r of rows){const k=keyOf(r.id);for(const path of r.paths){const pts=path.map(P);if(pts.length<2)continue;const mesh=new THREE.Mesh(new THREE.TubeGeometry(new PolyCurve(pts),Math.max(2,(pts.length-1)*2),Math.max(r.diameter,4)/2000,6,false),mat(k));mesh.userData.key=k;scene.add(mesh);pickables.push(mesh);
    for(const c of couplerMeshes(pts,r.diameter,barCouplerEnds(member.elementInput,r.id),coupMat)){c.userData.key=k;scene.add(c);pickables.push(c);}}}
