@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {barCouplerEnds,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {barCouplerEnds,beamGroupLayout,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
@@ -135,9 +135,19 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    const ped=input.column.type==='pedestal'?conc.filter(r=>r.v0>T-1&&r.v0<T+1).sort((p,q)=>p.u0-q.u0)[0]:undefined;
    if(ped)covers.push({a:[ped.u0,T+(ped.v1-T)*.75],b:[ped.u0+input.column.cover,T+(ped.v1-T)*.75],text:C(input.column.cover)});}
  }
- const us=[...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
- const vs=[...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,u:(only?[Math.min(...us),Math.max(...us)]:[Math.min(0,...us),Math.max(1,...us)]) as [number,number],v:(only?[Math.min(...vs),Math.max(...vs)]:[Math.min(0,...vs),Math.max(1,...vs)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
+ // beam group (plan / elevation): dashed column faces + grid centre lines, and dimensions of the EX bars
+ const beamCols:{g:number;x0:number;x1:number;label:string;lo:number;hi:number}[]=[],exDims:{id:string;mark:string;top:boolean;stops:number[]}[]=[];
+ let band:[number,number]|undefined;
+ if(!only&&a===0&&(b===1||b===2)&&input?.category==='Beam'&&input.layout==='group'&&input.spans.length){
+  const lay=beamGroupLayout(input);band=b===2?[0,lay.H]:[0,lay.W];const ext=Math.max(300,band[1]-band[0]);
+  lay.grid.forEach((g,k)=>{const c=lay.columns.find(q=>q.k===k);beamCols.push({g,x0:c?.x0??g,x1:c?.x1??g,label:input.grids[k]?.label||'',lo:band![0]-ext,hi:band![1]+ext});});
+  const faces=lay.columns.flatMap(c=>[c.x0,c.x1]);
+  for(const r of rows){const t=r.id.match(/-ex-(?:mid-)?(top|bottom)/),p=r.paths[0];if(!t||!p)continue;const xs=p.map(q=>q[0]),xa=Math.min(...xs),xb=Math.max(...xs);
+   exDims.push({id:r.id,mark:r.mark,top:t[1]==='top',stops:[xa,...faces.filter(x=>x>xa+1&&x<xb-1),xb]});}
+ }
+ const us=[...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
+ const vs=[...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:(only?[Math.min(...us),Math.max(...us)]:[Math.min(0,...us),Math.max(1,...us)]) as [number,number],v:(only?[Math.min(...vs),Math.max(...vs)]:[Math.min(0,...vs),Math.max(1,...vs)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
@@ -149,6 +159,8 @@ function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number
  if(columns&&input?.category==='Foundation'){const fe=footingExtent(input),cols=footingColumns(input),faces=(axis:number)=>cols.flatMap(c=>{const e=columnExtent(c),size=axis?e.d:e.w,total=axis?fe.d:fe.w,off=axis?c.offsetY:c.offsetX;return [(total-size)/2+off,(total+size)/2+off];});
   return [{dir:'h',stops:faces(a),side:'start'},{dir:'v',stops:faces(b),side:'start'}];}
  const out:DimSpec[]=[{dir:'h',stops:[0,size[a]],side:'start'}];
+ // beam group: grid to grid (c/c spans) above the beam
+ if(a===0&&b!==0&&input?.category==='Beam'&&input.layout==='group'&&input.spans.length)out.push({dir:'h',stops:beamGroupLayout(input).grid,side:'end'});
  if(normal===undefined)out.push({dir:'v',stops:[0,size[b]],side:'start'});
  // shape model: chain of every part edge along each axis and every level in sections (dimensions come from the model)
  if(m.shapeModel){const sm=m.shapeModel,stops=(axis:number)=>{const vs=sm.parts.flatMap(p=>{const e=partExtent(p);return p.shape==='circle'?[e[axis],e[axis+2],axis?p.cy:p.cx]:partPolygon(p)[0].map(q=>q[axis]);});return [...new Set(vs.map(v=>Math.round(v)))].filter(v=>v>=0&&v<=size[axis]).sort((x,y)=>x-y).slice(0,12);};
@@ -234,6 +246,17 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  for(const c of v.covers){const x1=X(c.a[0]),y1=Y(c.a[1]),x2=X(c.b[0]),y2=Y(c.b[1]),vert=Math.abs(x1-x2)<.5,t=2.5*k,st={stroke:'#7a3e9d',width:.6*k};
   out.push({t:'line',x1,y1,x2,y2,...st},...(vert?[{t:'line' as const,x1:x1-t,x2:x1+t,y1,y2:y1,...st},{t:'line' as const,x1:x2-t,x2:x2+t,y1:y2,y2,...st}]:[{t:'line' as const,x1,x2:x1,y1:y1-t,y2:y1+t,...st},{t:'line' as const,x1:x2,x2,y1:y2-t,y2:y2+t,...st}]),
    {t:'text',x:vert?x1+4*k:Math.max(x1,x2)+3*k,y:vert?(y1+y2)/2+3*k:y1-3*k,text:c.text,size:8*k*fs,color:'#7a3e9d',bold:true,halo:true});}
+ // beam group: column faces (dashed), grid centre lines (dash-dot) with bubbles at the bottom, EX bar dimensions
+ for(const c of v.beamCols){const y0=Y(c.lo),y1=Y(c.hi),cs={stroke:'#d07a2d',width:.7*k,dash:[5*k,3*k]};
+  if(c.x1-c.x0>1)out.push({t:'line',x1:X(c.x0),x2:X(c.x0),y1:y0,y2:y1,...cs},{t:'line',x1:X(c.x1),x2:X(c.x1),y1:y0,y2:y1,...cs});
+  out.push({t:'line',x1:X(c.g),x2:X(c.g),y1:y0,y2:y1,stroke:'#7c8b8f',width:.5*k,dash:[10*k,3*k,2*k,3*k]});
+  if(c.label){const r=5.5*k,cy=y0+r+1.5*k;out.push({t:'circle',cx:X(c.g),cy,r,stroke:'#4a5a66',width:.6*k,fill:'#ffffff'},{t:'text',x:X(c.g),y:cy+3*k*fs,text:c.label,size:8*k*fs,color:'#22393f',anchor:'middle'});}}
+ if(v.band)for(const {d,row} of exDimRows(v.exDims)){const x0=d.stops[0],x1=d.stops.at(-1)!;
+   const color=opts.colors.get(d.id)||'#3f5459',y=d.top?Y(v.band[1])-(9+row*9)*k:Y(v.band[0])+(9+row*9)*k,st={stroke:color,width:.6*k},ds=7.5*k*fs;
+   out.push({t:'line',x1:X(x0),x2:X(x1),y1:y,y2:y,...st});
+   for(const p of d.stops)out.push({t:'line',x1:X(p)-2*k,x2:X(p)+2*k,y1:y+2*k,y2:y-2*k,...st});
+   d.stops.slice(1).forEach((p,i)=>{const a=d.stops[i],t=fmt(p-a);if(X(p)-X(a)>textWidth(t,ds)+2*k)out.push({t:'text',x:(X(p)+X(a))/2,y:y-1.5*k,text:t,size:ds,color,anchor:'middle',halo:true});});
+   out.push({t:'text',x:X(x0)-3*k,y:y+2.5*k,text:d.mark,size:ds,color,bold:true,anchor:'end',halo:true});}
  // Dimensions.
  const line={stroke:'#5f7378',width:.7*k},dsize=10*k*fs;
  for(const d of dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){
@@ -261,6 +284,11 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  return out;
 }
 
+/** Rows of the beam EX bar dimensions (above the beam for top bars, below for bottom bars; overlapping bars stack). */
+export function exDimRows<D extends {top:boolean;stops:number[]}>(dims:D[]){
+ const used:{top:boolean;x0:number;x1:number;row:number}[]=[];
+ return [...dims].sort((p,q)=>p.stops[0]-q.stops[0]).map(d=>{const x0=d.stops[0],x1=d.stops.at(-1)!;let row=0;while(used.some(u=>u.top===d.top&&u.row===row&&x0<u.x1+1&&u.x0<x1-1))row++;used.push({top:d.top,x0,x1,row});return {d,row};});
+}
 /** Level of the pedestal / starter plan section: mid-height of the pedestal (nearest tie set is drawn), or just above the
  * top of footing for starter bars (below their top end). Undefined when the footing has no column bars. */
 export function columnSectionCut(input:ElementInput|undefined,rows:ViewRow[]):{z:number;kind:'pedestal'|'starter'}|undefined{

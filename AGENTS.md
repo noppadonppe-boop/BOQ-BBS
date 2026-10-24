@@ -56,6 +56,9 @@
   layout in `src/domain/bbsSheet.ts` → renderer-agnostic primitives (`src/domain/drawingPrims.ts`),
   drawn as SVG by `src/components/PrimsSvg.tsx` (preview in the "แบบ & BBS" tab) and as PDF by `src/data/primsPdf.ts`.
   Plan/section geometry: `src/domain/elementViews.ts` (also used by `ElementGraphic`).
+  Beam groups (plan / elevation): `buildView` → `beamCols` (dashed column faces, grid centre lines + bubbles) and
+  `exDims` (EX bar extents split at column faces, rows by `exDimRows()`, top above / bottom below); grid c/c chain on top.
+  Test: `tmp/beamGrid.test.tsx`.
 - General Spec is workspace-level (not a project menu): profiles in Firestore `${APP_NAME}/root/specProfiles`
   (`src/domain/specProfiles.ts`, `src/data/specProfiles.ts`, page `src/components/GeneralSpecPage.tsx`,
   editor `SpecEditor.tsx` + `DesignCodeLibrary.tsx`). Projects choose a profile + f'c/grade in `ProjectForm`;

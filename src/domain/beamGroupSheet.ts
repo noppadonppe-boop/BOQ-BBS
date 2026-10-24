@@ -1,6 +1,6 @@
 import type {Prim} from './drawingPrims';
 import {beamGroupLayout,beamZoneLabels,columnStackLayout,type BeamInput,type BeamZone,type ColumnInput,type ElementInput} from './elementInput';
-import {buildView,type ViewRow} from './elementViews';
+import {buildView,exDimRows,type ViewRow} from './elementViews';
 import type {Member} from './model';
 
 type Box={x:number;y:number;w:number;h:number};
@@ -36,10 +36,11 @@ export function beamGroupSheet(m:Member,rows:ViewRow[],input:ElementInput|undefi
  const v=buildView(m,rows,input,elevSpec),b={x:elevBox.x,y:elevBox.y+4,w:elevBox.w,h:elevBox.h-4},M=48*k,spanU=v.u[1]-v.u[0],spanV=v.v[1]-v.v[0];
  const sc=Math.min((b.w-2*M)/spanU,(b.h-2*M)/spanV),offU=(b.w-2*M-spanU*sc)/2,offV=(b.h-2*M-spanV*sc)/2;
  const X=(x:number)=>b.x+M+offU+(x-v.u[0])*sc,Y=(z:number)=>b.y+b.h-M-offV-(z-v.v[0])*sc,marks:Prim[]=[];
- for(const c of all){const x=X(c.x),y0=Y(lay.H)-3,y1=Y(0)+3,on=list.includes(c),color=on?'#c2410c':'#7c8b8f';
+ // cut lines reach past the EX bar dimension rows above / below the beam
+ const rowsOf=(top:boolean)=>Math.max(0,...exDimRows(v.exDims).filter(r=>r.d.top===top).map(r=>r.row+1));
+ for(const c of all){const x=X(c.x),y0=Y(lay.H)-3-rowsOf(true)*9*k,y1=Y(0)+3+rowsOf(false)*9*k,on=list.includes(c),color=on?'#c2410c':'#7c8b8f';
   marks.push({t:'line',x1:x,y1:y0,x2:x,y2:y1,stroke:color,width:.25,dash:[2,1,.5,1]},{t:'text',x,y:y0-.8,text:c.letter,size:2.4,color,anchor:'middle',bold:on},{t:'text',x,y:y1+2.6,text:c.letter,size:2.4,color,anchor:'middle',bold:on});}
- // grid bubbles under the elevation
- lay.grid.forEach((gx,i)=>{const lbl=g.grids[i]?.label;if(!lbl)return;const x=X(gx),y=Math.min(b.y+b.h-2.6,Y(0)+6.5);marks.push({t:'circle',cx:x,cy:y,r:2.2,stroke:'#4a5a66',width:.2},{t:'text',x,y:y+.9,text:lbl,size:2.3,color:'#22393f',anchor:'middle'});});
+ // grid bubbles: drawn by renderView at the bottom of the grid lines
  const notesY=secY+secH+3;
  return {views,marks,notes:{x:area.x,y:notesY,w:area.w,h:area.y+area.h-notesY},pages,sectionPage:`${page%pages+1}/${pages}`};
 }
