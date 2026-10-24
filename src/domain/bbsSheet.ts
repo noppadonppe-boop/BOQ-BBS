@@ -76,6 +76,7 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  const notes=[
   T.nts,
   `${T.cover}: ${input?Object.entries(input.cover).map(([k2,v])=>`${names[k2]||k2} ${v}`).join(' · '):m.cover}${input?.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?T.pedestal:'Starter'} ${footingColumns(input).map(c=>c.columnNo).filter(Boolean).join(', ')} ${input.column.cover}`:''}`,
+  input?.category==='Foundation'&&input.column.type!=='none'&&footingColumns(input).some(c=>c.splice?.type==='coupler')?T.coupler((m.siteWork?.items||[]).filter(it=>it.id.startsWith('gen-coupler-')).map(it=>`${it.label.replace(/^.*\) /,'')} × ${it.quantity}`).join(', '),Math.max(0,...footingColumns(input).filter(c=>c.splice?.type==='coupler').map(c=>c.splice.stagger))):'',
   det?T.bendRadius(det.bendSmall,det.bendLarge,det.tieBend):T.bendPerMark,
   det?T.hooks(det.hook90,det.hook135,det.hook135Min,det.lapTable?T.lapSpec(det.lapTable.map(r=>`Ø${r.bar}=${r.length}`).join(', ')):`${det.lap}d`):'',
   T.rounding(s.project.spec.rounding,s.project.spec.bsEdition||'',det?`${det.mainGrade} / ${T.tie} ${det.tieGrade}`:T.perTable),

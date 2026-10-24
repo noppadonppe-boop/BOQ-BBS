@@ -58,6 +58,9 @@ const footingColumnSchema=z.object({
  tie:spacingLayer,
  embed:z.object({mode:z.enum(['standard','custom']),depth:mm}).strict(),
  bend:bendMode,leg:mm,
+ /** Top end of the main bars: lap (plain end) or a mechanical coupler at the end (top + projection); stagger > 0 moves
+  * every second bar up by that much (50 % per level). */
+ splice:z.object({type:z.enum(['lap','coupler']),stagger:mm}).strict().default({type:'lap',stagger:0}),
  /** Offset of the section bounding-box centre from the footing bounding-box centre. */
  offsetX:z.number().finite().min(-100000).max(100000),offsetY:z.number().finite().min(-100000).max(100000),
 }).strict();
@@ -344,7 +347,7 @@ const wallSchema=z.object({...base,category:z.literal('Wall'),
 export const elementInputUnion=z.discriminatedUnion('category',[foundationSchema,columnSchema,beamSchema,slabSchema,wallSchema]);
 export const elementInputSchema=z.preprocess(migrateElementInput,elementInputUnion);
 export type ElementInput=z.infer<typeof elementInputUnion>;
-export const DEFAULT_FOOTING_COLUMN:FootingColumn={type:'none',columnNo:'',shape:'rect',width:400,depth:400,diameter:400,armX:250,armY:250,height:600,projection:800,cover:40,main:{corner:{diameter:16,count:1},sideX:{diameter:16,count:1},sideY:{diameter:16,count:1},diameter:16,count:8,spacing:200},tie:{diameter:9,spacing:200},embed:{mode:'standard',depth:0},bend:'standard',leg:0,offsetX:0,offsetY:0};
+export const DEFAULT_FOOTING_COLUMN:FootingColumn={type:'none',columnNo:'',shape:'rect',width:400,depth:400,diameter:400,armX:250,armY:250,height:600,projection:800,cover:40,main:{corner:{diameter:16,count:1},sideX:{diameter:16,count:1},sideY:{diameter:16,count:1},diameter:16,count:8,spacing:200},tie:{diameter:9,spacing:200},embed:{mode:'standard',depth:0},bend:'standard',leg:0,splice:{type:'lap',stagger:0},offsetX:0,offsetY:0};
 export const DEFAULT_PILE:PileInput={type:'square',size:300,layout:'standard',count:4,nx:2,ny:2,spacingX:900,spacingY:900,length:12,cutoff:500,embed:75,offsetX:0,offsetY:0};
 /** Version 1 stored input (pedestal box + single end-hook flag) → version 2. */
 function migrateElementInput(raw:unknown):unknown{
@@ -1039,7 +1042,9 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const set=all.filter(b=>b.d===dm),pts=set.map(b=>[b.x,b.y] as [number,number]),rad=radius(dm,det),zMin=meshTop+dm/2;
   let zBend=col.embed.mode==='custom'?T-col.embed.depth:zMin;
   if(zBend<zMin){warn(`${name}: ระยะฝังลึกเกินตะแกรงเหล็กล่าง ใช้ระดับบนตะแกรงแทน`);zBend=zMin;}
-  const zTop=col.projection>0?top+col.projection:top-col.cover-dm/2,want=bendLeg(col.bend,col.leg,dm,det);
+  const cpl=col.splice?.type==='coupler',stag=cpl&&set.length>1?Math.max(0,col.splice.stagger):0;
+  // coupler: the bar ends at the coupler (top + projection, 0 = at the concrete surface)
+  const zTop=cpl?top+Math.max(0,col.projection):col.projection>0?top+col.projection:top-col.cover-dm/2,want=bendLeg(col.bend,col.leg,dm,det);
   // Feet bend outward around the column centre: side bars perpendicular to their face,
   // corner bars diagonally, circular columns radially.
   const cx=ox+w/2,cy=oy+depth/2,dirOf=(b:ColumnBarPos):Pt=>{const dx=b.x-cx,dy=b.y-cy;if(b.kind==='sideX')return [0,Math.sign(dy)||1];if(b.kind==='sideY')return [Math.sign(dx)||1,0];if(b.kind==='corner')return [(Math.sign(dx)||1)/Math.SQRT2,(Math.sign(dy)||1)/Math.SQRT2];const l=Math.hypot(dx,dy)||1;return [dx/l,dy/l];};
@@ -1047,10 +1052,15 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   let leg=want>rad*1.5?want:0;while(leg>0&&!fits(leg)){leg-=10;if(leg<=rad*1.5)leg=0;}
   if(want>0&&!leg)warn(`${name} DB${dm}: พื้นที่ฐานรากไม่พอสำหรับขางอ ใช้เหล็กตรง`);
   else if(leg&&leg<want-.5)warn(`${name} DB${dm}: ขางอถูกจำกัดเป็น ${Math.round(leg)} mm ให้อยู่ในฐานราก`);
-  const [x0,y0]=pts[0],d0=dirs[0],a0=Math.atan2(d0[1],d0[0]),mix=(Object.keys(kinds) as ColumnBarPos['kind'][]).map(k=>[k,set.filter(b=>b.kind===k).length] as const).filter(([,n])=>n>0).map(([k,n])=>`${kinds[k]} ${n}`).join(' · ');
-  const parts=[`ฝัง ${Math.round(T-zBend)}`,leg?`งอฉากออกรอบเสา ${Math.round(leg)}`:'ปลายตรง',col.projection>0?`โผล่ ${Math.round(col.projection)}`:''].filter(Boolean);
-  const turns=dirs.map(dv=>{let t=(Math.atan2(dv[1],dv[0])-a0)*180/Math.PI;while(t>180)t-=360;while(t<=-180)t+=360;return Number(t.toFixed(4));});
-  out.push({role:(groups.length>1?`column-main-${dm}`:'column-main')+sfx,note:`เหล็กยืน ${name} (${mix}) · ${parts.join(' · ')} mm`,diameter:dm,grade:g,count:pts.length,points:leg?[[x0+d0[0]*leg,y0+d0[1]*leg,zBend],[x0,y0,zBend],[x0,y0,zTop]]:[[x0,y0,zBend],[x0,y0,zTop]],axis:'Z',face:'side',radius:leg?rad:0,shapeCode:leg?'11':'00',offsets:offsetsFrom(pts),...(leg?{turns}:{})});
+  // staggered couplers: every second bar (around the section) ends `stag` higher, as its own Mark
+  const sets=stag?[set.map((_,k)=>k).filter(k=>k%2===0),set.map((_,k)=>k).filter(k=>k%2===1)]:[set.map((_,k)=>k)];
+  sets.forEach((ix,si)=>{
+   const sub=ix.map(k=>set[k]),sp=ix.map(k=>pts[k]),sd=ix.map(k=>dirs[k]),zT=zTop+si*stag;
+   const [x0,y0]=sp[0],d0=sd[0],a0=Math.atan2(d0[1],d0[0]),mix=(Object.keys(kinds) as ColumnBarPos['kind'][]).map(k=>[k,sub.filter(b=>b.kind===k).length] as const).filter(([,n])=>n>0).map(([k,n])=>`${kinds[k]} ${n}`).join(' · ');
+   const proj=zT-top,parts=[`ฝัง ${Math.round(T-zBend)}`,leg?`งอฉากออกรอบเสา ${Math.round(leg)}`:'ปลายตรง',cpl?`Coupler ที่ปลายบน ${proj>0?`โผล่ ${Math.round(proj)}`:'ที่ผิวคอนกรีต'}${stag?` (เหลื่อม ${Math.round(stag)} · ชุด ${si+1}/2)`:''}`:col.projection>0?`โผล่ ${Math.round(col.projection)}`:''].filter(Boolean);
+   const turns=sd.map(dv=>{let t=(Math.atan2(dv[1],dv[0])-a0)*180/Math.PI;while(t>180)t-=360;while(t<=-180)t+=360;return Number(t.toFixed(4));});
+   out.push({role:(groups.length>1?`column-main-${dm}`:'column-main')+(si?'-cpl2':'')+sfx,note:`เหล็กยืน ${name} (${mix}) · ${parts.join(' · ')} mm`,diameter:dm,grade:g,count:sp.length,points:leg?[[x0+d0[0]*leg,y0+d0[1]*leg,zBend],[x0,y0,zBend],[x0,y0,zT]]:[[x0,y0,zBend],[x0,y0,zT]],axis:'Z',face:'side',radius:leg?rad:0,shapeCode:leg?'11':'00',offsets:offsetsFrom(sp),...(leg?{turns}:{})});
+  });
  }
  const minGap=Math.min(Infinity,...all.flatMap((a,i)=>all.slice(i+1).map(b=>Math.hypot(a.x-b.x,a.y-b.y)-(a.d+b.d)/2)));
  if(minGap<-0.5)warn(`${name}: ตำแหน่งเหล็กยืนซ้อนกัน ลดจำนวนหรือขนาดเหล็ก`);
@@ -1510,7 +1520,11 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    if(!m.drawingViews)shape={...shape,sectionY:firstBar?Number((oy+firstBar.y).toFixed(1)):Y/2};
    const {placementContext:_c,...rest}=next;
    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:X,y:Y,cover:Math.min(input.cover.bottom,input.cover.top,input.cover.side,...cols.map(c=>c.cover)),faces:footingFaces,lean:{x:input.lean.thickness>0?lx:0,y:input.lean.thickness>0?ly:0,thickness:input.lean.thickness},excavation:{bottomX:bx,bottomY:by,topX:bx+grow,topY:by+grow,depth,buriedConcrete:buried>0?buried:1e-9},...shape} as Member;
-   next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
+   // generated BOQ items: one coupler per starter / pedestal main bar with a coupler top end (rebuilt on every apply)
+   const cpl=new Map<number,number>();
+   for(const c of cols)if(c.type!=='none'&&c.splice?.type==='coupler')for(const b of columnBarPositions(c,c.cover+(c.type==='pedestal'?c.tie.diameter:0)))cpl.set(b.d,(cpl.get(b.d)||0)+1);
+   const siteItems=[...(m.siteWork?.items||[]).filter(it=>!it.id.startsWith('gen-')),...[...cpl].sort((p,q)=>q[0]-p[0]).map(([d,n])=>({id:`gen-coupler-${d}`,label:`ข้อต่อเหล็กแบบกลไก (Coupler) ${d<=9?'RB':'DB'}${d}`,unit:'ตัว',quantity:n}))];
+   next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),items:siteItems,sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
    // pour stages: levels between stages (quantities per stage from the geometry, see pourStageQuantities)
    {const pr=footingPour(input),{pourStages:_p,...r2}=next;next=pr.levels.length&&pr.stages.every(s=>s.height>0)?{...r2,pourStages:{levels:pr.levels}}:r2 as Member;}
    gen=foundationBars(input,det,rounding,warn);break;}

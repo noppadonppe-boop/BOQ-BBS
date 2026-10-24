@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
@@ -37,6 +37,11 @@ function sandRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|
 /** Thickness under the concrete down to the pit bottom: lean + sand (mm). */
 const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 
+/** Footing column main bars (starter / pedestal) whose top end is a mechanical coupler. */
+function couplerRow(input:ElementInput|undefined,id:string){
+ if(input?.category!=='Foundation'||!/column-main/.test(id))return false;
+ const n=id.match(/-c(d+)$/),col=footingColumns(input)[n?Number(n[1])-1:0];return col?.type!=='none'&&col?.splice?.type==='coupler';
+}
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
 export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns}:ViewSpec){
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
@@ -94,7 +99,8 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
     for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i],len=Math.hypot(t[0]-s[0],t[1]-s[1],t[2]-s[2]);total+=len;all.push({a:[s[a],s[b]],b:[t[a],t[b]]});
      if(Math.abs(s[normal]-t[normal])<.5){along+=len;weighted+=len*(s[normal]+t[normal])/2;segs.push({a:[s[a],s[b]],b:[t[a],t[b]]});}
      else if((s[normal]-cut!)*(t[normal]-cut!)<=0){const k=(cut!-s[normal])/(t[normal]-s[normal]);hits.push([s[a]+(t[a]-s[a])*k,s[b]+(t[b]-s[b])*k]);}}
-    if(total>0&&along>=.8*total){inPlane.push({v:weighted/along,lines:all.filter(l=>Math.hypot(l.b[0]-l.a[0],l.b[1]-l.a[1])>.5)});continue;}
+    // also a bar standing on the cut plane with a leg turned out of it (corner starter bar with a diagonal foot)
+    if(total>0&&(along>=.8*total||along>=.6*total&&Math.abs(weighted/along-cut!)<1)){inPlane.push({v:weighted/along,lines:all.filter(l=>Math.hypot(l.b[0]-l.a[0],l.b[1]-l.a[1])>.5)});continue;}
     const extent=(k:number)=>Math.max(...p.map(q=>q[k]))-Math.min(...p.map(q=>q[k])),planar=extent(a)<1||extent(b)<1;
     if(planar&&hits.length>=2){const k=extent(b)<1?0:1,sorted=hits.sort((x,y)=>x[k]-y[k]);lines.push({a:sorted[0],b:sorted.at(-1)!});}else dots.push(...hits);
    }
@@ -102,7 +108,11 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    if(values.length){const near=values.reduce((best,v)=>Math.abs(v-cut!)<Math.abs(best-cut!)?v:best,values[0]),gap=values.length>1?Math.max(...values.slice(1).map((v,i)=>v-values[i])):Infinity;
     if(Math.abs(near-cut!)<=gap/2+1)lines.push(...inPlane.filter(c=>Math.abs(c.v-near)<.75).flatMap(c=>c.lines));}
   }
-  return {row:r,lines,dots};
+  // coupler at the top end of footing column bars (vertical sections): a box centred on the bar end
+  const couplers:[number,number][]=[];
+  if(normal!==undefined&&normal!==2&&couplerRow(input,r.id)){const zTop=Math.max(...r.paths.flatMap(p=>p.map(q=>q[2])));
+   for(const l of lines){const e=l.a[1]>l.b[1]?l.a:l.b;if(Math.abs(l.a[0]-l.b[0])<.5&&Math.abs(e[1]-zTop)<1)couplers.push(e);}}
+  return {row:r,lines,dots,couplers};
  });
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
  const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
@@ -118,9 +128,19 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    const Hp=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;if(Hp>0)at(T+Hp,'T.O.P.');
    if(earth&&e.depth>0){const u=Math.max(...conc.map(r=>r.u1));levels.push({u:u+300,v:ground,text:`NGL ${sg(input.levels.ground)}`});}}
  }
+ // concrete cover C: footing bottom / top / side and pedestal side (sections), column side (Z–Z section)
+ const covers:{a:[number,number];b:[number,number];text:string}[]=[];
+ if(normal!==undefined&&input?.category==='Foundation'){const c=input.cover,T=input.thickness,C=(v:number)=>`C=${Math.round(v)}`;
+  if(only){const p=[...polys,...refs][0],col=footingColumns(input)[0];if(p&&col){const x0=Math.min(...p.map(q=>q[0])),ys=p.map(q=>q[1]),y=(Math.min(...ys)+Math.max(...ys))/2;covers.push({a:[x0,y],b:[x0+col.cover,y],text:C(col.cover)});}}
+  else{const conc=rects.filter(r=>r.kind==='concrete'),f=conc.filter(r=>r.v0<1&&r.v1>T-1).sort((p,q)=>(q.u1-q.u0)-(p.u1-p.u0))[0];
+   if(f){const u=f.u0+(f.u1-f.u0)*.12;covers.push({a:[u,0],b:[u,c.bottom],text:C(c.bottom)},{a:[f.u0,T*.5],b:[f.u0+c.side,T*.5],text:C(c.side)});
+    if(!footingSlabOn(input))covers.push({a:[u,T-c.top],b:[u,T],text:C(c.top)});}
+   const ped=input.column.type==='pedestal'?conc.filter(r=>r.v0>T-1&&r.v0<T+1).sort((p,q)=>p.u0-q.u0)[0]:undefined;
+   if(ped)covers.push({a:[ped.u0,T+(ped.v1-T)*.75],b:[ped.u0+input.column.cover,T+(ped.v1-T)*.75],text:C(input.column.cover)});}
+ }
  const us=[...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
  const vs=[...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,u:(only?[Math.min(...us),Math.max(...us)]:[Math.min(0,...us),Math.max(1,...us)]) as [number,number],v:(only?[Math.min(...vs),Math.max(...vs)]:[Math.min(0,...vs),Math.max(1,...vs)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,u:(only?[Math.min(...us),Math.max(...us)]:[Math.min(0,...us),Math.max(1,...us)]) as [number,number],v:(only?[Math.min(...vs),Math.max(...vs)]:[Math.min(0,...vs),Math.max(1,...vs)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
@@ -197,10 +217,11 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // Marks split by bar length (gen-bottom-x-1, -2, …) share one label "F01–F08".
  const placed:{x:number;y:number;w:number}[]=[],family=(id:string)=>id.replace(/^(gen-(?:bottom|top)-[xy])-\d+$/,'$1'),labelled=new Set<string>();
  const size=10*k*fs,step=size*1.15;
- for(const {row,lines,dots} of v.bars){
+ for(const {row,lines,dots,couplers} of v.bars){
   const color=opts.colors.get(row.id)||'#167561',w=Math.max(k,row.diameter*s);
   for(const l of lines)out.push({t:'line',x1:X(l.a[0]),y1:Y(l.a[1]),x2:X(l.b[0]),y2:Y(l.b[1]),stroke:color,width:w,cap:'round',group:row.id});
   for(const d of dots)out.push({t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max((v.columns?3:1.6)*k,row.diameter*s/2),fill:color,group:row.id});
+  for(const c of couplers){const cw=Math.max(4.5*k,row.diameter*1.6*s),ch=Math.max(9*k,row.diameter*3*s);out.push({t:'rect',x:X(c[0])-cw/2,y:Y(c[1])-ch/2,w:cw,h:ch,fill:'#ffffff',stroke:color,width:.9*k,group:row.id},{t:'line',x1:X(c[0])-cw/2,x2:X(c[0])+cw/2,y1:Y(c[1]),y2:Y(c[1]),stroke:color,width:.6*k,group:row.id});}
   const fam=family(row.id);if(labelled.has(fam))continue;
   const p=lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2]:dots[0];if(!p)continue;labelled.add(fam);
   const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],text=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
@@ -209,6 +230,13 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   placed.push({x,y,w:tw});
   out.push({t:'line',x1:ax,y1:ay,x2:x,y2:y-3*k,stroke:color,width:.5*k,group:row.id},{t:'text',x:x+2*k,y,text,size,color,bold:true,halo:true,group:row.id});
  }
+ // one "COUPLER" label per view, left of the leftmost coupler
+ const cp=v.bars.flatMap(b=>b.couplers).sort((p,q)=>p[0]-q[0])[0];
+ if(cp){const x=X(cp[0])-10*k,y=Y(cp[1])-12*k;out.push({t:'line',x1:X(cp[0])-3*k,y1:Y(cp[1])-3*k,x2:x,y2:y,stroke:'#3f5459',width:.5*k},{t:'text',x:x-2*k,y:y+3*k,text:'COUPLER',size:8.5*k*fs,color:'#3f5459',bold:true,anchor:'end',halo:true});}
+ // cover C: short dimension with ticks, value beside it (right of a vertical one, above a horizontal one)
+ for(const c of v.covers){const x1=X(c.a[0]),y1=Y(c.a[1]),x2=X(c.b[0]),y2=Y(c.b[1]),vert=Math.abs(x1-x2)<.5,t=2.5*k,st={stroke:'#7a3e9d',width:.6*k};
+  out.push({t:'line',x1,y1,x2,y2,...st},...(vert?[{t:'line' as const,x1:x1-t,x2:x1+t,y1,y2:y1,...st},{t:'line' as const,x1:x2-t,x2:x2+t,y1:y2,y2,...st}]:[{t:'line' as const,x1,x2:x1,y1:y1-t,y2:y1+t,...st},{t:'line' as const,x1:x2,x2,y1:y2-t,y2:y2+t,...st}]),
+   {t:'text',x:vert?x1+4*k:Math.max(x1,x2)+3*k,y:vert?(y1+y2)/2+3*k:y1-3*k,text:c.text,size:8*k*fs,color:'#7a3e9d',bold:true,halo:true});}
  // Dimensions.
  const line={stroke:'#5f7378',width:.7*k},dsize=10*k*fs;
  for(const d of dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){

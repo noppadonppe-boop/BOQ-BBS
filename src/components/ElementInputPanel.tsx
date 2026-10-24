@@ -285,7 +285,7 @@ function ColumnMainFields({input,dia,int:num,select}:{input:ColumnInput;dia:(lab
 
 type Fields={num:(label:string,path:string,unit?:string)=>ReactNode;dia:(label:string,path:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode;spacing:(label:string,path:string)=>ReactNode;bend:(label:string,path:string,d:number)=>ReactNode;text:(label:string,path:string)=>ReactNode};
 function FootingColumnFields({col,pedestal,field:f,base:P='column'}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string}){
- const kind=pedestal?'เสาตอม่อ':'Starter bar',corners={rect:4,circle:0,L:6,U:8}[col.shape],bars=columnSectionPreview(col).bars,by=(k:string)=>bars.filter(b=>b.kind===k).length,name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
+ const kind=pedestal?'เสาตอม่อ':'Starter bar',cpl=col.splice?.type==='coupler',corners={rect:4,circle:0,L:6,U:8}[col.shape],bars=columnSectionPreview(col).bars,by=(k:string)=>bars.filter(b=>b.kind===k).length,name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
  return <div className="footing-column">
   <div className="form-grid">{f.text(pedestal?'Column no. (เลขเสา)':'Column no. (เสาที่รับ Starter)',`${P}.columnNo`)}{f.select(pedestal?'หน้าตัดเสา':'หน้าตัดการวาง Starter bar',`${P}.shape`,[['rect','สี่เหลี่ยม'],['circle','กลม'],['L','ตัวแอล (L)'],['U','ตัวยู (U)']])}{f.num(`cover ${kind}`,`${P}.cover`)}</div>
   <div className="footing-column-grid"><div>
@@ -293,7 +293,9 @@ function FootingColumnFields({col,pedestal,field:f,base:P='column'}:{col:Footing
     {col.shape==='L'&&<>{f.num('ความหนาขาแนว X',`${P}.armX`)}{f.num('ความหนาขาแนว Y',`${P}.armY`)}</>}
     {col.shape==='U'&&<>{f.num('ความหนาเอว (แนว X)',`${P}.armX`)}{f.num('ความหนาปีก (แนว Y)',`${P}.armY`)}</>}
     {f.num('ระยะเยื้องศูนย์ X (จากกึ่งกลางฐาน)',`${P}.offsetX`)}{f.num('ระยะเยื้องศูนย์ Y (จากกึ่งกลางฐาน)',`${P}.offsetY`)}
-    {pedestal&&f.num('ความสูงเสาตอม่อ (เหนือฐาน)',`${P}.height`)}{f.num(pedestal?'ระยะเหล็กโผล่เหนือตอม่อ (0 = ไม่โผล่)':'ระยะโผล่จากฐาน',`${P}.projection`)}</div>
+    {pedestal&&f.num('ความสูงเสาตอม่อ (เหนือฐาน)',`${P}.height`)}{f.num(cpl?`ระดับ Coupler เหนือ${pedestal?'ตอม่อ':'ฐาน'} (0 = ที่ผิวคอนกรีต)`:pedestal?'ระยะเหล็กโผล่เหนือตอม่อ (0 = ไม่โผล่)':'ระยะโผล่จากฐาน',`${P}.projection`)}</div>
+   <div className="form-grid">{f.select('ปลายบนเหล็กยืน',`${P}.splice.type`,[['lap','ต่อทาบ / ปลายตรง'],['coupler','Coupler (ข้อต่อทางกล)']])}{cpl&&f.num('ระยะเหลื่อม Coupler ทีละครึ่ง (0 = ระดับเดียว)',`${P}.splice.stagger`)}</div>
+   {cpl&&<p className="muted">Coupler {bars.length} ตัว ต่อเสา · คิดใน BOQ (ตัว) และแสดงในแบบ &amp; BBS</p>}
    <h5>เหล็กยืน{col.columnNo?` ${col.columnNo}`:''}</h5>
    {col.shape==='circle'?<div className="form-grid">{f.dia('ขนาดเหล็กยืน',`${P}.main.diameter`)}{f.num('จำนวนเหล็กรอบวง',`${P}.main.count`,'เส้น')}</div>:<>
     <div className="form-grid rebar-group"><span className="rebar-group-title">เหล็กมุม ({corners} มุม)</span>{f.dia('ขนาด',`${P}.main.corner.diameter`)}{f.select('จำนวนต่อมุม',`${P}.main.corner.count`,[['1','1 เส้น'],['2','2 เส้น (มัดคู่)'],['3','3 เส้น (มัด 3)']],true)}</div>
