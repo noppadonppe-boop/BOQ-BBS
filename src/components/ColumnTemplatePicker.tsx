@@ -1,7 +1,7 @@
 import {useMemo,useState} from 'react';
 import type {Spec} from '../domain/model';
 import {columnTieLayout,tiePatternInfo,type ColumnInput,type TieZoneKey} from '../domain/elementInput';
-import {applyTemplateRow,applyTemplateStack,fractionText,mainText,tieText,zoneFractions,zoneRulesOf} from '../domain/columnTemplates';
+import {applyTemplateRow,applyTemplateStack,fractionText,mainText,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
 import {Modal,NumInput} from './EditorControls';
 import {TieElevation,TiePlan} from './ColumnTieEditor';
 
@@ -11,19 +11,23 @@ export function ColumnTemplatePicker({spec,input,onApply,onClose}:{spec:Spec;inp
  const list=spec.columnTemplates||[],rules=zoneRulesOf(spec),ref=input.template;
  const [id,setId]=useState(ref&&list.some(t=>t.id===ref.id)?ref.id:list[0]?.id||''),[row,setRow]=useState(ref?.row??(input.layout==='stack'?-1:0));
  const [beam,setBeam]=useState(ref&&ref.row>=0?ref.beam:input.pour?.beam??600),[linked,setLinked]=useState(ref?.linked??true),[filter,setFilter]=useState('');
- const [zone,setZone]=useState<TieZoneKey>('middle');
+ const [zone,setZone]=useState<TieZoneKey>('middle'),[view,setView]=useState<'grid'|'list'>('grid');
  const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0;
  const next=useMemo(()=>t?k<0?applyTemplateStack(input,t,rules,{linked}):applyTemplateRow(input,t,k,rules,{beam,linked}):undefined,[t,k,input,rules,beam,linked]);
  const lay=useMemo(()=>{if(!next||!t)return;const probe=k<0?applyTemplateRow(input,t,0,rules):next;try{return columnTieLayout(probe,t.pattern,probe.detailing);}catch{return;}},[next,t,k,input,rules]);
  const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
  const r=t&&k>=0?t.rows[k]:undefined,tie=next?.rebar.tie,f=r?zoneFractions(rules,r.first):undefined;
- return <Modal title="เลือกหน้าตัดเสาจาก Template โครงการ" onClose={onClose}>
+ return <Modal title="ตารางหน้าตัดเสา · Project Column Template" onClose={onClose}>
   <div className="ct-picker">
    {!list.length?<p className="notice">โครงการนี้ยังไม่มี Project Column Template · เพิ่มได้ที่ General Spec ของโครงการ → ปุ่ม “Project Column Template”</p>:<>
-   <div className="ct-chips" role="group" aria-label="ประเภทเสา">{list.length>12&&<input placeholder="ค้นหา C1…" value={filter} onChange={e=>setFilter(e.target.value)}/>}
-    {shown.map(x=><button key={x.id} type="button" className={x.id===id?'active':''} onClick={()=>{setId(x.id);setRow(r=>r<0?-1:0);}}><b>{x.name}</b> <small>{x.rows[0].width}×{x.rows[0].depth}</small></button>)}</div>
-   {t&&<div className="ct-chips" role="group" aria-label="ช่วงชั้น">{t.rows.map((x,i)=><button key={i} type="button" className={k===i?'active':''} onClick={()=>setRow(i)}>{x.level||`แถว ${i+1}`}{x.first&&<small> · ชั้นแรก</small>}</button>)}
+   <div className="ct-viewbar"><div className="segmented" role="tablist">{([['grid','ตารางหน้าตัดเสา'],['list','รายการ']] as const).map(([v,l])=><button key={v} type="button" role="tab" aria-selected={view===v} className={view===v?'active':''} onClick={()=>setView(v)}>{l}</button>)}</div>
+    {list.length>8&&<input placeholder="ค้นหา C1…" value={filter} onChange={e=>setFilter(e.target.value)}/>}
+    {view==='grid'&&<small className="muted">คลิกช่องหน้าตัด = ใช้ช่วงชั้นนั้น (เสาชั้นเดียว) · คลิกชื่อเสา = ทั้งตาราง (เสาหลายชั้น)</small>}</div>
+   {view==='list'&&<div className="ct-chips" role="group" aria-label="ประเภทเสา">
+    {shown.map(x=><button key={x.id} type="button" className={x.id===id?'active':''} onClick={()=>{setId(x.id);setRow(r=>r<0?-1:0);}}><b>{x.name}</b> <small>{x.rows[0].width}×{x.rows[0].depth}</small></button>)}</div>}
+   {view==='list'&&t&&<div className="ct-chips" role="group" aria-label="ช่วงชั้น">{t.rows.map((x,i)=><button key={i} type="button" className={k===i?'active':''} onClick={()=>setRow(i)}>{x.level||`แถว ${i+1}`}{x.first&&<small> · ชั้นแรก</small>}</button>)}
     <button type="button" className={k<0?'active':''} title="ทุกช่วงชั้น → เสาหลายชั้น (ตารางเสา)" onClick={()=>setRow(-1)}>ทั้งตาราง (เสาหลายชั้น)</button></div>}
+   {view==='grid'&&<ScheduleGrid list={shown} input={input} rules={rules} id={id} row={k} onPick={(x,i)=>{setId(x);setRow(i);}}/>}
    {t&&next&&tie&&<div className="ct-preview">
     <div className="ct-summary">
      <b>{t.name}{r?` · ${r.level}`:` · ${t.rows.length} ช่วงชั้น`}</b>{t.note&&<small className="block muted">{t.note}</small>}
@@ -43,4 +47,27 @@ export function ColumnTemplatePicker({spec,input,onApply,onClose}:{spec:Spec;inp
     <span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!next} onClick={()=>{if(next){onApply(next);onClose();}}}>ใช้หน้าตัดนี้</button></footer></>}
   </div>
  </Modal>;
+}
+
+/** Level names of all types in drawing order (bottom → top), each type's own order kept. */
+export function scheduleLevels(list:ColumnTemplate[]){
+ const out:string[]=[];
+ for(const t of list){let at=-1;for(const r of t.rows){const i=out.indexOf(r.level);if(i>=0)at=i;else out.splice(at=at+1,0,r.level);}}
+ return out;
+}
+
+/** Column schedule as on the drawings: types across, level ranges down (top storey first), section sketch + text per cell. */
+function ScheduleGrid({list,input,rules,id,row,onPick}:{list:ColumnTemplate[];input:ColumnInput;rules:ColumnZoneRules;id:string;row:number;onPick:(id:string,row:number)=>void}){
+ const levels=useMemo(()=>scheduleLevels(list).reverse(),[list]);
+ const lays=useMemo(()=>new Map(list.flatMap(t=>t.rows.map((r,k)=>{let lay;try{const p=applyTemplateRow(input,t,k,rules);lay=columnTieLayout(p,t.pattern,p.detailing);}catch{lay=undefined;}return [`${t.id}/${r.level}`,{k,lay}] as const;}))),[list,input,rules]);
+ const big=Math.max(1,...list.flatMap(t=>t.rows.map(r=>Math.max(r.width,r.depth))));
+ return <div className="ct-sched"><table>
+  <thead><tr><th className="lv">ช่วงชั้น \ เสา</th>{list.map(t=><th key={t.id} className={t.id===id&&row<0?'active':''}><button type="button" title={`${t.name} ทั้งตาราง → เสาหลายชั้น ${t.rows.length} ชั้น${t.note?`\n${t.note}`:''}`} onClick={()=>onPick(t.id,-1)}><b>{t.name}</b><small>{t.rows.length} ชั้น · {tiePatternInfo[t.pattern].label.split(' (')[0]}</small></button></th>)}</tr></thead>
+  <tbody>{levels.map(lv=><tr key={lv}><th className="lv">{lv}</th>{list.map(t=>{const c=lays.get(`${t.id}/${lv}`),r=c&&t.rows[c.k];
+   if(!c||!r)return <td key={t.id} className="none"/>;
+   const on=t.id===id&&(row===c.k||row<0);
+   return <td key={t.id} className={on?'active':''}><button type="button" title={`${t.name} · ${lv}${r.first?' · ชั้นแรก':''}`} onClick={()=>onPick(t.id,c.k)}>
+    {c.lay?<TiePlan lay={c.lay} size={Math.round(48+62*Math.max(r.width,r.depth)/big)}/>:<span className="muted">—</span>}
+    <span className="ct-cell"><b>{r.width}×{r.depth}</b><span>{mainText(r)}</span><span>{tieText(r)}</span></span></button></td>;})}</tr>)}</tbody>
+ </table></div>;
 }

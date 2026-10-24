@@ -60,7 +60,9 @@
   others H/6 · 2H/3 · H/6) in `src/domain/columnTemplates.ts` (`applyTemplateRow` single, `applyTemplateStack` → stack with
   `stack.zones`, `syncColumnTemplate`). Column input `template {id,row,beam,linked}`; linked columns are re-applied in the
   spec-change job (`data/direct/specJobs.ts`). UI: General Spec button → `ColumnTemplateEditor.tsx` (Excel via
-  `data/columnTemplateExcel.ts`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx`. Test: `tmp/columnTemplate.test.ts`.
+  `data/columnTemplateExcel.ts`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx` (default view = schedule grid
+  `ScheduleGrid`: types × level ranges via `scheduleLevels()`, cell = single storey, type header = stack). Test: `tmp/columnTemplate.test.ts`;
+  J-078 schedule data + Excel generator: `tmp/j078.test.ts` → `tmp/J-078-column-templates.xlsx`.
 - A3 BBS sheet (views + BBS table + BOQ table + title block), layout id `sheet-a3-v10`:
   layout in `src/domain/bbsSheet.ts` → renderer-agnostic primitives (`src/domain/drawingPrims.ts`),
   drawn as SVG by `src/components/PrimsSvg.tsx` (preview in the "แบบ & BBS" tab) and as PDF by `src/data/primsPdf.ts`.

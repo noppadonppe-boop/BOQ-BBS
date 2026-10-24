@@ -365,7 +365,7 @@ function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink}:{input:ColumnIn
  const n=spec.columnTemplates?.length||0,ref=input.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);
  const where=ref?`${ref.name}${ref.row<0?' · ทั้งตาราง':t?.rows[ref.row]?` · ${t.rows[ref.row].level}`:''}`:'';
  return <div className="ct-bar">
-  <button type="button" className={n?'ct-open':''} disabled={readOnly} title={n?'เลือกหน้าตัด / เหล็กยืน / เหล็กปลอก จากตารางเสาของโครงการ':'ยังไม่มี Template · เพิ่มที่ General Spec ของโครงการ'} onClick={onPick}><Columns3 size={15}/>เลือกจาก Template โครงการ ({n})</button>
+  <button type="button" className={n?'ct-open':''} disabled={readOnly} title={n?'เลือกหน้าตัด / เหล็กยืน / เหล็กปลอก จากตารางเสาของโครงการ':'ยังไม่มี Template · เพิ่มที่ General Spec ของโครงการ'} onClick={onPick}><Columns3 size={15}/>ตารางหน้าตัดเสา · Template โครงการ ({n})</button>
   {ref&&<span className={`ct-link ${ref.linked?'on':''}`}>{ref.linked?'ผูกกับ':'มาจาก'} Template <b>{where}</b>{!t&&' (ไม่พบใน Spec แล้ว)'}{ref.linked&&<small> · แก้ค่าในหน้านี้ได้ แต่จะถูกแทนเมื่อ Template ใน Spec เปลี่ยน</small>}</span>}
   {ref?.linked&&<button type="button" className="icon-button" disabled={readOnly} title="เลิกผูก (ค่าคงเดิม · ไม่ปรับตาม Template อีก)" onClick={onUnlink}><Link2Off size={14}/></button>}
  </div>;
