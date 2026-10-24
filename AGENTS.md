@@ -55,6 +55,12 @@
   names and B.O.C. / C.J. / T.O.C. (`buildView`). UI `ColumnPourFields` in `ElementInputPanel.tsx`. Test: `tmp/columnPour.test.tsx`.
 - Column main bars (rect): `rebar.main.corner` (bundle 1–3) + `sideX` / `sideY` per face, positions via
   `columnInputBars()` (symmetric spacing); special sections = `columnPresets` / `applyColumnPreset()`.
+- Project Column Template (column schedule per spec): `spec.columnTemplates` (types × level rows: section, main bars,
+  ties nYd@S1(d@S2)) + `spec.columnZoneRules` (tie zones as divisors of H = storey − beam; default first H/3 · H/2 · H/6,
+  others H/6 · 2H/3 · H/6) in `src/domain/columnTemplates.ts` (`applyTemplateRow` single, `applyTemplateStack` → stack with
+  `stack.zones`, `syncColumnTemplate`). Column input `template {id,row,beam,linked}`; linked columns are re-applied in the
+  spec-change job (`data/direct/specJobs.ts`). UI: General Spec button → `ColumnTemplateEditor.tsx` (Excel via
+  `data/columnTemplateExcel.ts`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx`. Test: `tmp/columnTemplate.test.ts`.
 - A3 BBS sheet (views + BBS table + BOQ table + title block), layout id `sheet-a3-v10`:
   layout in `src/domain/bbsSheet.ts` → renderer-agnostic primitives (`src/domain/drawingPrims.ts`),
   drawn as SVG by `src/components/PrimsSvg.tsx` (preview in the "แบบ & BBS" tab) and as PDF by `src/data/primsPdf.ts`.

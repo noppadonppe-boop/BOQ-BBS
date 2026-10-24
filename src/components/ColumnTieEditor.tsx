@@ -59,7 +59,7 @@ const pieceSummary=(pieces:ReturnType<typeof columnTieLayout>['pieces'])=>{
 };
 
 /** Plan thumbnail of one tie level: section, main bars, hoop (set 1) and set-2 pieces. */
-function TiePlan({lay,size}:{lay:ReturnType<typeof columnTieLayout>;size:number}){
+export function TiePlan({lay,size}:{lay:ReturnType<typeof columnTieLayout>;size:number}){
  const pad=size*.08,s=(size-2*pad)/Math.max(lay.W,lay.D),ox=(size-lay.W*s)/2,oy=(size-lay.D*s)/2;
  const P=(p:[number,number])=>`${(ox+p[0]*s).toFixed(1)},${(size-oy-p[1]*s).toFixed(1)}`;
  const path=(pts:[number,number][],r:number)=>roundedPath(pts.map(p=>[p[0],p[1],0]),r).points.map(p=>P([p[0],p[1]])).join(' ');
@@ -73,7 +73,7 @@ function TiePlan({lay,size}:{lay:ReturnType<typeof columnTieLayout>;size:number}
 }
 
 /** Elevation strip: column height split into zones with tie levels of both sets (schematic). */
-function TieElevation({input,lengths,zone,onZone}:{input:ColumnInput;lengths:Record<TieZoneKey,number>;zone:TieZoneKey;onZone:(k:TieZoneKey)=>void}){
+export function TieElevation({input,lengths,zone,onZone}:{input:ColumnInput;lengths:Record<TieZoneKey,number>;zone:TieZoneKey;onZone:(k:TieZoneKey)=>void}){
  const H=input.height,t=input.rebar.tie,h=250,top=10,bottom=14,colX=30,colW=34,Y=(z:number)=>top+(h-top-bottom)*(1-z/H);
  if(!(H>0))return null;
  const bounds:Record<TieZoneKey,[number,number]>={lower:[0,lengths.lower],middle:[lengths.lower,H-lengths.upper],upper:[H-lengths.upper,H]};

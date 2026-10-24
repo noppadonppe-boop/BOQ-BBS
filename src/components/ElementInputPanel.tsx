@@ -1,5 +1,5 @@
 import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
-import {Box,FileUp,Wand2} from 'lucide-react';
+import {Box,Columns3,FileUp,Link2Off,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
 import {DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
@@ -11,6 +11,7 @@ import {FootingPourEditor} from './FootingPourEditor';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
+import {ColumnTemplatePicker} from './ColumnTemplatePicker';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
@@ -43,7 +44,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const [manualBars,setManualBars]=useState(()=>m.bars.filter(b=>!isGeneratedBar(b)));
  const [view3d,setView3d]=useState(false);
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
- const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0);
+ const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0),[picker,setPicker]=useState(false);
  const spec=project.spec;
  // typed but not yet applied = unsaved work (the member popup asks before closing)
  const snapshot=JSON.stringify([input,occurrences,manualBars,items]),[applied,setApplied]=useState(snapshot),dirty=snapshot!==applied;
@@ -149,6 +150,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      {q&&<p className="muted">ขุด {number(q.excavation)} m³ · ถมกลับ {number(q.backfill)} m³ (= ขุด − Lean{earth.sand?' − ทราย':''} − คอนกรีตใต้ดิน) · ต่อ 1 ฐาน</p>}
     </div><FootingEarthworkSketch input={input}/></div>;})()}
    <FootingPourEditor input={input} readOnly={readOnly} stages={preview&&!('error' in preview)?preview.q.pourStages:undefined} edit={f=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const next=structuredClone(prev);f(next);return next;})}/></>}
+  {input.category==='Column'&&<ColumnTemplateBar input={input} spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} onUnlink={()=>setInput(prev=>prev?.category==='Column'&&prev.template?{...prev,template:{...prev.template,linked:false}}:prev)}/>}
+  {picker&&input.category==='Column'&&<ColumnTemplatePicker spec={spec} input={input} onApply={next=>setInput(next)} onClose={()=>setPicker(false)}/>}
   {input.category==='Column'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบเสา">{([['single','เสาชั้นเดียว'],['stack','เสาหลายชั้น · ตารางเสา (Coupler / ปลอกตาม H)']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Column'?prev:v==='stack'?columnStackFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>}
   {input.category==='Column'&&input.layout==='stack'&&<ColumnStackEditor input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);f(next);return next;})}/>}
   {input.category==='Column'&&input.layout!=='stack'&&<><div className="form-grid"><label className="field full"><span>หน้าตัดพิเศษ (ตัวอย่างจากแบบ) · เติมขนาด เหล็กยืน และเหล็กปลอก</span><select disabled={readOnly} value="" onChange={e=>{const id=e.target.value;if(id)setInput(prev=>prev?.category==='Column'?applyColumnPreset(prev,id):prev);}}><option value="">— เลือกหน้าตัดพิเศษ —</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
@@ -355,4 +358,15 @@ function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;on
   <label className="field"><span>ระดับล่าง (m) เช่น หลังฐาน</span><NumInput type="number" step="0.001" disabled={readOnly} value={bottom} onChange={e=>setBottom(e.target.value)}/></label>
   <label className="field"><span>ระดับบน (m) เช่น ท้องคาน / หลังพื้น</span><NumInput type="number" step="0.001" disabled={readOnly} value={top} onChange={e=>setTop(e.target.value)}/></label>
   <div className="field"><span>ความสูง</span><button type="button" disabled={readOnly||!ok} onClick={()=>onUse(h)}>{ok?`ใช้ ${h.toLocaleString()} mm`:'กรอกระดับให้ครบ'}</button></div></div></details>;
+}
+
+/** Project Column Template entry point of a column: pick button + the template / row the section came from. */
+function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink}:{input:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink:()=>void}){
+ const n=spec.columnTemplates?.length||0,ref=input.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);
+ const where=ref?`${ref.name}${ref.row<0?' · ทั้งตาราง':t?.rows[ref.row]?` · ${t.rows[ref.row].level}`:''}`:'';
+ return <div className="ct-bar">
+  <button type="button" className={n?'ct-open':''} disabled={readOnly} title={n?'เลือกหน้าตัด / เหล็กยืน / เหล็กปลอก จากตารางเสาของโครงการ':'ยังไม่มี Template · เพิ่มที่ General Spec ของโครงการ'} onClick={onPick}><Columns3 size={15}/>เลือกจาก Template โครงการ ({n})</button>
+  {ref&&<span className={`ct-link ${ref.linked?'on':''}`}>{ref.linked?'ผูกกับ':'มาจาก'} Template <b>{where}</b>{!t&&' (ไม่พบใน Spec แล้ว)'}{ref.linked&&<small> · แก้ค่าในหน้านี้ได้ แต่จะถูกแทนเมื่อ Template ใน Spec เปลี่ยน</small>}</span>}
+  {ref?.linked&&<button type="button" className="icon-button" disabled={readOnly} title="เลิกผูก (ค่าคงเดิม · ไม่ปรับตาม Template อีก)" onClick={onUnlink}><Link2Off size={14}/></button>}
+ </div>;
 }

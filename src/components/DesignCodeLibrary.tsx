@@ -1,5 +1,6 @@
 ﻿import {useEffect,useState,type ReactNode} from 'react';
-import {ArrowDown,ArrowUp,Plus,Trash2} from 'lucide-react';
+import {ArrowDown,ArrowUp,Columns3,Plus,Trash2} from 'lucide-react';
+import {ColumnTemplateEditor} from './ColumnTemplateEditor';
 import type {Spec} from '../domain/model';
 import {CONFIG_BEAM_RULES,DEFAULT_BEAM_RULES,barGrades,gradeBarLabel,gradeOptions,type GradeRow,beamCases,beamNotes,codeInfo,codeList,codeValues,designCodes,endHooks,isCustomCode,lapColumns,lapConcrete,lapGrades,lapTables,stirrupHooks,tableCode,tableOverrides,type BeamCase,type CodeData,type CodeValues,type CustomCode,type DesignCodeId,type Provision} from '../domain/designCodes';
 
@@ -11,7 +12,7 @@ const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 /** General Spec · design-code categories (ACI / วสท. / BS / Custom) with the project's choice. */
 export function DesignCodeLibrary({spec,readOnly,onChange,bs,onSave}:Props){
  const [view,setView]=useState<DesignCodeId>(spec.designCode||'ACI');
- const [editing,setEditing]=useState(false);
+ const [editing,setEditing]=useState(false),[columns,setColumns]=useState(false);
  const used=spec.designCode,ids=codeList(spec),info=codeInfo(spec,view),custom=isCustomCode(view),ownCustom=spec.customCodes?.find(c=>c.id===view);
  // follow the project's code when it changes elsewhere (project form / reload)
  useEffect(()=>{if(used)setView(used);},[used]);
@@ -35,7 +36,8 @@ export function DesignCodeLibrary({spec,readOnly,onChange,bs,onSave}:Props){
    <span className="code-card-badge">{id==='EIT'?'วสท.':isCustomCode(id)?'Custom':id}</span><b>{c.label}</b><small>{c.sub}</small>{used===id&&<em>ใช้ใน Spec นี้</em>}</button>;})}
    {!readOnly&&<button type="button" className="code-card code-card-add" onClick={addCustom} disabled={(spec.customCodes||[]).length>=20}><Plus size={18}/><b>เพิ่ม Custom</b><small>สำเนา ACI Code · ตั้งชื่อตามโครงการ</small></button>}</div>
   <div className="code-view-head"><div><h4>{info.label} · {info.sub}</h4><p className="muted">{info.note}</p></div>
-   <div className="actions">{tables&&<><button className={editing?'active':''} disabled={readOnly} onClick={()=>setEditing(!editing)}>{editing?'เสร็จสิ้นการแก้ไขค่าคาน':'แก้ไขค่าการเสริมเหล็กคาน'}</button>
+   <div className="actions"><button className="ct-open" title="ตารางหน้าตัดเสาของโครงการ (ขนาด เหล็กยืน เหล็กปลอก ตามช่วงชั้น) สำหรับเลือกใช้ที่หน้าเสา" onClick={()=>setColumns(true)}><Columns3 size={15}/>Project Column Template ({spec.columnTemplates?.length||0})</button>
+    {tables&&<><button className={editing?'active':''} disabled={readOnly} onClick={()=>setEditing(!editing)}>{editing?'เสร็จสิ้นการแก้ไขค่าคาน':'แก้ไขค่าการเสริมเหล็กคาน'}</button>
     {customCount>0&&<button disabled={readOnly} onClick={()=>{if(confirm('คืนค่ามาตรฐานทั้งหมดของหมวดนี้ (ใน Spec ชุดนี้)?'))store(own.provisions?{provisions:own.provisions}:{});}}>คืนค่ามาตรฐานทั้งหมด</button>}</>}
     {view!=='Custom'&&custom&&<button className="danger-text" disabled={readOnly||used===view} title={used===view?'เปลี่ยนหมวดที่ใช้ก่อนลบ':''} onClick={removeCustom}><Trash2 size={14}/>ลบหมวดนี้</button>}
     <button className={used===view?'':'primary'} disabled={readOnly||used===view} onClick={()=>onChange({...spec,designCode:view})}>{used===view?'ใช้หมวดนี้อยู่':'ใช้หมวดนี้ใน Spec ชุดนี้'}</button></div></div>
@@ -48,6 +50,7 @@ export function DesignCodeLibrary({spec,readOnly,onChange,bs,onSave}:Props){
   <GradeSection key={view} rows={vals.grades} custom={vals.custom.grades} label={info.label} readOnly={readOnly} canSave={!!onSave}
    onSave={grades=>{const {grades:_,...rest}=own,next=withData(grades?{...rest,grades}:rest);onChange(next);onSave?.(next);}}/>
   <Provisions items={own.provisions||[]} readOnly={readOnly} label={info.label} onChange={list=>{const {provisions:_,...rest}=own;store(list.length?{...rest,provisions:list}:rest);}}/>
+  {columns&&<ColumnTemplateEditor spec={spec} readOnly={readOnly} onChange={onChange} onClose={()=>setColumns(false)} title="Project Column Template"/>}
   <p className="muted">การเปลี่ยนแปลงจะบันทึกเมื่อกด “บันทึก Spec” · โครงการที่เลือกใช้ Spec ชุดนี้จะถูกปรับตาม · ตารางเป็นข้อมูลอ้างอิงสำหรับการให้รายละเอียดเหล็ก ต้องตรวจกับแบบและวิศวกรผู้ออกแบบ</p>
  </section>;
 }

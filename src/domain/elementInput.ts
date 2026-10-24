@@ -277,7 +277,9 @@ const columnStackSchema=z.object({storeys:z.array(columnStoreySchema).max(20),
  /** top of the last storey: F.T.A (12d inward) or stop at cover */
  top:z.enum(['fta','none']),
  /** main bar joints in every storey: mechanical couplers (50 %, groups `stagger` apart) or laps */
- splice:z.object({type:z.enum(['coupler','lap']),stagger:mm}).strict()}).strict();
+ splice:z.object({type:z.enum(['coupler','lap']),stagger:mm}).strict(),
+ /** tie end zones as divisors of the clear height (first storey on the footing / others); default H/3 · H/6 and H/6 · H/6 */
+ zones:z.object({first:z.object({lower:z.number().min(1).max(20),upper:z.number().min(1).max(20)}).strict(),typical:z.object({lower:z.number().min(1).max(20),upper:z.number().min(1).max(20)}).strict()}).strict().optional()}).strict();
 export const DEFAULT_COLUMN_STACK={storeys:[],footing:{enabled:true,depth:900},top:'fta' as const,splice:{type:'coupler' as const,stagger:1000}};
 /** Column pour (single column): one stage, or two with a construction joint below the beam framing in at the top.
  * Levels in m: `bottom` = bottom of column (top = bottom + height); joint = top − `beam` (mode beam) or the level `joint`. */
@@ -292,6 +294,8 @@ const columnSchema=z.object({...base,category:z.literal('Column'),
  layout:z.enum(['single','stack']),
  stack:columnStackSchema,
  pour:columnPourSchema.default({...DEFAULT_COLUMN_POUR}),
+ /** Project Column Template the section came from (row −1 = whole table → stack); linked = re-applied when the spec changes */
+ template:z.object({id:z.string().max(40),name:z.string().max(40),row:z.number().int().min(-1).max(19),beam:mm,linked:z.boolean()}).strict().optional(),
 }).strict();
 /** Element cast on the ground (slab / beam on ground) or elevated (formed soffit). On ground: optional layers under
  * the concrete, top → bottom: lean concrete and plastic sheet, sand bed, compacted subgrade; projections per side. */
@@ -1099,12 +1103,13 @@ export function columnStackFrom(i:ColumnInput):ColumnInput{
  return {...i,layout:'stack',shape:'rect',stack:i.stack.storeys.length?i.stack:{...i.stack,storeys:[newColumnStorey(i)]}};
 }
 /** Storey bases (z from the top of footing / first floor), clear heights and tie zones:
- * first storey on a footing: S2 over H/3, S1 over H/2, S2 over H/6; other storeys H/6 · 2H/3 · H/6 (S2 · S1 · S2);
+ * first storey on a footing: S2 over H/3, S1 over H/2, S2 over H/6; other storeys H/6 · 2H/3 · H/6 (S2 · S1 · S2) unless `stack.zones` says otherwise;
  * the top S2 zone continues through the beam depth (joint). */
 export function columnStackLayout(i:ColumnInput){
  const S=i.stack.storeys,W=Math.max(...S.map(s=>s.width)),D=Math.max(...S.map(s=>s.depth));let z=0;
- const storeys=S.map((s,k)=>{const z0=z;z+=s.height;const clear=Math.max(1,s.height-s.beamDepth),first=k===0&&i.stack.footing.enabled;
-  return {...s,k,z0,z1:z,clear,ox:(W-s.width)/2,oy:(D-s.depth)/2,lower:clear*(first?1/3:1/6),upper:clear/6+s.beamDepth,first};});
+ const zr=i.stack.zones??{first:{lower:3,upper:6},typical:{lower:6,upper:6}};
+ const storeys=S.map((s,k)=>{const z0=z;z+=s.height;const clear=Math.max(1,s.height-s.beamDepth),first=k===0&&i.stack.footing.enabled,r=first?zr.first:zr.typical;
+  return {...s,k,z0,z1:z,clear,ox:(W-s.width)/2,oy:(D-s.depth)/2,lower:clear/r.lower,upper:clear/r.upper+s.beamDepth,first};});
  return {storeys,W,D,H:z};
 }
 /** Column stack bars: ties per storey (existing column generator, zones by H), main bars over runs of storeys with the

@@ -5,6 +5,7 @@ import {attachmentSchema,Attachment,Member,Project,Spec,specSchema,SpecChangeSta
 import {validateMember} from '../../domain/engine';
 import {applyElementInput,elementInputSchema,isGeneratedBar} from '../../domain/elementInput';
 import {detailingFromSpec} from '../../domain/specProfiles';
+import {syncColumnTemplate} from '../../domain/columnTemplates';
 import {sourceBarNames,sourceCurrent,memberSourceInfo,generalSourceInfo,validateSourceChains} from '../../domain/sourceRevisions';
 import {canonical} from '../../domain/canonical';
 import {decodeStorage} from '../../domain/storageCodec';
@@ -67,6 +68,8 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
  const regenerate=(m:Member):Member|undefined=>{
   if(action!=='beginSpecChange'||!m.elementInput)return;
   const parsed=elementInputSchema.safeParse(m.elementInput);if(!parsed.success||parsed.data.category!==m.category)return;
+  // columns linked to a Project Column Template follow the template of the new spec
+  if(parsed.data.category==='Column')parsed.data=syncColumnTemplate(parsed.data,spec);
   // input not applied yet: only refresh its detailing so the next apply uses the new spec
   if(!parsed.data.appliedAt)return {...m,elementInput:{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)}};
   try{const r=applyElementInput(m,{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)},{rounding:spec.rounding,withBars:m.bars.some(isGeneratedBar)});return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}
