@@ -38,7 +38,7 @@ function sandRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|
 const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 
 /** Footing column main bars (starter / pedestal) whose top end is a mechanical coupler. */
-function couplerRow(input:ElementInput|undefined,id:string){
+export function couplerRow(input:ElementInput|undefined,id:string){
  if(input?.category!=='Foundation'||!/column-main/.test(id))return false;
  const n=id.match(/-c(d+)$/),col=footingColumns(input)[n?Number(n[1])-1:0];return col?.type!=='none'&&col?.splice?.type==='coupler';
 }
