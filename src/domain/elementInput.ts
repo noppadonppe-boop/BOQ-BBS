@@ -765,7 +765,9 @@ const columnSpec=(col:FootingColumn):ShapeSpec=>({shape:col.shape,...columnExten
 export function columnBoxes(col:FootingColumn):Box[]{return shapeBoxes(columnSpec(col));}
 /** Section area in mm². */
 export function columnArea(col:FootingColumn){return col.shape==='circle'?Math.PI*col.diameter**2/4:columnBoxes(col).reduce((n,b)=>n+(b.x1-b.x0)*(b.y1-b.y0),0);}
-function outline(col:FootingColumn):Pt[]{return shapeOutline(columnSpec(col));}
+/** Column / starter section outline in local coordinates (origin = bounding-box corner). */
+export function columnOutline(col:FootingColumn):Pt[]{return shapeOutline(columnSpec(col));}
+const outline=columnOutline;
 const footingSpec=(i:FoundationInput):ShapeSpec=>({shape:i.shape,w:i.shape==='circle'?i.diameter:i.width,d:i.shape==='circle'?i.diameter:i.length,armX:i.armX,armY:i.armY,chamfer:i.chamfer});
 /** Footing plan: bounding size, outline (local mm), exact area (mm²) and perimeter (mm). */
 export function footingExtent(i:FoundationInput){const s=footingSpec(i);return {w:s.w,d:s.d};}

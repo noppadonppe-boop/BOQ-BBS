@@ -15,6 +15,8 @@
   Joint bars `pour.joints[k]` (`jointRebar()`): mesh at the top of the lower / bottom of the upper stage, vertical bars
   through the joint (roles `joint<k>-x|y|dowel`). Footing levels: `levels.ref` top|bottom, read via `footingLevels()`;
   sections draw joints, stage names and T.O.F. / B.O.F. / C.J. / T.O.P. / NGL marks (`buildView` → `levels`).
+  A3 sheet adds a pedestal / starter plan section Z–Z (`ViewSpec.columns`, level `columnSectionCut()`; column outlines +
+  `column-main|tie` bars only), under the notes when they leave ≥ 48 mm, else beside section Y–Y. Test: `tmp/starterSheet.test.tsx`.
 - Bar layer shapes (footing/slab mesh, beam top/bottom, wall vertical/horizontal): `shape` = BS 8666:2020 code from
   `layerShapes` (00/11/12/13/21/22/99), `leg` (0 = standard), `radius` (R for 12); geometry by `shapedEnds()`;
   old `bend` / `endHook` inputs are migrated in `migrateShapes()`. Shape 41 (U legs full depth + 15d inward, footing only).

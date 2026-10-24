@@ -6,7 +6,7 @@ import {pourStageQuantities} from './solids';
 import type {ElementInput} from './elementInput';
 import {footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
-import {buildView,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
+import {buildView,columnSectionCut,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
 import {textWidth,wrapText,type Prim} from './drawingPrims';
 import {composeDrawingNumber} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
@@ -72,16 +72,6 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  const left=S.left+2,colW=(sx-S.left-6)/2,topY=S.margin+15,topH=128,botY=topY+topH+3,botH=S.h-S.margin-botY-2;
  // beam group: elevation + cross-sections (paged) instead of plan / sections X–Y
  const bg=beamGroupSheet(m,s.rows,input,{x:left,y:topY,w:sx-left-2,h:S.h-S.margin-topY-2},page,k);
- const views=bg?bg.views:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:{axes:[0,1] as [number,number]},cuts},{title:T.sectionX(Math.round(cuts.y)),box:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},{title:T.sectionY(Math.round(cuts.x)),box:{x:left,y:botY,w:colW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}}];
- for(const v of views){
-  out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2});
-  text(v.title,v.box.x+2,v.box.y+4,2.8,{bold:true});
-  out.push(...renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined}).map(p=>p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p));
- }
- if(bg)out.push(...bg.marks);
- // Notes and Mark legend.
- const nb=bg?bg.notes:{x:left+colW+2,y:botY,w:colW,h:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
- text(T.notes,nb.x+2,nb.y+4.5,3,{bold:true});
  const det=input?.detailing,names=T.coverNames;
  const notes=[
   T.nts,
@@ -98,6 +88,21 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
   T.quantity(s.quantity,[...new Set(m.occurrences.map(o=>[o.zone,o.floor,o.grid].filter(Boolean).join('/')))].filter(Boolean).join(', ')||T.noLocation),
   T.dashes,
  ].filter(Boolean);
+ // footing pedestal / starter plan section: under the notes when they leave room, else beside section Y–Y
+ const colCut=bg?undefined:columnSectionCut(input,s.rows),noteH=9+notes.reduce((h,n)=>h+wrapText(`• ${n}`,2.3,colW-4,3).length*2.9+.6,0)+5.6+Math.ceil(s.rows.length/2)*3.4+2;
+ const under=!!colCut&&botH-noteH-2>=48,secW=colCut&&!under?colW*.58:colW;
+ const colBox=colCut?under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH}:undefined;
+ const views=bg?bg.views:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:{axes:[0,1] as [number,number]},cuts},{title:T.sectionX(Math.round(cuts.y)),box:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},{title:T.sectionY(Math.round(cuts.x)),box:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
+  ...(colCut&&colBox?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{axes:[0,1] as [number,number],normal:2,cut:colCut.z,columns:true}}]:[])];
+ for(const v of views){
+  out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2});
+  text(v.title,v.box.x+2,v.box.y+4,2.8,{bold:true});
+  out.push(...renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z}).map(p=>p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p));
+ }
+ if(bg)out.push(...bg.marks);
+ // Notes and Mark legend.
+ const nb=bg?bg.notes:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
+ text(T.notes,nb.x+2,nb.y+4.5,3,{bold:true});
  let ny=nb.y+9;for(const n of notes){for(const l of wrapText(`• ${n}`,2.3,nb.w-4,3)){text(l,nb.x+2,ny,2.3);ny+=2.9;}ny+=.6;}
  ny+=2;text(T.legend,nb.x+2,ny,2.6,{bold:true});ny+=3.6;
  const per=2,cw=(nb.w-4)/per;s.rows.forEach((r,i)=>{const cx=nb.x+2+(i%per)*cw,cy=ny+Math.floor(i/per)*3.4;if(cy>nb.y+nb.h-2)return;out.push({t:'rect',x:cx,y:cy-2,w:2.4,h:2.4,fill:colors.get(r.id),stroke:colors.get(r.id),width:.1});text(T.perPiece(`${r.mark} ${barName(r.diameter)}`,r.count),cx+3.4,cy,2.2);});

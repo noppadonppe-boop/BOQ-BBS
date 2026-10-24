@@ -1,12 +1,13 @@
 import type {Member,Vec3} from './model';
-import {footingColumns,footingExtent,footingLevels,footingOutline,footingPour,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
 import {textWidth,type Prim} from './drawingPrims';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
-export type ViewSpec={axes:[number,number];normal?:number;cut?:number};
+/** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
+export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean};
 type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
@@ -37,15 +38,17 @@ function sandRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|
 const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
-export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut}:ViewSpec){
+export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns}:ViewSpec){
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
  // Footing concrete comes from the true plan outline (circle / polygons / L / U), not the bounding box.
- const foot=input?.category==='Foundation'?footingOutline(input):undefined,polys:Pt[][]=[],piles:Pile[]=[];
+ const only=!!columns&&input?.category==='Foundation'&&normal===2,foot=input?.category==='Foundation'&&!only?footingOutline(input):undefined,polys:Pt[][]=[],refs:Pt[][]=[],piles:Pile[]=[];
+ if(only){rows=rows.filter(r=>/column-(main|tie)/.test(r.id));const fe=footingExtent(input);
+  for(const c of footingColumns(input)){const {w,d}=columnExtent(c),ox=(fe.w-w)/2+c.offsetX,oy=(fe.d-d)/2+c.offsetY;(input.column.type==='pedestal'?polys:refs).push(columnOutline(c).map(([x,y])=>[ox+x,oy+y] as Pt));}}
  const isFooting=(id:string)=>!!foot&&(id==='main'||id.startsWith('footing'));
- const boxes=[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:'context' as const}))];
+ const boxes=only?[]:[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:'context' as const}))];
  const sm=m.shapeModel,earth=m.category==='Foundation'||!!sm?.site,holes:Pt[][]=[],edges:Line[]=[];
- if(m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
- rects.push(...sandRect(m,a,b,normal,cut));
+ if(!only){if(m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
+ rects.push(...sandRect(m,a,b,normal,cut));}
  // shape model: plan = footprint (holes white) + thin outlines of every part; section = cut rectangles per level band
  if(sm){
   if(normal===undefined){const r=shapePlanRings(sm);polys.push(...r.outer);holes.push(...r.holes);
@@ -73,7 +76,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  }
  // Excavation outline and ground line (foundations).
  const e=m.excavation,ground=e.depth-underside(m);
- if(earth&&e.depth>0){
+ if(earth&&e.depth>0&&!only){
   if(normal===undefined){for(const [wx,wy] of [[e.topX,e.topY],[e.bottomX,e.bottomY]]){const u0=(m.x-wx)/2,v0=(m.y-wy)/2;guides.push({a:[u0,v0],b:[u0+wx,v0]},{a:[u0+wx,v0],b:[u0+wx,v0+wy]},{a:[u0+wx,v0+wy],b:[u0,v0+wy]},{a:[u0,v0+wy],b:[u0,v0]});}}
   else{const size=a===0?m.x:m.y,bw=a===0?e.bottomX:e.bottomY,tw=a===0?e.topX:e.topY,z0=-underside(m);guides.push({a:[(size-bw)/2,z0],b:[(size+bw)/2,z0]},{a:[(size-bw)/2,z0],b:[(size-tw)/2,ground]},{a:[(size+bw)/2,z0],b:[(size+tw)/2,ground]},{a:[(size-tw)/2-300,ground],b:[(size+tw)/2+300,ground]});}
  }
@@ -103,7 +106,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  });
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
  const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
- if(normal!==undefined&&input?.category==='Foundation'){
+ if(normal!==undefined&&!only&&input?.category==='Foundation'){
   const pr=footingPour(input),conc=rects.filter(r=>r.kind==='concrete'),T=input.thickness,ord=['First','Second','Third','Fourth','Fifth','Sixth'];
   const right=(z:number)=>Math.max(...conc.filter(r=>r.v0-1e-6<=z&&z<=r.v1+1e-6).map(r=>r.u1),-Infinity);
   if(pr.stages.length>1){
@@ -115,16 +118,20 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    const Hp=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;if(Hp>0)at(T+Hp,'T.O.P.');
    if(earth&&e.depth>0){const u=Math.max(...conc.map(r=>r.u1));levels.push({u:u+300,v:ground,text:`NGL ${sg(input.levels.ground)}`});}}
  }
- const us=[...rects.flatMap(r=>[r.u0,r.u1]),...polys.flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
- const vs=[...rects.flatMap(r=>[r.v0,r.v1]),...polys.flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
- return {member:m,input,axes,normal,cut,rects,polys,holes,edges,piles,guides,bars,joints,stageText,levels,u:[Math.min(0,...us),Math.max(1,...us)] as [number,number],v:[Math.min(0,...vs),Math.max(1,...vs)] as [number,number],ground:normal!==undefined&&earth&&e.depth>0?ground:undefined};
+ const us=[...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
+ const vs=[...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,u:(only?[Math.min(...us),Math.max(...us)]:[Math.min(0,...us),Math.max(1,...us)]) as [number,number],v:(only?[Math.min(...vs),Math.max(...vs)]:[Math.min(0,...vs),Math.max(1,...vs)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
 type DimSpec={dir:'h'|'v';stops:number[];side:'start'|'end'};
 /** Chained dimensions per view from the member / input (not measured from the drawing). */
-function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number],normal?:number):DimSpec[]{
- const [a,b]=axes,size=[m.x,m.y,m.z],out:DimSpec[]=[{dir:'h',stops:[0,size[a]],side:'start'}];
+function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number],normal?:number,columns=false):DimSpec[]{
+ const [a,b]=axes,size=[m.x,m.y,m.z];
+ // pedestal / starter section: faces of every column along each axis
+ if(columns&&input?.category==='Foundation'){const fe=footingExtent(input),cols=footingColumns(input),faces=(axis:number)=>cols.flatMap(c=>{const e=columnExtent(c),size=axis?e.d:e.w,total=axis?fe.d:fe.w,off=axis?c.offsetY:c.offsetX;return [(total-size)/2+off,(total+size)/2+off];});
+  return [{dir:'h',stops:faces(a),side:'start'},{dir:'v',stops:faces(b),side:'start'}];}
+ const out:DimSpec[]=[{dir:'h',stops:[0,size[a]],side:'start'}];
  if(normal===undefined)out.push({dir:'v',stops:[0,size[b]],side:'start'});
  // shape model: chain of every part edge along each axis and every level in sections (dimensions come from the model)
  if(m.shapeModel){const sm=m.shapeModel,stops=(axis:number)=>{const vs=sm.parts.flatMap(p=>{const e=partExtent(p);return p.shape==='circle'?[e[axis],e[axis+2],axis?p.cy:p.cx]:partPolygon(p)[0].map(q=>q[axis]);});return [...new Set(vs.map(v=>Math.round(v)))].filter(v=>v>=0&&v<=size[axis]).sort((x,y)=>x-y).slice(0,12);};
@@ -157,7 +164,7 @@ export function viewHeight(v:ViewData,width:number,maxHeight:number,k=1){
 }
 /** Draw a view into `box`. `k` converts the screen design sizes (px) to the target unit
  * (k = 1 for px, ≈ 0.26 for mm on an A3 sheet). */
-export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};fontScale?:number}):Prim[]{
+export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};zCut?:number;fontScale?:number}):Prim[]{
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  // level marks sit right of the concrete: keep room for their text inside the box
  const lvW=v.levels.length?Math.max(...v.levels.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
@@ -168,6 +175,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  v.rects.filter(r=>r.kind==='sand').forEach(rect);
  v.rects.filter(r=>r.kind==='lean').forEach(rect);
  for(const p of v.polys)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,...style.concrete});
+ // starter bars: the column above is a reference outline (dashed), not concrete of this element
+ for(const p of v.refs)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,...style.context});
  for(const p of v.holes)out.push({t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,fill:'#ffffff',stroke:style.concrete.stroke,width:style.concrete.width});
  for(const g of v.edges)out.push({t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#7d9690',width:.5*k});
  for(const p of v.piles){const dash=[4*k,2*k];if(p.square)out.push({t:'rect',x:X(p.u-p.size/2),y:Y(p.v+p.size/2),w:p.size*s,h:p.size*s,stroke:'#6b5b45',width:k,dash});else{out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/2*s,stroke:'#6b5b45',width:k,dash});if(p.hollow)out.push({t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/4*s,stroke:'#6b5b45',width:k,dash});}}
@@ -181,6 +190,9 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const cuts=opts.cuts;
  if(cuts){const cs={stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]};out.push({t:'line',x1:X(u[0]),x2:X(u[1]),y1:Y(cuts.y),y2:Y(cuts.y),...cs},{t:'line',x1:X(cuts.x),x2:X(cuts.x),y1:Y(vr[0]),y2:Y(vr[1]),...cs});
   const ts={size:11*k*fs,color:'#5b6b70',bold:true};out.push({t:'text',x:X(u[0])-6*k,y:Y(cuts.y)+4*k,text:'X',anchor:'end',...ts},{t:'text',x:X(u[1])+6*k,y:Y(cuts.y)+4*k,text:'X',...ts},{t:'text',x:X(cuts.x),y:Y(vr[1])-6*k,text:'Y',anchor:'middle',...ts},{t:'text',x:X(cuts.x),y:Y(vr[0])+14*k,text:'Y',anchor:'middle',...ts});}
+ // level of the pedestal / starter plan section (Z–Z) on the vertical sections
+ if(opts.zCut!==undefined&&v.normal!==undefined&&v.normal!==2&&opts.zCut>vr[0]&&opts.zCut<vr[1]){const y=Y(opts.zCut),ts={size:11*k*fs,color:'#5b6b70',bold:true};
+  out.push({t:'line',x1:X(u[0]),x2:X(u[1]),y1:y,y2:y,stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]},{t:'text',x:X(u[0])-6*k,y:y+4*k,text:'Z',anchor:'end',...ts},{t:'text',x:X(u[1])+6*k,y:y+4*k,text:'Z',...ts});}
  // Mark labels: start near the bar, then move down until they no longer overlap a placed label.
  // Marks split by bar length (gen-bottom-x-1, -2, …) share one label "F01–F08".
  const placed:{x:number;y:number;w:number}[]=[],family=(id:string)=>id.replace(/^(gen-(?:bottom|top)-[xy])-\d+$/,'$1'),labelled=new Set<string>();
@@ -188,7 +200,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  for(const {row,lines,dots} of v.bars){
   const color=opts.colors.get(row.id)||'#167561',w=Math.max(k,row.diameter*s);
   for(const l of lines)out.push({t:'line',x1:X(l.a[0]),y1:Y(l.a[1]),x2:X(l.b[0]),y2:Y(l.b[1]),stroke:color,width:w,cap:'round',group:row.id});
-  for(const d of dots)out.push({t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max(1.6*k,row.diameter*s/2),fill:color,group:row.id});
+  for(const d of dots)out.push({t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max((v.columns?3:1.6)*k,row.diameter*s/2),fill:color,group:row.id});
   const fam=family(row.id);if(labelled.has(fam))continue;
   const p=lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2]:dots[0];if(!p)continue;labelled.add(fam);
   const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],text=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
@@ -199,7 +211,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  }
  // Dimensions.
  const line={stroke:'#5f7378',width:.7*k},dsize=10*k*fs;
- for(const d of dimensionSets(v.member,v.input,v.axes,v.normal)){
+ for(const d of dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){
   const pts=[...new Set(d.stops.map(n=>Math.round(n*10)/10))].sort((p,q)=>p-q);if(pts.length<2)continue;
   if(d.dir==='h'){const y=d.side==='start'?Y(vr[0])+22*k:Y(vr[1])-16*k;for(const p of pts)out.push({t:'line',x1:X(p),x2:X(p),y1:y-5*k,y2:y+5*k,...line});out.push({t:'line',x1:X(pts[0]),x2:X(pts.at(-1)!),y1:y,y2:y,...line});pts.slice(1).forEach((p,i)=>{if(X(p)-X(pts[i])>textWidth(fmt(p-pts[i]),dsize)+2*k)out.push({t:'text',x:(X(p)+X(pts[i]))/2,y:y-3*k,text:fmt(p-pts[i]),size:dsize,color:'#3f5459',anchor:'middle'});});}
   else{const x=d.side==='start'?X(u[0])-24*k:X(u[1])+24*k;for(const p of pts)out.push({t:'line',x1:x-5*k,x2:x+5*k,y1:Y(p),y2:Y(p),...line});out.push({t:'line',x1:x,x2:x,y1:Y(pts[0]),y2:Y(pts.at(-1)!),...line});pts.slice(1).forEach((p,i)=>{if(Y(pts[i])-Y(p)>dsize*1.2)out.push({t:'text',x:x+(d.side==='start'?-3*k:3*k),y:(Y(p)+Y(pts[i]))/2+3*k,text:fmt(p-pts[i]),size:dsize,color:'#3f5459',anchor:d.side==='start'?'end':'start'});});}
@@ -224,6 +236,16 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  return out;
 }
 
+/** Level of the pedestal / starter plan section: mid-height of the pedestal (nearest tie set is drawn), or just above the
+ * top of footing for starter bars (below their top end). Undefined when the footing has no column bars. */
+export function columnSectionCut(input:ElementInput|undefined,rows:ViewRow[]):{z:number;kind:'pedestal'|'starter'}|undefined{
+ if(input?.category!=='Foundation'||input.column.type==='none')return;
+ const main=rows.filter(r=>/column-main/.test(r.id)&&r.paths.length);if(!main.length)return;
+ const T=input.thickness,H=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;
+ if(H>0)return {z:T+H/2,kind:'pedestal'};
+ const top=Math.min(...main.flatMap(r=>r.paths.map(p=>Math.max(...p.map(q=>q[2])))));
+ return {z:Math.min(T+100,top-10),kind:'starter'};
+}
 /** Default cut positions: section X–X through the first column bar row (or member.sectionY), Y–Y likewise. */
 export function defaultCuts(m:Member,rows:ViewRow[]){
  const top=rows.find(r=>r.id.startsWith('gen-column-main'))?.paths[0]?.at(-1);
