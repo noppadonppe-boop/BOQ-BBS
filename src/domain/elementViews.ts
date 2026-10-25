@@ -59,7 +59,11 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
     const along=normal===1?y:x,dz=Math.abs(along-cut!);if(dz>h)continue;const half=square?h:Math.sqrt(h*h-dz*dz),u=normal===1?x:y;rects.push({u0:u-half,u1:u+half,v0:bottom,v1:p.embed,kind:'pile'});}}
  }
  if(foot&&input?.category==='Foundation'){
-  if(normal===undefined)polys.push(foot);else for(const [u0,u1] of lineIntervals(foot,a as 0|1,Math.min(Math.max(cut!,1e-3),(a===0?m.y:m.x)-1e-3)))rects.push({u0,u1,v0:0,v1:input.thickness,kind:'concrete'});
+  // lowered areas (cuts from the footing top) lower the top of the section where the cut line crosses them
+  const cuts=(input.cuts||[]).filter(c=>normal!==undefined&&(normal===1?c.y0<cut!&&cut!<c.y1:c.x0<cut!&&cut!<c.x1)).map(c=>({u0:normal===1?c.x0:c.y0,u1:normal===1?c.x1:c.y1,top:c.z0}));
+  if(normal===undefined)polys.push(foot);else for(const [u0,u1] of lineIntervals(foot,a as 0|1,Math.min(Math.max(cut!,1e-3),(a===0?m.y:m.x)-1e-3))){
+   const ks=[...new Set([u0,u1,...cuts.flatMap(c=>[c.u0,c.u1]).filter(k=>k>u0&&k<u1)])].sort((p,q)=>p-q);
+   for(let k=1;k<ks.length;k++){const mid=(ks[k-1]+ks[k])/2,top=Math.min(input.thickness,...cuts.filter(c=>c.u0<mid&&mid<c.u1).map(c=>c.top));rects.push({u0:ks[k-1],u1:ks[k],v0:0,v1:top,kind:'concrete'});}}
   const p=input.pile,square=p.type==='square'||p.type==='I',h=p.size/2,bottom=-m.lean.thickness-700;
   for(const [x,y] of pilePositions(input)){
    if(normal===undefined){piles.push({u:[x,y][a],v:[x,y][b],square,size:p.size,hollow:p.type==='spun'});continue;}

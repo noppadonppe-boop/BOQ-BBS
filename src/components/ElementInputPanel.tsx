@@ -1,7 +1,7 @@
 import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
 import {Box,Columns3,FileUp,Link2Off,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
-import {DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,type FootingBox,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number,NumInput} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
@@ -135,11 +135,12 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     {input.shape==='L'&&<>{num('ความหนาขาแนว X','armX')}{num('ความหนาขาแนว Y','armY')}</>}
     {input.shape==='U'&&<>{num('ความหนาเอว (แนว X)','armX')}{num('ความหนาปีก (แนว Y)','armY')}</>}</div>
    {input.foundationType==='pile'&&<><h4>เสาเข็ม</h4>
-    <div className="form-grid">{select('ชนิดเสาเข็ม','pile.type',Object.entries(pileTypeLabels) as [string,string][])}{num(input.pile.type==='square'||input.pile.type==='I'?'ขนาดเข็ม (กว้าง)':'เส้นผ่านศูนย์กลางเข็ม','pile.size')}{select('การจัดวาง','pile.layout',[['standard','ตามจำนวน (รูปแบบมาตรฐาน)'],['grid','ตาราง แถว × คอลัมน์']])}
-     {input.pile.layout==='standard'?<Field label="จำนวนเสาเข็ม (ต้น)" type="number" value={input.pile.count} onChange={v=>set('pile.count',Math.max(0,Math.min(100,Math.trunc(Number(v)||0))))} disabled={readOnly}/>:<><Field label="จำนวนตามแนว X" type="number" value={input.pile.nx} onChange={v=>set('pile.nx',Math.max(1,Math.min(20,Math.trunc(Number(v)||1))))} disabled={readOnly}/><Field label="จำนวนตามแนว Y" type="number" value={input.pile.ny} onChange={v=>set('pile.ny',Math.max(1,Math.min(20,Math.trunc(Number(v)||1))))} disabled={readOnly}/></>}
-     {num(input.pile.layout==='grid'?'ระยะห่างแนว X (ศูนย์ถึงศูนย์)':'ระยะห่างเข็ม (ศูนย์ถึงศูนย์)','pile.spacingX')}{input.pile.layout==='grid'&&num('ระยะห่างแนว Y','pile.spacingY')}
+    <div className="form-grid">{select('ชนิดเสาเข็ม','pile.type',Object.entries(pileTypeLabels) as [string,string][])}{num(input.pile.type==='square'||input.pile.type==='I'?'ขนาดเข็ม (กว้าง)':'เส้นผ่านศูนย์กลางเข็ม','pile.size')}{select('การจัดวาง','pile.layout',[['standard','ตามจำนวน (รูปแบบมาตรฐาน)'],['grid','ตาราง แถว × คอลัมน์'],['custom','กำหนดตำแหน่งเอง (ตามแบบ)']])}
+     {input.pile.layout==='custom'?<PilePositions value={input.pile.positions||[]} readOnly={readOnly} onChange={v=>set('pile.positions',v)}/>:input.pile.layout==='standard'?<Field label="จำนวนเสาเข็ม (ต้น)" type="number" value={input.pile.count} onChange={v=>set('pile.count',Math.max(0,Math.min(100,Math.trunc(Number(v)||0))))} disabled={readOnly}/>:<><Field label="จำนวนตามแนว X" type="number" value={input.pile.nx} onChange={v=>set('pile.nx',Math.max(1,Math.min(20,Math.trunc(Number(v)||1))))} disabled={readOnly}/><Field label="จำนวนตามแนว Y" type="number" value={input.pile.ny} onChange={v=>set('pile.ny',Math.max(1,Math.min(20,Math.trunc(Number(v)||1))))} disabled={readOnly}/></>}
+     {input.pile.layout!=='custom'&&num(input.pile.layout==='grid'?'ระยะห่างแนว X (ศูนย์ถึงศูนย์)':'ระยะห่างเข็ม (ศูนย์ถึงศูนย์)','pile.spacingX')}{input.pile.layout==='grid'&&num('ระยะห่างแนว Y','pile.spacingY')}
      <Field label="ความยาวเสาเข็ม (m)" type="number" value={input.pile.length} onChange={v=>set('pile.length',Math.max(0,Number(v)||0))} disabled={readOnly}/>{num('ระยะตัดหัวเข็ม ต่อต้น','pile.cutoff')}{num('ระยะฝังหัวเข็มในฐาน','pile.embed')}{num('ระยะเยื้องกลุ่มเข็ม X (จากกึ่งกลางฐาน)','pile.offsetX')}{num('ระยะเยื้องกลุ่มเข็ม Y (จากกึ่งกลางฐาน)','pile.offsetY')}</div>
     <p className="muted">{pileSummary(input)}</p></>}
+   {input.shape==='rect'&&<FootingBoxes input={input} readOnly={readOnly} onChange={(key,v)=>setInput(prev=>prev?.category!=='Foundation'?prev:v.length?{...prev,[key]:v}:(()=>{const {[key]:_,...rest}=prev;return rest as typeof prev;})())}/>}
    <h4>งานดินและชั้นรองพื้น</h4>{(()=>{const earth=footingEarth(input),q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string,neg=false)=><NumInput aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
     return <div className="earthwork-input"><div>
      {check('กำหนดระดับอ้างอิง (คำนวณความลึกขุดให้)','levels.enabled')}
@@ -394,6 +395,28 @@ function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;on
   <div className="field"><span>ความสูง</span><button type="button" disabled={readOnly||!ok} onClick={()=>onUse(h)}>{ok?`ใช้ ${h.toLocaleString()} mm`:'กรอกระดับให้ครบ'}</button></div></div></details>;
 }
 
+/** Pile centres for layout 'custom' (footing-local mm from the plan bounding-box corner), one "x, y" per line. */
+function PilePositions({value,readOnly,onChange}:{value:[number,number][];readOnly:boolean;onChange:(v:[number,number][])=>void}){
+ const [text,setText]=useState(value.map(p=>`${p[0]}, ${p[1]}`).join('\n'));
+ useEffect(()=>{setText(t=>{const cur=t.split('\n').map(l=>l.split(/[,\s]+/).filter(Boolean).map(Number));return JSON.stringify(cur.filter(r=>r.length===2&&r.every(Number.isFinite)))===JSON.stringify(value)?t:value.map(p=>`${p[0]}, ${p[1]}`).join('\n');});},[value]);
+ return <label className="field full"><span>ตำแหน่งเสาเข็ม (x, y mm จากมุมซ้ายล่างของฐาน · บรรทัดละ 1 ต้น) · {value.length} ต้น</span>
+  <textarea rows={Math.min(8,Math.max(3,value.length+1))} disabled={readOnly} value={text} onChange={e=>{setText(e.target.value);onChange(e.target.value.split('\n').map(l=>l.split(/[,\s]+/).filter(Boolean).map(Number)).filter(r=>r.length===2&&r.every(Number.isFinite)).slice(0,100).map(r=>[r[0],r[1]] as [number,number]));}}/></label>;
+}
+/** Raised blocks (e.g. the second pour over part of the plan) and lowered top areas of a rect footing, as boxes in
+ * footing-local mm (x/y from the plan corner, z from the footing bottom). */
+function FootingBoxes({input,readOnly,onChange}:{input:FoundationInput;readOnly:boolean;onChange:(key:'blocks'|'cuts',v:FootingBox[])=>void}){
+ const T=input.thickness,table=(key:'blocks'|'cuts',title:string,hint:string,blank:FootingBox)=>{const list=input[key]||[];
+  const put=(k:number,patch:Partial<FootingBox>)=>onChange(key,list.map((b,n)=>n===k?{...b,...patch}:b));
+  const cell=(k:number,f:keyof FootingBox)=>f==='label'?<input aria-label={f} maxLength={40} disabled={readOnly} value={list[k].label} onChange={e=>put(k,{label:e.target.value})}/>:<NumInput aria-label={f} type="number" step="any" style={{width:76}} disabled={readOnly} value={list[k][f] as number} onChange={e=>put(k,{[f]:Number(e.target.value)||0})}/>;
+  return <div className="footing-boxes"><b>{title}</b> <small className="muted">{hint}</small>
+   {list.length>0&&<div className="table-scroll"><table><thead><tr><th>ชื่อ</th><th>x0</th><th>y0</th><th>x1</th><th>y1</th><th>z0</th><th>z1</th><th/></tr></thead>
+    <tbody>{list.map((_,k)=><tr key={k}>{(['label','x0','y0','x1','y1','z0','z1'] as const).map(f=><td key={f}>{cell(k,f)}</td>)}<td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(key,list.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
+   <button type="button" disabled={readOnly||list.length>=20} onClick={()=>onChange(key,[...list,blank])}>+ เพิ่ม</button></div>;};
+ return <div className="footing-boxes-wrap">
+  {table('blocks','ส่วนเพิ่ม (ยกสูง / เทเฉพาะบางส่วน เช่น Stage 2)','กล่องคอนกรีตเพิ่มบนฐาน · มีตะแกรงบน LOOPS และเหล็กแนวตั้งผิวข้างขึ้นถึงผิวบนของส่วนนี้',{label:'',x0:0,y0:0,x1:Math.min(1000,input.width),y1:input.length,z0:T,z1:T+400})}
+  {table('cuts','ส่วนลดระดับ (ผิวบนต่ำกว่าฐาน)','ตัดจากผิวบนฐาน: z1 = ความหนาฐาน, z0 = ระดับผิวบนของส่วนนี้ · มีตะแกรงบนของส่วนนี้',{label:'',x0:0,y0:0,x1:input.width,y1:Math.min(900,input.length),z0:Math.max(0,T-450),z1:T})}
+  <p className="muted">พิกัด mm จากมุมซ้ายล่างของฐาน (x ไปขวา, y ขึ้น) · z จากใต้ฐาน · การเทแยก Stage ตั้งที่ “ลำดับการเทคอนกรีต” (เช่น Stage 1 สูงเท่าฐาน → ส่วนเพิ่มเป็น Stage 2)</p></div>;
+}
 /** Concrete mix of the member (spec mixes): by member type, or a mix chosen here; its f'c picks the lap table. */
 function ConcreteMixField({spec,input,readOnly,onChange}:{spec:Project['spec'];input:ElementInput;readOnly:boolean;onChange:(mix:string)=>void}){
  const c=spec.concrete;if(!c)return null;

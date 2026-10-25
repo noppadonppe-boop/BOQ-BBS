@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import polygonClipping from 'polygon-clipping';
 import type {Bar,Category,Member,Spec} from './model';
 import {detailingFromSpec} from './specDetailing';
 import {emptySiteWork,withSiteWork} from './siteWork';
@@ -86,13 +87,18 @@ export type FootingShape=typeof footingShapes[number];
 export const pileTypes=['square','round','spun','I'] as const;
 const pileSchema=z.object({
  type:z.enum(pileTypes),size:mm,
- layout:z.enum(['standard','grid']),count:z.number().int().min(0).max(100),nx:z.number().int().min(1).max(20),ny:z.number().int().min(1).max(20),
+ layout:z.enum(['standard','grid','custom']),count:z.number().int().min(0).max(100),nx:z.number().int().min(1).max(20),ny:z.number().int().min(1).max(20),
  spacingX:mm,spacingY:mm,
  /** Ordered pile length (m), length cut from each pile head (mm), embedment of the head into the cap (mm). */
  length:z.number().finite().min(0).max(200),cutoff:mm,embed:mm,
  /** Offset of the pile-group centre from the footing bounding-box centre. */
  offsetX:z.number().finite().min(-100000).max(100000),offsetY:z.number().finite().min(-100000).max(100000),
+ /** layout 'custom': pile centres (footing-local mm from the plan bounding-box corner) */
+ positions:z.array(z.tuple([z.number().finite().min(-100000).max(100000),z.number().finite().min(-100000).max(100000)])).max(100).optional(),
 }).strict();
+/** Extra box on / cut from a footing (footing-local mm; z from the footing bottom). */
+const footingBoxSchema=z.object({label:z.string().max(40),x0:z.number().finite().min(-100000).max(200000),y0:z.number().finite().min(-100000).max(200000),x1:z.number().finite().min(-100000).max(200000),y1:z.number().finite().min(-100000).max(200000),z0:mm,z1:mm}).strict();
+export type FootingBox=z.infer<typeof footingBoxSchema>;
 export type PileInput=z.infer<typeof pileSchema>;
 export type FootingColumn=z.infer<typeof footingColumnSchema>;
 
@@ -179,6 +185,10 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  extraColumns:z.array(footingColumnSchema.extend({linked:z.boolean()}).strict()).max(9),
  /** Project Foundation Template the input came from (display) */
  template:z.object({id:z.string().max(40),name:z.string().max(40)}).strict().optional(),
+ /** extra concrete boxes (raised parts, blocks of a later pour over part of the plan): own top mesh, loops and face bars */
+ blocks:z.array(footingBoxSchema).max(20).optional(),
+ /** lowered areas cut out of the footing top (z0 = top of that area, z1 = footing thickness): own top mesh */
+ cuts:z.array(footingBoxSchema).max(20).optional(),
  /** ref = which face carries the given level: top of footing (`top`) or bottom of footing (`bottom`); the other follows
   * from the thickness. Levels in m, + above / − below the project datum. */
  levels:z.object({enabled:z.boolean(),ground:level,ref:z.enum(['top','bottom']),top:level,bottom:level}).strict(),
@@ -228,7 +238,7 @@ export const slopePresets=[[0,'ตั้งตรง'],[1,'1:1'],[1.5,'1:1.5'],[
 /** Pour stages of a footing: total height (footing + highest pedestal) and each stage's bottom / top (mm from the
  * footing bottom); the last stage ends at the top. */
 export function footingPour(i:FoundationInput){
- const ped=i.column.type==='pedestal',total=i.thickness+(ped?Math.max(0,...footingColumns(i).map(c=>c.height)):0);
+ const ped=i.column.type==='pedestal',total=Math.max(i.thickness+(ped?Math.max(0,...footingColumns(i).map(c=>c.height)):0),...(i.blocks||[]).map(b=>b.z1));
  const n=Math.max(1,i.pour.count),hs=Array.from({length:n-1},(_,k)=>i.pour.heights[k]??0);let z=0;
  const stages=hs.map((h,k)=>{const z0=z;z+=h;return {stage:k+1,z0,z1:z,height:h};});
  stages.push({stage:n,z0:z,z1:total,height:total-z});
@@ -532,7 +542,8 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.foundationType==='pile'){
     const pl=input.pile;need(pl.size,'ขนาดเสาเข็ม');need(pl.length,'ความยาวเสาเข็ม');
     if(pl.layout==='standard'&&pl.count<1)p.push('ระบุจำนวนเสาเข็ม');
-    if((pl.layout==='grid'?pl.nx*pl.ny:pl.count)>1)need(pl.spacingX,'ระยะห่างเสาเข็ม');
+    if(pl.layout==='custom'&&!(pl.positions||[]).length)p.push('ระบุตำแหน่งเสาเข็ม (กำหนดเอง)');
+    if(pl.layout!=='custom'&&(pl.layout==='grid'?pl.nx*pl.ny:pl.count)>1)need(pl.spacingX,'ระยะห่างเสาเข็ม');
     if(pl.layout==='grid'&&pl.ny>1)need(pl.spacingY,'ระยะห่างเสาเข็มแนว Y');
     if(pl.cutoff>pl.length*1000)p.push('ระยะตัดหัวเข็มยาวกว่าเสาเข็ม');
     if(pl.embed>=input.thickness)p.push('ระยะฝังหัวเข็มต้องน้อยกว่าความหนาฐาน');
@@ -564,6 +575,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    for(let a=0;a<rects.length;a++)for(let b=a+1;b<rects.length;b++)if(rects[a].some(r=>rects[b].some(q=>Math.min(r.x1,q.x1)-Math.max(r.x0,q.x0)>1&&Math.min(r.y1,q.y1)-Math.max(r.y0,q.y0)>1)))p.push(`${footingColumnName(cols[a],a,true)} และ ${footingColumnName(cols[b],b,true)} ซ้อนกัน · ปรับระยะเยื้อง`);
    if(input.rebar.side.enabled)layer(input.rebar.side,'เหล็กรอบข้าง (LOOPS)');
    if(input.rebar.sideBars.enabled){layer(input.rebar.sideBars,'เหล็กแนวตั้งผิวข้าง');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
+   for(const [list,kind] of [[input.blocks||[],'ส่วนเพิ่ม'],[input.cuts||[],'ส่วนลดระดับ']] as const)list.forEach((b,k)=>{const nm=`${kind} ${b.label||k+1}`;if(b.x1<=b.x0||b.y1<=b.y0||b.z1<=b.z0)p.push(`${nm}: ขนาดต้องมากกว่า 0 (x1 > x0, y1 > y0, z1 > z0)`);else if(b.x0<-.5||b.y0<-.5||b.x1>ext.w+.5||b.y1>ext.d+.5)p.push(`${nm}: อยู่นอกแปลนฐาน`);if(kind==='ส่วนลดระดับ'&&(b.z1<input.thickness-.5||b.z0<=0))p.push(`${nm}: ต้องตัดจากผิวบนฐาน (z1 = ความหนาฐาน ${input.thickness}, z0 > 0)`);});
    if(input.slab.enabled){need(input.slab.thickness,'ความหนาพื้นที่หล่อรวมกับฐาน');if(input.shape!=='rect')p.push('ฐานหล่อรวมพื้น: รองรับแปลนสี่เหลี่ยมเท่านั้น');if(input.slab.thickness>=input.thickness)p.push('ความหนาพื้นต้องน้อยกว่าความหนาฐาน');}
    const earth=footingEarth(input);
    if(input.subbase.sand.enabled)need(input.subbase.sand.thickness,'ความหนาทรายรองพื้น');
@@ -840,6 +852,7 @@ export function pilePositions(i:FoundationInput):Pt[]{
  if(i.foundationType!=='pile')return [];
  const p=i.pile,{w,d}=footingExtent(i),cx=w/2+p.offsetX,cy=d/2+p.offsetY,s=p.spacingX,t=p.spacingY||p.spacingX,pts:Pt[]=[];
  const grid=(nx:number,ny:number,limit=nx*ny,skipCentre=false)=>{for(let r=0;r<ny;r++)for(let k=0;k<nx;k++){if(skipCentre&&r===(ny-1)/2&&k===(nx-1)/2)continue;if(pts.length<limit)pts.push([cx+(k-(nx-1)/2)*s,cy+(r-(ny-1)/2)*t]);}};
+ if(p.layout==='custom')return (p.positions||[]).map(q=>[q[0],q[1]] as Pt);
  if(p.layout==='grid'){grid(p.nx,p.ny);return pts;}
  switch(p.count){
   case 0:return [];
@@ -999,16 +1012,34 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // first pour with a mesh at its top (joint 1, lower stage): face bars set to the first pour stop under that mesh
  const J1=footingPour(i).levels[0],jm1=J1!==undefined?jointRebar(i,0).mesh:undefined,firstTop=J1!==undefined&&J1<T-c.top-topStack?J1-(jm1?.enabled&&jm1.at==='lower'?jm1.cover+jm1.x.diameter+jm1.y.diameter:50):undefined;
  const vb=r.sideBars,sideIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0;
+ // extra boxes (rect footings): blocks = raised parts / later-pour blocks, cuts = lowered top areas; each gets its own top mesh
+ const blocks=i.shape==='rect'?i.blocks||[]:[],cuts=i.shape==='rect'?(i.cuts||[]).filter(b=>b.z1>=T-1&&b.z0>0):[];
+ const merge=(iv:[number,number][])=>{const o:[number,number][]=[];for(const v of [...iv].sort((p,q)=>p[0]-q[0])){const l=o.at(-1);if(l&&v[0]<=l[1]+1e-6)l[1]=Math.max(l[1],v[1]);else o.push([v[0],v[1]]);}return o;};
+ const rectSpan=(rs:FootingBox[],runX:boolean,pos:number)=>merge(rs.filter(b=>runX?b.y0<pos&&pos<b.y1:b.x0<pos&&pos<b.x1).map(b=>(runX?[b.x0,b.x1]:[b.y0,b.y1]) as [number,number]));
+ const minus=(iv:[number,number][],cut:[number,number][])=>iv.flatMap(([a,b])=>{let parts:[number,number][]=[[a,b]];for(const [p,q] of cut)parts=parts.flatMap(([u,v]):[number,number][]=>q<=u||p>=v?[[u,v]]:[...(p>u?[[u,p] as [number,number]]:[]),...(q<v?[[q,v] as [number,number]]:[])]);return parts;});
+ const within=(iv:[number,number][],keep:[number,number][])=>iv.flatMap(([a,b])=>keep.map(([p,q])=>[Math.max(a,p),Math.min(b,q)] as [number,number]).filter(([u,v])=>v>u));
+ const inBox=(b:FootingBox,x:number,y:number)=>x>=b.x0-1&&x<=b.x1+1&&y>=b.y0-1&&y<=b.y1+1;
+ /** top of the concrete at a plan point: footing top, lowered by a cut, raised by a block standing there */
+ const topAt=(x:number,y:number)=>{let t=T;for(const b of cuts)if(inBox(b,x,y))t=Math.min(t,b.z0);for(const b of blocks)if(inBox(b,x,y)&&b.z0<=t+1)t=Math.max(t,b.z1);return t;};
+ const blockGroups:{z0:number;z1:number;rects:FootingBox[]}[]=[];
+ for(const b of blocks){const gr=blockGroups.find(x=>Math.abs(x.z0-b.z0)<.5&&Math.abs(x.z1-b.z1)<.5);if(gr)gr.rects.push(b);else blockGroups.push({z0:b.z0,z1:b.z1,rects:[b]});}
+ const outlineOf=(rects:FootingBox[],remove:FootingBox[]=[]):Pt[]=>{const box=(b:FootingBox):[number,number][][]=>[[[b.x0,b.y0],[b.x1,b.y0],[b.x1,b.y1],[b.x0,b.y1],[b.x0,b.y0]]];
+  let mp=polygonClipping.union(box(rects[0]),...rects.slice(1).map(box));if(remove.length)mp=polygonClipping.difference(mp,...remove.map(box));
+  const outer=mp.map(pg=>pg[0].slice(0,-1) as Pt[]).sort((p,q)=>Math.abs(signedArea(q))-Math.abs(signedArea(p)))[0];return outer&&signedArea(outer)<0?[...outer].reverse():outer||[];};
  // below: bars of this layer stop under the other bottom layer's U returns (Shape 41 legs rise to just under the top mesh)
- const mesh=(role:string,note:string,l:Shaped&{spacing:number},runX:boolean,z:number,up:boolean,below=0,own?:{room:number})=>{
-  const d=l.diameter,inner=inset(plan,c.side+sideIn+d/2),ai=runX?1:0,lo=Math.min(...inner.map(p=>p[ai])),hi=Math.max(...inner.map(p=>p[ai])),s=spread(lo,hi,l.spacing);
+ // area: only = bars inside these boxes (block / cut top), minus = bars stop short of these boxes (top mesh around cuts)
+ const mesh=(role:string,note:string,l:Shaped&{spacing:number},runX:boolean,z:number,up:boolean,below=0,own?:{room:number},area?:{only?:FootingBox[];minus?:FootingBox[]})=>{
+  const d=l.diameter,inner=inset(plan,c.side+sideIn+d/2),ai=runX?1:0,covA=c.side+d/2;
+  let lo=Math.min(...inner.map(p=>p[ai])),hi=Math.max(...inner.map(p=>p[ai]));
+  if(area?.only){lo=Math.max(lo,Math.min(...area.only.map(b=>runX?b.y0:b.x0))+covA);hi=Math.min(hi,Math.max(...area.only.map(b=>runX?b.y1:b.x1))-covA);}
+  const s=hi>lo?spread(lo,hi,l.spacing):undefined;
   if(!s){warn(`${note}: วางเหล็กไม่ได้`);return;}
   // slab-cast footing: top bars run on into the slab by `extend`; their bends/hooks must stay inside the slab thickness
-  const ext=slabOn&&!up&&!own?c.side+sideIn+d/2+i.slab.extend:0;
+  const ext=slabOn&&!up&&!own&&!area?c.side+sideIn+d/2+i.slab.extend:0;
   const room=own?own.room:up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
   const sh=shapedEnds(l,det,up?1:-1,room,note,warn);
   const segs:{a:number;b:number;at:number}[]=[];
-  for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at));for(const [a,b] of lineIntervals(inner,runX?0:1,pos))if(b-a+2*ext>sh.minRun)segs.push({a:a-ext,b:b+ext,at});}
+  for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at));let iv=lineIntervals(inner,runX?0:1,pos);if(area?.minus)iv=minus(iv,rectSpan(area.minus,runX,pos).map(([p,q])=>[p-covA,q+covA] as [number,number]));if(area?.only)iv=within(iv,rectSpan(area.only,runX,pos).map(([p,q])=>[p+covA,q-covA] as [number,number]));for(const [a,b] of iv)if(b-a+2*ext>sh.minRun)segs.push({a:a-ext,b:b+ext,at});}
   if(ext)note+=` · ยื่นเข้าพื้น ${Math.round(i.slab.extend)} mm`;
   if(!segs.length){warn(`${note}: วางเหล็กไม่ได้ (ช่วงสั้นกว่ารูป Shape ${sh.code})`);return;}
   const pt=(along:number,at:number,zz:number):V3=>runX?[along,at,zz]:[at,along,zz];
@@ -1026,8 +1057,15 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  const hoop=r.stirrups?.enabled&&r.stirrups.replacesBottom&&i.shape==='rect'?r.stirrups:undefined,hoopUnder=hoop?hoop.diameter:0;
  if(!hoop||hoop.dir!=='y'){const zX=c.bottom+(hoop?hoopUnder:0)+r.bottomX.diameter/2;mesh('bottom-x','เหล็กล่าง · ทิศ X',r.bottomX,true,zX,true);}
  if(!hoop||hoop.dir!=='x'){const zY=c.bottom+(hoop?hoopUnder:r.bottomX.diameter)+r.bottomY.diameter/2;mesh('bottom-y','เหล็กล่าง · ทิศ Y',r.bottomY,false,zY,true,!hoop&&r.bottomX.shape==='41'?r.bottomX.diameter:0);}
- if(r.topX.enabled)mesh('top-x','เหล็กบน · ทิศ X',r.topX,true,T-c.top-r.topX.diameter/2,false);
- if(r.topY.enabled)mesh('top-y','เหล็กบน · ทิศ Y',r.topY,false,T-c.top-(r.topX.enabled?r.topX.diameter:0)-r.topY.diameter/2,false);
+ const around=cuts.length?{minus:cuts}:undefined;
+ if(r.topX.enabled)mesh('top-x','เหล็กบน · ทิศ X',r.topX,true,T-c.top-r.topX.diameter/2,false,0,undefined,around);
+ if(r.topY.enabled)mesh('top-y','เหล็กบน · ทิศ Y',r.topY,false,T-c.top-(r.topX.enabled?r.topX.diameter:0)-r.topY.diameter/2,false,0,undefined,around);
+ // lowered areas and blocks: a top mesh of their own (bars as the footing top mesh)
+ const tops=[...cuts.map((b,k)=>({z:b.z0,floor:0,rects:[b],name:`ส่วนลดระดับ ${b.label||k+1}`,tag:`cut${k+1}`})),
+  ...blockGroups.map((gr,k)=>({z:gr.z1,floor:gr.z0,rects:gr.rects,name:gr.rects.map((b,n)=>b.label||`ส่วนเพิ่ม ${n+1}`).filter((v,n,a)=>a.indexOf(v)===n).join(' + '),tag:`blk${k+1}`}))];
+ for(const t of tops){const dx=r.topX.enabled?r.topX.diameter:0,room=(zz:number)=>({room:Math.max(0,zz-t.floor-c.bottom)});
+  if(r.topX.enabled){const zz=t.z-c.top-dx/2;mesh(`top-x-${t.tag}`,`เหล็กบน ${t.name} · ทิศ X`,r.topX,true,zz,false,0,room(zz),{only:t.rects});}
+  if(r.topY.enabled){const zz=t.z-c.top-dx-r.topY.diameter/2;mesh(`top-y-${t.tag}`,`เหล็กบน ${t.name} · ทิศ Y`,r.topY,false,zz,false,0,room(zz),{only:t.rects});}}
  // ---- construction joints between pour stages (inside the footing thickness): joint mesh and vertical bars through the joint
  const pour=footingPour(i);
  pour.levels.forEach((J,k)=>{
@@ -1087,9 +1125,19 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    if(prev&&r.side.stages.includes(st.stage-1)){prev.hi=hi;prev.name=`${prev.name.split('–')[0]}–${st.stage}`;}
    else runs.push({lo:Math.max(zLo,st.stage>1?st.z0+50+dl/2:st.z0),hi,name:`${st.stage}`});}
   if(i.shape==='circle')warn('เหล็กรอบข้าง (LOOPS): ฐานกลมยังไม่รองรับ ให้เพิ่มเองในแท็บ “แบบ & BBS”');
-  else runs.forEach((run,n)=>{const sz=run.hi>run.lo?spread(run.lo,run.hi,r.side.spacing):undefined;
-   if(!sz){warn(`เหล็กรอบข้าง (LOOPS)${sel?` Stage ${run.name}`:''}: ความสูงไม่พอ`);return;}
-   out.push({role:n?`side-loop-${n+1}`:'side-loop',note:`เหล็กรอบข้าง (LOOPS)${sel?` · Stage ${run.name}`:''} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(ring,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});});
+  else{
+   // above the lowest cut top the loops run around the plan without the lowered areas
+   const cutTop=cuts.length?Math.min(...cuts.map(b=>b.z0))-c.top-topStack:Infinity,cutRing=cuts.length?inset(outlineOf([{label:'',x0:0,y0:0,x1:X,y1:Y,z0:0,z1:T}],cuts),c.side+sideIn+legs+dl/2):ring;
+   runs.forEach((run,n)=>{const sz=run.hi>run.lo?spread(run.lo,run.hi,r.side.spacing):undefined;
+    if(!sz){warn(`เหล็กรอบข้าง (LOOPS)${sel?` Stage ${run.name}`:''}: ความสูงไม่พอ`);return;}
+    const zs=Array.from({length:sz.count},(_,k)=>sz.count===1?sz.from:sz.from+(sz.to-sz.from)*k/(sz.count-1)),parts:[number[],Pt[],string][]=[[zs.filter(z=>z<=cutTop),ring,''],[zs.filter(z=>z>cutTop),cutRing,' · เหนือส่วนลดระดับ']];
+    parts.forEach(([lv,rg,what],h)=>{if(!lv.length||rg.length<3)return;
+     out.push({role:`${n?`side-loop-${n+1}`:'side-loop'}${h?'-up':''}`,note:`เหล็กรอบข้าง (LOOPS)${sel?` · Stage ${run.name}`:''}${what} · ${lv.length} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:lv.length,points:polyLink(rg,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,lv[0]] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:lv[0],to:lv.at(-1)!});});});
+   // blocks: loops around each block outline over its height
+   blockGroups.forEach((gr,k)=>{const rg=inset(outlineOf(gr.rects),c.side+sideIn+dl/2),sz=spread(gr.z0+50+dl/2,gr.z1-c.top-topStack-dl/2,r.side.spacing);
+    if(rg.length<3||!sz){warn(`เหล็กรอบข้าง (LOOPS) ส่วนเพิ่ม ${k+1}: ความสูงไม่พอ`);return;}
+    out.push({role:`side-loop-blk${k+1}`,note:`เหล็กรอบข้าง (LOOPS) ${gr.rects.map(b=>b.label).filter(Boolean).join(' + ')||`ส่วนเพิ่ม ${k+1}`} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(rg,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});});
+  }
  }
  // Stirrups (closed links) across a band centred on the footing, e.g. the beam strip over a pile row
  const sr=r.stirrups;
@@ -1116,12 +1164,16 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   else{
    if(tooLong)warn('เหล็กแนวตั้งผิวข้าง: ระยะงอเข้าในยาวเกินครึ่งฐาน ใช้ปลายตรง');
    const inB=vb.bottom==='inward'&&!tooLong,inT=vb.top==='inward'&&!tooLong;
+   // the top follows the concrete at each position (lowered areas / blocks on the edge): one Mark per height
+   const topOf=(q:{p:Pt})=>{const t=topAt(q.p[0],q.p[1]);return Math.abs(t-T)<.5?zt:t-c.top-(inT?topStack:0)-dv/2;};
+   const heights=[...new Set(pos.map(q=>Math.round(topOf(q))))].sort((a,b)=>b-a);
+   heights.forEach((h,hk)=>{const grp=pos.filter(q=>Math.round(topOf(q))===h),zt=topOf(grp[0]);if(zt-zb<=2*rad)return;
    const tpl=({p,n}:{p:Pt;n:Pt}):V3[]=>[...(inB?[[p[0]+n[0]*ret,p[1]+n[1]*ret,zb] as V3]:[]),[p[0],p[1],zb],[p[0],p[1],zt],...(inT?[[p[0]+n[0]*ret,p[1]+n[1]*ret,zt] as V3]:[])];
-   const first=pos[0],points=tpl(first),pivot=points.at(-1)!,ang=(n:Pt)=>Math.atan2(n[1],n[0]);
-   const turns=pos.map(q=>Math.round((ang(q.n)-ang(first.n))*180/Math.PI*1000)/1000);
-   const offsets=pos.map(q=>{const last=tpl(q).at(-1)!;return [last[0]-pivot[0],last[1]-pivot[1],0] as V3;});
+   const pos2=grp,first=pos2[0],points=tpl(first),pivot=points.at(-1)!,ang=(n:Pt)=>Math.atan2(n[1],n[0]);
+   const turns=pos2.map(q=>Math.round((ang(q.n)-ang(first.n))*180/Math.PI*1000)/1000);
+   const offsets=pos2.map(q=>{const last=tpl(q).at(-1)!;return [last[0]-pivot[0],last[1]-pivot[1],0] as V3;});
    const code=inB&&inT?'21':inB||inT?'11':'00',parts=[inB&&'ล่าง',inT&&'บน'].filter(Boolean).join('/');
-   out.push({role:'side-vertical',note:`เหล็กแนวตั้งผิวข้าง @ ≤ ${vb.spacing} mm · ${pos.length} ตำแหน่งรอบฐาน${parts?` · งอเข้าใน ${Math.round(ret)} mm ที่ปลาย${parts}`:''}`,diameter:dv,grade:g,count:pos.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});
+   out.push({role:hk?`side-vertical-${hk+1}`:'side-vertical',note:`เหล็กแนวตั้งผิวข้าง @ ≤ ${vb.spacing} mm · ${pos2.length} ตำแหน่ง${heights.length>1?` (สูงถึง +${Math.round(zt)})`:' รอบฐาน'}${parts?` · งอเข้าใน ${Math.round(ret)} mm ที่ปลาย${parts}`:''}`,diameter:dv,grade:g,count:pos2.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});});
   }
  }
  const cols=footingColumns(i),many=cols.length>1;
@@ -1132,7 +1184,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // with set-2 ties the bars sit where the column tie layout puts them (symmetric spacing)
  const all=columnBarPositions(col,col.cover+dt,tp!=='none').map(b=>({...b,x:ox+b.x,y:oy+b.y}));
  if(!all.length){warn(`${name}: ไม่มีตำแหน่งเหล็กยืน`);continue;}
- const meshTop=c.bottom+r.bottomX.diameter+r.bottomY.diameter,top=T+(pedestal?col.height:0);
+ const meshTop=c.bottom+r.bottomX.diameter+r.bottomY.diameter,top=topAt(ox+w/2,oy+depth/2)+(pedestal?col.height:0);
  const groups=[...new Set(all.map(b=>b.d))].sort((a,b)=>b-a),kinds:Record<ColumnBarPos['kind'],string>={corner:'มุม',sideX:'ด้าน X',sideY:'ด้าน Y',ring:'รอบวง',inner:'ใน'};
  for(const dm of groups){
   const set=all.filter(b=>b.d===dm),pts=set.map(b=>[b.x,b.y] as [number,number]),rad=radius(dm,det),zMin=meshTop+dm/2;
@@ -1629,9 +1681,10 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    if(slabOn)auto.push({reason:`${AUTO}ผิวข้างฐานช่วงความหนาพื้น ${input.slab.thickness} mm (หล่อรวมกับพื้น ไม่ใช้แบบหล่อ)`,volume:0,formwork:P*input.slab.thickness/1e6,zRange:[T-input.slab.thickness,T]});
    if(input.slab.enabled&&!slabOn)warn('ฐานหล่อรวมพื้น: ใช้ได้กับแปลนสี่เหลี่ยมและพื้นบางกว่าฐาน · ยังไม่สร้างพื้นอ้างอิงและไม่ยื่นเหล็กบน');
    if(piles.length&&input.cover.bottom<input.pile.embed+25)warn(`cover ล่าง ${input.cover.bottom} mm ควรมากกว่าระยะฝังหัวเข็ม ${input.pile.embed} mm เพื่อให้ตะแกรงล่างอยู่เหนือหัวเข็ม`);
-   const geometryRoute=input.shape==='L'||input.shape==='U'||ped&&(many||col.shape==='L'||col.shape==='U');
+   const blocks=input.blocks||[],cuts=input.cuts||[],boxOf=(b:FootingBox,k:number,kind:string)=>({id:`${kind}${k+1}`,label:(b.label||`${kind==='block'?'ส่วนเพิ่ม':'ส่วนลดระดับ'} ${k+1}`).slice(0,80),origin:[b.x0,b.y0,b.z0] as V3,size:[b.x1-b.x0,b.y1-b.y0,b.z1-b.z0] as V3,faces:sideFaces});
+   const geometryRoute=blocks.length>0||cuts.length>0||input.shape==='L'||input.shape==='U'||ped&&(many||col.shape==='L'||col.shape==='U');
    let shape:Partial<Member>={z:T,pedestal:ped?{x:w,y:d,z:H}:{x:0,y:0,z:0}};
-   if(geometryRoute)shape={z:T+Hmax,pedestal:{x:0,y:0,z:0},geometry:{solids:[...footingBoxes(input).map((b,k)=>({id:`footing${k+1}`,label:`ฐานราก ${k+1}`,origin:[b.x0,b.y0,0] as V3,size:[b.x1-b.x0,b.y1-b.y0,T] as V3,faces:footingFaces})),...(ped?cols.flatMap((c,ci)=>{const cb=colBox(c);return columnBoxes(c).map((b,k)=>({id:ci?`pedestal-c${ci+1}-${k+1}`:`pedestal${k+1}`,label:`${many?footingColumnName(c,ci,true):'เสาตอม่อ'} ${k+1}`.slice(0,80),origin:[cb.ox+b.x0,cb.oy+b.y0,T] as V3,size:[b.x1-b.x0,b.y1-b.y0,cb.h] as V3,faces:sideFaces}));}):[])],voids:[]}};
+   if(geometryRoute)shape={z:Math.max(T+Hmax,...blocks.map(b=>b.z1)),pedestal:{x:0,y:0,z:0},geometry:{solids:[...blocks.map((b,k)=>boxOf(b,k,'block')),...footingBoxes(input).map((b,k)=>({id:`footing${k+1}`,label:`ฐานราก ${k+1}`,origin:[b.x0,b.y0,0] as V3,size:[b.x1-b.x0,b.y1-b.y0,T] as V3,faces:footingFaces})),...(ped?cols.flatMap((c,ci)=>{const cb=colBox(c);return columnBoxes(c).map((b,k)=>({id:ci?`pedestal-c${ci+1}-${k+1}`:`pedestal${k+1}`,label:`${many?footingColumnName(c,ci,true):'เสาตอม่อ'} ${k+1}`.slice(0,80),origin:[cb.ox+b.x0,cb.oy+b.y0,T] as V3,size:[b.x1-b.x0,b.y1-b.y0,cb.h] as V3,faces:sideFaces}));}):[])],voids:cuts.map((b,k)=>boxOf(b,k,'cut'))}};
    else if(ped&&(Math.abs(col.offsetX)>.5||Math.abs(col.offsetY)>.5))shape={z:T+H,pedestal:{x:0,y:0,z:0},geometry:{solids:[{id:'footing1',label:'ฐานราก',origin:[0,0,0],size:[X,Y,T],faces:footingFaces},{id:'pedestal',label:'เสาตอม่อ',origin:[ox,oy,T],size:[w,d,H],faces:sideFaces}],voids:[]}};
    shape={...shape,deductions:[...deductions,...auto]};
    // Bars projecting above the concrete sit in placement-only reference regions (not in BOQ).
