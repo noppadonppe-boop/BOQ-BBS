@@ -5,6 +5,7 @@ import {DesignCodeLibrary} from './DesignCodeLibrary';
 import {ProjectMaterialsEditor} from './ProjectMaterials';
 import {ConcreteMixEditor} from './ConcreteMixEditor';
 import {FoundationTemplateList} from './FoundationTemplateList';
+import {BeamTemplateList} from './BeamTemplateList';
 import {FlatEndCoverPolicy} from './FlatEndCover';
 import {PrismPolicy} from './PrismEditor';
 import {BarPlacementPolicy} from './BarPlacements';
@@ -30,6 +31,7 @@ export function SpecEditor({spec:s,readOnly,onChange,onSave}:{spec:Spec;readOnly
     <label className="field full"><span>หลักการวัดปริมาณ / ownership รอยต่อ / รายการหัก</span><textarea disabled={readOnly} value={s.measurementNotes} onChange={e=>onChange({...s,measurementNotes:e.target.value})}/></label></div>
    <ConcreteMixEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <FoundationTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
+   <BeamTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
    <ProjectMaterialsEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <PrismPolicy spec={s} disabled={readOnly} onChange={onChange}/>
    <BarPlacementPolicy spec={s} disabled={readOnly} onChange={onChange}/>

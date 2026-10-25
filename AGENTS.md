@@ -105,6 +105,15 @@
   footing top over cuts (`buildView`). UI `FootingBoxes` / `PilePositions` in `ElementInputPanel.tsx`.
   J-078 Phase 1 (F10 / F12) and Phase 2 (F-xx, pilot F-01) from MPK01B-IFC-S-PLIE FD Review: `tmp/j078Foundations.test.ts` →
   `tmp/Spec-Project-J-078.json`.
+- Project Beam Template (beam schedule of the beam details): `spec.beamTemplates` in `src/domain/beamTemplates.ts` (per mark:
+  size, `sections` = labels as drawn per END / MID / CON / CANT / ALL SPAN, `rebar` = beam-group span bars derived by
+  `beamRebarFromSections()`: main = bars every section has, EX = the rest, ALL SPAN = no EX, "10Y25" side = 5 per face).
+  Spans pick a mark in the BeamGroupEditor “เบอร์คาน” column (`applyBeamTemplate`, `span.template` link, stale notice,
+  `syncBeamTemplates` in the spec-change job). General Spec list `BeamTemplateList.tsx` (JSON import: templates, spec file or
+  raw schedule entries); spec import key `beamTemplates`. Beam group main bars (`beamGroupBars` → `mainBars`) run
+  continuously along spans of equal size / level (extra bars of heavier spans as own runs `…-x<base>`), laps by `emit`:
+  top in the middle third, bottom over / within L/4 of supports. J-078 (BPL&BD, Beam Configuration L1/3 · La/3 · L/8 · L/10):
+  `tmp/j078Beams.test.ts` → `tmp/Spec-Project-J-078.json`. Test: `tmp/beamTemplates.test.ts`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
   key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of

@@ -174,7 +174,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <ColumnPourFields input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);next.pour??={...DEFAULT_COLUMN_POUR};f(next);return next;})}/></>}
   {input.category==='Beam'&&<>
    <div className="segmented beam-layout" role="group" aria-label="รูปแบบคาน">{([['single','คานช่วงเดียว'],['group','กลุ่มคาน · หลายช่วง / คานยื่น / กริด']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Beam'?prev:v==='group'?beamGroupFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>
-   {input.layout==='group'?<BeamGroupEditor input={input} projectId={project.id} readOnly={readOnly} selected={Math.min(beamSel,Math.max(0,input.spans.length-1))} onSelect={setBeamSel} edit={f=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const next=structuredClone(prev);f(next);return next;})}/>
+   {input.layout==='group'?<BeamGroupEditor input={input} projectId={project.id} templates={spec.beamTemplates} readOnly={readOnly} selected={Math.min(beamSel,Math.max(0,input.spans.length-1))} onSelect={setBeamSel} edit={f=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const next=structuredClone(prev);f(next);return next;})}/>
     :<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
    {groundFields('คาน')}</>}
   {input.category==='Slab'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
