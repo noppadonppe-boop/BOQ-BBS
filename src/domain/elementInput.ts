@@ -673,21 +673,39 @@ const GEN_PREFIX='gen-';
 export const isGeneratedBar=(b:Bar)=>b.id.startsWith(GEN_PREFIX);
 const markPrefix:Record<InputCategory,string>={Foundation:'F',Beam:'B',Column:'C',Slab:'S',Wall:'W'};
 
+/** Standard hook of every stirrup / tie (closed link, hoop): Ø ≤ 9 mm → 135° hook with
+ * extension hook135·d ≥ hook135Min; Ø ≥ 10 mm → 90° hook with extension hook90·d. */
+export const tieHook=(d:number,det:Detailing)=>d<10?{angle:135 as const,ext:Math.max(det.hook135*d,det.hook135Min)}:{angle:90 as const,ext:det.hook90*d};
+export const tieHookLabel=(d:number,det:Detailing)=>{const h=tieHook(d,det);return h.angle===135?`ขอ 135° (${Math.round(h.ext)} mm)`:`งอฉาก 90° (${Math.round(h.ext)} mm)`;};
 /** Closed rectangular link in the plane of axes u/v at `at` on axis w, closed at the
- * first corner with two 90° hooks wrapped around the corner bar. Each hook leg runs
- * along the adjacent side, one bar diameter `d` inside it so the ends do not coincide. */
-function link(u:number,v:number,w:number,u0:number,u1:number,v0:number,v1:number,at:number,ext:number,rad:number,d:number):V3[]{
+ * first corner with the standard hooks of `tieHook` wrapped around the corner bar: 90° hook
+ * legs run along the adjacent sides, one bar diameter `d` inside them; 135° hook tails run
+ * diagonally into the core, `d` apart so the ends do not coincide. */
+function link(u:number,v:number,w:number,u0:number,u1:number,v0:number,v1:number,at:number,det:Detailing,rad:number,d:number):V3[]{
  const p=(a:number,b:number):V3=>{const r:V3=[0,0,0];r[u]=a;r[v]=b;r[w]=at;return r;};
+ const {angle,ext}=tieHook(d,det);
+ if(angle===135){
+  // straight extension + tangent of the 135° bend (r·tan 67.5°), along the 45° diagonal
+  const t=Math.min((ext+rad*(1+Math.SQRT2))/Math.SQRT2,(u1-u0)/2,(v1-v0)/2),q=d/(2*Math.SQRT2);
+  return [p(u0+t+q,v0+t-q),p(u0,v0),p(u1,v0),p(u1,v1),p(u0,v1),p(u0,v0),p(u0+t-q,v0+t+q)];
+ }
  // `ext` is the straight extension after the 90° bend; add the bend tangent length.
  const k=Math.min(ext+rad,u1-u0,v1-v0);
  return [p(u0+d,v0+k),p(u0,v0),p(u1,v0),p(u1,v1),p(u0,v1),p(u0,v0),p(u0+k,v0+d)];
 }
-/** Closed polygonal link (CCW vertices, plan) closed at vertex 0 with two hooks bent along
- * the adjacent edges, one bar diameter `d` inside them. */
-function polyLink(poly:Pt[],ext:number,rad:number,d:number):Pt[]{
+/** Closed polygonal link (plan) closed at vertex 0 with two hooks: 90° hooks bent along the
+ * adjacent edges, one bar diameter `d` inside them; 135° hooks turned into the core, `d` apart. */
+function polyLink(poly:Pt[],ext:number,rad:number,d:number,angle:90|135=90):Pt[]{
  const p0=poly[0],p1=poly[1],pl=poly.at(-1)!,len=(a:Pt,b:Pt)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
  const dir=(a:Pt,b:Pt):Pt=>{const l=len(a,b)||1;return [(b[0]-a[0])/l,(b[1]-a[1])/l];};
- const e1=dir(p0,p1),e0=dir(p0,pl),turn=Math.PI-Math.acos(Math.max(-1,Math.min(1,e0[0]*e1[0]+e0[1]*e1[1])));
+ const e1=dir(p0,p1),e0=dir(p0,pl);
+ if(angle===135){
+  // turn 135° toward the inside (left of travel for CCW, right for CW)
+  const s=signedArea(poly)>=0?1:-1,c=Math.cos(3*Math.PI/4),sn=s*Math.sin(3*Math.PI/4),rot=(a:Pt,k:number):Pt=>[a[0]*c-k*a[1]*sn,k*a[0]*sn+a[1]*c];
+  const L=Math.min(ext+rad*(1+Math.SQRT2),len(p0,p1),len(p0,pl)),te=rot([-e0[0],-e0[1]],1),ts=rot(e1,-1),n:Pt=[-te[1]*d/2,te[0]*d/2];
+  return [[p0[0]-ts[0]*L+n[0],p0[1]-ts[1]*L+n[1]],...poly,p0,[p0[0]+te[0]*L-n[0],p0[1]+te[1]*L-n[1]]];
+ }
+ const turn=Math.PI-Math.acos(Math.max(-1,Math.min(1,e0[0]*e1[0]+e0[1]*e1[1])));
  const trim=rad*Math.tan(turn/2),k=Math.max(trim+1,Math.min(ext+trim,Math.min(len(p0,p1),len(p0,pl))-rad));
  return [[p0[0]+e0[0]*k+e0[1]*d,p0[1]+e0[1]*k-e0[0]*d],...poly,p0,[p0[0]+e1[0]*k-e1[1]*d,p0[1]+e1[1]*k+e1[0]*d]];
 }
@@ -715,7 +733,7 @@ export function columnTieLayout(i:ColumnInput,pattern:TiePattern,det:Detailing){
   .reduce<number[][]>((g,v)=>{const last=g.at(-1);if(last&&v-last.at(-1)!<1.6*dm)last.push(v);else g.push([v]);return g;},[]).map(g=>g.reduce((a,b)=>a+b,0)/g.length);
  const f={bottom:pick('sideX',true),top:pick('sideX',false),left:pick('sideY',true),right:pick('sideY',false)};
  const tc=c+dt/2,R=radius(di,det,true),rr=(dm+di)/2,ext90=det.hook90*di,ext135=Math.max(det.hook135*di,det.hook135Min);
- const hoop=link(0,1,2,tc,W-tc,tc,D-tc,0,det.hook90*dt,radius(dt,det,true),dt).map(p=>[p[0],p[1]] as Pt);
+ const hoop=link(0,1,2,tc,W-tc,tc,D-tc,0,det,radius(dt,det,true),dt).map(p=>[p[0],p[1]] as Pt);
  const pieces:TiePiece[]=[],issues:string[]=[];
  const same=(p:number,q:number)=>Math.abs(p-q)<1,has=(l:number[],p:number)=>l.some(q=>same(p,q));
  const union=(l:number[],m:number[])=>[...l,...m.filter(p=>!has(l,p))].sort((p,q)=>p-q);
@@ -732,7 +750,7 @@ export function columnTieLayout(i:ColumnInput,pattern:TiePattern,det:Detailing){
   if(ok.length<want.length)issues.push(`เหล็กรัดขวางแนว ${axis===0?'X':'Y'}: เหล็ก ${want.length-ok.length} เส้นไม่มีเหล็กตรงข้าม (จำนวนเหล็กสองด้านไม่เท่ากัน)`);
   ok.forEach(v=>cross(axis,v));
  };
- const closed=(poly:Pt[])=>pieces.push({kind:'closed',pts:polyLink(inset(poly,-rr),ext90,R,di)});
+ const closed=(poly:Pt[])=>pieces.push({kind:'closed',pts:polyLink(inset(poly,-rr),tieHook(di,det).ext,R,di,tieHook(di,det).angle)});
  const lr=union(f.left,f.right),bt=union(f.bottom,f.top),mid=(l:number[])=>l.length%2?l[(l.length-1)/2]:undefined,alt=(l:number[])=>l.filter((_,k)=>k%2===1);
  const rect=(axis:0|1,p:number,q:number)=>closed(axis===0?[[x0,p],[x1,p],[x1,q],[x0,q]]:[[p,y0],[q,y0],[q,y1],[p,y1]]);
  const rects=(axis:0|1,skip:number[]=[])=>{
@@ -1151,7 +1169,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    const half=Math.min(sr.width,Wd-2*(c.side+sideIn))/2-d/2,mid=Wd/2,z0=c.bottom+d/2,z1=(J!==undefined&&J<T?J:T-c.top)-(J!==undefined&&J<T?50:0)-d/2;
    const s=spread(c.side+sideIn+d/2+50,L-c.side-sideIn-d/2-50,sr.spacing);
    if(half<=2*d||z1-z0<=4*d||!s)warn('เหล็กปลอก (STIRRUPS) ในฐาน: วางไม่ได้ ตรวจความกว้าง/ความสูง');
-   else{const pts=link(alongX?1:0,2,alongX?0:1,mid-half,mid+half,z0,z1,s.from,det.hook135*d<det.hook135Min?det.hook135Min:det.hook135*d,rad,d);
+   else{const pts=link(alongX?1:0,2,alongX?0:1,mid-half,mid+half,z0,z1,s.from,det,rad,d);
     out.push({role:'stirrup',note:`${sr.replacesBottom?'เหล็กล่าง ทิศ '+(alongX?'Y':'X')+' แบบปลอก (HOOP)':'เหล็กปลอก (STIRRUPS) ในฐาน'} · กว้าง ${Math.round(sr.width)} mm (นอก-นอก) แนว ${alongX?'X':'Y'} · สูง ${Math.round(z1-z0+d)} mm @ ${sr.spacing} mm`,diameter:d,grade:g,count:s.count,points:pts,axis:alongX?'Y':'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:alongX?'X':'Y',from:s.from,to:s.to});}}
  }
  // Vertical face bars on every face of the plan outline, ends straight or turned inward 90°.
@@ -1217,10 +1235,10 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  const minGap=Math.min(Infinity,...all.flatMap((a,i)=>all.slice(i+1).map(b=>Math.hypot(a.x-b.x,a.y-b.y)-(a.d+b.d)/2)));
  if(minGap<-0.5)warn(`${name}: ตำแหน่งเหล็กยืนซ้อนกัน ลดจำนวนหรือขนาดเหล็ก`);
  if(pedestal){
-  const ext=Math.max(det.hook135*dt,det.hook135Min),trad=radius(dt,det,true),tc=col.cover+dt/2,tz=spread(T+50,top-col.cover-dt/2,col.tie.spacing);
+  const ext=tieHook(dt,det).ext,trad=radius(dt,det,true),tc=col.cover+dt/2,tz=spread(T+50,top-col.cover-dt/2,col.tie.spacing);
   if(!tz)warn(`${name}: ความสูงไม่พอสำหรับเหล็กปลอก`);
-  else if(col.shape==='circle'){const Rt=col.diameter/2-tc,ctr=[ox+col.diameter/2,oy+col.diameter/2];out.push({role:'column-tie'+sfx,note:`ปลอกวงกลม${name} (ยาว = เส้นรอบวง + ขอ 2 × ${Math.round(ext)} mm)`,diameter:dt,grade:det.tieGrade,count:tz.count,points:Array.from({length:37},(_,k)=>[ctr[0]+Rt*Math.cos(2*Math.PI*k/36),ctr[1]+Rt*Math.sin(2*Math.PI*k/36),tz.from] as V3),axis:'Z',face:'side',radius:0,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to,cut:roundUp(2*Math.PI*Rt+2*ext,rounding)});}
-  else columnBoxes(col).forEach((b,k,all)=>{const full=col.shape==='L'||col.shape==='U'?(k===0?{...b}:{...b,y0:0}):b;out.push({role:`column-tie-${k+1}${sfx}`,note:`เหล็กปลอก${name}${all.length>1?` · ${k===0?'ขาแนว X':`ขาแนว Y${all.length>2?` ${k}`:''}`}`:''}`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,ox+full.x0+tc,ox+full.x1-tc,oy+full.y0+tc,oy+full.y1-tc,tz.from,det.hook90*dt,trad,dt),axis:'Z',face:'side',radius:trad,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to});});
+  else if(col.shape==='circle'){const Rt=col.diameter/2-tc,ctr=[ox+col.diameter/2,oy+col.diameter/2];out.push({role:'column-tie'+sfx,note:`ปลอกวงกลม${name} (ยาว = เส้นรอบวง + ขอ ${tieHook(dt,det).angle}° 2 × ${Math.round(ext)} mm)`,diameter:dt,grade:det.tieGrade,count:tz.count,points:Array.from({length:37},(_,k)=>[ctr[0]+Rt*Math.cos(2*Math.PI*k/36),ctr[1]+Rt*Math.sin(2*Math.PI*k/36),tz.from] as V3),axis:'Z',face:'side',radius:0,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to,cut:roundUp(2*Math.PI*Rt+2*ext,rounding)});}
+  else columnBoxes(col).forEach((b,k,all)=>{const full=col.shape==='L'||col.shape==='U'?(k===0?{...b}:{...b,y0:0}):b;out.push({role:`column-tie-${k+1}${sfx}`,note:`เหล็กปลอก${name}${all.length>1?` · ${k===0?'ขาแนว X':`ขาแนว Y${all.length>2?` ${k}`:''}`}`:''}`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,ox+full.x0+tc,ox+full.x1-tc,oy+full.y0+tc,oy+full.y1-tc,tz.from,det,trad,dt),axis:'Z',face:'side',radius:trad,shapeCode:'99',distributionAxis:'Z',from:tz.from,to:tz.to});});
   // set 2: supplementary ties of the pattern, just above each hoop (below it at the top level)
   if(tz&&tp!=='none'){
    const lay=columnTieLayout(pedestalAsColumn(col),tp,det),label=tiePatternInfo[tp].label;
@@ -1230,7 +1248,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    for(const pc of lay.pieces){const o=pc.pts[0],sig=pc.kind+pc.pts.map(p=>`${Math.round((p[0]-o[0])*10)},${Math.round((p[1]-o[1])*10)}`).join(';'),g=groups.get(sig);if(g)g.at.push(o);else groups.set(sig,{piece:pc,at:[o]});}
    [...groups.values()].forEach(({piece,at},k)=>{
     const o=at[0],offsets=levels.flatMap(zz=>at.map(p=>[p[0]-o[0],p[1]-o[1],zz-levels[0]] as V3));
-    const kind=piece.kind==='cross'?'เหล็กรัดขวาง ขอ 135°/90°':'ปลอกใน งอฉาก 90°';
+    const kind=piece.kind==='cross'?'เหล็กรัดขวาง ขอ 135°/90°':`ปลอกใน ${tieHookLabel(dt,det)}`;
     out.push({role:`column-tie-in${k+1}${sfx}`,note:`ปลอกชุดที่ 2 ${name} · ${label} · ${kind} · ${at.length} ตำแหน่ง × ${levels.length} ชั้น @${col.tie.spacing}`,diameter:dt,grade:det.tieGrade,count:offsets.length,points:piece.pts.map(p=>[ox+p[0],oy+p[1],levels[0]] as V3),axis:'Z',face:'side',radius:lay.R,shapeCode:'99',offsets});
    });
   }
@@ -1282,7 +1300,7 @@ function columnStackBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:str
  // ties inside the footing: hoops ≤ @500 below the top of footing
  if(st.footing.enabled&&st.footing.depth>250){const s=S[0],dt=s.tie.diameter,tc=c+dt/2,tz=spread(-(st.footing.depth-150),-100,500);
   // below z = 0: positions as offsets (distribution ranges start at 0)
-  if(tz){const step=tz.count>1?(tz.to-tz.from)/(tz.count-1):0;out.push({role:'footing-tie',note:`เหล็กปลอกในฐานราก @≤500`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,s.ox+tc,s.ox+s.width-tc,s.oy+tc,s.oy+s.depth-tc,tz.from,det.hook90*dt,radius(dt,det,true),dt),axis:'Z',face:'side',radius:radius(dt,det,true),shapeCode:'99',offsets:Array.from({length:tz.count},(_,j)=>[0,0,j*step] as V3)});}}
+  if(tz){const step=tz.count>1?(tz.to-tz.from)/(tz.count-1):0;out.push({role:'footing-tie',note:`เหล็กปลอกในฐานราก @≤500`,diameter:dt,grade:det.tieGrade,count:tz.count,points:link(0,1,2,s.ox+tc,s.ox+s.width-tc,s.oy+tc,s.oy+s.depth-tc,tz.from,det,radius(dt,det,true),dt),axis:'Z',face:'side',radius:radius(dt,det,true),shapeCode:'99',offsets:Array.from({length:tz.count},(_,j)=>[0,0,j*step] as V3)});}}
  // ---- main bars over runs of storeys with the same bars: equal sections, or a section stepping in by less than
  // 75 mm per face (ACI offset bars: cranked 1:6 just below the floor); larger steps stop the run (hook + dowels)
  const crankable=(p:ColumnStorey,q:ColumnStorey)=>JSON.stringify(p.main)===JSON.stringify(q.main)&&q.width<=p.width&&q.depth<=p.depth&&p.width-q.width<150&&p.depth-q.depth<150;
@@ -1345,7 +1363,7 @@ function columnStackBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:str
 }
 function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=>void):GenBar[]{
  const out:GenBar[]=[],c=i.cover.side,H=i.height,dt=i.rebar.tie.diameter,{bottom:eb,top:et}=i.rebar;
- const ext=Math.max(det.hook135*dt,det.hook135Min),rect=i.shape==='rect',W=rect?i.width:i.diameter,Dp=rect?i.depth:i.diameter;
+ const ext=tieHook(dt,det).ext,rect=i.shape==='rect',W=rect?i.width:i.diameter,Dp=rect?i.depth:i.diameter;
  // main bar centres and the inward crank direction of each bar (corner: diagonal, side: normal to its face, ring: radial)
  const all=columnInputBars(i),cx=W/2,cy=Dp/2,sg=(v:number)=>Math.sign(v)||1;
  const dirOf=(b:ColumnBarPos):Pt=>b.kind==='sideX'?[0,sg(cy-b.y)]:b.kind==='sideY'?[sg(cx-b.x),0]:b.kind==='corner'?[sg(cx-b.x)/Math.SQRT2,sg(cy-b.y)/Math.SQRT2]:(()=>{const l=Math.hypot(cx-b.x,cy-b.y)||1;return [(cx-b.x)/l,(cy-b.y)/l] as Pt;})();
@@ -1385,8 +1403,8 @@ function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=
  for(const [key,zone] of tieZoneKeys){
   const s=hoopSpacing[key],r=present[key]?range(key,s):null,tz=r&&spread(r[0],r[1],s);
   if(!tz)continue;
-  const note=`${rect?'เหล็กปลอก':`ปลอกเกลียว/วงกลม (ยาว = เส้นรอบวง + ขอ 2 × ${Math.round(ext)} mm)`}${zoned?` · ${zone} @${s}`:''}`,common={role:zoned?`tie-${key}`:'tie',note,diameter:dt,grade:det.tieGrade,count:tz.count,axis:'Z' as const,face:'side' as const,distributionAxis:'Z' as const,from:tz.from,to:tz.to};
-  if(rect)out.push({...common,points:link(0,1,2,tc,W-tc,tc,Dp-tc,tz.from,det.hook90*dt,trad,dt),radius:trad,shapeCode:'99'});
+  const note=`${rect?`เหล็กปลอก ${tieHookLabel(dt,det)}`:`ปลอกเกลียว/วงกลม (ยาว = เส้นรอบวง + ขอ ${tieHook(dt,det).angle}° 2 × ${Math.round(ext)} mm)`}${zoned?` · ${zone} @${s}`:''}`,common={role:zoned?`tie-${key}`:'tie',note,diameter:dt,grade:det.tieGrade,count:tz.count,axis:'Z' as const,face:'side' as const,distributionAxis:'Z' as const,from:tz.from,to:tz.to};
+  if(rect)out.push({...common,points:link(0,1,2,tc,W-tc,tc,Dp-tc,tz.from,det,trad,dt),radius:trad,shapeCode:'99'});
   else out.push({...common,points:Array.from({length:37},(_,k)=>[W/2+Rt*Math.cos(2*Math.PI*k/36),W/2+Rt*Math.sin(2*Math.PI*k/36),tz.from] as V3),radius:0,shapeCode:'99',cut:roundUp(2*Math.PI*Rt+2*ext,rounding)});
  }
  // set 2: supplementary ties per zone, stacked just above the hoops of the same level
@@ -1407,7 +1425,7 @@ function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=
   [...groups.values()].forEach(({piece,at},k)=>{
    const o=at[0],offsets=levels.flatMap(zz=>at.map(p=>[p[0]-o[0],p[1]-o[1],zz-levels[0]] as V3));
    if(offsets.length>2000){warn(`ปลอกชุดที่ 2 ${zone}: จำนวนชิ้นเกิน 2,000 ต่อ Mark เพิ่มระยะห่าง`);return;}
-   const kind=piece.kind==='cross'?'เหล็กรัดขวาง ขอ 135°/90° (สลับปลายขอทุกชั้น)':'ปลอกใน งอฉาก 90°';
+   const kind=piece.kind==='cross'?'เหล็กรัดขวาง ขอ 135°/90° (สลับปลายขอทุกชั้น)':`ปลอกใน ${tieHookLabel(di,det)}`;
    out.push({role:`tie2-${key}-${k+1}`,note:`ปลอกชุดที่ 2 · ${label} · ${kind} · ${at.length} ตำแหน่ง × ${levels.length} ชั้น${zoned?` · ${zone}`:''} @${z.spacing}`,diameter:di,grade:det.tieGrade,count:offsets.length,points:piece.pts.map(p=>[p[0],p[1],levels[0]] as V3),axis:'Z',face:'side',radius:lay.R,shapeCode:'99',offsets});
   });
  }
@@ -1596,8 +1614,8 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
   const links:[string,number,number][]=[['',yl,yh],...Array.from({length:legs/2-1},(_,j)=>[`-i${j+1}`,pos[2*j+1],pos[2*j+2]] as [string,number,number])];
   for(const [zn,a,b,sp] of zones){if(!(sp>0)||b<a-1e-6)continue;const sx=spread(a,b,sp);if(!sx)continue;
    const name=zn==='cant'?'CANT':zn==='m'?'MID':beamZoneLabels[zn==='a'?s.zoneA:s.zoneB];
-   for(const [tag,ya,yb] of links)out.push({role:`s${s.k+1}-stirrup-${zn}${tag}`,note:`${s.label} · เหล็กปลอก${tag?' ใน':''} ${name} @${sp}${legs>2?` · ${legs} ขา`:''}`,diameter:d,grade:det.tieGrade,count:sx.count,
-    points:link(1,2,0,ya,yb,zl,zh,sx.from,det.hook90*d,rad,d),axis:'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});}
+   for(const [tag,ya,yb] of links)out.push({role:`s${s.k+1}-stirrup-${zn}${tag}`,note:`${s.label} · เหล็กปลอก${tag?' ใน':''} ${name} @${sp} · ${tieHookLabel(d,det)}${legs>2?` · ${legs} ขา`:''}`,diameter:d,grade:det.tieGrade,count:sx.count,
+    points:link(1,2,0,ya,yb,zl,zh,sx.from,det,rad,d),axis:'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});}
  }
  // ---- side face bars and cross ties
  for(const s of spans){const sd=s.rebar.side;if(sd.count<1||!sd.diameter)continue;
@@ -1626,7 +1644,7 @@ function beamBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
  main('top','เหล็กบน',r.top,true);
  main('bottom','เหล็กล่าง',r.bottom,false);
  const sx=spread(Math.max(50,c.side+dt/2),L-Math.max(50,c.side+dt/2),r.stirrup.spacing),tc=c.side+dt/2;
- if(sx)out.push({role:'stirrup',note:'เหล็กปลอก',diameter:dt,grade:det.tieGrade,count:sx.count,points:link(1,2,0,tc,W-tc,c.bottom+dt/2,Dp-c.top-dt/2,sx.from,det.hook90*dt,radius(dt,det,true),dt),axis:'X',face:'side',radius:radius(dt,det,true),shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});
+ if(sx)out.push({role:'stirrup',note:'เหล็กปลอก',diameter:dt,grade:det.tieGrade,count:sx.count,points:link(1,2,0,tc,W-tc,c.bottom+dt/2,Dp-c.top-dt/2,sx.from,det,radius(dt,det,true),dt),axis:'X',face:'side',radius:radius(dt,det,true),shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});
  else warn('เหล็กปลอก: วางไม่ได้ ตรวจความยาวและระยะห่าง');
  return out;
 }

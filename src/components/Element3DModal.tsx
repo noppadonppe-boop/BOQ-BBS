@@ -140,7 +140,7 @@ function elementFields(d:any):F[]{
 const detailingFields=():F[]=>[
  {k:'text',label:'เกรดเหล็กหลัก',path:'detailing.mainGrade',max:40},{k:'text',label:'เกรดเหล็กปลอก',path:'detailing.tieGrade',max:40},
  {k:'num',label:'รัศมีดัดใน Ø ≤ 16 (×d)',path:'detailing.bendSmall'},{k:'num',label:'รัศมีดัดใน Ø ≥ 20 (×d)',path:'detailing.bendLarge'},{k:'num',label:'รัศมีดัดในปลอก (×d)',path:'detailing.tieBend'},
- {k:'num',label:'ขอ 90° / ปลอกงอฉาก ส่วนตรงปลาย (×d)',path:'detailing.hook90'},{k:'num',label:'ขอปลอกวงกลม 135° ส่วนตรงปลาย (×d)',path:'detailing.hook135'},{k:'num',label:'ขอปลอกวงกลม 135° อย่างน้อย (mm)',path:'detailing.hook135Min'},
+ {k:'num',label:'ขอ 90° / ปลอก Ø10+ งอฉาก ส่วนตรงปลาย (×d)',path:'detailing.hook90'},{k:'num',label:'ขอปลอก 135° (Ø6–Ø9) ส่วนตรงปลาย (×d)',path:'detailing.hook135'},{k:'num',label:'ขอปลอก 135° (Ø6–Ø9) อย่างน้อย (mm)',path:'detailing.hook135Min'},
  {k:'num',label:'ระยะทาบ (×d)',path:'detailing.lap'},{k:'num',label:'ความยาวเหล็กเส้น (mm)',path:'detailing.stockLength'},
 ];
 const SIMPLE_SHAPES=['straight','L','U','link'];
@@ -186,7 +186,7 @@ export function Element3DModal({member,input,manualBars,preview,error,problems,q
   for(const d of defs)if(d.present)list.push({key:d.key,label:d.label,sub:d.key==='pile'&&input.category==='Foundation'?`${pileTypeLabels[input.pile.type]} ${input.pile.size} mm · ${pilePositions(input).length} ต้น · ยาว ${input.pile.length} m`:'',rows:byKey.get(d.key)||[],editable:true,removable:!!d.remove});
   if(byKey.has('other'))list.push({key:'other',label:'เหล็กอื่น (สร้างอัตโนมัติ)',sub:'',rows:byKey.get('other')!,editable:false,removable:false});
   for(const b of manualBars)list.push({key:`manual:${b.id}`,label:`${b.mark} · เพิ่มเอง`,sub:b.note,rows:byKey.get(`manual:${b.id}`)||[],editable:true,removable:true});
-  list.push({key:'detailing',label:'มาตรฐานงอขอ / ระยะทาบ',sub:`ขอ 90° = ${input.detailing.hook90}d · ปลอก 135° = ${input.detailing.hook135}d ≥ ${input.detailing.hook135Min} · ทาบ ${input.detailing.lap}d`,rows:[],editable:true,removable:false});
+  list.push({key:'detailing',label:'มาตรฐานงอขอ / ระยะทาบ',sub:`ขอ 90° = ${input.detailing.hook90}d · ปลอก Ø6–Ø9 135° = ${input.detailing.hook135}d ≥ ${input.detailing.hook135Min} · ทาบ ${input.detailing.lap}d`,rows:[],editable:true,removable:false});
   let n=0;return list.map(it=>({...it,color:it.key==='element'||it.key==='detailing'?0xc8d2d1:it.key==='pile'?0x8f9ca1:PALETTE[n++%PALETTE.length]}));
  },[rows,keyOf,defs,input,manualBars,member.category]);
  const colorOf=useMemo(()=>{const map=new Map(items.map(i=>[i.key,i.color]));return (k:string)=>map.get(k)??0x5a6b73;},[items]);
