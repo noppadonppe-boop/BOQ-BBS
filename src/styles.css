@@ -365,3 +365,4 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .ft-plan .ft-block{fill:rgba(196,120,40,.28);stroke:#b26a1c;stroke-width:.6}.ft-plan .ft-cut{fill:rgba(120,120,120,.18);stroke:#888;stroke-width:.5;stroke-dasharray:2 2}
 .footing-boxes-wrap{margin:10px 0}.footing-boxes{margin:8px 0}.footing-boxes table{font-size:12px}.footing-boxes td{padding:2px}.footing-boxes input{min-width:0}
 .ft-plan .ft-wall{fill:#5d6f74;stroke:#22393f;stroke-width:.5}
+.splice-checks{margin-top:14px;border:1px solid var(--border);border-radius:8px;padding:10px 12px}.splice-checks summary{cursor:pointer;font-size:12px}.splice-checks table td{vertical-align:top;font-size:11px}.warn-text{color:#926327}

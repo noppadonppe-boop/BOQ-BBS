@@ -1,6 +1,6 @@
-import {useState} from 'react';
+import {useMemo,useState} from 'react';
 import {BookmarkPlus,Copy,Download,Plus,Trash2} from 'lucide-react';
-import {beamGroupLayout,beamZoneLabels,beamZones,newBeamGrid,newBeamSpan,type BeamGrid,type BeamInput,type BeamRebar,type BeamSpan,type BeamZone} from '../domain/elementInput';
+import {beamGroupLayout,beamSpliceReport,beamZoneLabels,beamZones,newBeamGrid,newBeamSpan,type BeamGrid,type BeamInput,type BeamRebar,type BeamSpan,type BeamZone} from '../domain/elementInput';
 import {deleteBeamMark,saveBeamMark,useBeamMarks,type BeamMark} from '../data/beamMarks';
 import {NumInput} from './EditorControls';
 import {applyBeamTemplate,beamTemplateCurrent,beamTemplateSummary,type BeamTemplate} from '../domain/beamTemplates';
@@ -107,5 +107,26 @@ export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId
    </tbody></table></div>
    <p className="muted">END = ปลายติดเสาที่ไม่ต่อเนื่อง · CON = ปลายต่อเนื่อง · CANT = ช่วงยื่น · หน้าตัดตาม Beam Details · ระยะตัด EX และช่วงปลอกถี่ตาม General Spec (Typical beam details) · เหล็กยาวเกินเหล็กเส้นต่อทาบอัตโนมัติ</p>
   </div>}
+  <SpliceChecks input={input}/>
  </div>;
 }
+
+/** Spliced bar runs of the group with the checks (stock length, lap zone, joint, Class B lap, 50 % stagger, lengths,
+ * SMF stirrups over laps); lap positions as grid + distance. */
+function SpliceChecks({input}:{input:BeamInput}){
+ const rows=useMemo(()=>beamSpliceReport(input),[input]),grid=useMemo(()=>beamGroupLayout(input).grid,[input]);
+ if(!rows.length)return null;
+ const mm=(v:number)=>Math.round(v).toLocaleString('en-US');
+ const at=(x:number)=>{let k=0;while(k+1<grid.length&&grid[k+1]<=x)k++;const d=x-grid[k];return `${input.grids[k]?.label||k+1} ${d<0?'−':'+'}${mm(Math.abs(d))}`;};
+ const icon=(s:'ok'|'warn'|'fail')=>s==='ok'?'✓':s==='warn'?'⚠':'✗';
+ const fail=rows.filter(r=>r.checks.some(c=>c.state==='fail')).length,warn=rows.filter(r=>r.checks.some(c=>c.state==='warn')).length;
+ const frame=input.detailing.beam?.frame==='special'?'โครงต้านแผ่นดินไหว (SMF): ล่าง 2h–L/4':'โครงธรรมดา: ล่าง ผิวเสา–L/4';
+ return <details className="splice-checks" open={fail>0}><summary><b>ตรวจการต่อทาบเหล็ก</b> · {rows.length} แนวที่ต่อ · {fail?<span className="danger-text">✗ {fail}</span>:'✓'}{warn?` · ⚠ ${warn}`:''} <small className="muted">({frame} · บน 1/3 กลางช่วง · Class B · สลับ 50% · เหล็กเส้น {mm(input.detailing.stockLength)})</small></summary>
+  <div className="table-scroll"><table><thead><tr><th>แนวเหล็ก</th><th>เหล็ก</th><th>ระยะทาบ</th><th>ชุด · ท่อน (ยาวตัด)</th><th>ต่อที่ (กริด + ระยะถึงกึ่งกลางทาบ)</th><th>ผลตรวจ</th></tr></thead>
+   <tbody>{rows.map(r=><tr key={r.role}><td>{r.note}</td><td className="num">{r.count}{r.diameter<=9?'RB':'DB'}{r.diameter}</td><td className="num">{mm(r.lap)}<br/><small className="muted">{r.lapKind}</small></td>
+    <td>{r.sets.map(st=><div key={st.set}>{st.set?<b>{st.set} </b>:null}{st.count} เส้น: {st.pieces.map(p=>mm(p.length)).join(' + ')}</div>)}</td>
+    <td>{r.sets.map(st=><div key={st.set}>{st.set?<b>{st.set} </b>:null}{st.laps.map((l,k)=><span key={k} className={l.status==='ok'?'':l.status==='wide'?'warn-text':'danger-text'} title={l.status==='ok'?'ในโซน':l.status==='wide'?'โซนที่ขยาย':'นอกโซน'}>{k?' · ':''}{at(l.x)}</span>)}</div>)}</td>
+    <td>{r.checks.map(c=><div key={c.key} className={c.state==='fail'?'danger-text':c.state==='warn'?'warn-text':''}>{icon(c.state)} {c.text}</div>)}</td></tr>)}</tbody></table></div>
+ </details>;
+}
+

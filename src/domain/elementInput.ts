@@ -114,14 +114,17 @@ export const detailingSchema=z.object({
  hook135Min:mm,
  lap:z.number().finite().min(0).max(120),
  stockLength:z.number().finite().positive().max(30000),
- /** Lap length per bar diameter from the project spec (FTL table); missing sizes use lap × d. */
- lapTable:z.array(z.object({bar:dia,length:mm}).strict()).max(20).optional(),
+ /** Lap length per bar diameter from the project spec (Class B = FTL table: `length` tension, `top` top bars with
+  * more than 300 mm of concrete below); missing sizes use lap × d. */
+ lapTable:z.array(z.object({bar:dia,length:mm,top:mm.optional()}).strict()).max(20).optional(),
  /** Spec the defaults were taken from (display only). */
  specRef:z.string().max(200).optional(),
  /** Beam top-bar extensions (× clear span) from the spec's typical beam details: end (discontinuous) / continuous support. */
  /** Steel grade per bar size from the project spec (e.g. Y12–Y20 SD40, Y25–Y32 SD50); overrides main / tie grade. */
  grades:z.array(z.object({bar:z.number().int().min(1).max(60),grade:z.string().trim().min(1).max(40)}).strict()).max(30).optional(),
- beam:z.object({topEnd:frac2,topCont:frac2,bottomZone:frac2,bottomEnd:frac2.optional(),bottomCont:frac2.optional(),stirrupZone:frac2.optional()}).strict().optional(),
+ beam:z.object({topEnd:frac2,topCont:frac2,bottomZone:frac2,bottomEnd:frac2.optional(),bottomCont:frac2.optional(),stirrupZone:frac2.optional(),
+  /** splices: ordinary frame or seismic special moment frame (no bottom laps within 2h of the face) */
+  frame:z.enum(['ordinary','special']).optional()}).strict().optional(),
  /** Concrete mix of the member from the spec (display; f'c in ksc picks the lap table). */
  concrete:z.object({mix:z.string().max(24),name:z.string().max(80),fc:z.number().finite().min(0).max(2000)}).strict().optional(),
 }).strict();
@@ -131,9 +134,9 @@ export function gradeFor(det:Detailing,d:number,fallback:string){
  const t=det.grades?.filter(r=>r.bar>=d-1e-6).sort((a,b)=>a.bar-b.bar)[0]||det.grades?.slice().sort((a,b)=>b.bar-a.bar)[0];
  return t?.grade||fallback;
 }
-export function lapLength(det:Detailing,d:number){
+export function lapLength(det:Detailing,d:number,top=false){
  const t=det.lapTable?.filter(r=>r.bar>=d-1e-6).sort((a,b)=>a.bar-b.bar)[0];
- return t&&t.length>0?t.length:det.lap*d;
+ return t&&top&&t.top&&t.top>0?t.top:t&&t.length>0?t.length:det.lap*d;
 }
 export type Detailing=z.infer<typeof detailingSchema>;
 /** Preliminary detailing defaults: BS 8666:2000 Table 2 minimum former radius
@@ -1497,7 +1500,11 @@ export const beamZoneLabels:Record<BeamZone,string>={end:'END',mid:'MID',con:'CO
  * - side face bars per face between the main bars, ties across the width at alternate levels;
  * - bars longer than the stock length are split with laps (top in the middle third of a span, bottom over / within
  *   L/4 of the supports), the lap centre as far along as the stock length allows. */
-function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
+/** One bar run of a beam group that needed laps (splice report / checks). */
+export type SpliceLap={x:number;lap:number;status:'ok'|'wide'|'outside'};
+export type SpliceRun={role:string;note:string;face:Bar['face'];diameter:number;count:number;x0:number;x1:number;h0:number;h1:number;lap:number;lapKind:'FTL'|'FTL TOP';
+ zones:[number,number][];wide:[number,number][];sets:{set:string;count:number;pieces:{a:number;b:number;length:number;role:string}[];laps:SpliceLap[]}[];roles:string[]};
+function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void,splices?:SpliceRun[]):GenBar[]{
  const out:GenBar[]=[],{spans,grid,columns}=beamGroupLayout(i),c=i.cover,gr=i.grids,g=det.mainGrade;
  const rules={topEnd:.25,topCont:.3,bottomEnd:.125,bottomCont:.1,stirrupZone:.25,...det.beam};
  const col=(k:number)=>columns.find(q=>q.k===k);
@@ -1509,31 +1516,73 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
  const anchorX=(k:number,dir:-1|1,d:number,s:GroupSpan)=>{const q=col(k);return q?(dir<0?q.x0+c.side+d/2:q.x1-c.side-d/2):dir<0?s.a+c.side+d/2:s.b-c.side-d/2;};
  const down=(s:GroupSpan,z:number,d:number)=>-Math.max(0,Math.min(hookLeg(d),z-(s.z0+c.bottom+dt(s)+d)));
  const up=(s:GroupSpan,z:number,d:number)=>Math.max(0,Math.min(hookLeg(d),s.z1-c.top-dt(s)-d-z));
- /** bar run [x0, x1] at level z with end legs h0 / h1 (+ up, − down), split into stock lengths with laps whose
-  * centres lie in the splice `zones` (farthest feasible point first, so pieces are as long as possible) */
- const emit=(role:string,note:string,d:number,count:number,x0:number,x1:number,z:number,h0:number,h1:number,face:Bar['face'],from:number,to:number,zones:[number,number][])=>{
+ /** bar run [x0, x1] at level z with end legs h0 / h1 (+ up, − down), split into stock lengths with Class B laps that
+  * lie wholly inside the splice `zones` (farthest feasible point first, so pieces are as long as possible); `wide` =
+  * fallback zones (bottom bars: up to L/3, warned). Runs with laps and ≥ 2 bars are split in sets A / B (alternate bars)
+  * whose laps are ≥ 1 lap length apart (≤ 50 % of the bars spliced at a section). `top` = top bars (FTL TOP). */
+ const emit=(role:string,note:string,d:number,count:number,x0:number,x1:number,z:number,h0:number,h1:number,face:Bar['face'],from:number,to:number,zones:[number,number][],opt:{wide?:[number,number][];top?:boolean;stagger?:boolean}={})=>{
   if(count<1||!d||x1-x0<1)return;
-  const lap=lapLength(det,d),pieces:[number,number,number,number][]=[];let s0=x0,l0=h0;
-  for(let guard=0;guard<30;guard++){
-   if(x1-s0+Math.abs(l0)+Math.abs(h1)<=det.stockLength+1e-6){pieces.push([s0,x1,l0,h1]);break;}
-   const max=s0+det.stockLength-Math.abs(l0)-lap/2,min=s0+lap*1.5;
-   const cands=zones.map(([lo,hi])=>Math.min(hi,max,x1-lap)).filter((cx,j)=>cx>=Math.max(zones[j][0],min));
-   let c=cands.length?Math.max(...cands):undefined;
-   if(c===undefined){c=max;warn(`${note}: ไม่มีช่วงต่อทาบที่แนะนำภายในความยาวเหล็กเส้น ${det.stockLength} mm · ต่อที่ระยะสูงสุด`);}
-   c=Math.floor(c/25)*25;pieces.push([s0,c+lap/2,l0,0]);s0=c-lap/2;l0=0;}
-  const f=count===1?(from+to)/2:from,t=count===1?f:to;
-  pieces.forEach(([a,b,ha,hb],j)=>{const pts:V3[]=[...(ha?[[a,f,z+ha] as V3]:[]),[a,f,z],[b,f,z],...(hb?[[b,f,z+hb] as V3]:[])].map(p=>p.map(v=>Number(v.toFixed(3))) as V3);
-   const hooks=(ha?1:0)+(hb?1:0);
-   out.push({role:pieces.length>1?`${role}-p${j+1}`:role,note:pieces.length>1?`${note} · ท่อน ${j+1}/${pieces.length} (ทาบ ${Math.round(lap)})`:note,diameter:d,grade:g,count,points:pts,axis:'X',face,radius:hooks?radius(d,det):0,shapeCode:hooks===0?'00':hooks===1?'11':'21',distributionAxis:'Y',from:f,to:t});});
+  const lap=lapLength(det,d,!!opt.top);
+  // lap centres on a 25 mm grid, chosen for the whole run at once (fewest penalties, then fewest laps): main zone 1,
+  // fallback zone 4, within 1 lap of the other set's laps +10 (not staggered), outside every zone 50 (+ distance), in a joint never
+  const split=(avoid:number[])=>{const pieces:[number,number,number,number][]=[],laps:SpliceLap[]=[];
+   if(x1-x0+Math.abs(h0)+Math.abs(h1)<=det.stockLength+1e-6){pieces.push([x0,x1,h0,h1]);return {pieces,laps};}
+   const inside=(zs:[number,number][]|undefined,c:number)=>!!zs?.some(([lo,hi])=>c-lap/2>=lo-1e-6&&c+lap/2<=hi+1e-6);
+   const cs:{c:number;cost:number;status:SpliceLap['status']}[]=[];
+   for(let c=Math.ceil((x0+lap*1.5)/25)*25;c<=x1-lap;c+=25){
+    if(columns.some(q=>c+lap/2>q.x0+1e-6&&c-lap/2<q.x1-1e-6))continue;
+    const main=inside(zones,c),wide=!main&&inside(opt.wide,c),near=avoid.some(x=>Math.abs(x-c)<lap-1e-6);
+    // outside every zone: as close to a zone as possible
+    const off=main||wide?0:Math.min(...[...zones,...(opt.wide||[])].map(([lo,hi])=>Math.max(0,lo-(c-lap/2),c+lap/2-hi)),1e6);
+    cs.push({c,cost:(main?1:wide?4:50+off/100)+(near?10:0)-c*1e-9,status:main?'ok':wide?'wide':'outside'});}
+   // best[k]: cheapest way to start a piece at lap k (k = -1: the run start)
+   const startOf=(k:number)=>k<0?x0:cs[k].c-lap/2,legOf=(k:number)=>k<0?Math.abs(h0):0;
+   const best=cs.map(()=>Infinity),prev=cs.map(()=>-2);
+   for(let k=0;k<cs.length;k++)for(let j=k-1;j>=-1;j--){const s0=startOf(j);if(cs[k].c+lap/2-s0+legOf(j)>det.stockLength+1e-6){if(j>=0&&cs[k].c-cs[j].c>det.stockLength)break;continue;}
+    if(cs[k].c-s0<lap*1.5-1e-6)continue;const v=(j<0?0:best[j])+cs[k].cost;if(v<best[k]-1e-9){best[k]=v;prev[k]=j;}}
+   let end=-2,top=Infinity;
+   if(x1-x0+Math.abs(h0)+Math.abs(h1)<=det.stockLength+1e-6){end=-1;top=0;}
+   cs.forEach((x,k)=>{if(best[k]<top-1e-9&&x1-startOf(k)+Math.abs(h1)<=det.stockLength+1e-6){top=best[k];end=k;}});
+   if(end===-2){warn(`${note}: ต่อทาบไม่ได้ภายในเหล็กเส้น ${det.stockLength} mm`);pieces.push([x0,x1,h0,h1]);return {pieces,laps};}
+   const path:number[]=[];for(let k=end;k>=0;k=prev[k])path.unshift(k);
+   let s0=x0,l0=h0;for(const k of path){const {c,status}=cs[k];laps.push({x:c,lap,status});pieces.push([s0,c+lap/2,l0,0]);s0=c-lap/2;l0=0;}
+   pieces.push([s0,x1,l0,h1]);return {pieces,laps};};
+  const A=split([]),staggered=opt.stagger!==false&&count>=2&&A.laps.length>0;
+  const B=staggered?split(A.laps.map(l=>l.x)):undefined;
+  const nA=staggered?Math.ceil(count/2):count,nB=count-nA,gap=count>1?(to-from)/(count-1):0;
+  const sets:{tag:string;n:number;f:number;t:number;r:ReturnType<typeof split>}[]=staggered?[{tag:'a',n:nA,f:from,t:from+2*gap*(nA-1),r:A},{tag:'b',n:nB,f:from+gap,t:from+gap+2*gap*(nB-1),r:B!}]:[{tag:'',n:count,f:count===1?(from+to)/2:from,t:count===1?(from+to)/2:to,r:A}];
+  // pieces of the same length and end legs (any set) share one Mark: one bar placed by offsets at every copy
+  const pieceRole=new Map<string,string>(),key=(p:[number,number,number,number])=>`${Math.round(p[1]-p[0])}|${Math.round(p[2])}|${Math.round(p[3])}`;
+  const groups=new Map<string,{set:typeof sets[number];j:number;p:[number,number,number,number]}[]>();
+  for(const st of sets)st.r.pieces.forEach((p,j)=>{if(st.r.pieces.length<2)return;const k=key(p);groups.set(k,[...(groups.get(k)||[]),{set:st,j,p}]);});
+  const shared=[...groups.values()].filter(gp=>gp.length>1);
+  const ysOf=(st:typeof sets[number])=>Array.from({length:st.n},(_,i)=>st.n>1?st.f+(st.t-st.f)*i/(st.n-1):st.f);
+  const ptsOf=([a,b,ha,hb]:[number,number,number,number],y:number)=>[...(ha?[[a,y,z+ha] as V3]:[]),[a,y,z],[b,y,z],...(hb?[[b,y,z+hb] as V3]:[])].map(p=>p.map(v=>Number(v.toFixed(3))) as V3);
+  const shapeOf=(ha:number,hb:number)=>{const hooks=(ha?1:0)+(hb?1:0);return {radius:hooks?radius(d,det):0,shapeCode:hooks===0?'00':hooks===1?'11':'21'};};
+  shared.forEach((gp,k)=>{const r=`${role}-m${k+1}`,[a0,,ha,hb]=gp[0].p,y0=ysOf(gp[0].set)[0],offsets:V3[]=[];
+   for(const x of gp){pieceRole.set(`${x.set.tag}|${x.j}`,r);for(const y of ysOf(x.set))offsets.push([Number((x.p[0]-a0).toFixed(3)),Number((y-y0).toFixed(3)),0]);}
+   const where=gp.map(x=>`${x.set.tag?x.set.tag.toUpperCase():''}${x.j+1}/${x.set.r.pieces.length}`).join(', ');
+   out.push({role:r,note:`${note} · ท่อนยาวเท่ากัน ${gp.length} ท่อน (ชุด/ท่อน ${where}) (ทาบ ${Math.round(lap)})`,diameter:d,grade:g,count:offsets.length,points:ptsOf(gp[0].p,y0),axis:'X',face,...shapeOf(ha,hb),offsets});});
+  for(const st of sets){const P=st.r.pieces,base=st.tag?`${role}-${st.tag}`:role,setNote=st.tag?` · ชุด ${st.tag.toUpperCase()} ${st.n} เส้น (ต่อสลับ)`:'';
+   P.forEach((p,j)=>{if(pieceRole.has(`${st.tag}|${j}`))return;const r=P.length>1?`${base}-p${j+1}`:base;pieceRole.set(`${st.tag}|${j}`,r);
+    out.push({role:r,note:`${note}${setNote}${P.length>1?` · ท่อน ${j+1}/${P.length} (ทาบ ${Math.round(lap)})`:''}`,diameter:d,grade:g,count:st.n,points:ptsOf(p,st.f),axis:'X',face,...shapeOf(p[2],p[3]),distributionAxis:'Y',from:st.f,to:st.t});});
+   for(const l of st.r.laps)if(l.status!=='ok')warn(`${note}${setNote}: ต่อทาบที่ ${Math.round(l.x)} ${l.status==='wide'?(face==='top'?'นอก 1/3 กลางช่วง · ขยายเป็นครึ่งกลางช่วง (ห่างผิวเสา ≥ L/4)':'นอกโซนหลัก · ขยายโซนเหล็กล่างถึง L/3'):`นอกช่วงที่อนุญาต (โซนสั้นกว่าระยะทาบ หรือเหล็กเส้น ${det.stockLength} mm ไปไม่ถึง) · ต่อใกล้โซนที่สุด`}`);}
+  const together=B?B.laps.filter(y=>A.laps.some(x=>Math.abs(x.x-y.x)<lap-1e-6)).length:0;
+  if(together)warn(`${note}: ต่อชุด A / B ห่างกันไม่ถึง 1 ระยะทาบ ${together} จุด (ต่อเกิน 50% ที่หน้าตัดเดียว · Class B ตาม ACI 318 25.5.2)`);
+  if(splices&&A.laps.length)splices.push({role,note,face,diameter:d,count,x0,x1,h0,h1,lap,lapKind:opt.top?'FTL TOP':'FTL',zones,wide:opt.wide||[],sets:sets.map(st=>({set:st.tag.toUpperCase(),count:st.n,pieces:st.r.pieces.map(([a,b,ha,hb],j)=>({a,b,length:b-a+Math.abs(ha)+Math.abs(hb),role:pieceRole.get(`${st.tag}|${j}`)!})),laps:st.r.laps})),roles:[...new Set(pieceRole.values())]});
  };
  /** extra bars sit between the main bars when they leave room, else in a second layer (dz toward the core) */
  const placeEx=(main:{count:number;diameter:number},ex:{count:number;diameter:number},lo:number,hi:number,z:number,inward:1|-1)=>{
   if(main.count>=2&&ex.count<=main.count-1){const gap=(hi-lo)/(main.count-1),f=lo+gap/2;return {z,from:f,to:f+gap*(ex.count-1)};}
   return {z:main.count>0?z+inward*((main.diameter||ex.diameter)/2+Math.max(25,ex.diameter)+ex.diameter/2):z,from:lo,to:hi};
  };
- // splice zones: top bars in the middle third of a span, bottom / side bars within L/4 of a support face
- const midSplices=(list:GroupSpan[]):[number,number][]=>list.filter(s=>s.kind!=='cantilever').map(s=>[s.a+s.clear/3,s.b-s.clear/3]);
- const nearSupports=(s:GroupSpan):[number,number][]=>[[s.a+lapLength(det,s.rebar.bottom.diameter||20)/2,s.a+s.clear/4],[s.b-s.clear/4,s.b-lapLength(det,s.rebar.bottom.diameter||20)/2]];
+ // splice zones (whole lap inside, never in a beam-column joint): top bars in the middle third of a span; bottom / side
+ // bars from the support face to L/4 (special moment frame: from 2h, ACI 318 18.6.3.3); fallback (warned): top bars the
+ // middle half (no laps within L/4 of a face), bottom bars up to L/3
+ const special=rules.frame==='special';
+ const midSplices=(list:GroupSpan[],f=1/3):[number,number][]=>list.filter(s=>s.kind!=='cantilever').map(s=>[s.a+f*s.clear,s.b-f*s.clear]);
+ const nearSupports=(s:GroupSpan,f=.25):[number,number][]=>{if(s.kind==='cantilever')return [];const o=special?2*s.depth:0;
+  return ([[s.a+o,s.a+f*s.clear],[s.b-f*s.clear,s.b-o]] as [number,number][]).filter(([lo,hi])=>hi>lo);};
 
  // ---- main top / bottom bars, continuous through the beam: neighbouring spans (cantilevers too) with the same bar size
  // and level form a chain. The bars every span of a stretch has run through it as one bar (laps: top in
@@ -1557,10 +1606,11 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
     if(other&&other.kind!=='cantilever'&&s.kind!=='cantilever'&&Math.abs(other.z0-s.z0)<25)return {x:dir<0?q.x0+50:q.x1-50,hook:0};
     return {x:anchorX(g,dir,d,s),hook:up(s,z,d)};};
    const L=end(A,'a'),R=end(B,'b');
-   const zones:[number,number][]=top?midSplices(parts):[...parts.filter(x=>x.kind!=='cantilever').flatMap(nearSupports),...parts.slice(0,-1).map((s,j):[number,number]=>[s.b-s.clear/4,parts[j+1].a+parts[j+1].clear/4])];
+   const zones:[number,number][]=top?midSplices(parts):parts.flatMap(x=>nearSupports(x)),wide=top?midSplices(parts,1/4):parts.flatMap(x=>nearSupports(x,1/3));
+   const topCast=top&&parts.some(x=>z-x.z0>300);
    const marks=[...new Set(parts.map(x=>x.mark))].join(' / ');
    const what=`${parts.length>1?`${marks} (${gr[A.k]?.label||'ปลาย'}–${gr[B.k+1]?.label||'ปลาย'})`:A.label} · เหล็ก${top?'บน':'ล่าง'}${!top&&A.kind==='cantilever'?' (ช่วงยื่น)':''}${base>0?` เพิ่ม ${n} เส้น (เฉพาะช่วงนี้)`:parts.length>1?' ต่อเนื่อง':''}`;
-   emit(`${layer}-${a+1}${b>a?`-${b+1}`:''}${base>0?`-x${base}`:''}`,what,d,n,L.x,R.x,z,L.hook,R.hook,top?'top':'bottom',p.from,p.to,zones);
+   emit(`${layer}-${a+1}${b>a?`-${b+1}`:''}${base>0?`-x${base}`:''}`,what,d,n,L.x,R.x,z,L.hook,R.hook,top?'top':'bottom',p.from,p.to,zones,{wide,top:topCast});
   };
   // spans a..b of the chain k..e: bars above `base` that all of them have, then the stretches that have more
   const stack=(k:number,e:number,a:number,b:number,base:number)=>{
@@ -1594,7 +1644,7 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
     if(!L){a=anchorX(gk,-1,d,R!);ha=bend(R!);}else if(L.kind==='cantilever'){a=L.a+c.side+d/2;ha=layer==='top'?bend(L):0;}else a=faceL-reach(L,R);
     if(!R){b=anchorX(gk,1,d,L!);hb=bend(L!);}else if(R.kind==='cantilever'){b=R.b-c.side-d/2;hb=layer==='top'?bend(R):0;}else b=faceR+reach(R,L);
     const sec=[L&&`${L.mark} ${beamZoneLabels[L.zoneB]}`,R&&`${R.mark} ${beamZoneLabels[R.zoneA]}`].filter(Boolean).join(' / ');
-    emit(`g${gk+1}-ex-${layer}${tag}`,`เหล็กเสริม${layer==='top'?'บน':'ล่าง'} (EX) กริด ${gd.label||gk+1} · ${sec} · ยื่นจากผิวเสา ${L?Math.round(faceL-a):0} / ${R?Math.round(b-faceR):0}`,d,x.count,a,b,z,ha,hb,layer==='top'?'top':'bottom',p.from,p.to,[]);
+    emit(`g${gk+1}-ex-${layer}${tag}`,`เหล็กเสริม${layer==='top'?'บน':'ล่าง'} (EX) กริด ${gd.label||gk+1} · ${sec} · ยื่นจากผิวเสา ${L?Math.round(faceL-a):0} / ${R?Math.round(b-faceR):0}`,d,x.count,a,b,z,ha,hb,layer==='top'?'top':'bottom',p.from,p.to,[],{top:layer==='top'});
    }
   }
  });
@@ -1603,7 +1653,7 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
   for(const layer of ['top','bottom'] as const){const x=s.rebar.ex.mid[layer],d=x.diameter;if(x.count<1||!d)continue;
    const main=s.rebar[layer],{lo,hi}=across(s,d),p=placeEx(main,x,lo,hi,layer==='top'?zTop(s,main.diameter||d):zBot(s,main.diameter||d),layer==='top'?-1:1);
    const fa=layer==='bottom'?(s.zoneA==='end'?rules.bottomEnd:rules.bottomCont):.25,fb=layer==='bottom'?(s.zoneB==='end'?rules.bottomEnd:rules.bottomCont):.25;
-   emit(`s${s.k+1}-ex-mid-${layer}`,`${s.label} · เหล็กเสริม${layer==='top'?'บน':'ล่าง'} (EX) MID · ${Math.round(fa*s.clear)} / ${Math.round(fb*s.clear)} จากผิวเสา`,d,x.count,s.a+fa*s.clear,s.b-fb*s.clear,p.z,0,0,layer==='top'?'top':'bottom',p.from,p.to,[]);}
+   emit(`s${s.k+1}-ex-mid-${layer}`,`${s.label} · เหล็กเสริม${layer==='top'?'บน':'ล่าง'} (EX) MID · ${Math.round(fa*s.clear)} / ${Math.round(fb*s.clear)} จากผิวเสา`,d,x.count,s.a+fa*s.clear,s.b-fb*s.clear,p.z,0,0,layer==='top'?'top':'bottom',p.from,p.to,[],{top:layer==='top'});}
  }
  // ---- stirrups: END / CON spacing near the supports, MID between, CANT over a cantilever; multi-leg = outer + inner links
  for(const s of spans){const st=s.rebar.stirrup,d=st.diameter;if(!d)continue;
@@ -1622,13 +1672,42 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
   const d=sd.diameter,zb=zBot(s,s.rebar.bottom.diameter||d),zt=zTop(s,s.rebar.top.diameter||d),y0=s.y0+c.side+dt(s)+d/2,y1=s.y1-c.side-dt(s)-d/2;
   const end=(side:'a'|'b')=>{const k=side==='a'?s.k:s.k+1,q=col(k),dir=side==='a'?-1:1,other=side==='a'?spans[s.k-1]:spans[s.k+1];return q&&other?(dir<0?q.x0+50:q.x1-50):anchorX(k,dir,d,s);};
   for(let j=1;j<=sd.count;j++){const z=zb+(zt-zb)*j/(sd.count+1);
-   emit(`s${s.k+1}-side-${j}`,`${s.label} · เหล็กข้าง แถว ${j}/${sd.count} (2 ด้าน)`,d,2,end('a'),end('b'),z,0,0,'side',y0,y1,nearSupports(s));
+   emit(`s${s.k+1}-side-${j}`,`${s.label} · เหล็กข้าง แถว ${j}/${sd.count} (2 ด้าน)`,d,2,end('a'),end('b'),z,0,0,'side',y0,y1,nearSupports(s),{wide:nearSupports(s,1/3),stagger:false});
    const tie=sd.tie;if(j%2===1&&tie.diameter&&tie.spacing>0){const tx=spread(s.a+50,s.b-50,tie.spacing),hk=Math.max(det.hook135*tie.diameter,det.hook135Min);
     if(tx)out.push({role:`s${s.k+1}-tie-${j}`,note:`${s.label} · เหล็กยึดเหล็กข้าง แถว ${j} @${tie.spacing}`,diameter:tie.diameter,grade:det.tieGrade,count:tx.count,
      points:[[tx.from,y0-d/2-tie.diameter/2,z-hk],[tx.from,y0-d/2-tie.diameter/2,z],[tx.from,y1+d/2+tie.diameter/2,z],[tx.from,y1+d/2+tie.diameter/2,z-hk]].map(p=>p.map(v=>Number(v.toFixed(3))) as V3),
      axis:'Y',face:'side',radius:radius(tie.diameter,det,true),shapeCode:'21',distributionAxis:'X',from:tx.from,to:tx.to});}}
  }
  return out;
+}
+export type SpliceCheck={key:'stock'|'zone'|'joint'|'lap'|'stagger'|'sum'|'stirrup';state:'ok'|'warn'|'fail';text:string};
+export type SpliceReportRow=SpliceRun&{checks:SpliceCheck[]};
+/** Bar runs of a beam group that are spliced, with the checks: pieces ≤ stock length, laps wholly in the allowed zone
+ * (wide = bottom zone widened to L/3), no lap in a beam-column joint, Class B lap length from the spec table, ≤ 50 % of the
+ * bars spliced at a section (sets A / B ≥ 1 lap apart), pieces − laps = run length; special moment frame: stirrup
+ * spacing over a lap ≤ min(d/4, 100). */
+export function beamSpliceReport(i:BeamInput):SpliceReportRow[]{
+ if(i.layout!=='group'||!i.spans.length)return [];
+ const det=i.detailing,runs:SpliceRun[]=[];beamGroupBars(i,det,()=>{},runs);
+ const {spans,columns}=beamGroupLayout(i),rules={stirrupZone:.25,...det.beam},special=rules.frame==='special',stock=det.stockLength,mm=(v:number)=>Math.round(v).toLocaleString('en-US');
+ return runs.map(r=>{const laps=r.sets.flatMap(st=>st.laps.map(l=>({...l,set:st.set}))),checks:SpliceCheck[]=[];
+  const long=r.sets.flatMap(st=>st.pieces).filter(p=>p.length>stock+1);
+  checks.push({key:'stock',state:long.length?'fail':'ok',text:long.length?`ท่อนยาว ${long.map(p=>mm(p.length)).join(', ')} เกินเหล็กเส้น ${mm(stock)}`:`ทุกท่อน ≤ ${mm(stock)} (ยาวสุด ${mm(Math.max(...r.sets.flatMap(st=>st.pieces.map(p=>p.length))))})`});
+  const out=laps.filter(l=>l.status==='outside'),wide=laps.filter(l=>l.status==='wide');
+  checks.push({key:'zone',state:out.length?'fail':wide.length?'warn':'ok',text:out.length?`ต่อนอกช่วงที่อนุญาต ${out.length} จุด`:wide.length?`${r.face==='top'?'ขยายเป็นครึ่งกลางช่วง (ห่างผิวเสา ≥ L/4)':'ขยายโซนถึง L/3'} ${wide.length} จุด · ผู้ออกแบบยืนยัน`:r.face==='top'?'ต่อใน 1/3 กลางช่วง':special?'ต่อในช่วง 2h ถึง L/4 จากผิวเสา':'ต่อในช่วงผิวเสาถึง L/4'});
+  const inJoint=laps.filter(l=>columns.some(q=>l.x+l.lap/2>q.x0+1&&l.x-l.lap/2<q.x1-1));
+  checks.push({key:'joint',state:inJoint.length?'fail':'ok',text:inJoint.length?`ต่อในจุดต่อเสา-คาน ${inJoint.length} จุด`:'ไม่ต่อในจุดต่อเสา-คาน'});
+  checks.push({key:'lap',state:'ok',text:`Class B ${r.lapKind} = ${mm(r.lap)} (DB${r.diameter})`});
+  if(r.sets.length>1){const [a,b]=r.sets,near=a.laps.filter(x=>b.laps.some(y=>Math.abs(x.x-y.x)<r.lap-1));
+   checks.push({key:'stagger',state:near.length?'warn':'ok',text:near.length?`ชุด A / B ต่อใกล้กันน้อยกว่า 1 ระยะทาบ ${near.length} จุด (ต่อเกิน 50% ที่หน้าตัดเดียว · Class B ยอมให้ตาม ACI 318 25.5.2)`:`ชุด A ${a.count} / ชุด B ${b.count} เส้น ต่อห่างกัน ≥ ${mm(r.lap)}`});}
+  else if(r.count>1)checks.push({key:'stagger',state:'warn',text:`ต่อทั้ง ${r.count} เส้นที่ตำแหน่งเดียวกัน`});
+  const sumOk=r.sets.every(st=>Math.abs(st.pieces.reduce((t,p)=>t+p.b-p.a,0)-st.laps.reduce((t,l)=>t+l.lap,0)-(r.x1-r.x0))<1);
+  checks.push({key:'sum',state:sumOk?'ok':'fail',text:sumOk?`ผลรวมท่อน − ระยะทาบ = ${mm(r.x1-r.x0)}`:'ผลรวมท่อนไม่เท่าความยาวแนวเหล็ก'});
+  if(special&&r.face!=='side'){const bad=laps.flatMap(l=>{const s=spans.find(x=>l.x>=x.a&&l.x<=x.b);if(!s)return [];
+    const st=s.rebar.stirrup,zl=rules.stirrupZone*s.clear,sp=s.kind==='cantilever'?st.spacing.cant:l.x-s.a<=zl?st.spacing[s.zoneA]:s.b-l.x<=zl?st.spacing[s.zoneB]:st.spacing.mid;
+    const dEff=s.depth-(r.face==='top'?i.cover.bottom:i.cover.top)-st.diameter-r.diameter/2,lim=Math.min(dEff/4,100);return sp>lim+1e-6?[`${s.mark} @${sp} > ${mm(lim)}`]:[];});
+   checks.push({key:'stirrup',state:bad.length?'warn':'ok',text:bad.length?`ปลอกช่วงต่อทาบต้อง ≤ min(d/4, 100): ${[...new Set(bad)].join(', ')}`:'ปลอกช่วงต่อทาบ ≤ min(d/4, 100)'});}
+  return {...r,checks};});
 }
 function beamBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
  if(i.layout==='group')return beamGroupBars(i,det,warn);

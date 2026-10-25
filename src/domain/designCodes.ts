@@ -103,7 +103,11 @@ export const beamCases:BeamCase[]=[
  * support (continuous: × the longer adjacent span La); bottom extra bars of the mid zone stop bottomEnd · L from an end
  * support and bottomCont · L from a continuous one; close stirrups (END / CON sections) over stirrupZone · L. */
 export const DEFAULT_BEAM_RULES={topEnd:.25,topCont:.3,bottomZone:.125,bottomEnd:.125,bottomCont:.1,stirrupZone:.25};
-export type BeamRules=typeof DEFAULT_BEAM_RULES;
+/** Frame type for bar splices: ordinary = bottom laps from the support face to L/4; special (seismic special moment frame,
+ * ACI 318 18.6.3.3) = no laps within 2h of the face → bottom laps between 2h and L/4 (fallback L/3, warned). */
+export const beamFrames=['ordinary','special'] as const;
+export type BeamFrame=typeof beamFrames[number];
+export type BeamRules=typeof DEFAULT_BEAM_RULES&{frame?:BeamFrame};
 /** Cut-offs of the typical "BEAM CONFIGURATION" detail: L1/3, La/3, L/8, L/10, close stirrups over L/4. */
 export const CONFIG_BEAM_RULES:BeamRules={topEnd:1/3,topCont:1/3,bottomZone:.125,bottomEnd:.125,bottomCont:.1,stirrupZone:.25};
 
@@ -119,7 +123,7 @@ export const codeDataSchema=z.object({
  endHooks:z.array(endHookRow).max(30).optional(),
  stirrupHooks:z.array(stirrupHookRow).max(30).optional(),
  lap:z.record(z.string().regex(/^\d{2}-SD\d{2}$/),z.array(lapRow).max(20)).optional(),
- beam:z.object({topEnd:frac,topCont:frac,bottomZone:frac,bottomEnd:frac.optional(),bottomCont:frac.optional(),stirrupZone:frac.optional()}).strict().optional(),
+ beam:z.object({topEnd:frac,topCont:frac,bottomZone:frac,bottomEnd:frac.optional(),bottomCont:frac.optional(),stirrupZone:frac.optional(),frame:z.enum(beamFrames).optional()}).strict().optional(),
  /** Steel grade per bar size (Dia. mm → grade). */
  grades:z.array(z.object({bar:z.number().int().min(1).max(60),grade:z.string().trim().min(1).max(20)}).strict()).max(30).optional(),
  /** Additional provisions added to this code (free text items: topic, value, details). */
@@ -144,6 +148,7 @@ export const beamNotes=[
  'STANDARD HOOK = ขอมาตรฐานที่ปลายยื่น ใช้ค่าจากตาราง Standard Hooks',
  'เหล็กบนเสริมพิเศษยื่นจากผิวที่รองรับ 0.25L (ปลายไม่ต่อเนื่อง) / 0.3L (ปลายต่อเนื่อง) · ช่วงต่อเนื่องที่ต่างกันใช้ MAX(0.3L₁, 0.3L₂)',
  'ระยะ 0.125L วัดจากผิวที่รองรับ ตามรูปมาตรฐาน · NOTE ③ = ตำแหน่งต่อทาบเหล็ก (Lap splice) ใช้ระยะ FTL จากตาราง',
+ 'ต่อทาบเหล็กคาน (Class B = FTL, เหล็กบนใช้ FTL TOP): เหล็กบนต่อใน 1/3 กลางช่วง · เหล็กล่างต่อจากผิวเสาถึง L/4 (โครงต้านแผ่นดินไหว: 2h ถึง L/4 · โซนไม่พอขยายถึง L/3) · ห้ามต่อในจุดต่อเสา-คาน · ต่อได้ไม่เกิน 50% ของเหล็กต่อหน้าตัด สลับกันอย่างน้อย 1 ระยะทาบ',
  'L = ระยะช่วงคานสุทธิ (Clear span) · L₁, L₂ = ช่วงคานสุทธิของช่วงที่ต่อเนื่องกัน',
  'หน้าตัดคาน: ระยะหุ้มถึงเหล็กปลอก 40 mm · เพิ่ม DB12@300 c/c ด้านข้างเมื่อ H > 900 mm · เหล็ก RB6 ระยะเท่าปลอกหลัก',
 ];

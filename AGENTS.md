@@ -111,8 +111,16 @@
   Spans pick a mark in the BeamGroupEditor “เบอร์คาน” column (`applyBeamTemplate`, `span.template` link, stale notice,
   `syncBeamTemplates` in the spec-change job). General Spec list `BeamTemplateList.tsx` (JSON import: templates, spec file or
   raw schedule entries); spec import key `beamTemplates`. Beam group main bars (`beamGroupBars` → `mainBars`) run
-  continuously along spans of equal size / level (extra bars of heavier spans as own runs `…-x<base>`), laps by `emit`:
-  top in the middle third, bottom over / within L/4 of supports. J-078 (BPL&BD, Beam Configuration L1/3 · La/3 · L/8 · L/10):
+  continuously along spans of equal size / level (extra bars of heavier spans as own runs `…-x<base>`), laps by `emit`
+  (lap centres chosen for the whole run on a 25 mm grid, whole lap inside a zone, never in a joint): top in the middle third
+  (fallback middle half), bottom from the face to L/4 (`det.beam.frame = 'special'`: from 2h, ACI 18.6.3.3; fallback L/3),
+  side bars like bottom; Class B = FTL table, top bars FTL TOP (`lapLength(det, d, top)`, `lapTable[].top`); runs with
+  laps split in sets A / B (roles `…-a|-b`, alternate bars) ≥ 1 lap apart. Pieces of equal length and end legs (any set) share one
+  Mark: one bar `…-m<k>` placed by `offsets` (count = copies); report pieces carry their bar `role`. Checks: `beamSpliceReport()` (stock, zone,
+  joint, lap, stagger, sum, SMF stirrups) shown in `BeamGroupEditor` → `SpliceChecks`; frame option in General Spec
+  “การเสริมเหล็กคาน”. Test: `tmp/beamSplice.test.ts`. A3 sheet: spliced groups get a last page (`beamGroupSheet.ts` →
+  `spliceSheet`): splice diagram (rows per run / set, no-lap zones shaded, pieces Mark · cut length) + bar-run table.
+  Test: `tmp/beamSpliceSheet.test.tsx` (PNG check via `tmp/_prims2png.ts`, env `PNG=`). J-078 (BPL&BD, Beam Configuration L1/3 · La/3 · L/8 · L/10):
   `tmp/j078Beams.test.ts` → `tmp/Spec-Project-J-078.json`. Test: `tmp/beamTemplates.test.ts`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import

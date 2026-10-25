@@ -2,7 +2,7 @@
 import {ArrowDown,ArrowUp,Columns3,Plus,Trash2} from 'lucide-react';
 import {ColumnTemplateEditor} from './ColumnTemplateEditor';
 import type {Spec} from '../domain/model';
-import {CONFIG_BEAM_RULES,DEFAULT_BEAM_RULES,barGrades,gradeBarLabel,gradeOptions,type GradeRow,beamCases,beamNotes,codeInfo,codeList,codeValues,designCodes,endHooks,isCustomCode,lapColumns,lapConcrete,lapGrades,lapTables,stirrupHooks,tableCode,tableOverrides,type BeamCase,type CodeData,type CodeValues,type CustomCode,type DesignCodeId,type Provision} from '../domain/designCodes';
+import {CONFIG_BEAM_RULES,DEFAULT_BEAM_RULES,barGrades,gradeBarLabel,gradeOptions,type GradeRow,beamCases,beamNotes,codeInfo,codeList,codeValues,designCodes,endHooks,isCustomCode,lapColumns,lapConcrete,lapGrades,lapTables,stirrupHooks,tableCode,tableOverrides,type BeamCase,type BeamFrame,type CodeData,type CodeValues,type CustomCode,type DesignCodeId,type Provision} from '../domain/designCodes';
 
 /** onSave: persist the given spec right away (e.g. “บันทึก Grade”); without it changes wait for “บันทึก Spec”. */
 type Props={spec:Spec;readOnly:boolean;onChange:(next:Spec)=>void;bs:ReactNode;onSave?:(next:Spec)=>void};
@@ -253,13 +253,15 @@ export function BeamSection({e,source='ACI 318'}:{e:Edit;source?:string}){
  const [L,setL]=useState(6000),rules=e.vals.beam;
  const v=(f:number)=>L>0?` = ${fmt(Math.round(f*L/25)*25)}`:'';
  const cards:{n:number;node:ReactNode;title:string;caseLabel?:string}[]=[...beamCases.map(c=>({n:c.n,title:c.title,caseLabel:c.caseLabel,node:<BeamElevation c={c} v={v} rules={rules}/>})),{n:8,title:'BEAM AT DIFFERENT LEVEL',node:<BeamStep/>},{n:9,title:'TYPICAL BEAM CROSS SECTION',node:<BeamSectionSvg/>}].sort((a,b)=>a.n-b.n);
- const rule=(k:keyof typeof rules,label:string)=><label key={k} className={`field ${rules[k]!==DEFAULT_BEAM_RULES[k]?'custom':''}`}><span>{label} (× L)</span><input type="number" step={0.005} min={0} max={2} disabled={!e.edit} value={rules[k]} onChange={ev=>e.put({beam:{...rules,[k]:Math.min(2,Math.max(0,Number(ev.target.value)||0))}})}/></label>;
+ const rule=(k:keyof typeof DEFAULT_BEAM_RULES,label:string)=><label key={k} className={`field ${rules[k]!==DEFAULT_BEAM_RULES[k]?'custom':''}`}><span>{label} (× L)</span><input type="number" step={0.005} min={0} max={2} disabled={!e.edit} value={rules[k]} onChange={ev=>e.put({beam:{...rules,[k]:Math.min(2,Math.max(0,Number(ev.target.value)||0))}})}/></label>;
  return <div className="code-section"><div className="code-block">
   <div className="code-block-head"><h5>การเสริมเหล็กคาน · TYPICAL BEAM REINFORCEMENT DETAILS</h5><small>{source}{e.vals.custom.beam&&<b className="code-own"> · ค่าปรับใน Spec นี้</b>}</small><ResetButton e={e} k="beam" custom={e.vals.custom.beam}/></div>
   <div className="form-grid beam-rules"><label className="field"><span>ช่วงคานสุทธิ L (mm) · ใช้แสดงค่าในรูป</span><input type="number" value={L} min={0} onChange={ev=>setL(Math.max(0,Number(ev.target.value)||0))}/></label>
    {rule('topEnd','เหล็กบน EX ปลายไม่ต่อเนื่อง (END)')}{rule('topCont','เหล็กบน EX ปลายต่อเนื่อง (CON, × La)')}{rule('bottomZone','ระยะจากผิวที่รองรับ (ล่าง)')}
    {rule('bottomEnd','เหล็กล่าง EX กลางช่วง: เริ่มจากปลาย END')}{rule('bottomCont','เหล็กล่าง EX กลางช่วง: เริ่มจากปลาย CON')}{rule('stirrupZone','ช่วงปลอกถี่ END / CON')}
-   <div className="field"><span>ค่าสำเร็จรูป</span><div className="actions"><button type="button" disabled={!e.edit} onClick={()=>e.put({beam:{...DEFAULT_BEAM_RULES}})}>ACI (0.25L / 0.3L)</button><button type="button" disabled={!e.edit} onClick={()=>e.put({beam:{...CONFIG_BEAM_RULES}})} title="L1/3 · La/3 · L/8 · L/10 · ปลอกถี่ L/4">Beam configuration (L/3)</button></div></div></div>
+   <label className={`field ${rules.frame==='special'?'custom':''}`}><span>ระบบโครงสร้าง (ตำแหน่งต่อทาบ)</span><select disabled={!e.edit} value={rules.frame||'ordinary'} onChange={ev=>e.put({beam:{...rules,frame:ev.target.value as BeamFrame}})}>
+    <option value="ordinary">โครงธรรมดา · ต่อล่างจากผิวเสาถึง L/4</option><option value="special">โครงต้านแผ่นดินไหว (SMF) · ต่อล่าง 2h ถึง L/4</option></select></label>
+   <div className="field"><span>ค่าสำเร็จรูป</span><div className="actions"><button type="button" disabled={!e.edit} onClick={()=>e.put({beam:{...DEFAULT_BEAM_RULES,...(rules.frame?{frame:rules.frame}:{})}})}>ACI (0.25L / 0.3L)</button><button type="button" disabled={!e.edit} onClick={()=>e.put({beam:{...CONFIG_BEAM_RULES,...(rules.frame?{frame:rules.frame}:{})}})} title="L1/3 · La/3 · L/8 · L/10 · ปลอกถี่ L/4">Beam configuration (L/3)</button></div></div></div>
   <div className="beam-grid">{cards.map(c=><figure key={c.n} className="beam-card"><span className="beam-no">{c.n}</span>{c.node}<figcaption>{c.caseLabel&&<u>{c.caseLabel}</u>}{c.title}</figcaption></figure>)}</div>
   <ol className="beam-notes">{beamNotes.map(n=><li key={n}>{n}</li>)}</ol>
  </div></div>;
