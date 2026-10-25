@@ -1,3 +1,4 @@
+import type {Locations} from '../../domain/locations';
 import {provisionalQuantityBasis} from '../../domain/quantityBasis';
 import {getDoc} from 'firebase/firestore';
 import {readCollectionPages} from '../collections';
@@ -18,7 +19,7 @@ import {restProjectTransaction} from './restTransaction';
 
 type Change={id:string;before:Member;after:Member};
 type SourceChange={before:Attachment;after:Attachment;next:Attachment};
-type SpecManifest={id:string;projectId:string;sourceVersion:number;oldSpec:Spec;newSpec:Spec;preparedAt:string;sourceScope?:'Member'|'GeneralSpec';members:Change[];sourceIntakes:Attachment[];sourceChanges:SourceChange[];sourceAdoptions:{before:Attachment;after:Attachment}[]};
+type SpecManifest={id:string;projectId:string;sourceVersion:number;oldSpec:Spec;newSpec:Spec;preparedAt:string;sourceScope?:'Member'|'GeneralSpec';members:Change[];sourceIntakes:Attachment[];sourceChanges:SourceChange[];sourceAdoptions:{before:Attachment;after:Attachment}[];locations?:Locations};
 type Job={id:string;status:SpecChangeState['status'];completed:number;total:number;manifest:SnapshotFile;sourceVersion:number;rollbackTotal?:number;rollbackCompleted?:number};
 const state=(j:Job):SpecChangeState=>({id:j.id,status:j.status,completed:j.status==='RollingBack'?j.rollbackCompleted||0:j.completed,total:j.status==='RollingBack'?j.rollbackTotal||0:j.total});
 
@@ -101,6 +102,6 @@ export async function advanceDirectSpec(action:string,pid:string,data:Record<str
   const end=start+list.length,complete=end===total,next:Job={...job,status:complete?(rolling?'Cancelled':'Complete'):(rolling?'RollingBack':'Applying'),...(rolling?{rollbackTotal:total,rollbackCompleted:end}:{completed:end})};
   if(complete&&!rolling){for(const a of manifest.sourceIntakes)tx.set(recordRef(pid,'attachments',a.id),encode(a));for(const c of manifest.sourceChanges){tx.set(recordRef(pid,'attachments',c.after.id),encode(c.after));tx.set(recordRef(pid,'attachments',c.next.id),encode(c.next));}for(const a of manifest.sourceAdoptions)tx.set(recordRef(pid,'attachments',a.after.id),encode(a.after));}
   tx.update(jr,encode({status:next.status,completed:next.completed,...(rolling?{rollbackTotal:total,rollbackCompleted:end}:{}),...(complete?{completedAt:now()}:{})}));
-  const result=state(next);tx.update(projectRef(pid),encode({specChangeState:result,historyEpoch:id,...(complete&&!rolling?{spec:manifest.newSpec,version:p.version+1}:{})}));return result;
+  const result=state(next);tx.update(projectRef(pid),encode({specChangeState:result,historyEpoch:id,...(complete&&!rolling?{spec:manifest.newSpec,version:p.version+1,...(manifest.locations?{locations:{...manifest.locations,version:(p.locations?.version||0)+1}}:{})}:{})}));return result;
  });
 }

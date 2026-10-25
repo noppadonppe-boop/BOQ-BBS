@@ -3,6 +3,7 @@ import {db} from '../firebase';
 import {decodeStorage} from '../../domain/storageCodec';
 import {copyMemberInputs,memberCopyRequestSchema} from '../../domain/memberCopy';
 import {validateMember} from '../../domain/engine';
+import {occurrenceLocProblems} from '../../domain/locations';
 import type {Member,Project} from '../../domain/model';
 import {allow,encode,must,now,projectRef,projectTransaction,recordRef,writable} from './common';
 
@@ -30,6 +31,8 @@ export async function copyDirectMember(pid:string,data:Record<string,unknown>,re
   const ref=recordRef(pid,'members',input.memberId);must(!(await tx.get(ref)).exists(),'รหัสสมาชิกใหม่ถูกใช้แล้ว','already-exists');
   const member=copyMemberInputs(source,input);
   const errors=validateMember(member,target.spec);must(!errors.length,'ต้นแบบใช้กับ Spec ปลายทางไม่ได้: '+errors.slice(0,5).join('; '));
+  // WBS links must point at the target project's tree
+  const locProblems=occurrenceLocProblems(target.locations,member.occurrences);must(!locProblems.length,'ตำแหน่ง WBS ไม่ตรงโครงการปลายทาง: '+locProblems.slice(0,3).join(' · '),'invalid-argument');
   member.version=1;member.updatedAt=now();
   member.copySource={version:1,projectId:sourceProject.id,projectCode:sourceProject.code,memberId:source.id,memberCode:source.code,projectVersion:sourceProject.version,memberVersion:source.version,copiedAt:member.updatedAt,copiedBy:user.uid};
   const saved=encode(member);must(new TextEncoder().encode(JSON.stringify(saved)).length<=700000,'สมาชิกใหญ่เกินกำหนด แยกสมาชิกก่อนบันทึก');

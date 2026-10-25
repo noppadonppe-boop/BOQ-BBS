@@ -2,7 +2,7 @@ import {provisionalQuantityBasis} from './quantityBasis';
 import {memberSchema,attachmentSchema,specSchema,type SnapshotBundle,type Attachment} from './model';
 import {drawingProfileSchema,titleBlockSchema} from './drawingStandard';
 import {encodeStorage} from './storageCodec';
-import {historyFileReferences,validateBackupStructure,type BackupHistoryRecord} from './restorePreflight';
+import {historyFileReferences,restoredLocations,validateBackupStructure,type BackupHistoryRecord} from './restorePreflight';
 import {sourceScheduleFileProblems} from './sourceSchedule';
 
 export type RestoreFileRef={originalPath:string;path:string;name:string;size:number;contentType:string;sha256:string};
@@ -26,5 +26,5 @@ export function buildRestorePlan(bundle:SnapshotBundle,attachments:Attachment[],
  if(entries.length>20000)throw Error('แบ่ง Backup: จำนวนเอกสารกู้คืนเกิน20,000รายการ');
  if(new TextEncoder().encode(JSON.stringify(entries.map(e=>e.collection+'/'+e.id))).length>=700000)throw Error('แบ่ง Backup: ดัชนีรายการกู้คืนเกิน700KB');
  const spec=specSchema.parse(bundle.project.spec);
- return {entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null}};
+ return {entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null,...restoredLocations(bundle)}};
 }

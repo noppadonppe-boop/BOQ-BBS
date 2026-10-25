@@ -7,8 +7,10 @@ import {copyMemberInputs,memberCopyRequestSchema,type MemberCopyRequest} from '.
 import {takeoff,validateMember} from '../domain/engine';
 import {labels,type Member,type Project} from '../domain/model';
 import {Modal,number} from './EditorControls';
+import {LocationCells} from './LocationPicker';
+import {locationTree,mapLocByCode,occurrenceLocProblems,withLoc,type OccurrenceLoc} from '../domain/locations';
 
-type Location={id:string;zone:string;floor:string;grid:string;quantity:string};
+type Location={id:string;zone:string;floor:string;grid:string;quantity:string;building?:string;loc?:OccurrenceLoc};
 type Preview={sourceProject:Project;source:Member;target:Project;members:Member[]};
 type Props={sourceProject:Project;source:Member;projects:Project[];targets:Project[];run:(f:()=>Promise<unknown>,message?:string)=>Promise<void>;onClose:()=>void;onCreated:(pid:string,id:string,category:Member['category'])=>void};
 const location=():Location=>({id:crypto.randomUUID(),zone:'',floor:'',grid:'',quantity:''});
@@ -34,6 +36,13 @@ export function MemberCopyDialog({sourceProject,source,projects,targets,run,onCl
   return ()=>{active=false;clearTimeout(timer);};
  },[targetId,attempt,sourceProject.id,source.id]);
  const targetLive=projects.find(p=>p.id===targetId),sourceLive=projects.find(p=>p.id===sourceProject.id);
+ // WBS of the loaded target; links never carry over to another target
+ const targetTree=useMemo(()=>locationTree(preview?.target.locations),[preview]),wbs=targetTree.roots.length>0;
+ useEffect(()=>{setLocations(rows=>rows.map(({loc:_l,building:_b,...r})=>r));},[targetId]);
+ const fromSource=()=>{if(!preview)return;const same=preview.target.id===preview.sourceProject.id,from=locationTree(preview.sourceProject.locations);
+  setLocations(preview.source.occurrences.map(o=>{const base={id:crypto.randomUUID(),zone:o.zone,floor:o.floor,grid:o.grid,quantity:o.quantity},loc=same?o.loc:mapLocByCode(from,targetTree,o.loc);
+   const next=loc?.building?withLoc(targetTree,base,loc):base;return {...next,quantity:String(o.quantity)};}));};
+ const putRow=(id:string,next:Omit<Location,'quantity'>)=>setLocations(rows=>rows.map(row=>row.id===id?{...next,quantity:row.quantity}:row));
  const permitted=targets.some(p=>p.id===targetId);
  const locked=(p?:Project)=>['Importing','Cancelling'].includes(p?.restoreState?.status||'')||['Applying','RollingBack'].includes(p?.specChangeState?.status||'');
  const stale=!!preview&&(!sourceLive||!targetLive||preview.sourceProject.version!==sourceLive.version||preview.target.version!==targetLive.version);
@@ -41,7 +50,7 @@ export function MemberCopyDialog({sourceProject,source,projects,targets,run,onCl
   if(!preview)return null;
   try{
    const input=memberCopyRequestSchema.parse({sourceProjectId:preview.sourceProject.id,sourceMemberId:preview.source.id,sourceProjectVersion:preview.sourceProject.version,sourceMemberVersion:preview.source.version,targetProjectVersion:preview.target.version,memberId,code,occurrences:locations.map(o=>({...o,quantity:o.quantity.trim()?Number(o.quantity):0}))});
-   const member=copyMemberInputs(preview.source,input),problems=validateMember(member,preview.target.spec);
+   const member=copyMemberInputs(preview.source,input),problems=[...validateMember(member,preview.target.spec),...occurrenceLocProblems(preview.target.locations,member.occurrences)];
    if(preview.members.some(m=>m.code===input.code))problems.unshift('Member no. ซ้ำในโครงการปลายทาง');
    return {input,member,quantity:takeoff(member,preview.target.spec),problems};
   }catch{return null;}
@@ -65,8 +74,8 @@ export function MemberCopyDialog({sourceProject,source,projects,targets,run,onCl
    {!permitted&&<p role="alert" className="notice danger">ไม่มีสิทธิ์เพิ่มสมาชิกในปลายทาง</p>}
    {(locked(sourceLive)||locked(targetLive))&&<p role="alert" className="notice warning">โครงการกำลังรับข้อมูลหรือเปลี่ยนสเป็ค รอให้เสร็จก่อนทำสำเนา</p>}
    <button disabled={loading} onClick={()=>setAttempt(n=>n+1)}>โหลดต้นแบบและปลายทางใหม่</button>
-   <h3>จำนวนและตำแหน่งใหม่</h3><p className="muted">จำนวนต่อ Mark ใช้ตามต้นแบบ แต่จำนวนองค์ประกอบและ Zone / Floor / Grid ต้องกรอกใหม่</p>
-   {locations.map((o,i)=><div className="copy-location" key={o.id}>{(['zone','floor','grid','quantity'] as const).map(k=><label className="field" key={k}><span>{({zone:'Zone',floor:'Floor',grid:'Grid',quantity:'จำนวน'})[k]} {i+1}</span><input aria-label={`${({zone:'Zone',floor:'Floor',grid:'Grid',quantity:'จำนวน'})[k]}ใหม่ ${i+1}`} type={k==='quantity'?'number':'text'} min={k==='quantity'?1:undefined} max={k==='quantity'?100000:undefined} step={k==='quantity'?1:undefined} maxLength={k==='quantity'?undefined:80} value={o[k]} onChange={e=>setLocations(rows=>rows.map(row=>row.id===o.id?{...row,[k]:e.target.value}:row))}/></label>)}<button aria-label={`ลบตำแหน่งใหม่ ${i+1}`} disabled={locations.length===1} onClick={()=>setLocations(rows=>rows.filter(row=>row.id!==o.id))}>ลบ</button></div>)}
+   <h3>จำนวนและตำแหน่งใหม่</h3><p className="muted">จำนวนต่อ Mark ใช้ตามต้นแบบ แต่จำนวนองค์ประกอบและ{wbs?'ตำแหน่ง WBS ของโครงการปลายทาง':' Zone / Floor'} / Grid ต้องกรอกใหม่ <button disabled={!preview} onClick={fromSource} title="คัดลอกตำแหน่งและจำนวนของต้นแบบ · ตำแหน่ง WBS จับคู่ด้วยรหัสอาคาร / ชั้น / โซนในโครงการปลายทาง">ใช้ตำแหน่งตามต้นแบบ</button></p>
+   {locations.map((o,i)=><div className="copy-location" key={o.id}>{wbs&&<LocationCells tree={targetTree} as="field" index={i} o={{...o,quantity:1}} onChange={({quantity:_q,...next})=>putRow(o.id,next)}/>}{((wbs?['grid','quantity']:['zone','floor','grid','quantity']) as ('zone'|'floor'|'grid'|'quantity')[]).map(k=><label className="field" key={k}><span>{({zone:'Zone',floor:'Floor',grid:'Grid',quantity:'จำนวน'})[k]} {i+1}</span><input aria-label={`${({zone:'Zone',floor:'Floor',grid:'Grid',quantity:'จำนวน'})[k]}ใหม่ ${i+1}`} type={k==='quantity'?'number':'text'} min={k==='quantity'?1:undefined} max={k==='quantity'?100000:undefined} step={k==='quantity'?1:undefined} maxLength={k==='quantity'?undefined:80} value={o[k]} onChange={e=>setLocations(rows=>rows.map(row=>row.id===o.id?{...row,[k]:e.target.value}:row))}/></label>)}<button aria-label={`ลบตำแหน่งใหม่ ${i+1}`} disabled={locations.length===1} onClick={()=>setLocations(rows=>rows.filter(row=>row.id!==o.id))}>ลบ</button></div>)}
    <button disabled={locations.length>=1000} onClick={()=>setLocations(rows=>[...rows,location()])}>เพิ่มตำแหน่งใหม่</button>
    {plan?<section className="copy-preview" aria-label="ตัวอย่างสมาชิกใหม่"><h3>ตรวจปริมาณสมาชิกใหม่</h3><p>{plan.member.code} · {plan.member.x} × {plan.member.y} × {plan.member.z} mm · {plan.member.bars.length} Mark · Draft</p><div className="kpis">{[['จำนวน',plan.quantity.quantity,'ชิ้น'],['คอนกรีต',plan.quantity.concrete*plan.quantity.quantity,'m³'],['แบบหล่อ',plan.quantity.formwork*plan.quantity.quantity,'m²'],['เหล็ก BBS',plan.quantity.rebar*plan.quantity.quantity,'kg']].map(([label,value,unit])=><div key={String(label)}><small>{label}</small><strong>{label==='เหล็ก BBS'&&!plan.member.bars.length?'รอ BBS':number(Number(value),label==='จำนวน'?0:3)} <em>{unit}</em></strong></div>)}</div>{plan.problems.map((problem,i)=><p key={i} role="alert" className="notice danger">{problem}</p>)}<p className="muted">คำนวณตาม Spec ปลายทาง · {preview?.target.spec.bsEdition||'ยังไม่กำหนดมาตรฐาน'} · ปัดความยาว {preview?.target.spec.rounding} mm</p></section>:preview&&<p className="notice">กรอก Member no. และจำนวนเต็มบวกในทุกตำแหน่งเพื่อดูปริมาณ</p>}
   </fieldset>

@@ -1,6 +1,7 @@
 import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
 import {Box,Columns3,FileUp,Link2Off,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
+import {OccurrenceTable} from './LocationPicker';
 import {DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,type FootingBox,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number,NumInput} from './EditorControls';
@@ -192,8 +193,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   <SiteItemsEditor items={items} onChange={setItems} readOnly={readOnly}/>
 
   <h4>2. จำนวนและตำแหน่ง (จำเป็น) · รวม {qty} ชิ้น</h4>
-  <div className="table-scroll"><table className="occurrence-table"><thead><tr><th>Zone</th><th>ชั้น</th><th>Grid</th><th className="num">จำนวน</th><th/></tr></thead><tbody>{occurrences.map(o=><tr key={o.id}>{(['zone','floor','grid'] as const).map(k=><td key={k}><input aria-label={k} disabled={readOnly} value={o[k]} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,[k]:e.target.value}:n))}/></td>)}<td><NumInput aria-label="จำนวน" disabled={readOnly} type="number" min={1} value={o.quantity} onChange={e=>setOccurrences(occurrences.map(n=>n.id===o.id?{...n,quantity:Math.max(1,Math.trunc(Number(e.target.value)||1))}:n))}/></td><td><button disabled={readOnly||occurrences.length===1} onClick={()=>setOccurrences(occurrences.filter(n=>n.id!==o.id))}>ลบ</button></td></tr>)}</tbody></table></div>
-  <button disabled={readOnly} onClick={()=>setOccurrences([...occurrences,{id:crypto.randomUUID(),zone:'',floor:'',grid:'',quantity:1}])}>เพิ่มตำแหน่ง</button>
+  <OccurrenceTable locations={project.locations} rows={occurrences} onChange={setOccurrences} disabled={readOnly}/>
 
   <h4>3. ระยะหุ้มคอนกรีต Cover</h4>
   <div className="form-grid">{input.category==='Foundation'&&<>{num('ด้านล่าง','cover.bottom')}{num('ด้านบน','cover.top')}{num('ด้านข้าง','cover.side')}</>}

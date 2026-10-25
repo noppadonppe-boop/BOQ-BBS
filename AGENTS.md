@@ -131,6 +131,36 @@
   its category; `detailingFromSpec(spec, base, {category, mix})` writes `detailing.concrete` and picks the lap table by the
   mix f'c (`lapConcreteFor`: 350 ksc → 35 MPa). Shown on the A3 notes / BOQ line (`memberConcrete`, `concreteNote`),
   `quantityReport().concreteByMix`, price labels and the Excel BOQ. Test: `tmp/concreteMix.test.ts`.
+- Location / WBS (step 1–2 of the plan): `project.locations` = flat tree (`src/domain/locations.ts`: roots building | external,
+  children level | zone | segment; levels sorted by `elevation`, zones may list `levels`; `wbsCode()` = A-L2-Z1). Saved by
+  command `saveLocations` (admin / QS). Occurrences carry optional `loc {building, level, zone, segment}` ids; `zone` / `floor`
+  text stays as label cache (frozen revisions and all reports still use it). Before migration, `atLocation()` matches old
+  labels only when the project has one root. Page: project menu “โครงสร้าง WBS / ตำแหน่ง” → `LocationsPage.tsx`
+  (generate levels, copy building, tree from old labels). Member migration (step 3): `src/domain/wbsMigration.ts` maps each
+  distinct (zone, floor) label pair (`wbsCombos`, `guessCombo`, `comboIssues`) → `wbsMigrationPlan` writes `loc` + `building`
+  label (status kept); `relabel` also rewrites zone / floor to WBS codes (those members → Draft). Command `beginWbsMigration`
+  (`data/direct/wbsMigrations.ts`) runs as a spec-change job with `wbsChange` (resume / rollback; history scope 'Wbs').
+  UI `WbsMigrationPanel.tsx`. Occurrence input (step 4): `components/LocationPicker.tsx` (`OccurrenceTable` in element
+  input / quick edit / general detail, `LocationCells` in the register editor and batch); picking WBS goes through
+  `withLoc()` so zone / floor / building labels = WBS codes; free-text zone / floor edits on linked rows unlink them
+  (`unlinkLoc`: batch text patch, area rename). Batch patch `loc` (needs `p.locations`); `saveMember` checks new / changed
+  links (`occurrenceLocProblems`). WBS node codes in use by linked rows are locked in the WBS page (no rename job yet).
+  Reports (step 5): groups `Building` / `Level` / `WBS` keyed by occurrence ids (`occurrenceGroup()`, used by every report /
+  coverage map), labels + WBS order from `wbsGroupDisplay()`; scope filter `building` / `level` (level or segment) /
+  `wbsZone` / `wbsUnassigned` + stored `wbsLabel` (so `scopeLabel()` needs no tree); `ScopeControls` gets `locations`.
+  Excel Placements sheet has Building / WBS columns. Backup carries `project.locations`; restore preflight checks the tree
+  and every member link into it, `restoredLocations()` puts it in the restore patch (version bumped on apply). Code rename
+  of linked nodes: `src/domain/wbsRename.ts` (`wbsRenamePlan`: building label always, zone / floor only where the label is
+  still the old code → those members Draft) + command `beginWbsRename` (`data/direct/wbsRenames.ts`); the manifest's
+  `locations` is written by `advanceDirectSpec` when the job completes (rollback keeps the old tree). UI `RenameTool` in
+  `LocationsPage.tsx`. Import: `src/domain/wbsImport.ts` (`mergeWbsImport` into the draft: match IFC GlobalId, then code
+  under the same parent; ids kept, nothing removed; roots in file order; `ifcRows`, `rowsFromLocations`), Excel sheet
+  “WBS” `src/data/wbsExcel.ts` (export = template), IFC `src/data/wbsIfc.ts` (IfcBuilding / IfcBuildingStorey via
+  IfcRelAggregates, IfcSIUnit length prefix → mm); UI `ImportTool` in `LocationsPage.tsx`. Member copy: rows pick the
+  target project's WBS (`MemberCopyDialog.tsx`, links dropped when the target changes; “ใช้ตำแหน่งตามต้นแบบ” maps by codes via
+  `mapLocByCode()`), `copyMember` checks links against the target tree. Tests: `tmp/wbsCopy.test.ts`, `tmp/locations.test.ts`, `tmp/locationsPage.test.tsx`, `tmp/wbsMigration.test.tsx`,
+  `tmp/wbsPicker.test.tsx`, `tmp/wbsReport.test.tsx`, `tmp/wbsRename.test.ts`, `tmp/wbsImport.test.ts`, `tmp/wbsIfc.test.ts`
+  (real web-ifc in Node: mock `web-ifc/web-ifc.wasm?url` to `web-ifc-node.wasm`).
 - Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
 - Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
   add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).

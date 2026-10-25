@@ -14,7 +14,7 @@ import {readManifest,writeManifest,chunk} from './manifests';
 import {verifiedAttachment} from './sources';
 import {canonical} from '../../domain/canonical';
 import {engineeringFixturesEnabled,engineeringHistoryProblem} from '../engineeringFeature';
-import {historyFileReferences,restoreEmptyCollections,restoreHistoryCollections,restoreTargetAnchor,validateBackupStructure} from '../../domain/restorePreflight';
+import {historyFileReferences,restoredLocations,restoreEmptyCollections,restoreHistoryCollections,restoreTargetAnchor,validateBackupStructure} from '../../domain/restorePreflight';
 import {sourceScheduleFileProblems} from '../../domain/sourceSchedule';
 
 type Entry={collection:string;id:string;data:Record<string,any>};
@@ -64,7 +64,7 @@ export async function beginDirectRestore(pid:string,data:Record<string,any>,id:s
  }
  must(entries.length<=20000,'แบ่ง Backup: จำนวนเอกสารกู้คืนเกิน 20,000 รายการ');
  must(new TextEncoder().encode(JSON.stringify(entries.map(e=>e.collection+'/'+e.id))).length<700000,'แบ่ง Backup: ดัชนีรายการกู้คืนเกิน 700 KB');
- const manifest:Manifest={id,projectId:pid,sourceProjectId:bundle.project.id,sourceVersion:p.version,entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null}},file=await writeManifest(pid,'restore-manifests',manifest);
+ const manifest:Manifest={id,projectId:pid,sourceProjectId:bundle.project.id,sourceVersion:p.version,entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null,...restoredLocations(bundle)}},file=await writeManifest(pid,'restore-manifests',manifest);
  return projectTransaction('beginRestore',pid,data,id,['admin'],async(tx,current)=>{
   must(current.version===p.version&&current.stockEpoch===p.stockEpoch&&current.historyEpoch===p.historyEpoch,'โครงการเปลี่ยนระหว่างเตรียม Restore','aborted');const job={id,status:'Importing' as const,completed:0,total:entries.length,manifest:file,sourceVersion:p.version,createdBy:u.uid,createdAt:now(),recordKeys:entries.map(e=>e.collection+'/'+e.id)};
   tx.set(recordRef(pid,'restoreJobs',id),encode(job));tx.update(projectRef(pid),{restoreState:state(job),historyEpoch:id});return state(job);
@@ -79,6 +79,6 @@ export async function advanceDirectRestore(action:string,pid:string,data:Record<
   for(const e of list){if(cancelling)tx.delete(recordRef(pid,e.collection,e.id));else tx.set(recordRef(pid,e.collection,e.id),encode(e.data));}
   const end=start+list.length,complete=end===total,next:Job={...job,status:complete?(cancelling?'Cancelled':'Complete'):(cancelling?'Cancelling':'Importing'),...(cancelling?{cancelTotal:total,cancelCompleted:end}:{completed:end})},result=state(next);
   tx.update(jr,encode({status:next.status,completed:next.completed,...(cancelling?{cancelTotal:total,cancelCompleted:end}:{}),...(complete?{completedAt:now()}:{})}));
-  tx.update(projectRef(pid),encode({restoreState:result,historyEpoch:id,...(complete&&!cancelling?{...manifest.projectPatch,version:p.version+1,stockEpoch:id}:{})}));return result;
+  tx.update(projectRef(pid),encode({restoreState:result,historyEpoch:id,...(complete&&!cancelling?{...manifest.projectPatch,...(manifest.projectPatch.locations?{locations:{...manifest.projectPatch.locations,version:(p.locations?.version||0)+1}}:{}),version:p.version+1,stockEpoch:id}:{})}));return result;
  },true);
 }

@@ -13,6 +13,7 @@ import {numberedSetup} from '../../domain/drawingNumbers';
 import {nextReview,statusLabel} from '../../domain/memberReview';
 import {displayName} from '../../domain/auth';
 import {canonical} from '../../domain/canonical';
+import {occurrenceLocProblems} from '../../domain/locations';
 import {decodeStorage} from '../../domain/storageCodec';
 import {projectTransaction,recordRef,projectRef,encode,must,now} from './common';
 
@@ -35,6 +36,8 @@ export async function directMember(action:string,pid:string,data:Record<string,a
    must(p.version===version,'ข้อมูลโครงการเปลี่ยนแล้ว กรุณาลองบันทึกใหม่','aborted');
    const r=recordRef(pid,'members',m.id),s=await tx.get(r),old=s.exists()?decodeStorage(s.data()) as Member:undefined;
    must((old?.version||0)===m.version,'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่ก่อนบันทึก','aborted');
+   // WBS links: only rows whose link is new or changed are checked (links kept from before stay valid when nodes archive)
+   const locProblems=occurrenceLocProblems(p.locations,m.occurrences.map(o=>{const was=old?.occurrences.find(x=>x.id===o.id);return was&&canonical(was.loc||null)===canonical(o.loc||null)?{...o,loc:undefined}:o;}));must(!locProblems.length,locProblems.slice(0,3).join(' · '),'invalid-argument');
    must(!old?.quantityBasis||!!m.quantityBasis,'ที่มาข้อมูลปริมาณที่บันทึกแล้วลบไม่ได้ ให้ระบุเป็นค่าชั่วคราว','invalid-argument');
    must(canonical(old?.copySource||null)===canonical(m.copySource||null),'ที่มาของสมาชิกเปลี่ยนไม่ได้ ใช้คำสั่งทำสำเนาเพื่อสร้างที่มาใหม่','invalid-argument');
    if(m.sourceSchedule){const ss=await tx.get(recordRef(pid,'attachments',m.sourceSchedule.attachmentId)),files=ss.exists()?[decodeStorage(ss.data()) as Attachment]:[];const problems=sourceScheduleFileProblems(m,files);must(!problems.length,problems.join(' · '),'invalid-argument');}

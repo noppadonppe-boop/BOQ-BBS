@@ -1,6 +1,7 @@
 import type {Member,ReportGroup,SnapshotBundle} from './model';
 import {elementInputSchema,pileQuantities,pileTypeLabels,type FoundationInput} from './elementInput';
 import {reportCategory} from './reportCategory';
+import {isWbsGroup,locationTree,occurrenceGroup,wbsGroupDisplay} from './locations';
 
 /** Structured pile-cap input of a member, if any (stored input is migrated on read). */
 export function pileInput(m:Member):FoundationInput|undefined{
@@ -11,18 +12,19 @@ export type PileRow={key:string;label:string;pile:string;count:number;length:num
 /** Pile work (งานเสาเข็ม) and pile cutting (งานตัดหัวเข็ม), grouped like the BOQ report.
  * count/length use the ordered pile length; cutLength = Σ cut-off length (m). */
 export function pileReport(bundle:SnapshotBundle,group:ReportGroup=bundle.scope?.group||'Member'){
- const rows=new Map<string,PileRow>();
+ const rows=new Map<string,PileRow>(),tree=locationTree(bundle.project.locations);
  for(const m of bundle.members){
   const input=pileInput(m);if(!input)continue;
   const q=pileQuantities(input);if(!q.count)continue;
   const pile=`${pileTypeLabels[q.type]} ${q.size} mm × ${q.lengthEach} m`;
   for(const o of m.occurrences){
-   const raw=group==='Member'?m.code:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=`${raw}|${pile}`;
-   const r=rows.get(key)||{key,label:raw||'ไม่ระบุ',pile,count:0,length:0,cutCount:0,cutLength:0};
+   const raw=group==='Member'?m.code:group==='Category'?reportCategory(m):occurrenceGroup(group,o),key=`${raw}|${pile}`;
+   const r=rows.get(key)||{key,label:isWbsGroup(group)?wbsGroupDisplay(tree,raw).label:raw||'ไม่ระบุ',pile,count:0,length:0,cutCount:0,cutLength:0};
    r.count+=q.count*o.quantity;r.length+=q.totalLength*o.quantity;r.cutCount+=q.cutCount*o.quantity;r.cutLength+=q.totalCutLength*o.quantity;rows.set(key,r);
   }
  }
- const list=[...rows.values()].sort((a,b)=>a.label.localeCompare(b.label,'th',{numeric:true})||a.pile.localeCompare(b.pile));
+ const rank=(r:PileRow)=>isWbsGroup(group)?wbsGroupDisplay(tree,r.key.slice(0,r.key.lastIndexOf('|'))).rank:0;
+ const list=[...rows.values()].sort((a,b)=>rank(a)-rank(b)||a.label.localeCompare(b.label,'th',{numeric:true})||a.pile.localeCompare(b.pile));
  const totals=list.reduce((t,r)=>({count:t.count+r.count,length:t.length+r.length,cutCount:t.cutCount+r.cutCount,cutLength:t.cutLength+r.cutLength}),{count:0,length:0,cutCount:0,cutLength:0});
  return {group,rows:list,totals};
 }

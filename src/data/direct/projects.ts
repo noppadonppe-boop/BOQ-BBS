@@ -5,6 +5,7 @@ import {currentStarterSpec,Project,specSchema} from '../../domain/model';
 import {userDocPath} from '../../domain/auth';
 import {projectProfileRoles,profileMaster} from '../../domain/authAccess';
 import {drawingProfileSchema} from '../../domain/drawingStandard';
+import {parseLocations} from '../../domain/locations';
 import {digestData} from '../snapshots';
 import {actor,directory,directoryRef,profileOperationRef,projectRef,projectTransaction,encode,must,now} from './common';
 
@@ -32,6 +33,11 @@ export async function saveDirectProject(pid:string,data:Record<string,any>,id:st
  const parsed=input.extend({titleBlock,drawingProfile:drawingProfileSchema.nullable().optional()}).parse(data.project);
  if(parsed.logo)must(parsed.logo.path.startsWith(`projects/${pid}/`),'ไฟล์โลโก้ไม่ตรงโครงการ','invalid-argument');
  return projectTransaction('saveProject',pid,data,id,['admin'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({...parsed,logo:parsed.logo||null,version:p.version+1}));return {version:p.version+1};});
+}
+/** Project Location / WBS tree (buildings, external works, levels, zones, segments). */
+export async function saveDirectLocations(pid:string,data:Record<string,any>,id:string){
+ const locations=parseLocations(data.locations);
+ return projectTransaction('saveLocations',pid,data,id,['admin','qs'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({locations:{...locations,version:(p.locations?.version||0)+1},version:p.version+1}));return {version:p.version+1};});
 }
 /** Soft delete: the project is hidden from every list and becomes read-only; members,
  * files and history are kept so the deletion can be reviewed or reversed by an administrator. */

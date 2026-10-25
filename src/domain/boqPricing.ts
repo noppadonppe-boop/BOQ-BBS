@@ -5,6 +5,7 @@ import {siteItemKey,siteKinds,siteLabels,siteUnits} from './siteWork';
 import type {Member,SnapshotBundle,ReportGroup} from './model';
 import {boqPricingSchema,priceKey,priceEntryKey,type PriceEntry,type PriceKind,type CostComponent} from './boqPricingSchema';
 import {reportCategory} from './reportCategory';
+import {isWbsGroup,locationTree,occurrenceGroup,wbsGroupDisplay} from './locations';
 import {memberConcrete} from './concreteMixes';
 export const PRICING_POLICY='boq-pricing-1.0';
 export const COMPONENT_PRICING_POLICY='boq-pricing-2.0';
@@ -45,14 +46,14 @@ export function priceItems(member:Member,bundle:Pick<SnapshotBundle,'project'|'c
 export type PriceLine=PriceItem&{component:CostComponent;policy:string|null;memberId:string;memberCode:string;category:string;occurrenceId:string;zone:string;floor:string;grid:string;groupKey:string;groupLabel:string;rawQuantity:number;quantity:string;quantityDecimals:number|null;currency:string|null;amountDecimals:number|null;entry:PriceEntry|null;amount:string|null;minor:string|null};
 export type PriceGroup={key:string;label:string;currency:string|null;decimals:number;priced:number;missing:number;subtotal:string;total:string|null};
 export function pricingReport(bundle:SnapshotBundle,group:ReportGroup=bundle.scope?.group||'Member'){
- const lines:PriceLine[]=[],groups=new Map<string,{record:PriceGroup;minor:bigint}>(),policies=new Set<string>();
+ const lines:PriceLine[]=[],groups=new Map<string,{record:PriceGroup;minor:bigint}>(),policies=new Set<string>(),tree=locationTree(bundle.project.locations);
  for(const m of bundle.members){const frozen=bundle.calculations?.[m.id];if(frozen&&frozen.quantity!==m.occurrences.reduce((n,o)=>n+o.quantity,0))throw Error(m.code+': จำนวนในฐานคำนวณไม่ตรงตำแหน่ง');const p=m.pricing?boqPricingSchema.parse(m.pricing):undefined;
   const items=priceItems(m,bundle),sourceEntries:PriceEntry[]=p?.entries||[],entries=new Map(sourceEntries.map(e=>[priceEntryKey(e),e])),policy=p?.version===2?COMPONENT_PRICING_POLICY:p?PRICING_POLICY:null;if(policy)policies.add(policy);
   const components:CostComponent[]=p?.version===2?['material','labor']:['combined'];
   for(const o of m.occurrences)for(const item of items)for(const component of components){
    if(lines.length>=100000)throw Error('รายการราคามากกว่า100,000รายการ เลือกสมาชิก/ประเภท/โซน/ชั้นเพื่อแบ่งขอบเขต');
    const rawQuantity=item.each*o.quantity,quantity=p?roundedQuantity(rawQuantity,p.quantityDecimals):String(rawQuantity),entry=entries.get(JSON.stringify([item.key,component]))||null,amount=entry&&entry.rate!==null?exactAmount(quantity,entry.rate,p!.amountDecimals):null;
-   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',groupKey=JSON.stringify([group,raw]),groupLabel=group==='Member'?m.code:raw||'ไม่ระบุ';
+   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):occurrenceGroup(group,o),groupKey=JSON.stringify([group,raw]),groupLabel=group==='Member'?m.code:isWbsGroup(group)?wbsGroupDisplay(tree,raw).label:raw||'ไม่ระบุ';
    const line:PriceLine={...item,component,policy,memberId:m.id,memberCode:m.code,category:m.category,occurrenceId:o.id,zone:o.zone,floor:o.floor,grid:o.grid,rawQuantity,quantity,quantityDecimals:p?.quantityDecimals??null,currency:p?.currency||null,amountDecimals:p?.amountDecimals??null,entry,amount:amount?.amount??null,minor:amount?.minor??null,groupKey,groupLabel};lines.push(line);
    const key=JSON.stringify([groupKey,line.currency]),decimals=p?.amountDecimals??2,old=groups.get(key)||{record:{key:groupKey,label:groupLabel,currency:line.currency,decimals,priced:0,missing:0,subtotal:'0',total:null},minor:0n},scale=Math.max(decimals,old.record.decimals);
    old.minor*=pow(scale-old.record.decimals);if(amount)old.minor+=BigInt(amount.minor)*pow(scale-decimals);if(old.minor>MAX_MINOR)throw Error('ยอดรวมเกินความละเอียดที่รองรับ แบ่งขอบเขตส่งออก');old.record.decimals=scale;old.record.priced+=amount?1:0;old.record.missing+=amount?0:1;groups.set(key,old);
@@ -60,8 +61,9 @@ export function pricingReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sco
  }
  const missing=lines.filter(l=>l.amount===null).length,groupMissing=new Map<string,number>();for(const g of groups.values())groupMissing.set(g.record.key,(groupMissing.get(g.record.key)||0)+g.record.missing);
  const quantityCoverage=quantityBasisCoverage(bundle,group),coverage=reinforcementCoverage(bundle,group);
- const pendingIds=new Set([...quantityCoverage.pending.map(m=>m.id),...coverage.pending.map(m=>m.memberId)]),pendingGroups=new Map<string,Set<string>>();for(const m of bundle.members)for(const o of m.occurrences){const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=JSON.stringify([group,raw]),set=pendingGroups.get(key)||new Set<string>();if(pendingIds.has(m.id))set.add(m.id);pendingGroups.set(key,set);}
- const rows=[...groups.values()].map(g=>{const pending=pendingGroups.get(g.record.key)?.size||0,total=groupMissing.get(g.record.key)?null:fixedDecimal(g.minor,g.record.decimals);return {...g.record,missing:groupMissing.get(g.record.key)||0,subtotal:fixedDecimal(g.minor,g.record.decimals),total,completeTotal:pending?null:total,pendingQuantities:pending};});
+ const pendingIds=new Set([...quantityCoverage.pending.map(m=>m.id),...coverage.pending.map(m=>m.memberId)]),pendingGroups=new Map<string,Set<string>>();for(const m of bundle.members)for(const o of m.occurrences){const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):occurrenceGroup(group,o),key=JSON.stringify([group,raw]),set=pendingGroups.get(key)||new Set<string>();if(pendingIds.has(m.id))set.add(m.id);pendingGroups.set(key,set);}
+ const rank=(key:string)=>isWbsGroup(group)?wbsGroupDisplay(tree,JSON.parse(key)[1]).rank:0;
+ const rows=[...groups.values()].sort((a,b)=>rank(a.record.key)-rank(b.record.key)).map(g=>{const pending=pendingGroups.get(g.record.key)?.size||0,total=groupMissing.get(g.record.key)?null:fixedDecimal(g.minor,g.record.decimals);return {...g.record,missing:groupMissing.get(g.record.key)||0,subtotal:fixedDecimal(g.minor,g.record.decimals),total,completeTotal:pending?null:total,pendingQuantities:pending};});
  const currencies=new Map<string,{currency:string|null;decimals:number;minor:bigint;priced:number;missing:number}>();
  for(const g of groups.values()){const key=g.record.currency||'',c=currencies.get(key)||{currency:g.record.currency,decimals:g.record.decimals,minor:0n,priced:0,missing:0},scale=Math.max(c.decimals,g.record.decimals);c.minor=c.minor*pow(scale-c.decimals)+g.minor*pow(scale-g.record.decimals);if(c.minor>MAX_MINOR)throw Error('ยอดสกุลเงินเกินความละเอียดที่รองรับ แบ่งขอบเขตส่งออก');c.decimals=scale;c.priced+=g.record.priced;c.missing+=g.record.missing;currencies.set(key,c);}
  // Partitions show only explicitly entered components. Legacy combined prices
