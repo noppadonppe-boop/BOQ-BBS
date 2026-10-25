@@ -2,12 +2,16 @@ import {useMemo,useState} from 'react';
 import {Plus,Trash2} from 'lucide-react';
 import {labels,type Member,type Project} from '../domain/model';
 import {takeoff,validateMember} from '../domain/engine';
-import {civilInputSchema,type CivilInput} from '../domain/civilInputSchema';
+import {civilInputSchema,type CivilInput,type CivilRebar} from '../domain/civilInputSchema';
+import {defaultCivilRebar,isCivilBar} from '../domain/civilRebar';
 import {applyCivilInput,civilMeasures,defaultCivilInput,isCivilCategory} from '../domain/civilInput';
 import {Field,number} from './EditorControls';
 
 type Key=string;
 const fieldLabels:Record<Key,string>={length:'ความยาว (mm)',innerWidth:'กว้างภายใน (mm)',innerHeight:'ลึก / สูงภายใน (mm)',wall:'ผนังหนา (mm)',base:'พื้นหนา (mm)',cover:'ฝาหนา (mm · 0 = ไม่มีฝา)',topWidth:'กว้างบน (mm)',bottomWidth:'กว้างก้น (mm · 0 = รูปตัว V)',depth:'ลึก (mm)',lining:'ความหนาดาด (mm)',innerLength:'ยาวภายใน (mm)',toe:'ฐานยื่นจากผนัง (mm)',openingLength:'ช่องเปิดฝา ยาว (mm)',openingWidth:'ช่องเปิดฝา กว้าง (mm)',width:'กว้าง (mm)',thickness:'หนา (mm)',diameter:'ขนาดท่อ (mm)',outerDiameter:'Ø ภายนอก (mm)',pieceLength:'ความยาวต่อท่อน (mm)',trenchWidth:'ร่องกว้าง (mm)',trenchDepth:'ร่องลึก (mm)',sideSlope:'ผนังร่องลาด (H:V)',bedding:'ทรายรองท่อหนา (mm)'};
+const DIAS=[6,9,10,12,16,20,25,28,32];
+// labels of the automatic bar sets per kind
+const rebarLabels:Record<string,{main:string;dist:string;slab?:string;single:string}>={channel:{main:'เหล็กรูปตัว U (ตามขวาง)',dist:'เหล็กตามยาว',slab:'ฝาราง (สองทาง)',single:'ชั้นเดียว (กลางผนัง)'},vchannel:{main:'เหล็กตามขวาง',dist:'เหล็กตามยาว',single:'ชั้นเดียว (กลางความหนาดาด)'},box:{main:'เหล็กยืนผนัง + ตะแกรงพื้นบ่อ',dist:'เหล็กนอนผนัง (วงรอบ)',slab:'ฝาบ่อ / พื้นบน (สองทาง)',single:'ชั้นเดียว (กลางผนัง)'},paving:{main:'เหล็กตามขวาง (ทิศ Y)',dist:'เหล็กตามยาว (ทิศ X)',single:'ชั้นเดียว (ชั้นบน)'}};
 const fieldOrder:Record<CivilInput['kind'],Key[]>={channel:['length','innerWidth','innerHeight','wall','base','cover'],vchannel:['length','topWidth','bottomWidth','depth','lining'],box:['innerLength','innerWidth','innerHeight','wall','base','toe','cover','openingLength','openingWidth'],paving:['length','width','thickness'],asphalt:['length','width'],pipe:['length','diameter','outerDiameter','pieceLength','trenchWidth','trenchDepth','sideSlope','bedding']};
 
 /** Tab “รูปทรงสำเร็จรูป” of Civil Work members: dimensions → geometry (shape model / prism) or asphalt layers. */
@@ -16,10 +20,10 @@ export function CivilForm({member,project,readOnly,onApply}:{member:Member;proje
  const [input,setInput]=useState<CivilInput>(()=>member.civilInput||(isCivilCategory(category)?defaultCivilInput(category):defaultCivilInput('UDitch')));
  const set=(k:Key,v:number)=>setInput({...input,[k]:Number.isFinite(v)?v:0} as CivilInput);
  const check=civilInputSchema.safeParse(input);
- const preview=useMemo(()=>{if(!check.success)return null;try{const next=applyCivilInput(member,input),problems=validateMember(next,project.spec);if(problems.length)return {error:problems.join(' · ')};const q=takeoff(next,project.spec);return {next,q,measures:civilMeasures(next)};}catch(e:any){return {error:String(e?.message||e)};}},[member,input,project.spec]);
+ const preview=useMemo(()=>{if(!check.success)return null;try{const next=applyCivilInput(member,input,project.spec),problems=validateMember(next,project.spec);if(problems.length)return {error:problems.join(' · ')};const q=takeoff(next,project.spec);return {next,q,measures:civilMeasures(next)};}catch(e:any){return {error:String(e?.message||e)};}},[member,input,project.spec]);
  const site='site' in input?input.site:undefined;
  return <section className="civil-form">
-  <div className="section-heading"><div><h3>รูปทรงสำเร็จรูป · {labels[category]}</h3><p className="muted">กรอกขนาดตามแบบ → ระบบสร้างรูปทรงให้ (ใช้แบบ BBS A3 เดียวกับงาน RC) · {input.kind==='pipe'?'ท่อสำเร็จรูปคิดเป็นความยาว / จำนวนท่อน + งานดิน ไม่มีคอนกรีตและเหล็ก':input.kind==='asphalt'?'ผิวทางแอสฟัลต์คิดเป็นปริมาณต่อชั้น ไม่มีคอนกรีต':'เหล็กเสริมใส่ต่อในแท็บ “ใส่เหล็ก (วาดบนรูปตัด)” หรือจาก Note ในแบบ'}</p></div></div>
+  <div className="section-heading"><div><h3>รูปทรงสำเร็จรูป · {labels[category]}</h3><p className="muted">กรอกขนาดตามแบบ → ระบบสร้างรูปทรงให้ (ใช้แบบ BBS A3 เดียวกับงาน RC) · {input.kind==='pipe'?'ท่อสำเร็จรูปคิดเป็นความยาว / จำนวนท่อน + งานดิน ไม่มีคอนกรีตและเหล็ก':input.kind==='asphalt'?'ผิวทางแอสฟัลต์คิดเป็นปริมาณต่อชั้น ไม่มีคอนกรีต':'เหล็กเสริมสร้างอัตโนมัติจากขนาดและระยะด้านล่าง (หรือปิดแล้วใส่เองในแท็บ “ใส่เหล็ก (วาดบนรูปตัด)”)'}</p></div></div>
   <fieldset disabled={readOnly}><div className="form-grid">
    {fieldOrder[input.kind].map(k=><Field key={k} label={fieldLabels[k]} type="number" value={(input as unknown as Record<string,number>)[k]} onChange={v=>set(k,v)}/>)}
   {input.kind==='pipe'&&<><label className="field"><span>ชั้นคุณภาพท่อ</span><input maxLength={60} value={input.pipeClass} onChange={e=>setInput({...input,pipeClass:e.target.value})} placeholder="มอก. 128 ชั้น 3 / PE100 PN10"/></label><label className="check full"><input type="checkbox" checked={input.excavation} onChange={e=>setInput({...input,excavation:e.target.checked})}/>คิดงานขุดร่อง ทรายรองท่อ และถมกลับ</label></>}
@@ -34,16 +38,37 @@ export function CivilForm({member,project,readOnly,onApply}:{member:Member;proje
     <td><select aria-label={`หน่วย ${i+1}`} value={l.unit} onChange={e=>setInput({...input,layers:input.layers.map(x=>x.id===l.id?{...x,unit:e.target.value as 'm²'|'m³'}:x)})}><option>m²</option><option>m³</option></select></td>
     <td><button type="button" aria-label="ลบชั้น" disabled={input.layers.length===1} onClick={()=>setInput({...input,layers:input.layers.filter(x=>x.id!==l.id)})}><Trash2 size={14}/></button></td></tr>)}
   </tbody></table><button type="button" disabled={input.layers.length>=8} onClick={()=>setInput({...input,layers:[...input.layers,{id:crypto.randomUUID().replace(/-/g,'').slice(0,12),label:'ชั้นวัสดุใหม่',thickness:0,unit:'m²'}]})}><Plus size={14}/>เพิ่มชั้น</button></div>}
+  <RebarFields category={category} input={input} onChange={setInput}/>
   </fieldset>
   {!check.success?<p role="alert" className="notice danger">กรอกขนาดเป็นตัวเลขบวกให้ครบ ({check.error.issues[0]?.path.join('.')})</p>
    :preview&&'error' in preview?<p role="alert" className="notice danger">{preview.error}</p>
    :preview&&<div className="kpis compact">{[
      ...(preview.measures.pieces?[['จำนวนท่อน',`${preview.measures.pieces} ท่อน`],['ทรายรองท่อ',`${number(preview.q.sand)} m³`],['ถมกลับ',`${number(preview.q.backfill)} m³`]]:[]),
      ...(input.kind==='asphalt'||input.kind==='pipe'?[]:[['คอนกรีต',`${number(preview.q.concrete)} m³`],['แบบหล่อ',`${number(preview.q.formwork)} m²`]]),
+     ...(preview.q.rebar?[['เหล็กเสริม',`${number(preview.q.rebar,1)} kg`],['เหล็กต่อคอนกรีต',`${number(preview.q.concrete?preview.q.rebar/preview.q.concrete:0,0)} kg/m³`]]:[]),
      ...(preview.q.excavation?[['ขุดดิน',`${number(preview.q.excavation)} m³`],['คอนกรีตหยาบ',`${number(preview.q.lean)} m³`]]:[]),
      ...(preview.measures.length?[['ความยาว',`${number(preview.measures.length,2)} m`]]:[]),...(preview.measures.area?[['พื้นที่',`${number(preview.measures.area,2)} m²`]]:[]),
      ...(input.kind==='asphalt'?preview.next.siteWork?.items.filter(i=>i.id.startsWith('asph-')).map(i=>[i.label,`${number(i.quantity,2)} ${i.unit}`])||[]:[]),
     ].map(([k,v])=><div key={k}><small>{k}</small><strong>{v}</strong></div>)}<span className="muted">ต่อ 1 ชิ้น / ช่วง · ใน BOQ คูณจำนวนตำแหน่ง</span></div>}
-  <footer className="actions"><button className="primary" disabled={readOnly||!preview||'error' in preview} onClick={()=>preview&&!('error' in preview)&&onApply(preview.next)}>สร้างรูปทรงจากขนาดนี้</button>{member.civilInput&&<span className="muted">สร้างใหม่จะแทนรูปทรงเดิม · เหล็กที่วาดไว้ต้องตรวจตำแหน่งใหม่</span>}</footer>
+  <footer className="actions"><button className="primary" disabled={readOnly||!preview||'error' in preview} onClick={()=>preview&&!('error' in preview)&&onApply(preview.next)}>{'rebar' in input&&input.rebar?'สร้างรูปทรงและเหล็กเสริม':'สร้างรูปทรงจากขนาดนี้'}</button>{member.civilInput&&<span className="muted">สร้างใหม่จะแทนรูปทรงและเหล็กอัตโนมัติเดิม{member.bars.some(b=>!isCivilBar(b))?' · เหล็กที่วาดเองต้องตรวจตำแหน่งใหม่':''}</span>}</footer>
  </section>;
+}
+/** Automatic reinforcement of the RC civil kinds: on / off, cover, layers and the bar sets. */
+function RebarFields({category,input,onChange}:{category:Member['category'];input:CivilInput;onChange:(i:CivilInput)=>void}){
+ const kind=input.kind,l=rebarLabels[kind],r=(input as {rebar?:CivilRebar}).rebar,hasSlab=!!l?.slab&&'cover' in input&&input.cover>0;
+ if(!l)return null;
+ const put=(next:CivilRebar|undefined)=>onChange({...input,rebar:next} as CivilInput);
+ const fallback=():CivilRebar=>(isCivilCategory(category)&&defaultCivilRebar(category))||{cover:50,layers:'single',main:{diameter:12,spacing:200},dist:{diameter:10,spacing:200}};
+ const set=(k:'main'|'dist'|'slab',label:string)=>{const v=r![k]||r!.main;return <div className="civil-bar-set" key={k}><span>{label}</span>
+  <select aria-label={`${label} ขนาด`} value={v.diameter} onChange={e=>put({...r!,[k]:{...v,diameter:Number(e.target.value)}})}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select>
+  <label>@<input aria-label={`${label} ระยะ`} type="number" min={50} max={1000} step={25} value={v.spacing} onChange={e=>put({...r!,[k]:{...v,spacing:Number(e.target.value)||0}})}/>mm</label></div>;};
+ return <div className="civil-rebar">
+  <label className="check full"><input type="checkbox" checked={!!r} onChange={e=>put(e.target.checked?fallback():undefined)}/>สร้างเหล็กเสริมอัตโนมัติ (แทนเหล็กอัตโนมัติชุดเดิมทุกครั้งที่สร้าง)</label>
+  {r&&<><div className="form-grid">
+   <Field label="ระยะหุ้ม cover (mm)" type="number" value={r.cover} onChange={v=>put({...r,cover:v||0})}/>
+   {kind!=='vchannel'&&<label className="field"><span>จำนวนชั้น</span><select value={r.layers} onChange={e=>put({...r,layers:e.target.value as CivilRebar['layers']})}><option value="single">{l.single}</option><option value="double">สองชั้น (ทุกผิว)</option></select></label>}
+  </div>
+  {set('main',l.main)}{set('dist',l.dist)}
+  {hasSlab&&(r.slab?<>{set('slab',l.slab!)}<button type="button" className="link" onClick={()=>{const {slab:_s,...rest}=r;put(rest);}}>ไม่ใส่เหล็กฝา</button></>:<button type="button" onClick={()=>put({...r,slab:{diameter:12,spacing:150}})}><Plus size={14}/>เหล็กฝา</button>)}</>}
+ </div>;
 }

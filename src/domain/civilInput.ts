@@ -1,15 +1,20 @@
-import type {Category,Member} from './model';
+import type {Category,Member,Spec} from './model';
 import {civilCategories,civilInputSchema,type CivilCategory,type CivilInput} from './civilInputSchema';
 import {applyShapeModel} from './shapeApply';
 import {SHAPE_MODEL_VERSION,type ShapeModel,type ShapePart} from './shapeModelSchema';
 import {prismBounds} from './prismGeometry';
 import type {PrismGeometry} from './prismSchema';
 import {emptySiteWork,withSiteWork} from './siteWork';
+import {defaultCivilRebar,withCivilRebar} from './civilRebar';
 
 export const isCivilCategory=(c:Category):c is CivilCategory=>(civilCategories as readonly string[]).includes(c);
 const site={excavation:true,workingSpace:300,leanThickness:50,leanProjection:100};
 /** Starting input per civil category (typical sizes; edit to the drawing). */
 export function defaultCivilInput(c:CivilCategory):CivilInput{
+ const i=baseInput(c),rebar=defaultCivilRebar(c);
+ return rebar?{...i,rebar} as CivilInput:i;
+}
+function baseInput(c:CivilCategory):CivilInput{
  switch(c){
   case 'UDitch':return {kind:'channel',length:10000,innerWidth:400,innerHeight:500,wall:150,base:150,cover:0,site};
   case 'Trench':return {kind:'channel',length:10000,innerWidth:600,innerHeight:800,wall:150,base:150,cover:120,site};
@@ -52,18 +57,23 @@ export function civilShape(input:CivilInput):ShapeModel|undefined{
  if(i.kind==='paving')return {version:SHAPE_MODEL_VERSION,parts:[part({id:'slab',label:'แผ่นพื้นคอนกรีต',role:'solid',shape:'box',x:0,y:0,w:i.length,d:i.width,z0:0,height:i.thickness,formSides:true,formBottom:false})],confirmed:false,note:''};
 }
 /** Prism of a V-ditch lining: section in Y–Z, extruded along X. */
+/** Inner surface of a V-ditch lining (y, z), left to right; `a` = top lip width (lining t measured square to the slope). */
+export function vDitchInner(i:Pick<Extract<CivilInput,{kind:'vchannel'}>,'lining'|'topWidth'|'bottomWidth'|'depth'>){
+ const t=i.lining,B=i.topWidth,b=Math.min(i.bottomWidth,B),D=i.depth,inset=(B-b)/2,a=t*Math.hypot(inset,D)/D;
+ return {a,inset,b,inner:[[a,t+D],[a+inset,t],...(b>0?[[a+inset+b,t] as [number,number]]:[]),[a+B,t+D]] as [number,number][]};
+}
 export function vDitchPrism(i:Extract<CivilInput,{kind:'vchannel'}>):PrismGeometry{
- const t=i.lining,B=i.topWidth,b=Math.min(i.bottomWidth,B),D=i.depth,inset=(B-b)/2;
- // inner trapezoid (top width B at z = t+D, bottom width b at z = t); outer edge t outside at the top, t below at the bottom
- const inner:[number,number][]=b>0?[[t+inset,t],[t+inset+b,t]]:[[t+inset,t]];
- const v:[number,number][]=[[0,t+D],[t,t+D],...inner,[t+B,t+D],[2*t+B,t+D],[inset+b+2*t,0],[inset,0]];
+ const t=i.lining,B=i.topWidth,D=i.depth,{a,inset,inner}=vDitchInner(i),foot=inset*(t+D)/D;
+ // inner trapezoid (top width B at z = t+D, bottom width b at z = t); outer slopes t square to the inner ones, flat bottom at z = 0
+ const v:[number,number][]=[[0,t+D],...inner,[2*a+B,t+D],[2*a+B-foot,0],[foot,0]];
  return {version:1,axis:'X',start:0,depth:i.length,profile:{vertices:v.map(([y,z])=>[Number(Math.max(0,y).toFixed(3)),Number(z.toFixed(3))]),formed:v.map(()=>false)},holes:[],endFaces:[false,false],basis:'V-Ditch · แบบฟอร์มรูปทรงสำเร็จรูป'};
 }
-/** Applies a civil input: geometry (or site items for asphalt), cover, input kept on the member for re-editing. */
-export function applyCivilInput(m:Member,raw:CivilInput):Member{
+/** Applies a civil input: geometry (or site items for asphalt), cover, automatic bars (`rebar`, detailing from `spec`),
+ * input kept on the member for re-editing. */
+export function applyCivilInput(m:Member,raw:CivilInput,spec?:Spec):Member{
  const input=civilInputSchema.parse(raw),cover=m.category==='ConcretePaving'?50:m.category==='VDitch'?40:50;
  if(input.kind==='vchannel'){const p=vDitchPrism(input),[x,y,z]=prismBounds(p),{shapeModel:_s,geometry:_g,...rest}=m;
-  return {...rest,prismGeometry:p,x,y,z,cover,civilInput:input,status:'Draft',bars:m.bars.map(b=>({...b,placementConfirmed:false}))};}
+  return withCivilRebar({...rest,prismGeometry:p,x,y,z,cover:input.rebar?.cover??cover,civilInput:input,status:'Draft',bars:m.bars.map(b=>({...b,placementConfirmed:false}))},input,spec);}
  if(input.kind==='pipe'){
   // quantity only: the trench is the member's excavation (prismoid along the run), bedding = site sand, the pipe volume
   // is the buried volume taken out of the backfill
@@ -76,9 +86,9 @@ export function applyCivilInput(m:Member,raw:CivilInput):Member{
   const items=input.layers.map(l=>({id:`asph-${l.id}`,label:l.thickness>0&&l.unit==='m²'?`${l.label} ${l.thickness} mm`:l.label,unit:l.unit,quantity:Number((l.unit==='m³'?area*l.thickness/1000:area).toFixed(6))}));
   const sw=withSiteWork({...rest},{...(m.siteWork||emptySiteWork()),items:[...(m.siteWork?.items||[]).filter(i=>!i.id.startsWith('asph-')),...items]});
   return {...sw,x:input.length,y:input.width,z:Math.max(1,input.layers.reduce((n,l)=>n+l.thickness,0)),cover:0,civilInput:input,status:'Draft'};}
- const sm=civilShape(input)!,next={...applyShapeModel(m,sm),cover,civilInput:input};
+ const sm=civilShape(input)!,next={...applyShapeModel(m,sm),cover:'rebar' in input&&input.rebar?input.rebar.cover:cover,civilInput:input};
  if('site' in input&&!input.site.excavation&&input.site.leanThickness>0)next.lean={x:next.x+2*input.site.leanProjection,y:next.y+2*input.site.leanProjection,thickness:input.site.leanThickness};
- return next;
+ return withCivilRebar(next,input,spec);
 }
 /** Quantities a BOQ item can take besides concrete / formwork: length (m) and area (m²) of linear / paved members. */
 export function civilMeasures(m:Pick<Member,'civilInput'>):{length?:number;area?:number;pieces?:number;pipe?:{size:number;pipeClass:string}}{

@@ -180,6 +180,14 @@
   the trench is the member excavation (prismoid, side slope), bedding = site sand, pipe volume = `excavation.buriedConcrete`
   (backfill = excavation − sand − pipe); `takeoff` counts earthwork for pipes. BOQ `pieces` (ท่อน); pipe size / class match a
   rule's diameters (column H, ≤ 3000) / mix (column G). Test: `tmp/pipe.test.tsx`.
+  Automatic rebar (phase 2b): `civilInput.rebar {cover, layers single|double, main, dist, slab?}` (channel / vchannel / box /
+  paving; defaults `defaultCivilRebar()`) → `withCivilRebar()` in `src/domain/civilRebar.ts`, called by
+  `applyCivilInput(m, input, spec)` (detailing via `detailingFromSpec`): bars `civ-<role>` rebuilt on every apply, other bars
+  kept. U-ditch / trench = U bars (21) + longitudinal bars (offsets, lapped to the stock length); V-ditch = profile bar at the
+  lining middle (cut at the cover over the flat bottom) + longitudinal; box = base mesh, wall verticals with feet (11 / 21 into
+  the cover slab, one Mark via offsets + turns), horizontal loops (99), cover slab mesh around the opening (`meshBars`);
+  paving = top (single) or both meshes. V-ditch prism lining is `t` square to the slopes (`vDitchInner`); A3 views draw
+  prism members (`buildView`: profile / `prismSection`). Test: `tmp/civilRebar.test.tsx`.
 - Owner / consultant BOQ chapters per project: `project.boqChapters` (`src/domain/boqChapters.ts`: items code / title / unit +
   optional `rule {component, disciplines, categories, mix, diameters, grades, buildings, siteItem}`; no rule = heading).
   `boqContributions()` = every quantity per occurrence (concrete, formwork, excavation, backfill, lean, rebar per bar,

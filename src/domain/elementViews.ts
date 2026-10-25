@@ -1,6 +1,7 @@
 import type {Member,Vec3} from './model';
 import {barCouplerEnds,beamGroupLayout,columnPour,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
+import {prismAxis,prismBounds,prismPoint,prismSection} from './prismGeometry';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
 import {textWidth,type Prim} from './drawingPrims';
@@ -60,6 +61,12 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    for(const [x,y] of p.positions){if(normal===undefined){piles.push({u:[x,y][a],v:[x,y][b],square,size:p.size,hollow:false});continue;}
     const along=normal===1?y:x,dz=Math.abs(along-cut!);if(dz>h)continue;const half=square?h:Math.sqrt(h*h-dz*dz),u=normal===1?x:y;rects.push({u0:u-half,u1:u+half,v0:bottom,v1:p.embed,kind:'pile'});}}
  }
+ // prism members (V-ditch lining, extruded profiles): plan = bounding outline, sections = the cut polygons
+ const pg=m.prismGeometry;
+ if(pg&&!sm&&!only){if(normal===undefined){const B=prismBounds(pg);polys.push([[0,0],[B[a],0],[B[a],B[b]],[0,B[b]]]);}
+  // a cut square to a straight prism is the profile itself (prismSection returns it in pieces)
+  else if(pg.version===1&&prismAxis(pg)===normal)polys.push(pg.profile.vertices.map(v=>{const q=prismPoint(pg,v,cut!);return [q[a],q[b]] as Pt;}));
+  else polys.push(...prismSection(pg,normal,cut!).filter(r=>r.length>2).map(r=>r.map(q=>[q[a],q[b]] as Pt)));}
  if(foot&&input?.category==='Foundation'){
   // lowered areas (cuts from the footing top) lower the top of the section where the cut line crosses them
   const cuts=(input.cuts||[]).filter(c=>normal!==undefined&&(normal===1?c.y0<cut!&&cut!<c.y1:c.x0<cut!&&cut!<c.x1)).map(c=>({u0:normal===1?c.x0:c.y0,u1:normal===1?c.x1:c.y1,top:c.z0}));

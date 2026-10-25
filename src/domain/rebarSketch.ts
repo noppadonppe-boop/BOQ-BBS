@@ -179,7 +179,8 @@ export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spaci
    const f=list[0],pt=(u:number,w:number,z:number):Vec3=>along===0?[u,w,z]:[w,u,z],z=o.z;
    const pts:Vec3[]=o.leg?[pt(f.a,f.at,z+o.leg),pt(f.a,f.at,z),pt(f.b,f.at,z),pt(f.b,f.at,z+o.leg)]:[pt(f.a,f.at,z),pt(f.b,f.at,z)];
    const offsets=list.map(sg=>pt(sg.a-f.a,sg.at-f.at,0));
-   const uniform=list.every(sg=>Math.abs(sg.a-f.a)<.5);
+   // even distribution only when the bars are equally spaced (bars on both sides of an opening need offsets)
+   const uniform=list.every((sg,k)=>Math.abs(sg.a-f.a)<.5&&(k<2||Math.abs(sg.at-list[k-1].at-(list[1].at-list[0].at))<.5));
    out.push({...blankBar(mark()),id:`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:list.length,shape:'polyline',shapeCode:o.leg?'21':'00',axis:dir,face:o.leg>0?'bottom':o.leg<0?'top':'side',
     radius:o.leg?Number(sketchRadius(o.diameter).toFixed(3)):0,points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as Vec3),lengthMethod:'bs8666',
     ...(uniform?{distributionAxis:(dir==='X'?'Y':'X') as Bar['axis'],distributionStart:f.at,distributionEnd:list.at(-1)!.at}:{offsets}),note:`${o.note} · ทิศ ${dir} @${o.spacing} · ช่วง ${len} mm`.slice(0,500)});
