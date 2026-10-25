@@ -13,11 +13,12 @@ import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
 import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker';
 import {syncColumnTemplate} from '../domain/columnTemplates';
+import {useSpecProfiles} from '../data/specProfiles';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
-import {detailingFromSpec,specLabel} from '../domain/specProfiles';
+import {detailingFromSpec,specLabel,specOutdated} from '../domain/specProfiles';
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const Element3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Element3DModal})));
 
@@ -385,12 +386,16 @@ function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,onSync,note}:{in
  // linked column behind its template (template edited / re-imported since): offer the re-apply here
  const synced=useMemo(()=>input&&ref?.linked&&t?syncColumnTemplate(input,spec):undefined,[input,ref,t,spec]),stale=!!synced&&JSON.stringify(synced)!==JSON.stringify(input);
  const drawn=t&&(ref!.row<0?t.rows.some(r=>r.layout):!!t.rows[ref!.row]?.layout);
+ // the project uses a copy of the General Spec: edits there reach this page only after the project is updated to the new version
+ const {profiles}=useSpecProfiles(),profile=spec.profileRef&&profiles.find(x=>x.id===spec.profileRef!.id),outdated=specOutdated(spec,profiles);
  const where=ref?`${ref.name}${ref.row<0?' · ทั้งตาราง':t?.rows[ref.row]?` · ${t.rows[ref.row].level}`:''}`:'';
  return <div className="ct-bar">
   <button type="button" className={n?'ct-open':''} disabled={readOnly} title={n?'เลือกหน้าตัด / เหล็กยืน / เหล็กปลอก จากตารางเสาของโครงการ':'ยังไม่มี Template · เพิ่มที่ General Spec ของโครงการ'} onClick={onPick}><Columns3 size={15}/>ตารางหน้าตัดเสา · Template โครงการ ({n})</button>
   {ref&&<span className={`ct-link ${ref.linked?'on':''}`}>{ref.linked?'ผูกกับ':'มาจาก'} Template <b>{where}</b>{!t&&' (ไม่พบใน Spec แล้ว)'}{ref.linked&&<small> · แก้ค่าในหน้านี้ได้ แต่จะถูกแทนเมื่อ Template ใน Spec เปลี่ยน</small>}</span>}
   {ref?.linked&&onUnlink&&<button type="button" className="icon-button" disabled={readOnly} title="เลิกผูก (ค่าคงเดิม · ไม่ปรับตาม Template อีก)" onClick={onUnlink}><Link2Off size={14}/></button>}
-  {t&&!drawn&&<small className="muted">Template นี้มีแต่จำนวนเหล็ก (ไม่มีตำแหน่งเหล็ก / ปลอกในตามรูปในแบบ) · นำเข้า Excel ที่มีคอลัมน์ “Section as drawn” ใน General Spec</small>}
+  {outdated&&profile&&<span className="notice warning ct-stale">General Spec “{profile.name}” มีรุ่นใหม่ v{profile.version} แต่โครงการนี้ยังใช้ v{spec.profileRef!.version} · Template ที่แก้ / นำเข้าใหม่ยังไม่มาที่หน้านี้ · ไปที่ ตั้งค่าโครงการ → General Spec ของโครงการ → “อัปเดตตาม Spec ล่าสุด”</span>}
+  {!spec.profileRef&&n>0&&<small className="muted">โครงการนี้ไม่ได้ผูก General Spec ส่วนกลาง · Template ที่แก้ใน General Spec จะไม่มาที่โครงการนี้ (เลือก Spec ในหน้าแก้ไขโครงการ)</small>}
+  {t&&!drawn&&!outdated&&<small className="muted">Template นี้มีแต่จำนวนเหล็ก (ไม่มีตำแหน่งเหล็ก / ปลอกในตามรูปในแบบ) · นำเข้า Excel ที่มีคอลัมน์ “Section as drawn” ใน General Spec</small>}
   {stale&&onSync&&<span className="notice warning ct-stale">Template ใน Spec เปลี่ยนแล้ว แต่เสานี้ยังเป็นค่าเดิม <button type="button" className="primary" disabled={readOnly} onClick={()=>onSync(synced!)}>อัปเดตตาม Template</button></span>}
   {note&&<small className="muted">{note}</small>}
  </div>;
