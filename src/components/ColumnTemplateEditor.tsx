@@ -96,7 +96,7 @@ export function ColumnTemplateEditor({spec,readOnly,onChange,onClose,title}:{spe
      <p className="muted">ปลอก nYd@S1(d@S2): n = จำนวนชิ้นต่อชุด (ใช้ตรวจกับรูปแบบปลอกใน) · S1 โซนกลาง · S2 โซนล่าง/บน · สูงชั้น / คานลึก = 0 ใช้ค่าของเสาแต่ละต้น</p>
     </div>}
    </div>
-   <footer className="actions"><span className="muted">{list.length} ประเภทเสา · การแก้ไขบันทึกเมื่อกด “บันทึก Spec” · เสาที่ผูก Template ปรับตามเมื่อ Spec ถูกใช้กับโครงการ</span><button className="primary" onClick={onClose}>เสร็จ</button></footer>
+   <footer className="actions"><span className="muted">{list.length} ประเภทเสา · หน้าตัดตามรูปในแบบ {list.reduce((n,x)=>n+x.rows.filter(r=>r.layout).length,0)}/{list.reduce((n,x)=>n+x.rows.length,0)} ช่วงชั้น · การแก้ไขบันทึกเมื่อกด “บันทึก Spec” · เสาที่ผูก Template ปรับตามเมื่อ Spec ถูกใช้กับโครงการ</span><button className="primary" onClick={onClose}>เสร็จ</button></footer>
   </div>
  </Modal>;
 }
