@@ -339,6 +339,7 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .ct-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:start;margin-bottom:10px}.ct-head .actions{flex-direction:column;align-items:stretch}
 .column-templates>footer{display:flex;justify-content:space-between;gap:12px;text-align:left}
 .ct-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 12px}.ct-link{font-size:12px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:5px 10px}.ct-link.on{background:var(--brand-50);border-color:var(--brand-100)}.ct-link small{color:var(--text-3)}
+.ct-stale{display:inline-flex;align-items:center;gap:10px;margin:0;padding:6px 10px;font-size:12px}.ct-stale button{padding:4px 10px}
 .ct-picker .ct-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.ct-chips button{min-height:30px;padding:4px 11px;font-size:12px}.ct-chips button.active{border:2px solid var(--brand);background:var(--brand-50);color:var(--brand-600)}.ct-chips input{width:120px}
 .ct-preview{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;border-top:1px solid var(--border);padding-top:12px}.ct-summary p{white-space:pre-line;font-size:13px}.ct-zones b{color:var(--brand)}.ct-graphics{display:flex;gap:10px;align-items:flex-start}
 .ct-picker footer{display:flex;align-items:center;gap:8px;text-align:left}

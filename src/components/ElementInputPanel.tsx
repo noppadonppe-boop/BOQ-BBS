@@ -12,6 +12,7 @@ import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
 import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker';
+import {syncColumnTemplate} from '../domain/columnTemplates';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
@@ -150,7 +151,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      {q&&<p className="muted">ขุด {number(q.excavation)} m³ · ถมกลับ {number(q.backfill)} m³ (= ขุด − Lean{earth.sand?' − ทราย':''} − คอนกรีตใต้ดิน) · ต่อ 1 ฐาน</p>}
     </div><FootingEarthworkSketch input={input}/></div>;})()}
    <FootingPourEditor input={input} readOnly={readOnly} stages={preview&&!('error' in preview)?preview.q.pourStages:undefined} edit={f=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const next=structuredClone(prev);f(next);return next;})}/></>}
-  {input.category==='Column'&&<ColumnTemplateBar input={input} spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} onUnlink={()=>setInput(prev=>prev?.category==='Column'&&prev.template?{...prev,template:{...prev.template,linked:false}}:prev)}/>}
+  {input.category==='Column'&&<ColumnTemplateBar input={input} spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} onUnlink={()=>setInput(prev=>prev?.category==='Column'&&prev.template?{...prev,template:{...prev.template,linked:false}}:prev)} onSync={next=>setInput(next)}/>}
   {picker&&input.category==='Column'&&<ColumnTemplatePicker spec={spec} input={input} onApply={next=>setInput(next)} onClose={()=>setPicker(false)}/>}
   {picker&&input.category==='Foundation'&&(()=>{const cols=footingColumns(input),k=cols.length?Math.min(colSel,cols.length-1):0,col=cols[k]??input.column;
    return <FootingTemplatePicker spec={spec} col={col} target={cols.length>1?footingColumnName(col,k,true):'เสาบนฐานนี้'} onClose={()=>setPicker(false)} onApply={next=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const v=structuredClone(prev);
@@ -379,13 +380,18 @@ function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;on
 }
 
 /** Project Column Template entry point of a column: pick button + the template / row the section came from. */
-function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,note}:{input?:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink?:()=>void;note?:string}){
+function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,onSync,note}:{input?:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink?:()=>void;onSync?:(next:ColumnInput)=>void;note?:string}){
  const n=spec.columnTemplates?.length||0,ref=input?.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);
+ // linked column behind its template (template edited / re-imported since): offer the re-apply here
+ const synced=useMemo(()=>input&&ref?.linked&&t?syncColumnTemplate(input,spec):undefined,[input,ref,t,spec]),stale=!!synced&&JSON.stringify(synced)!==JSON.stringify(input);
+ const drawn=t&&(ref!.row<0?t.rows.some(r=>r.layout):!!t.rows[ref!.row]?.layout);
  const where=ref?`${ref.name}${ref.row<0?' · ทั้งตาราง':t?.rows[ref.row]?` · ${t.rows[ref.row].level}`:''}`:'';
  return <div className="ct-bar">
   <button type="button" className={n?'ct-open':''} disabled={readOnly} title={n?'เลือกหน้าตัด / เหล็กยืน / เหล็กปลอก จากตารางเสาของโครงการ':'ยังไม่มี Template · เพิ่มที่ General Spec ของโครงการ'} onClick={onPick}><Columns3 size={15}/>ตารางหน้าตัดเสา · Template โครงการ ({n})</button>
   {ref&&<span className={`ct-link ${ref.linked?'on':''}`}>{ref.linked?'ผูกกับ':'มาจาก'} Template <b>{where}</b>{!t&&' (ไม่พบใน Spec แล้ว)'}{ref.linked&&<small> · แก้ค่าในหน้านี้ได้ แต่จะถูกแทนเมื่อ Template ใน Spec เปลี่ยน</small>}</span>}
   {ref?.linked&&onUnlink&&<button type="button" className="icon-button" disabled={readOnly} title="เลิกผูก (ค่าคงเดิม · ไม่ปรับตาม Template อีก)" onClick={onUnlink}><Link2Off size={14}/></button>}
+  {t&&!drawn&&<small className="muted">Template นี้มีแต่จำนวนเหล็ก (ไม่มีตำแหน่งเหล็ก / ปลอกในตามรูปในแบบ) · นำเข้า Excel ที่มีคอลัมน์ “Section as drawn” ใน General Spec</small>}
+  {stale&&onSync&&<span className="notice warning ct-stale">Template ใน Spec เปลี่ยนแล้ว แต่เสานี้ยังเป็นค่าเดิม <button type="button" className="primary" disabled={readOnly} onClick={()=>onSync(synced!)}>อัปเดตตาม Template</button></span>}
   {note&&<small className="muted">{note}</small>}
  </div>;
 }
