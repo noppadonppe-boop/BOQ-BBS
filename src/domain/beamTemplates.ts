@@ -49,20 +49,20 @@ function asOne(parts:Part[]){
  return {count:parts.reduce((s,p)=>s+(p.diameter===d?p.count:Math.ceil(area(p)/d**2)),0),diameter:d};
 }
 
-/** Section of the schedule used at a span position (fallbacks: CANT → CON → END, END ↔ CON, MID → CON / END). */
+/** Section of the schedule used at a span position: its own section, else ALL SPAN (CANT tries CON first), else the
+ * fallbacks CANT → CON → END, END ↔ CON, MID → CON / END. ALL SPAN + CON = ALL everywhere, CON at continuous supports. */
 function sectionAt(t:Pick<BeamTemplate,'sections'>,z:BeamZone){
  const s=t.sections,f=(k:BeamTemplateZone)=>s.find(x=>x.zone===k);
  const order:Record<BeamZone,BeamZone[]>={end:['end','con','mid'],con:['con','end','mid'],mid:['mid','con','end'],cant:['cant','con','end','mid']};
- return f('all')||order[z].map(f).find(Boolean)||s[0];
+ return f(z)||(z==='cant'?f('con'):undefined)||f('all')||order[z].map(f).find(Boolean)||s[0];
 }
 
 /** Span bars from the schedule labels: main top / bottom = the bars every section has (min over the sections, the
- * non-EX part), EX of a section = the rest of that section; ALL SPAN = one section → no EX (all bars continuous);
+ * non-EX part), EX of a section = the rest of that section; an ALL SPAN section has no EX (its bars run through);
  * stirrups: the largest size / legs, spacing per section; side bars "10Y25" = both faces → 5 per face. */
 export function beamRebarFromSections(t:Pick<BeamTemplate,'sections'>,warn:(s:string)=>void=()=>{}):BeamRebar{
- const all=t.sections.some(s=>s.zone==='all');
  const layer=(key:'top'|'bottom')=>{
-  const per=Object.fromEntries(beamZones.map(z=>{const p=parseBarText(sectionAt(t,z)[key]);return [z,{main:asOne(p.filter(x=>all||!x.ex)),ex:asOne(p.filter(x=>!all&&x.ex)),total:asOne(p)}];})) as Record<BeamZone,{main:{count:number;diameter:number};ex:{count:number;diameter:number};total:{count:number;diameter:number}}>;
+  const per=Object.fromEntries(beamZones.map(z=>{const sec=sectionAt(t,z),all=sec.zone==='all',p=parseBarText(sec[key]);return [z,{main:asOne(p.filter(x=>all||!x.ex)),ex:asOne(p.filter(x=>!all&&x.ex)),total:asOne(p)}];})) as Record<BeamZone,{main:{count:number;diameter:number};ex:{count:number;diameter:number};total:{count:number;diameter:number}}>;
   const drawn=beamZones.filter(z=>t.sections.some(s=>s.zone===z||s.zone==='all'));
   const mains=(drawn.length?drawn:beamZones).map(z=>per[z].main).filter(m=>m.count>0);
   // mixed sizes between the sections (drawing oddity): the smallest section's size runs through
