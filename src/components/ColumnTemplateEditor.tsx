@@ -2,7 +2,7 @@ import {useMemo,useState} from 'react';
 import {ArrowDown,ArrowUp,Copy,Download,Plus,Trash2,Upload} from 'lucide-react';
 import type {Spec} from '../domain/model';
 import {columnTieLayout,defaultElementInput,tiePatternInfo,tiePatterns,type ColumnInput,type TiePattern} from '../domain/elementInput';
-import {DEFAULT_ZONE_RULES,applyTemplateRow,fractionText,mainText,newTemplate,newTemplateRow,templateMainCount,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnTemplateRow,type ColumnZoneRules} from '../domain/columnTemplates';
+import {DEFAULT_ZONE_RULES,applyTemplateRow,fractionText,mainText,newTemplate,newTemplateRow,rowPattern,splitMain,templateMainCount,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnTemplateRow,type ColumnZoneRules} from '../domain/columnTemplates';
 import {exportColumnTemplates,importColumnTemplates} from '../data/columnTemplateExcel';
 import {Modal,NumInput} from './EditorControls';
 import {TiePlan} from './ColumnTieEditor';
@@ -14,7 +14,7 @@ const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 /** Column built from a template row (tie plan / piece check); undefined when the section cannot hold the bars. */
 export function templatePreview(spec:Spec,t:ColumnTemplate,k:number){
  const base=defaultElementInput('Column','manual',spec) as ColumnInput,i=applyTemplateRow(base,t,k,zoneRulesOf(spec));
- try{const lay=columnTieLayout(i,t.pattern,i.detailing);return {input:i,lay,pieces:1+lay.pieces.length};}catch{return undefined;}
+ try{const lay=columnTieLayout(i,rowPattern(t,t.rows[k]),i.detailing);return {input:i,lay,pieces:1+lay.pieces.length};}catch{return undefined;}
 }
 
 /** Project Column Template (column schedule of the project) kept in the spec: column types with a row per level
@@ -81,9 +81,11 @@ export function ColumnTemplateEditor({spec,readOnly,onChange,onClose,title}:{spe
        <td><input type="checkbox" aria-label="ชั้นแรกบนฐานราก" title="ชั้นแรกบนฐานราก (ใช้กฎโซนชั้นแรก)" disabled={readOnly} checked={r.first} onChange={e=>row(k,x=>{x.first=e.target.checked;})}/></td>
        <td><span className="bar-cell">{num(r.width,v=>row(k,x=>{x.width=v;}),'กว้าง',58)}×{num(r.depth,v=>row(k,x=>{x.depth=v;}),'ลึก',58)}</span></td>
        <td><span className="bar-cell" title="0 = ใช้ค่าของเสาแต่ละต้น">{num(r.height,v=>row(k,x=>{x.height=v;}),'ความสูงชั้น',60)}/{num(r.beamDepth,v=>row(k,x=>{x.beamDepth=v;}),'ความลึกคาน',52)}</span></td>
+       {r.layout?<td colSpan={3}><span className="bar-cell" title="ตำแหน่งเหล็กยืนและปลอกในตามรูปหน้าตัดในแบบ (จาก Excel)">{dsel(r.main.corner.diameter,v=>row(k,x=>{x.main.corner.diameter=v;x.main.sideX.diameter=v;x.main.sideY.diameter=v;}),'ขนาดเหล็กยืน')}<small>ตามรูปในแบบ · {templateMainCount(r)} เส้น · ปลอกใน {r.layout.ties.length} วง</small>
+        <button type="button" className="icon-button" title="เลิกใช้รูปตามแบบ (กลับไปกำหนดจำนวนเหล็กมุม / ด้าน)" disabled={readOnly} onClick={()=>row(k,x=>{const n=templateMainCount(x),sp=splitMain(n,x.width,x.depth,1);delete x.layout;x.main.corner.count=1;x.main.sideX.count=sp.sideX;x.main.sideY.count=sp.sideY;})}><Trash2 size={13}/></button></span></td>:<>
        <td><span className="bar-cell">{dsel(r.main.corner.diameter,v=>row(k,x=>{x.main.corner.diameter=v;}),'เหล็กมุม')}<select aria-label="จำนวนต่อมุม" disabled={readOnly} value={r.main.corner.count} onChange={e=>row(k,x=>{x.main.corner.count=Number(e.target.value);})}>{[1,2,3].map(n=><option key={n} value={n}>{n}</option>)}</select></span></td>
        <td><span className="bar-cell">{int(r.main.sideX.count,v=>row(k,x=>{x.main.sideX.count=v;}),'เหล็กด้าน X')}/{int(r.main.sideY.count,v=>row(k,x=>{x.main.sideY.count=v;}),'เหล็กด้าน Y')}{dsel(r.main.sideX.diameter,v=>row(k,x=>{x.main.sideX.diameter=v;x.main.sideY.diameter=v;}),'ขนาดเหล็กด้าน')}</span></td>
-       <td><input type="checkbox" aria-label="เหล็กด้านมัดคู่" disabled={readOnly} checked={r.main.sideBundle===2} onChange={e=>row(k,x=>{x.main.sideBundle=e.target.checked?2:1;})}/></td>
+       <td><input type="checkbox" aria-label="เหล็กด้านมัดคู่" disabled={readOnly} checked={r.main.sideBundle===2} onChange={e=>row(k,x=>{x.main.sideBundle=e.target.checked?2:1;})}/></td></>}
        <td><span className="bar-cell">{dsel(r.tie.diameter,v=>row(k,x=>{x.tie.diameter=v;}),'ขนาดปลอก',tieDiameters)}{int(r.tie.sets,v=>row(k,x=>{x.tie.sets=v;}),'ชิ้นต่อชุด',40)}</span></td>
        <td><span className="bar-cell">{num(r.tie.s1,v=>row(k,x=>{x.tie.s1=v;}),'S1',52)}/{num(r.tie.s2,v=>row(k,x=>{x.tie.s2=v;}),'S2',52)}</span></td>
        <td><span className="bar-cell">

@@ -42,7 +42,7 @@ export function ColumnTieEditor({input,readOnly,set,num,dia}:Props){
     <div className="actions"><div className="segmented" role="group" aria-label="เลือกโซน">{zoneOrder.map(k=><button key={k} type="button" className={zone===k?'active':''} onClick={()=>setZone(k)}>{zoneName[k].split(' ')[0]}</button>)}</div>
      <button type="button" disabled={readOnly} onClick={()=>pick(active,true)} title="ใช้รูปแบบที่เลือกกับทุกโซน">ใช้กับทุกโซน</button></div></div>
    {!layouts?<p className="notice">กรอกขนาดหน้าตัด จำนวน/ขนาดเหล็กยืน และ cover ให้ครบเพื่อแสดงรูปแบบ</p>:
-   <div className="tie-pattern-grid" role="listbox" aria-label="รูปแบบปลอกชุดที่ 2">{tiePatterns.map(p=>{const lay=layouts[p],used=zoneOrder.filter(k=>t.inner[k].pattern===p),bad=lay.issues.length>0||(!lay.pieces.length&&p!=='none'&&p!=='auto');
+   <div className="tie-pattern-grid" role="listbox" aria-label="รูปแบบปลอกชุดที่ 2">{tiePatterns.filter(p=>p!=='custom'||input.rebar.main.layout||active==='custom').map(p=>{const lay=layouts[p],used=zoneOrder.filter(k=>t.inner[k].pattern===p),bad=lay.issues.length>0||(!lay.pieces.length&&p!=='none'&&p!=='auto');
     return <button key={p} type="button" role="option" aria-selected={active===p} disabled={readOnly} className={`tie-pattern-card ${active===p?'selected':''} ${bad?'unfit':''}`} onClick={()=>pick(p)} title={tiePatternInfo[p].hint}>
      <TiePlan lay={lay} size={112}/>
      <b>{tiePatternInfo[p].label}</b>

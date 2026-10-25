@@ -18,6 +18,18 @@ const mm=z.number().finite().min(0).max(200000);
 const dia=z.number().finite().min(0).max(60);
 const spacingLayer=z.object({diameter:dia,spacing:mm}).strict();
 const countLayer=z.object({count:z.number().int().min(0).max(200),diameter:dia}).strict();
+const unit01=z.number().finite().min(0).max(1);
+const step=z.number().int().min(-1).max(1);
+/** Rect column section as drawn (column schedule): bar positions u (along X) / v (along Y) as fractions of the
+ * bar-centre box (0 = outermost bar line), bundles of n bars touching along `dir` (steps −1/0/1 per axis, away from the
+ * face), and the set-2 ties as closed rectangles around the bar centres u0..u1 × v0..v1. Overrides corner / side counts
+ * and the tie pattern ('custom'). */
+export const sectionLayoutSchema=z.object({
+ bars:z.array(z.object({u:unit01,v:unit01,n:z.number().int().min(2).max(3).optional(),dir:z.tuple([step,step]).optional()}).strict()).min(1).max(200),
+ ties:z.array(z.object({u0:unit01,v0:unit01,u1:unit01,v1:unit01}).strict()).max(40),
+}).strict();
+export type SectionLayout=z.infer<typeof sectionLayoutSchema>;
+export const layoutBarCount=(l:SectionLayout)=>l.bars.reduce((n,b)=>n+(b.n||1),0);
 /** 90° end bend: none, standard (hook90·d straight extension after the bend) or a user-defined leg length. */
 const bendMode=z.enum(['none','standard','custom']);
 /** BS 8666:2020 Table 5 shape codes that fit a straight bar run whose ends turn into the member thickness.
@@ -54,7 +66,9 @@ const footingColumnSchema=z.object({
  height:mm,projection:mm,cover:mm,
  // corner: bars per corner (bundle of 1–3); sideX/sideY: bars per face between the corners
  // (rect) or diameters for the edges along X/Y (L/U, placed at `spacing`); circle uses diameter/count.
- main:z.object({corner:z.object({diameter:dia,count:z.number().int().min(1).max(3)}).strict(),sideX:countLayer,sideY:countLayer,diameter:dia,count:z.number().int().min(0).max(200),spacing:mm}).strict(),
+ main:z.object({corner:z.object({diameter:dia,count:z.number().int().min(1).max(3)}).strict(),sideX:countLayer,sideY:countLayer,diameter:dia,count:z.number().int().min(0).max(200),spacing:mm,
+  /** rect: bar positions as drawn (overrides corner / side counts) */
+  layout:sectionLayoutSchema.optional()}).strict(),
  tie:spacingLayer,
  embed:z.object({mode:z.enum(['standard','custom']),depth:mm}).strict(),
  bend:bendMode,leg:mm,
@@ -233,7 +247,7 @@ export type ColumnEnd=z.infer<typeof columnEnd>;
 /** Ties in three zones: lower (from the bottom), middle (`spacing`, remaining height), upper (to the top). Zone length 0 = no zone. */
 const tieZone=z.object({length:mm,spacing:mm}).strict();
 /** Set 2 (supplementary ties inside the perimeter hoop): pattern and spacing per zone, own diameter. */
-export const tiePatterns=['none','auto','crossX','crossY','crossXY','crossAlt','diamond','diamondCross','diamondRect','rectX','rectY','rectXY','rectCross','octagon','overlapX','overlapY'] as const;
+export const tiePatterns=['none','auto','crossX','crossY','crossXY','crossAlt','diamond','diamondCross','diamondRect','rectX','rectY','rectXY','rectCross','octagon','overlapX','overlapY','custom'] as const;
 export type TiePattern=typeof tiePatterns[number];
 export const tiePatternInfo:Record<TiePattern,{label:string;hint:string}>={
  none:{label:'ไม่มี (ปลอกรอบมุมอย่างเดียว)',hint:'ใช้เมื่อเหล็กกลางด้านทุกเส้นห่างจากเหล็กมุมไม่เกิน 150 mm (ระยะช่องว่าง)'},
@@ -252,6 +266,7 @@ export const tiePatternInfo:Record<TiePattern,{label:string;hint:string}>={
  rectCross:{label:'ปลอกในแนวยาว + รัดขวางแนวสั้น',hint:'หน้าตัดพิเศษ (เสายาว/ผนัง): ปลอกในตามแนวยาวรัดเหล็กด้านสั้น + Cross tie ทุกแถวตามแนวสั้น'},
  overlapX:{label:'ปลอกซ้อนต่อเนื่อง แนว X',hint:'หน้าตัดพิเศษ (เสายาวแนว X): ปลอกเกือบจัตุรัสซ้อนกันต่อเนื่องตามแนว X + Cross tie แถวที่เหลือ'},
  overlapY:{label:'ปลอกซ้อนต่อเนื่อง แนว Y',hint:'หน้าตัดพิเศษ (เสายาวแนว Y): ปลอกเกือบจัตุรัสซ้อนกันต่อเนื่องตามแนว Y + Cross tie แถวที่เหลือ'},
+ custom:{label:'ตามแบบ (ตารางหน้าตัดเสา)',hint:'ปลอกในตามรูปหน้าตัดในแบบ: ปลอกสี่เหลี่ยมรอบเหล็กตามตำแหน่งที่กำหนดใน Template'},
 };
 const innerZone=z.object({pattern:z.enum(tiePatterns),spacing:mm}).strict();
 export type TieZoneKey='lower'|'middle'|'upper';
@@ -260,7 +275,9 @@ export const tieZoneKeys:readonly (readonly [TieZoneKey,string])[]=[['lower','�
  * per Y face (left/right), equal on opposite faces and evenly spaced. Circle: `count` × `diameter`. */
 const columnMain=z.object({corner:z.object({diameter:dia,count:z.number().int().min(1).max(3)}).strict(),sideX:countLayer,sideY:countLayer,diameter:dia,count:z.number().int().min(0).max(200),
  /** side bars in bundles of 2 (pairs side by side along the face): side counts are bars, positions = count / 2 */
- sideBundle:z.number().int().min(1).max(2).optional()}).strict();
+ sideBundle:z.number().int().min(1).max(2).optional(),
+ /** bar positions + set-2 ties as drawn (column schedule); overrides corner / side counts */
+ layout:sectionLayoutSchema.optional()}).strict();
 /** Bars per X face / per Y face (excluding corners) for `n` bars spread proportionally on a w × d section. */
 export function splitMainCount(n:number,w:number,d:number){const extra=Math.max(0,n-4),inX=Math.round(extra*w/((w+d)||1)/2)*2||0;return {x:inX/2,y:Math.ceil((extra-inX)/2)};}
 const columnTie=z.object({diameter:dia,spacing:mm,lower:tieZone,upper:tieZone,
@@ -729,6 +746,12 @@ export function columnTieLayout(i:ColumnInput,pattern:TiePattern,det:Detailing){
   case 'rectCross':{const long:0|1=W>=D?0:1;rects(long);crossAll(long===0?1:0,long===0?bt:lr);break;}
   case 'overlapX':overlap(0);break;
   case 'overlapY':overlap(1);break;
+  case 'custom':{
+   const l=i.rebar.main.layout;
+   if(!l){issues.push('ไม่มีรูปหน้าตัดตามแบบ (เลือกจากตารางหน้าตัดเสา)');break;}
+   const b=layoutBox(W,D,c+dt,i.rebar.main.corner.diameter);
+   for(const t of l.ties){const p=b.X(t.u0),q=b.X(t.u1),r=b.Y(t.v0),s=b.Y(t.v1);closed([[p,r],[q,r],[q,s],[p,s]]);}
+   break;}
   case 'octagon':{
    if(!f.bottom.length||!f.top.length||!f.left.length||!f.right.length){issues.push('ต้องมีเหล็กกลางด้านทุกด้าน');break;}
    const raw:Pt[]=[[f.bottom[0],y0],[f.bottom.at(-1)!,y0],[x1,f.right[0]],[x1,f.right.at(-1)!],[f.top.at(-1)!,y1],[f.top[0],y1],[x0,f.left.at(-1)!],[x0,f.left[0]]];
@@ -820,7 +843,7 @@ export function pileQuantities(i:FoundationInput){
  return {count:n,lengthEach:p.length,totalLength:n*p.length,cutCount:p.cutoff>0?n:0,cutLengthEach:p.cutoff/1000,totalCutLength:n*p.cutoff/1000,type:p.type,size:p.size};
 }
 const pileArea=(p:PileInput)=>p.type==='square'||p.type==='I'?p.size*p.size:Math.PI*p.size**2/4;
-export type ColumnBarPos={x:number;y:number;d:number;kind:'corner'|'sideX'|'sideY'|'ring'};
+export type ColumnBarPos={x:number;y:number;d:number;kind:'corner'|'sideX'|'sideY'|'ring'|'inner'};
 /** Largest main-bar diameter of the section. */
 export function maxMainDiameter(col:FootingColumn){const m=col.main;return col.shape==='circle'?m.diameter:Math.max(m.corner.diameter,col.shape!=='rect'||m.sideX.count>0?m.sideX.diameter:0,col.shape!=='rect'||m.sideY.count>0?m.sideY.diameter:0);}
 /** Main bar centres (local coordinates). `base` = cover + tie diameter.
@@ -829,6 +852,7 @@ export function maxMainDiameter(col:FootingColumn){const m=col.main;return col.s
 function columnBarPositions(col:FootingColumn,base:number,symmetric=false):ColumnBarPos[]{
  const m=col.main;
  if(col.shape==='circle'){const r=col.diameter/2-base-m.diameter/2,ctr=col.diameter/2;return Array.from({length:m.count},(_,k)=>({x:ctr+r*Math.cos(2*Math.PI*k/m.count),y:ctr+r*Math.sin(2*Math.PI*k/m.count),d:m.diameter,kind:'ring' as const}));}
+ if(col.shape==='rect'&&m.layout)return layoutBarPositions(m.layout,col.width,col.depth,base,m.corner.diameter);
  const shape=outline(col),dc=m.corner.diameter,nc=m.corner.count,corner=inset(shape,base+dc/2),out:ColumnBarPos[]=[];
  const unit=(a:[number,number],b:[number,number]):[number,number]=>{const dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;return [dx/l,dy/l];};
  corner.forEach((p,i)=>{
@@ -852,6 +876,24 @@ function columnBarPositions(col:FootingColumn,base:number,symmetric=false):Colum
  return out;
 }
 const Hypot=(a:[number,number],b:[number,number])=>Math.hypot(b[0]-a[0],b[1]-a[1]);
+/** Bar-centre box of a drawn layout: outermost bar lines at cover + tie + d/2. */
+function layoutBox(W:number,D:number,base:number,d:number){const a=base+d/2;return {x0:a,x1:W-a,y0:a,y1:D-a,X:(u:number)=>a+u*(W-2*a),Y:(v:number)=>a+v*(D-2*a)};}
+/** Bars of a drawn section layout: primary bar at (u, v), bundle partners d apart along `dir` (diagonal: d / √2 per axis). */
+function layoutBarPositions(l:SectionLayout,W:number,D:number,base:number,d:number):ColumnBarPos[]{
+ const b=layoutBox(W,D,base,d),e=1,out:ColumnBarPos[]=[];
+ const kindOf=(x:number,y:number):ColumnBarPos['kind']=>{const sx=x<b.x0+e||x>b.x1-e,sy=y<b.y0+e||y>b.y1-e;return sx&&sy?'corner':sy?'sideX':sx?'sideY':'inner';};
+ for(const p of l.bars){
+  const x=b.X(p.u),y=b.Y(p.v),[du,dv]=p.dir||[0,0],len=Math.hypot(du,dv)||1;
+  for(let k=0;k<(p.n||1);k++){const px=x+du/len*d*k,py=y+dv/len*d*k;out.push({x:px,y:py,d,kind:kindOf(px,py)});}
+ }
+ // drawn bars closer than touching (schematic bar size): push the inner one of each pair away to touch
+ const edge=(q:ColumnBarPos)=>Math.min(q.x-b.x0,b.x1-q.x,q.y-b.y0,b.y1-q.y);
+ for(let it=0;it<4;it++)for(let i=0;i<out.length;i++)for(let j=i+1;j<out.length;j++){
+  const p=out[i],q=out[j],dx=q.x-p.x,dy=q.y-p.y,g=Math.hypot(dx,dy);if(g>=d-.01||g<1e-6)continue;
+  const [m,s]=edge(p)>edge(q)?[p,-1]:[q,1];m.x+=s*dx/g*(d-g);m.y+=s*dy/g*(d-g);m.kind=kindOf(m.x,m.y);
+ }
+ return out;
+}
 /** Special column sections (typical large / wall-like columns): bars Y32 with 2-bar corner
  * bundles, ties Y12 @200 (@100 in the end zones) and the set-2 pattern used in the reference details. */
 export const columnPresets=[
@@ -1055,7 +1097,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  const all=columnBarPositions(col,col.cover+dt).map(b=>({...b,x:ox+b.x,y:oy+b.y}));
  if(!all.length){warn(`${name}: ไม่มีตำแหน่งเหล็กยืน`);continue;}
  const meshTop=c.bottom+r.bottomX.diameter+r.bottomY.diameter,top=T+(pedestal?col.height:0);
- const groups=[...new Set(all.map(b=>b.d))].sort((a,b)=>b-a),kinds:Record<ColumnBarPos['kind'],string>={corner:'มุม',sideX:'ด้าน X',sideY:'ด้าน Y',ring:'รอบวง'};
+ const groups=[...new Set(all.map(b=>b.d))].sort((a,b)=>b-a),kinds:Record<ColumnBarPos['kind'],string>={corner:'มุม',sideX:'ด้าน X',sideY:'ด้าน Y',ring:'รอบวง',inner:'ใน'};
  for(const dm of groups){
   const set=all.filter(b=>b.d===dm),pts=set.map(b=>[b.x,b.y] as [number,number]),rad=radius(dm,det),zMin=meshTop+dm/2;
   let zBend=col.embed.mode==='custom'?T-col.embed.depth:zMin;
@@ -1202,7 +1244,7 @@ function columnBars(i:ColumnInput,det:Detailing,rounding:number,warn:(s:string)=
  // main bar centres and the inward crank direction of each bar (corner: diagonal, side: normal to its face, ring: radial)
  const all=columnInputBars(i),cx=W/2,cy=Dp/2,sg=(v:number)=>Math.sign(v)||1;
  const dirOf=(b:ColumnBarPos):Pt=>b.kind==='sideX'?[0,sg(cy-b.y)]:b.kind==='sideY'?[sg(cx-b.x),0]:b.kind==='corner'?[sg(cx-b.x)/Math.SQRT2,sg(cy-b.y)/Math.SQRT2]:(()=>{const l=Math.hypot(cx-b.x,cy-b.y)||1;return [(cx-b.x)/l,(cy-b.y)/l] as Pt;})();
- const sizes=[...new Set(all.map(b=>b.d))].sort((p,q)=>q-p),kinds:Record<ColumnBarPos['kind'],string>={corner:'มุม',sideX:'ด้าน X',sideY:'ด้าน Y',ring:'รอบวง'};
+ const sizes=[...new Set(all.map(b=>b.d))].sort((p,q)=>q-p),kinds:Record<ColumnBarPos['kind'],string>={corner:'มุม',sideX:'ด้าน X',sideY:'ด้าน Y',ring:'รอบวง',inner:'ใน'};
  for(const dm of sizes){
  const set=all.filter(b=>b.d===dm),pts=set.map(b=>[b.x,b.y] as Pt),dirs=set.map(dirOf),n=pts.length;
  const lapOf=(e:ColumnEnd)=>e.lap>0?e.lap:lapLength(det,dm),Lb=lapOf(eb),Lt=lapOf(et),off=dm,rise=6*off;
@@ -1660,7 +1702,7 @@ export function inputFromExtraction(input:ElementInput,e:DrawingExtraction):{inp
     set('rebar.main.count',main.count,'จำนวนเหล็กยืน');set('rebar.main.diameter',main.diameter,'ขนาดเหล็กยืน');
     const s=splitMainCount(main.count??0,next.width,next.depth);
     for(const k of ['corner','sideX','sideY'])next.rebar.main[k].diameter=main.diameter;
-    next.rebar.main.corner.count=1;next.rebar.main.sideX.count=s.x;next.rebar.main.sideY.count=s.y;
+    next.rebar.main.corner.count=1;next.rebar.main.sideX.count=s.x;next.rebar.main.sideY.count=s.y;delete next.rebar.main.layout;
    }
    if(tie){set('rebar.tie.diameter',tie.diameter,'ขนาดปลอก');set('rebar.tie.spacing',tie.spacing,'ระยะปลอก');}
    break;}

@@ -65,6 +65,11 @@
   uses the same grid (`FootingTemplatePicker`, pedestal | starter) → `applyTemplateFooting()` on the selected footing column
   (ties at S2; test `tmp/footingTemplate.test.ts`). Test: `tmp/columnTemplate.test.ts`;
   J-078 schedule data + Excel generator: `tmp/j078.test.ts` → `tmp/J-078-column-templates.xlsx`.
+  Sections as drawn: `main.layout` (`sectionLayoutSchema` in `elementInput.ts`: bars u/v as fractions of the bar-centre
+  box + bundles n/dir, ties = closed rects u0..u1 × v0..v1) on template rows / column main / storey main / footing column
+  main; overrides corner / side counts (`layoutBarPositions()`, kind `inner` for interior bars, too-close drawn bars pushed
+  to touching) and tie pattern `custom` (`rowPattern()`). Excel column 16 = layout JSON. J-078 layouts were read from the
+  PDF vectors (`tmp/j078-layouts.json`: filled-triangle clusters = bars, stroked rects = ties). Test: `tmp/sectionLayout.test.ts`.
 - A3 BBS sheet (views + BBS table + BOQ table + title block), layout id `sheet-a3-v10`:
   layout in `src/domain/bbsSheet.ts` → renderer-agnostic primitives (`src/domain/drawingPrims.ts`),
   drawn as SVG by `src/components/PrimsSvg.tsx` (preview in the "แบบ & BBS" tab) and as PDF by `src/data/primsPdf.ts`.

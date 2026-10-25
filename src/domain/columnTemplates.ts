@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {tiePatterns,type ColumnInput,type ColumnStorey,type FootingColumn,type TiePattern} from './elementInput';
+import {layoutBarCount,sectionLayoutSchema,tiePatterns,type ColumnInput,type ColumnStorey,type FootingColumn,type TiePattern} from './elementInput';
 import type {Spec} from './model';
 
 // Project Column Template: the column schedule of a project (one entry per column mark, one row per level range
@@ -19,6 +19,8 @@ export const columnTemplateRowSchema=z.object({
  main:z.object({corner:z.object({diameter:dia,count:z.number().int().min(1).max(3)}).strict(),sideX:layer,sideY:layer,sideBundle:z.number().int().min(1).max(2)}).strict(),
  /** nYd@S1(d@S2): sets = n pieces per tie level (check), S1 middle zone, S2 end zones */
  tie:z.object({diameter:dia,sets:z.number().int().min(0).max(30),s1:mm,s2:mm}).strict(),
+ /** bar positions + inner ties as drawn (overrides corner / side counts and the template pattern) */
+ layout:sectionLayoutSchema.optional(),
 }).strict();
 export type ColumnTemplateRow=z.infer<typeof columnTemplateRowSchema>;
 export const columnTemplateSchema=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),name:z.string().trim().min(1).max(40),note:z.string().max(300),
@@ -54,11 +56,11 @@ export function zoneLengths(height:number,beam:number,first:boolean,rules:Column
  return {clear,lower,upper,middle:Math.max(0,height-lower-upper)};
 }
 
-export const templateMainCount=(r:Pick<ColumnTemplateRow,'main'>)=>4*r.main.corner.count+2*(r.main.sideX.count+r.main.sideY.count);
+export const templateMainCount=(r:Pick<ColumnTemplateRow,'main'|'layout'>)=>r.layout?layoutBarCount(r.layout):4*r.main.corner.count+2*(r.main.sideX.count+r.main.sideY.count);
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const yName=(d:number)=>`${d<=9?'RB':'Y'}${d}`;
 /** "32Y32" (main bars as on the schedule). */
-export function mainText(r:Pick<ColumnTemplateRow,'main'>){const m=r.main,ds=[...new Set([m.corner.diameter,m.sideX.count?m.sideX.diameter:0,m.sideY.count?m.sideY.diameter:0].filter(Boolean))];return `${templateMainCount(r)}${ds.map(yName).join('/')}`;}
+export function mainText(r:Pick<ColumnTemplateRow,'main'|'layout'>){const m=r.main,ds=r.layout?[m.corner.diameter]:[...new Set([m.corner.diameter,m.sideX.count?m.sideX.diameter:0,m.sideY.count?m.sideY.diameter:0].filter(Boolean))];return `${templateMainCount(r)}${ds.map(yName).join('/')}`;}
 /** "5Y12@200(12@100)" (ties as on the schedule). */
 export const tieText=(r:Pick<ColumnTemplateRow,'tie'>)=>`${r.tie.sets||''}${yName(r.tie.diameter)}@${r.tie.s1}(${r.tie.diameter}@${r.tie.s2})`;
 export const rowSummary=(t:ColumnTemplate,r:ColumnTemplateRow)=>`${r.width}×${r.depth} · ${mainText(r)} · ${tieText(r)}`;
@@ -81,7 +83,9 @@ export const newTemplateRow=(level='Footing → 2nd',first=true):ColumnTemplateR
  main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},sideBundle:1},tie:{diameter:12,sets:0,s1:200,s2:100}});
 export const newTemplate=(name:string):ColumnTemplate=>({id:crypto.randomUUID().replace(/-/g,'').slice(0,12),name,note:'',pattern:'auto',rows:[newTemplateRow()]});
 
-const mainOf=(r:ColumnTemplateRow):ColumnInput['rebar']['main']=>({corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r),...(r.main.sideBundle===2?{sideBundle:2}:{})});
+const mainOf=(r:ColumnTemplateRow):ColumnInput['rebar']['main']=>({corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r),...(r.main.sideBundle===2?{sideBundle:2}:{}),...(r.layout?{layout:structuredClone(r.layout)}:{})});
+/** Inner tie pattern of a row: drawn ties ('custom') when the row carries a layout. */
+export const rowPattern=(t:ColumnTemplate,r:ColumnTemplateRow):TiePattern=>r.layout?'custom':t.pattern;
 /** Single column from row `k` of a template: section, main bars, tie zones by the zone rules (lower / middle / upper,
  * hoop and inner ties at S2 / S1 / S2). `beam` = beam depth at the column top (default: the pour beam depth). */
 export function applyTemplateRow(i:ColumnInput,t:ColumnTemplate,k:number,rules:ColumnZoneRules,opts:{beam?:number;linked?:boolean}={}):ColumnInput{
@@ -89,7 +93,7 @@ export function applyTemplateRow(i:ColumnInput,t:ColumnTemplate,k:number,rules:C
  const v=structuredClone(i),beam=opts.beam??(r.beamDepth||v.pour?.beam||0);
  if(r.height>0)v.height=r.height;
  v.layout='single';v.shape='rect';v.width=r.width;v.depth=r.depth;v.rebar.main=mainOf(r);
- const z=zoneLengths(v.height,beam,r.first,rules),d=r.tie.diameter,zone=(spacing:number)=>({pattern:t.pattern,spacing});
+ const z=zoneLengths(v.height,beam,r.first,rules),d=r.tie.diameter,zone=(spacing:number)=>({pattern:rowPattern(t,r),spacing});
  v.rebar.tie={diameter:d,spacing:r.tie.s1,lower:{length:z.lower,spacing:r.tie.s2},upper:{length:z.upper,spacing:r.tie.s2},inner:{diameter:d,lower:zone(r.tie.s2),middle:zone(r.tie.s1),upper:zone(r.tie.s2)}};
  v.template={id:t.id,name:t.name,row:k,beam,linked:opts.linked??true};
  return v;
@@ -100,18 +104,19 @@ export function applyTemplateStack(i:ColumnInput,t:ColumnTemplate,rules:ColumnZo
  const v=structuredClone(i),old=v.stack.storeys;
  v.layout='stack';v.shape='rect';
  v.stack.storeys=t.rows.map((r,k):ColumnStorey=>({name:r.level.slice(0,40),height:r.height||old[k]?.height||v.height||4000,beamDepth:r.beamDepth||old[k]?.beamDepth||600,width:r.width,depth:r.depth,
-  main:mainOf(r),tie:{diameter:r.tie.diameter,sets:r.tie.sets,pattern:t.pattern as TiePattern,s1:r.tie.s1,s2:r.tie.s2}}));
+  main:mainOf(r),tie:{diameter:r.tie.diameter,sets:r.tie.sets,pattern:rowPattern(t,r),s1:r.tie.s1,s2:r.tie.s2}}));
  if(t.rows.length)v.stack.footing.enabled=t.rows[0].first;
  v.stack.zones=structuredClone(rules);
  v.template={id:t.id,name:t.name,row:-1,beam:0,linked:opts.linked??true};
  return v;
 }
+const withoutLayout=<T extends {layout?:unknown}>(m:T):Omit<T,'layout'>=>{const {layout:_,...rest}=m;return rest;};
 /** Pedestal / starter bar on a footing from row `k` of a template: rect section, column no. = template name, main bars;
  * pedestal ties at the end-zone spacing S2 (the pedestal is below the first storey). Position, height, embedment kept. */
 export function applyTemplateFooting(c:FootingColumn,t:ColumnTemplate,k:number,type:'pedestal'|'starter'):FootingColumn{
  const r=t.rows[k];if(!r)return c;
  return {...structuredClone(c),type,columnNo:t.name.slice(0,50),shape:'rect',width:r.width,depth:r.depth,
-  main:{...c.main,corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r)},
+  main:{...withoutLayout(c.main),corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r),...(r.layout?{layout:structuredClone(r.layout)}:{})},
   tie:{diameter:r.tie.diameter,spacing:r.tie.s2||r.tie.s1}};
 }
 /** Re-apply the linked template (spec change / template edit); unlinked or missing templates leave the input as is. */

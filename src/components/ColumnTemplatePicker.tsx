@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import type {Spec} from '../domain/model';
 import {columnTieLayout,defaultElementInput,tiePatternInfo,type ColumnInput,type FootingColumn,type TieZoneKey} from '../domain/elementInput';
-import {applyTemplateFooting,applyTemplateRow,applyTemplateStack,fractionText,mainText,templateBarName,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
+import {applyTemplateFooting,applyTemplateRow,applyTemplateStack,fractionText,mainText,rowPattern,templateBarName,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
 import {Modal,NumInput} from './EditorControls';
 import {TieElevation,TiePlan} from './ColumnTieEditor';
 
@@ -14,7 +14,7 @@ export function ColumnTemplatePicker({spec,input,onApply,onClose}:{spec:Spec;inp
  const [zone,setZone]=useState<TieZoneKey>('middle'),[view,setView]=useState<'grid'|'list'>('grid');
  const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0;
  const next=useMemo(()=>t?k<0?applyTemplateStack(input,t,rules,{linked}):applyTemplateRow(input,t,k,rules,{beam,linked}):undefined,[t,k,input,rules,beam,linked]);
- const lay=useMemo(()=>{if(!next||!t)return;const probe=k<0?applyTemplateRow(input,t,0,rules):next;try{return columnTieLayout(probe,t.pattern,probe.detailing);}catch{return;}},[next,t,k,input,rules]);
+ const lay=useMemo(()=>{if(!next||!t)return;const probe=k<0?applyTemplateRow(input,t,0,rules):next;try{return columnTieLayout(probe,rowPattern(t,t.rows[Math.max(0,k)]),probe.detailing);}catch{return;}},[next,t,k,input,rules]);
  const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
  const r=t&&k>=0?t.rows[k]:undefined,tie=next?.rebar.tie,f=r?zoneFractions(rules,r.first):undefined;
  return <Modal title="ตารางหน้าตัดเสา · Project Column Template" onClose={onClose}>
@@ -32,14 +32,14 @@ export function ColumnTemplatePicker({spec,input,onApply,onClose}:{spec:Spec;inp
     <div className="ct-summary">
      <b>{t.name}{r?` · ${r.level}`:` · ${t.rows.length} ช่วงชั้น`}</b>{t.note&&<small className="block muted">{t.note}</small>}
      {r?<><p>หน้าตัด {r.width} × {r.depth} · เหล็กยืน {mainText(r)} · ปลอก {tieText(r)}</p>
-      <p className="muted">ปลอกใน: {tiePatternInfo[t.pattern].label}</p>
+      <p className="muted">ปลอกใน: {tiePatternInfo[rowPattern(t,r)].label}</p>
       <div className="form-grid"><label className="field"><span>ความสูงเสา (mm)</span><input disabled value={next.height}/></label>
        <label className="field"><span>ความลึกคานด้านบน (mm) · ช่วงคานเป็นโซนบน</span><NumInput type="number" min={0} step="any" value={beam} onChange={e=>setBeam(Math.max(0,Number(e.target.value)||0))}/></label></div>
       <p className="ct-zones">H = {next.height} − {beam} = {Math.max(0,next.height-beam)} · {r.first?'ชั้นแรก':'ชั้นทั่วไป'}: ล่าง {fractionText(f!.lower)} = <b>{tie.lower.length} @{tie.lower.spacing}</b> · กลาง {fractionText(f!.middle)} = <b>{Math.max(0,next.height-tie.lower.length-tie.upper.length)} @{tie.spacing}</b> · บน {fractionText(f!.upper)} + คาน = <b>{tie.upper.length} @{tie.upper.spacing}</b></p>
       {r.height>0&&r.height!==input.height&&<p className="notice warning">Template กำหนดสูงชั้น {r.height} mm (เสานี้ {input.height}) · จะใช้ค่าของ Template</p>}</>
      :<><p>{t.rows.map(x=>`${x.level}: ${x.width}×${x.depth} · ${mainText(x)} · ${tieText(x)}`).join('\n')}</p>
       <p className="muted">เปลี่ยนเป็นเสาหลายชั้น {t.rows.length} ชั้น · ความสูงชั้น / คานลึกใช้ค่าเดิมของเสา (หรือของ Template ถ้ากำหนด) · โซนปลอกตามกฎของโครงการ ({fractionText(zoneFractions(rules,true).lower)} / {fractionText(zoneFractions(rules,false).lower)} ล่าง)</p></>}
-     <p className="muted">จะเติมให้: ขนาดหน้าตัด · เหล็กมุม / ด้าน X / ด้าน Y · ปลอกชุด 1 และชุด 2 ทั้ง 3 โซน · ค่าอื่น (cover, ปลายเหล็ก, การเท) คงเดิม</p>
+     <p className="muted">จะเติมให้: ขนาดหน้าตัด · {t.rows.some(x=>x.layout)?'ตำแหน่งเหล็กยืนและปลอกในตามรูปในแบบ':'เหล็กมุม / ด้าน X / ด้าน Y'} · ปลอกชุด 1 และชุด 2 ทั้ง 3 โซน · ค่าอื่น (cover, ปลายเหล็ก, การเท) คงเดิม</p>
     </div>
     <div className="ct-graphics">{lay&&<TiePlan lay={lay} size={150}/>}{k>=0&&<TieElevation input={next} lengths={{lower:tie.lower.length,upper:tie.upper.length,middle:Math.max(0,next.height-tie.lower.length-tie.upper.length)}} zone={zone} onZone={setZone}/>}</div>
    </div>}
@@ -66,7 +66,7 @@ export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Sp
    <ScheduleGrid list={shown} input={base} rules={rules} id={id} row={k} onPick={(x,i)=>{setId(x);setRow(i<0?firstRow(list.find(y=>y.id===x)):i);}} bottom/>
    {t&&r&&<div className="ct-summary"><b>{target} ← {t.name} · {r.level}</b>
     <p>{type==='pedestal'?'เสาตอม่อ':'Starter bar'} · หน้าตัด {r.width} × {r.depth} · เหล็กยืน {mainText(r)}{type==='pedestal'?` · ปลอก ${templateBarName(r.tie.diameter)}@${r.tie.s2||r.tie.s1} (ระยะโซนปลายเสา S2)`:''}</p>
-    <p className="muted">จะเติมให้: ประเภท · Column no. = {t.name} · หน้าตัดสี่เหลี่ยม · เหล็กมุม / ด้าน X / ด้าน Y{type==='pedestal'?' · เหล็กปลอก':''} · ค่าอื่น (ตำแหน่ง, ความสูงตอม่อ, ระยะโผล่, การฝัง, ปลายบน) คงเดิม{type==='starter'?' · Starter bar ไม่มีเหล็กปลอก':''}</p></div>}
+    <p className="muted">จะเติมให้: ประเภท · Column no. = {t.name} · หน้าตัดสี่เหลี่ยม · {r.layout?'ตำแหน่งเหล็กยืนตามรูปในแบบ':'เหล็กมุม / ด้าน X / ด้าน Y'}{type==='pedestal'?' · เหล็กปลอก':''} · ค่าอื่น (ตำแหน่ง, ความสูงตอม่อ, ระยะโผล่, การฝัง, ปลายบน) คงเดิม{type==='starter'?' · Starter bar ไม่มีเหล็กปลอก':''}</p></div>}
    <footer className="actions"><span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!t||!r} onClick={()=>{if(t){onApply(applyTemplateFooting(col,t,k,type));onClose();}}}>ใช้หน้าตัดนี้</button></footer></>}
   </div>
  </Modal>;
@@ -84,10 +84,10 @@ function ScheduleGrid({list,input,rules,id,row,onPick,bottom}:{list:ColumnTempla
  const box=useRef<HTMLDivElement>(null);
  useEffect(()=>{if(bottom&&box.current)box.current.scrollTop=box.current.scrollHeight;},[bottom]);
  const levels=useMemo(()=>scheduleLevels(list).reverse(),[list]);
- const lays=useMemo(()=>new Map(list.flatMap(t=>t.rows.map((r,k)=>{let lay;try{const p=applyTemplateRow(input,t,k,rules);lay=columnTieLayout(p,t.pattern,p.detailing);}catch{lay=undefined;}return [`${t.id}/${r.level}`,{k,lay}] as const;}))),[list,input,rules]);
+ const lays=useMemo(()=>new Map(list.flatMap(t=>t.rows.map((r,k)=>{let lay;try{const p=applyTemplateRow(input,t,k,rules);lay=columnTieLayout(p,rowPattern(t,r),p.detailing);}catch{lay=undefined;}return [`${t.id}/${r.level}`,{k,lay}] as const;}))),[list,input,rules]);
  const big=Math.max(1,...list.flatMap(t=>t.rows.map(r=>Math.max(r.width,r.depth))));
  return <div className="ct-sched" ref={box}><table>
-  <thead><tr><th className="lv">ช่วงชั้น \ เสา</th>{list.map(t=><th key={t.id} className={t.id===id&&row<0?'active':''}><button type="button" title={`${t.name} ทั้งตาราง → เสาหลายชั้น ${t.rows.length} ชั้น${t.note?`\n${t.note}`:''}`} onClick={()=>onPick(t.id,-1)}><b>{t.name}</b><small>{t.rows.length} ชั้น · {tiePatternInfo[t.pattern].label.split(' (')[0]}</small></button></th>)}</tr></thead>
+  <thead><tr><th className="lv">ช่วงชั้น \ เสา</th>{list.map(t=><th key={t.id} className={t.id===id&&row<0?'active':''}><button type="button" title={`${t.name} ทั้งตาราง → เสาหลายชั้น ${t.rows.length} ชั้น${t.note?`\n${t.note}`:''}`} onClick={()=>onPick(t.id,-1)}><b>{t.name}</b><small>{t.rows.length} ชั้น · {t.rows.some(r=>r.layout)?'ตามรูปในแบบ':tiePatternInfo[t.pattern].label.split(' (')[0]}</small></button></th>)}</tr></thead>
   <tbody>{levels.map(lv=><tr key={lv}><th className="lv">{lv}</th>{list.map(t=>{const c=lays.get(`${t.id}/${lv}`),r=c&&t.rows[c.k];
    if(!c||!r)return <td key={t.id} className="none"/>;
    const on=t.id===id&&(row===c.k||row<0);

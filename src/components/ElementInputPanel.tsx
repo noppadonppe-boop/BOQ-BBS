@@ -225,12 +225,12 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
         <td><NumInput aria-label={`เยื้อง Y เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetY} onChange={e=>off(k,'offsetY',Number(e.target.value))}/></td>
         {ped&&<td><small>{c.height}</small></td>}</tr>;})}</tbody></table>}</div>
      {n>1&&<h5 className="column-detail-title">รายละเอียด {sel===0?`${input.column.columnNo||'C1'} (ต้นแบบของเสาที่ติ๊ก “เหมือน C1”)`:footingColumnName(cols[sel],sel,true)}</h5>}
-     {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields}/>
+     {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields} set={set}/>
       :input.extraColumns[sel-1].linked?<p className="notice">ใช้หน้าตัด เหล็กยืน เหล็กปลอก และความสูงเดียวกับ C1 · เอาติ๊ก “เหมือน C1” ออกเพื่อกำหนดเอง</p>
-      :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`}/>}
+      :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`} set={set}/>}
     </div>;})()}</>}
   {input.category==='Column'&&input.layout==='stack'&&<p className="muted">เสาหลายชั้น: เหล็กยืนและปลอกกำหนดต่อชั้นในตารางเสาด้านบน</p>}
-  {input.category==='Column'&&input.layout!=='stack'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select}/>}
+  {input.category==='Column'&&input.layout!=='stack'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select} set={set}/>}
    <h4>End condition เหล็กยืน</h4>
    {([['bottom','ปลายล่าง (Bottom Col)'],['top','ปลายบน (Top Col)']] as const).map(([end,label])=>{const e=input.rebar[end],std=Math.round(lapLength(input.detailing,columnMainMax(input)));return <div className="form-grid rebar-row" key={end}>
     {select(label,`rebar.${end}.mode`,[['none',end==='bottom'?'ไม่มี (เริ่มที่ขอบล่างเสา)':'ไม่มี (ตัดที่ cover)'],['lap','Lap splice length (ทาบตรง)'],['crank','Crank 1:6 + ทาบ'],['coupler',end==='top'?'Coupler (ข้อต่อทางกล) · คิดใน BOQ':'Coupler (ต่อจาก Coupler ของชิ้นล่าง)']])}
@@ -279,8 +279,10 @@ export function ShapeIcon({code}:{code:string}){
 }
 
 /** Column main bars: corner bundles + bars per X / Y face, evenly spaced (equal on opposite faces). */
-function ColumnMainFields({input,dia,int:num,select}:{input:ColumnInput;dia:(label:string,path:string)=>ReactNode;int:(label:string,path:string,unit?:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode}){
- const m=input.rebar.main,bars=input.width>0&&input.depth>0?columnInputBars(input):[],name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
+function ColumnMainFields({input,dia,int:num,select,set}:{input:ColumnInput;dia:(label:string,path:string)=>ReactNode;int:(label:string,path:string,unit?:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode;set:(path:string,value:unknown)=>void}){
+ const m=input.rebar.main;
+ if(m.layout)return <DrawnLayout count={columnInputBars(input).length} ties={m.layout.ties.length} diameter={dia('ขนาดเหล็กยืน','rebar.main.corner.diameter')} onClear={()=>{set('rebar.main',dropLayout(m,input.width,input.depth));for(const z of ['lower','middle','upper'] as const)if(input.rebar.tie.inner[z].pattern==='custom')set(`rebar.tie.inner.${z}.pattern`,'auto');}}/>;
+ const bars=input.width>0&&input.depth>0?columnInputBars(input):[],name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
  const clear=(kind:'sideX'|'sideY')=>{const face=bars.filter(b=>b.kind===kind&&(kind==='sideX'?b.y<input.depth/2:b.x<input.width/2)).map(b=>kind==='sideX'?b.x:b.y).sort((a,b)=>a-b);return face.length>1?Math.round(face[1]-face[0]-m[kind].diameter):undefined;};
  const cx=clear('sideX'),cy=clear('sideY');
  return <>
@@ -289,6 +291,18 @@ function ColumnMainFields({input,dia,int:num,select}:{input:ColumnInput;dia:(lab
   <div className="form-grid rebar-group"><span className="rebar-group-title">เหล็กด้าน Y (ด้านซ้าย/ขวา)</span>{dia('ขนาด','rebar.main.sideY.diameter')}{num('จำนวนต่อด้าน (ไม่รวมมุม)','rebar.main.sideY.count','เส้น')}</div>
   <p className="muted column-total">รวม {bars.length} เส้น · มุม 4 × {m.corner.count} = {4*m.corner.count} เส้น {name(m.corner.diameter)} · ด้าน X 2 × {m.sideX.count} เส้น {name(m.sideX.diameter)}{cx!==undefined?` (ช่องว่าง ≈ ${cx} mm)`:''} · ด้าน Y 2 × {m.sideY.count} เส้น {name(m.sideY.diameter)}{cy!==undefined?` (ช่องว่าง ≈ ${cy} mm)`:''} · เหล็กด้านเรียงระยะเท่ากันระหว่างเหล็กมุม</p>
  </>;
+}
+
+/** Main bars + inner ties placed as drawn (from the column schedule): count, size and a way back to corner / side counts. */
+function DrawnLayout({count,ties,diameter,onClear}:{count:number;ties:number;diameter:ReactNode;onClear:()=>void}){
+ return <div className="form-grid rebar-group"><span className="rebar-group-title">เหล็กยืนตามรูปหน้าตัดในแบบ</span>{diameter}
+  <p className="muted">{count} เส้น ตามตำแหน่งในตารางหน้าตัดเสา{ties?` · ปลอกใน ${ties} วง (รูปแบบ “ตามแบบ”)`:''}</p>
+  <button type="button" onClick={onClear} title="เลิกใช้ตำแหน่งตามแบบ · แปลงเป็นเหล็กมุม 1 เส้น + เหล็กด้าน X / Y จำนวนรวมเท่าเดิม">กำหนดจำนวนเหล็กเอง</button></div>;
+}
+/** Main bars without the drawn layout: same total as 1 bar per corner + side bars split by the section sides. */
+function dropLayout<T extends {layout?:unknown;corner:{diameter:number;count:number};sideX:{count:number;diameter:number};sideY:{count:number;diameter:number};count:number}>(m:T,w:number,d:number):Omit<T,'layout'>{
+ const {layout:_,...rest}=m,n=Math.max(4,m.count),sx=Math.round((n-4)*w/((w+d)||1)/2);
+ return {...rest,corner:{...m.corner,count:1},sideX:{...m.sideX,diameter:m.corner.diameter,count:sx},sideY:{...m.sideY,diameter:m.corner.diameter,count:Math.max(0,Math.round((n-4-2*sx)/2))}};
 }
 
 /** Column pour: one stage or two (construction joint below the beam framing in at the top) with the levels of both stages. */
@@ -311,7 +325,7 @@ function ColumnPourFields({input,readOnly,edit}:{input:ColumnInput;readOnly:bool
  </div>;
 }
 type Fields={num:(label:string,path:string,unit?:string)=>ReactNode;dia:(label:string,path:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode;spacing:(label:string,path:string)=>ReactNode;bend:(label:string,path:string,d:number)=>ReactNode;text:(label:string,path:string)=>ReactNode};
-function FootingColumnFields({col,pedestal,field:f,base:P='column'}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string}){
+function FootingColumnFields({col,pedestal,field:f,base:P='column',set}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string;set:(path:string,value:unknown)=>void}){
  const kind=pedestal?'เสาตอม่อ':'Starter bar',cpl=col.splice?.type==='coupler',corners={rect:4,circle:0,L:6,U:8}[col.shape],bars=columnSectionPreview(col).bars,by=(k:string)=>bars.filter(b=>b.kind===k).length,name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
  return <div className="footing-column">
   <div className="form-grid">{f.text(pedestal?'Column no. (เลขเสา)':'Column no. (เสาที่รับ Starter)',`${P}.columnNo`)}{f.select(pedestal?'หน้าตัดเสา':'หน้าตัดการวาง Starter bar',`${P}.shape`,[['rect','สี่เหลี่ยม'],['circle','กลม'],['L','ตัวแอล (L)'],['U','ตัวยู (U)']])}{f.num(`cover ${kind}`,`${P}.cover`)}</div>
@@ -324,12 +338,12 @@ function FootingColumnFields({col,pedestal,field:f,base:P='column'}:{col:Footing
    <div className="form-grid">{f.select('ปลายบนเหล็กยืน',`${P}.splice.type`,[['lap','ต่อทาบ / ปลายตรง'],['coupler','Coupler (ข้อต่อทางกล)']])}{cpl&&f.num('ระยะเหลื่อม Coupler ทีละครึ่ง (0 = ระดับเดียว)',`${P}.splice.stagger`)}</div>
    {cpl&&<p className="muted">Coupler {bars.length} ตัว ต่อเสา · คิดใน BOQ (ตัว) และแสดงในแบบ &amp; BBS</p>}
    <h5>เหล็กยืน{col.columnNo?` ${col.columnNo}`:''}</h5>
-   {col.shape==='circle'?<div className="form-grid">{f.dia('ขนาดเหล็กยืน',`${P}.main.diameter`)}{f.num('จำนวนเหล็กรอบวง',`${P}.main.count`,'เส้น')}</div>:<>
+   {col.shape==='rect'&&col.main.layout?<DrawnLayout count={bars.length} ties={0} diameter={f.dia('ขนาดเหล็กยืน',`${P}.main.corner.diameter`)} onClear={()=>set(`${P}.main`,dropLayout(col.main,col.width,col.depth))}/>:col.shape==='circle'?<div className="form-grid">{f.dia('ขนาดเหล็กยืน',`${P}.main.diameter`)}{f.num('จำนวนเหล็กรอบวง',`${P}.main.count`,'เส้น')}</div>:<>
     <div className="form-grid rebar-group"><span className="rebar-group-title">เหล็กมุม ({corners} มุม)</span>{f.dia('ขนาด',`${P}.main.corner.diameter`)}{f.select('จำนวนต่อมุม',`${P}.main.corner.count`,[['1','1 เส้น'],['2','2 เส้น (มัดคู่)'],['3','3 เส้น (มัด 3)']],true)}</div>
     <div className="form-grid rebar-group"><span className="rebar-group-title">เหล็กด้าน X</span>{f.dia('ขนาด',`${P}.main.sideX.diameter`)}{col.shape==='rect'?f.num('จำนวนต่อด้าน (ไม่รวมมุม)',`${P}.main.sideX.count`,'เส้น'):<span/>}</div>
     <div className="form-grid rebar-group"><span className="rebar-group-title">เหล็กด้าน Y</span>{f.dia('ขนาด',`${P}.main.sideY.diameter`)}{col.shape==='rect'?f.num('จำนวนต่อด้าน (ไม่รวมมุม)',`${P}.main.sideY.count`,'เส้น'):<span/>}</div>
     {col.shape!=='rect'&&<div className="form-grid">{f.num('ระยะห่างเหล็กด้านสูงสุด (ระหว่างมุม)',`${P}.main.spacing`)}</div>}</>}
-   <p className="muted column-total">รวม {bars.length} เส้น{col.shape==='circle'?` · ${name(col.main.diameter)}`:` · มุม ${corners} × ${col.main.corner.count} = ${by('corner')} เส้น ${name(col.main.corner.diameter)} · ด้าน X ${by('sideX')} เส้น ${name(col.main.sideX.diameter)} · ด้าน Y ${by('sideY')} เส้น ${name(col.main.sideY.diameter)}`}</p>
+   {!(col.shape==='rect'&&col.main.layout)&&<p className="muted column-total">รวม {bars.length} เส้น{col.shape==='circle'?` · ${name(col.main.diameter)}`:` · มุม ${corners} × ${col.main.corner.count} = ${by('corner')} เส้น ${name(col.main.corner.diameter)} · ด้าน X ${by('sideX')} เส้น ${name(col.main.sideX.diameter)} · ด้าน Y ${by('sideY')} เส้น ${name(col.main.sideY.diameter)}`}</p>}
    {pedestal&&f.spacing('เหล็กปลอกเสา',`${P}.tie`)}
    <h5>การฝังในฐานราก</h5>
    <div className="form-grid">{f.select('ระยะล้วงในฐาน',`${P}.embed.mode`,[['standard','ล้วงถึงตะแกรงเหล็กล่าง (มาตรฐาน)'],['custom','กำหนดระยะฝังเอง']])}{col.embed.mode==='custom'&&f.num('ระยะฝังจากผิวบนฐาน',`${P}.embed.depth`)}{f.bend('ปลายในฐาน','column',maxMainDiameter(col))}</div>

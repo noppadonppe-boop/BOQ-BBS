@@ -1,12 +1,12 @@
 import {ArrowUp,Plus,Trash2} from 'lucide-react';
-import {columnPresets,columnStackLayout,newColumnStorey,tiePatternInfo,tiePatterns,type ColumnInput,type ColumnStorey,type TiePattern} from '../domain/elementInput';
+import {columnPresets,columnStackLayout,layoutBarCount,newColumnStorey,tiePatternInfo,tiePatterns,type ColumnInput,type ColumnStorey,type TiePattern} from '../domain/elementInput';
 import {NumInput} from './EditorControls';
 
 const diameters=[12,16,20,25,28,32,36,40];
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 type Edit=(f:(i:ColumnInput)=>void)=>void;
 /** Main bar total of a storey (corner bundles + side bars). */
-const mainCount=(s:ColumnStorey)=>4*s.main.corner.count+2*(s.main.sideX.count+s.main.sideY.count);
+const mainCount=(s:ColumnStorey)=>s.main.layout?layoutBarCount(s.main.layout):4*s.main.corner.count+2*(s.main.sideX.count+s.main.sideY.count);
 const mainText=(s:ColumnStorey)=>{const m=s.main,ds=[...new Set([m.corner.diameter,m.sideX.count?m.sideX.diameter:0,m.sideY.count?m.sideY.diameter:0].filter(Boolean))];return `${mainCount(s)}${ds.map(barName).join('/')}`;};
 const tieText=(s:ColumnStorey)=>`${s.tie.sets||''}${barName(s.tie.diameter)}@${s.tie.s1}(${s.tie.diameter}@${s.tie.s2})`;
 
@@ -34,9 +34,11 @@ export function ColumnStackEditor({input,edit,readOnly}:{input:ColumnInput;edit:
     <td>{num(s.height,v=>row(k,x=>{x.height=v;}),'ความสูงชั้น')}</td><td>{num(s.beamDepth,v=>row(k,x=>{x.beamDepth=v;}),'ความลึกคาน',56)}</td>
     <td><span className="bar-cell">{num(s.width,v=>row(k,x=>{x.width=v;}),'กว้าง X',56)}×{num(s.depth,v=>row(k,x=>{x.depth=v;}),'ลึก Y',56)}</span></td>
     <td><select aria-label="หน้าตัดจากแบบ" disabled={readOnly} value="" onChange={e=>preset(k,e.target.value)}><option value="">—</option>{columnPresets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></td>
+    {s.main.layout?<td colSpan={3}><span className="bar-cell" title="ตำแหน่งเหล็กยืนและปลอกในตามรูปหน้าตัดในแบบ (ตารางหน้าตัดเสา)">{dsel(s.main.corner.diameter,v=>row(k,x=>{x.main.corner.diameter=v;x.main.diameter=v;x.main.sideX.diameter=v;x.main.sideY.diameter=v;}),'ขนาดเหล็กยืน')}<small>ตามรูปในแบบ · {mainCount(s)} เส้น</small>
+     <button type="button" className="icon-button" title="เลิกใช้รูปตามแบบ (กำหนดจำนวนเหล็กมุม / ด้านเอง)" disabled={readOnly} onClick={()=>row(k,x=>{const n=mainCount(x),sx=Math.round((n-4)*x.width/((x.width+x.depth)||1)/2);delete x.main.layout;x.main.corner.count=1;x.main.sideX.count=sx;x.main.sideY.count=Math.max(0,Math.round((n-4-2*sx)/2));if(x.tie.pattern==='custom')x.tie.pattern='auto';})}><Trash2 size={13}/></button></span></td>:<>
     <td><span className="bar-cell">{dsel(s.main.corner.diameter,v=>row(k,x=>{x.main.corner.diameter=v;x.main.diameter=v;}),'เหล็กมุม')}<select aria-label="จำนวนต่อมุม" disabled={readOnly} value={s.main.corner.count} onChange={e=>row(k,x=>{x.main.corner.count=Number(e.target.value);})}>{[1,2,3].map(n=><option key={n} value={n}>{n}</option>)}</select></span></td>
     <td><span className="bar-cell">{int(s.main.sideX.count,v=>row(k,x=>{x.main.sideX.count=v;}),'เหล็กด้าน X')}/{int(s.main.sideY.count,v=>row(k,x=>{x.main.sideY.count=v;}),'เหล็กด้าน Y')}{dsel(s.main.sideX.diameter,v=>row(k,x=>{x.main.sideX.diameter=v;x.main.sideY.diameter=v;}),'ขนาดเหล็กด้าน')}</span></td>
-    <td><input type="checkbox" aria-label="เหล็กด้านมัดคู่" title="เหล็กด้านมัดคู่ (2 เส้นชิดกัน)" disabled={readOnly} checked={s.main.sideBundle===2} onChange={e=>row(k,x=>{x.main.sideBundle=e.target.checked?2:1;})}/></td>
+    <td><input type="checkbox" aria-label="เหล็กด้านมัดคู่" title="เหล็กด้านมัดคู่ (2 เส้นชิดกัน)" disabled={readOnly} checked={s.main.sideBundle===2} onChange={e=>row(k,x=>{x.main.sideBundle=e.target.checked?2:1;})}/></td></>}
     <td><span className="bar-cell">{dsel(s.tie.diameter,v=>row(k,x=>{x.tie.diameter=v;}),'ขนาดปลอก',[9,10,12,16])}{int(s.tie.sets,v=>row(k,x=>{x.tie.sets=v;}),'ชิ้นต่อชุด',40)}
      <select aria-label="รูปแบบปลอกใน" disabled={readOnly} value={s.tie.pattern} onChange={e=>row(k,x=>{x.tie.pattern=e.target.value as TiePattern;})}>{tiePatterns.map(p=><option key={p} value={p}>{tiePatternInfo[p].label}</option>)}</select></span></td>
     <td><span className="bar-cell">{num(s.tie.s1,v=>row(k,x=>{x.tie.s1=v;}),'S1',52)}/{num(s.tie.s2,v=>row(k,x=>{x.tie.s2=v;}),'S2',52)}</span></td>
