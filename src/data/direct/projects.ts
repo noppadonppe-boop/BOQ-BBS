@@ -7,6 +7,7 @@ import {projectProfileRoles,profileMaster} from '../../domain/authAccess';
 import {drawingProfileSchema} from '../../domain/drawingStandard';
 import {parseLocations} from '../../domain/locations';
 import {disciplines} from '../../domain/disciplines';
+import {boqChaptersSchema} from '../../domain/boqChapters';
 import {digestData} from '../snapshots';
 import {actor,directory,directoryRef,profileOperationRef,projectRef,projectTransaction,encode,must,now} from './common';
 
@@ -39,6 +40,11 @@ export async function saveDirectProject(pid:string,data:Record<string,any>,id:st
 export async function saveDirectLocations(pid:string,data:Record<string,any>,id:string){
  const locations=parseLocations(data.locations);
  return projectTransaction('saveLocations',pid,data,id,['admin','qs'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({locations:{...locations,version:(p.locations?.version||0)+1},version:p.version+1}));return {version:p.version+1};});
+}
+/** Owner / consultant BOQ chapters of the project (null clears them). */
+export async function saveDirectBoqChapters(pid:string,data:Record<string,any>,id:string){
+ const chapters=data.chapters===null?null:boqChaptersSchema.parse(data.chapters);
+ return projectTransaction('saveBoqChapters',pid,data,id,['admin','qs'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({boqChapters:chapters?{...chapters,version:(p.boqChapters?.version||0)+1}:null,version:p.version+1}));return {version:p.version+1};});
 }
 /** Soft delete: the project is hidden from every list and becomes read-only; members,
  * files and history are kept so the deletion can be reviewed or reversed by an administrator. */

@@ -4,8 +4,11 @@ import {validateMember} from './engine';
 import {drawingNumberKey,drawingProfileSchema,titleBlockSchema} from './drawingStandard';
 import {validateSourceChains} from './sourceRevisions';
 import {locationIssues,locationsSchema,occurrenceLocProblems,type Locations} from './locations';
+import {boqChaptersSchema,type BoqChapters} from './boqChapters';
 /** WBS tree of a backup for the restore patch (version is bumped when applied). */
 export const restoredLocations=(b:SnapshotBundle):{locations?:Locations}=>b.project.locations?{locations:locationsSchema.parse(b.project.locations)}:{};
+/** Owner BOQ chapters of a backup for the restore patch. */
+export const restoredBoqChapters=(b:SnapshotBundle):{boqChapters?:BoqChapters}=>b.project.boqChapters?{boqChapters:boqChaptersSchema.parse(b.project.boqChapters)}:{};
 import type {z} from 'zod';
 
 export const restoreEmptyCollections=['members','attachments','stock','stockLedger','cutPlans','importedHistory'] as const;
@@ -29,6 +32,7 @@ export function validateBackupStructure(input:unknown,recordsInput:unknown=[],ar
  ensure(b.project&&validId(b.project.id)&&typeof b.project.code==='string'&&b.project.code.length>0&&typeof b.project.name==='string','ข้อมูลโครงการต้นทางไม่ถูกต้อง');
  const spec=checked(specSchema,b.project.spec,'สเป็ค');checked(titleBlockSchema,b.project.titleBlock,'กรอบชื่อแบบ');if(b.project.drawingProfile)checked(drawingProfileSchema,b.project.drawingProfile,'กรอบเจ้าของงาน');
  // WBS tree + every member link into it (links of a backup always point at the backup's own tree)
+ if(b.project.boqChapters)checked(boqChaptersSchema,b.project.boqChapters,'หมวด BOQ');
  if(b.project.locations){const issues=locationIssues(checked(locationsSchema,b.project.locations,'โครงสร้าง WBS'));ensure(!issues.length,'โครงสร้าง WBS: '+issues.slice(0,3).join(' · '));}
  for(const m of Array.isArray(b.members)?b.members:[])if(Array.isArray(m?.occurrences)&&m.occurrences.some(o=>o?.loc)){const p=occurrenceLocProblems(b.project.locations,m.occurrences);ensure(!p.length,`${m.code}: ${p.slice(0,2).join(' · ')}`);}
  const members=list(b.members,'สมาชิก'),attachments=list(b.attachments,'ไฟล์ต้นทาง'),stock=list(b.stock,'สต็อก',true),ledger=list(b.stockLedger,'รายการสต็อก',true),cuts=list(b.cutPlans,'แผนตัด',true),records=list(recordsInput,'ประวัติ'),artifacts=list(artifactsInput,'ไฟล์ประวัติ'),index=list(b.historyIndex,'ดัชนีประวัติ',true);

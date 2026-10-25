@@ -168,6 +168,13 @@
   `disc-<id>` and folds its categories), page `DisciplinePage`, Settings `DisciplineSettings` (`components/Disciplines.tsx`).
   RC categories now include `Stair` / `Lift` (free-form like `Custom`: `freeFormCategory()` → shape tab, prisms, rebar sketch;
   concrete mix of slabs / walls). Report group `Discipline`. Test: `tmp/disciplines.test.tsx`.
+- Owner / consultant BOQ chapters per project: `project.boqChapters` (`src/domain/boqChapters.ts`: items code / title / unit +
+  optional `rule {component, disciplines, categories, mix, diameters, grades, buildings, siteItem}`; no rule = heading).
+  `boqContributions()` = every quantity per occurrence (concrete, formwork, excavation, backfill, lean, rebar per bar,
+  pile / pile cut, site-work items); `boqChapterReport()` puts each in the most specific matching item, rest = unmatched
+  (pile / cut by length when the unit is m, rebar ÷ 1000 for ตัน). Excel sheet “BOQ” (A–L rules, M–O quantity / rate /
+  amount) `src/data/boqChaptersExcel.ts`; command `saveBoqChapters` (admin / QS, null clears); in backup / restore.
+  UI: BOQ Summary tab “ตามหมวด BOQ เจ้าของงาน” `components/OwnerBoq.tsx` (uses the page scope). Test: `tmp/boqChapters.test.tsx`.
 - Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
 - Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
   add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).
