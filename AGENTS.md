@@ -94,7 +94,7 @@
   Project-side spec info / approval / files: `ProjectSpecPanel.tsx` in the project Settings page.
 - Project Foundation Template (footing types of the foundation drawings): `spec.foundationTemplates` in
   `src/domain/foundationTemplates.ts` (`fields` = footing input subset: size, depth, piles, bars, pours, levels; `columns` =
-  positions + reference section); `applyFoundationTemplate()` keeps detailing, column bars and pile length (when 0).
+  positions + reference section; J-078: 2 pours = FOOTING HEIGHT + 400 slab, joint mesh at the Stage 1 top, ADD top bars into the slab, face bars `sideBars.toJoint`); `applyFoundationTemplate()` keeps detailing, column bars and pile length (when 0).
   UI: footing section 1 button → `FoundationTemplatePicker.tsx`; General Spec list `FoundationTemplateList.tsx`; spec import
   key `foundationTemplates`. Footing stirrups `rebar.stirrups {width, dir}` (closed links over a band, role `stirrup`).
   J-078 Phase 1 (F10 / F12 from MPK01B-IFC-S-PLIE FD Review): `tmp/j078Foundations.test.ts` → `tmp/Spec-Project-J-078.json`.

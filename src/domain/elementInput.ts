@@ -159,7 +159,9 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh,side:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,
   /** pour stages that get loops (1 = first pour); empty = every stage */
   stages:z.array(z.number().int().min(1).max(6)).max(6)}).strict(),
-  sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm}).strict(),
+  sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm,
+   /** stop under the first construction joint (first pour only) instead of the footing top */
+   toJoint:z.boolean().optional()}).strict(),
   /** closed links (STIRRUPS / HOOP) across a band of `width` (out-to-out, centred) running along `dir` (e.g. the strip over a pile row),
    * from the bottom cover up to under the top of the first pour stage */
   stirrups:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,width:mm,dir:z.enum(['x','y'])}).strict().optional()}).strict(),
@@ -991,6 +993,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // geometry are one Mark; non-rectangular shapes give one Mark per bar length.
  const topStack=(r.topX.enabled?r.topX.diameter:0)+(r.topY.enabled?r.topY.diameter:0),slabOn=footingSlabOn(i),ts=i.slab.thickness;
  // vertical face bars are the outermost layer: meshes and loops move inside them
+ // first pour with a mesh at its top (joint 1, lower stage): Shape 41 legs and first-pour face bars stop under that mesh
+ const J1=footingPour(i).levels[0],jm1=J1!==undefined?jointRebar(i,0).mesh:undefined,firstTop=J1!==undefined&&J1<T-c.top-topStack?J1-(jm1?.enabled&&jm1.at==='lower'?jm1.cover+jm1.x.diameter+jm1.y.diameter:50):undefined;
  const vb=r.sideBars,sideIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0;
  // below: bars of this layer stop under the other bottom layer's U returns (Shape 41 legs rise to just under the top mesh)
  const mesh=(role:string,note:string,l:Shaped&{spacing:number},runX:boolean,z:number,up:boolean,below=0,own?:{room:number})=>{
@@ -998,7 +1002,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   if(!s){warn(`${note}: วางเหล็กไม่ได้`);return;}
   // slab-cast footing: top bars run on into the slab by `extend`; their bends/hooks must stay inside the slab thickness
   const ext=slabOn&&!up&&!own?c.side+sideIn+d/2+i.slab.extend:0;
-  const room=own?own.room:up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
+  const room=own?own.room:up?(l.shape==='41'?(jm1?.enabled&&jm1.at==='lower'&&firstTop!==undefined?firstTop:T-c.top-topStack)-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
   const sh=shapedEnds(l,det,up?1:-1,room,note,warn);
   const segs:{a:number;b:number;at:number}[]=[];
   for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at));for(const [a,b] of lineIntervals(inner,runX?0:1,pos))if(b-a+2*ext>sh.minRun)segs.push({a:a-ext,b:b+ext,at});}
@@ -1098,7 +1102,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).
  if(sideIn){
   const dv=vb.diameter,rad=radius(dv,det),ret=vb.leg>0?vb.leg:15*dv,ring=inset(plan,c.side+dv/2),ccw=signedArea(ring)>0;
-  const zb=vb.bottom==='inward'?c.bottom+r.bottomX.diameter+r.bottomY.diameter+dv/2:c.bottom+dv/2,zt=vb.top==='inward'?T-c.top-topStack-dv/2:T-c.top-dv/2;
+  const zb=vb.bottom==='inward'?c.bottom+r.bottomX.diameter+r.bottomY.diameter+dv/2:c.bottom+dv/2,zt=vb.toJoint&&firstTop!==undefined?firstTop-dv/2:vb.top==='inward'?T-c.top-topStack-dv/2:T-c.top-dv/2;
   const pos:{p:Pt;n:Pt}[]=[];
   ring.forEach((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),s=spread(0,len,vb.spacing);if(!s||len<1)return;const u:Pt=[(b[0]-a[0])/len,(b[1]-a[1])/len],n:Pt=ccw?[-u[1],u[0]]:[u[1],-u[0]];
    for(let j=0;j<s.count-1;j++){const t=s.count===1?0:len*j/(s.count-1);pos.push({p:[a[0]+u[0]*t,a[1]+u[1]*t],n});}});
