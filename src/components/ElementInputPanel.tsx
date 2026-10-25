@@ -58,11 +58,16 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  useEffect(()=>()=>onDirty?.(false),[]);
  const base=useMemo(()=>withSiteWork({...m,occurrences,bars:[...m.bars.filter(isGeneratedBar),...manualBars]},{...(m.siteWork||emptySiteWork()),items}),[m,occurrences,manualBars,items]);
  const problems=useMemo(()=>input?elementInputProblems(input):[],[input]);
+ // the preview (bars + takeoff + cover checks) is heavy for large members (beam groups of many spans): build it
+ // once typing pauses, so every keystroke stays instant
+ const [previewInput,setPreviewInput]=useState(input),pending=previewInput!==input;
+ useEffect(()=>{if(!pending)return;const t=setTimeout(()=>setPreviewInput(input),400);return()=>clearTimeout(t);},[input]);
  const preview=useMemo(()=>{
-  if(!input||problems.length)return undefined;
-  try{const applied=applyElementInput(base,input,{rounding:spec.rounding});return {...applied,q:takeoff(applied.member,spec),errors:validateMember(applied.member,spec)};}
+  if(!previewInput||elementInputProblems(previewInput).length)return undefined;
+  try{const applied=applyElementInput(base,previewInput,{rounding:spec.rounding});return {...applied,q:takeoff(applied.member,spec),errors:validateMember(applied.member,spec)};}
   catch(e){return {error:e instanceof Error?e.message:String(e)};}
- },[input,problems,base,spec]);
+ },[previewInput,base,spec]);
+ const graphic=useMemo(()=>preview&&previewInput&&!('error' in preview)?<ElementGraphic member={preview.member} rows={preview.q.rows} input={previewInput}/>:null,[preview,previewInput]);
  if(!input)return <section className="panel padded element-input"><h3>ข้อมูลพื้นฐาน</h3><p className="notice">องค์ประกอบอื่น (Custom) ใช้เครื่องมือขั้นสูง “ชิ้นส่วน / ช่องเปิด” หรือหน้าตัดหลายเหลี่ยม และเพิ่มชุดเหล็กในแท็บ “แบบ & BBS”</p></section>;
 
  const set=(path:string,value:unknown)=>setInput(prev=>{const next=structuredClone(prev) as any,keys=path.split('.');let o=next;for(const k of keys.slice(0,-1))o=o[k];o[keys.at(-1)!]=value;return next;});
@@ -98,7 +103,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    </tbody></table><p className="muted">{what}บนดิน: ไม่คิดไม้แบบท้อง{what} · ไม่คิดงานขุด / ถม (ใส่เป็นรายการเพิ่มเองได้)</p></>}</div>;};
  const fillFromDrawing=()=>{if(!m.drawingExtraction)return;const r=inputFromExtraction(input,m.drawingExtraction as any);setInput(r.input);setFilled(r.filled);};
  const apply=(withBars:boolean)=>{
-  if(!preview||'error' in preview)return;
+  if(pending||!preview||'error' in preview)return;
   if(m.geometry||m.prismGeometry||m.beamAssembly){if(!confirm('สมาชิกนี้ใช้รูปทรงขั้นสูง (ชิ้นส่วน/หน้าตัดพิเศษ/คานต่อเนื่อง) การใช้ข้อมูลพื้นฐานจะแทนที่รูปทรงเหล่านั้น ดำเนินการต่อ?'))return;}
   if(withBars&&m.bars.some(isGeneratedBar)&&!confirm('แทนที่ Bar cut list ที่สร้างอัตโนมัติเดิม (รวมค่าที่แก้ไขด้วยมือในชุดที่สร้างอัตโนมัติ) · ชุดเหล็กที่เพิ่มเองยังคงอยู่'))return;
   const next=withBars?preview.member:applyElementInput(base,input,{rounding:spec.rounding,withBars:false}).member;
@@ -281,11 +286,12 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    {preview.errors.length>0&&<div className="notice danger">{preview.errors.slice(0,6).join('\n')}</div>}
   </>}
   <footer className="actions element-input-actions">
-   <button className="primary" disabled={readOnly||!preview||'error' in preview||preview.errors.length>0} onClick={()=>apply(true)}>ใช้ข้อมูลและสร้าง Bar cut list</button>
-   <button disabled={readOnly||!preview||'error' in preview} onClick={()=>apply(false)}>ใช้เฉพาะมิติ/จำนวน (คงเหล็กเดิม)</button>
+   <button className="primary" disabled={readOnly||pending||!preview||'error' in preview||preview.errors.length>0} onClick={()=>apply(true)}>ใช้ข้อมูลและสร้าง Bar cut list</button>
+   <button disabled={readOnly||pending||!preview||'error' in preview} onClick={()=>apply(false)}>ใช้เฉพาะมิติ/จำนวน (คงเหล็กเดิม)</button>
+   {pending&&<span className="muted" role="status">กำลังคำนวณพรีวิว…</span>}
    <span className="muted">หลังใช้ข้อมูล: ตรวจตำแหน่งเหล็กในแท็บ “แบบ & BBS” แล้วกดบันทึกสมาชิก · แก้ไข Mark รายตัวได้</span>
   </footer>
-  </div><aside className="element-input-graphic">{preview&&!('error' in preview)?<ElementGraphic member={preview.member} rows={preview.q.rows} input={input}/>:<div className="notice">รูปแปลน / รูปตัดจะแสดงเมื่อกรอกข้อมูลจำเป็นครบ{problems.length?` (ขาด ${problems.length} รายการ)`:''}</div>}</aside></div>
+  </div><aside className="element-input-graphic">{preview&&!('error' in preview)?graphic:<div className="notice">รูปแปลน / รูปตัดจะแสดงเมื่อกรอกข้อมูลจำเป็นครบ{problems.length?` (ขาด ${problems.length} รายการ)`:''}</div>}</aside></div>
  </section>;
 }
 

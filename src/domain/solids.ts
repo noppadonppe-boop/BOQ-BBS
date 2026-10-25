@@ -32,8 +32,27 @@ export function segmentFaceDistance(a:Vec3,b:Vec3,s:Surface){
   const denom=k.reduce((n,v)=>n+v*v,0),t=denom?Math.max(lo,Math.min(hi,-k.reduce((n,v,j)=>n+v*c[j],0)/denom)):lo;min=Math.min(min,k.reduce((n,v,j)=>n+(v*t+c[j])**2,0));
  }return Math.sqrt(min);
 }
+const surfaceBoxes=new WeakMap<Surface,[Vec3,Vec3]>();
+function surfaceBox(s:Surface):[Vec3,Vec3]{
+ let box=surfaceBoxes.get(s);
+ if(!box){const pts=s.vertices?.length?s.vertices:[s.origin,s.origin.map((v,i)=>v+s.size[i]) as Vec3];box=[[0,1,2].map(i=>Math.min(...pts.map(p=>p[i]))) as Vec3,[0,1,2].map(i=>Math.max(...pts.map(p=>p[i]))) as Vec3];surfaceBoxes.set(s,box);}
+ return box;
+}
+/** Surfaces that can lie within `reach(s)` of the path (bounding boxes): the rest are too far to matter for cover. */
+export function surfacesNear(path:Vec3[],surfaces:Surface[],reach:(s:Surface)=>number){
+ if(!path.length)return [];
+ const lo=[0,1,2].map(i=>Math.min(...path.map(p=>p[i]))),hi=[0,1,2].map(i=>Math.max(...path.map(p=>p[i])));
+ return surfaces.filter(s=>{const [a,b]=surfaceBox(s),r=reach(s);let d=0;for(let i=0;i<3;i++){const g=Math.max(0,a[i]-hi[i],lo[i]-b[i]);d+=g*g;}return Math.sqrt(d)<r+1;});
+}
+/** Lower bound of the distance between segment a–b and a surface (bounding boxes, no allocation). */
+export function segmentFaceGap(a:Vec3,b:Vec3,s:Surface){
+ const [lo,hi]=surfaceBox(s);let d=0;
+ for(let i=0;i<3;i++){const g=Math.max(0,lo[i]-Math.max(a[i],b[i]),Math.min(a[i],b[i])-hi[i]);d+=g*g;}
+ return Math.sqrt(d);
+}
 export function pathClearance(path:Vec3[],surfaces:Surface[],required:number){
- for(let i=1;i<path.length;i++)for(const surface of surfaces)if(segmentFaceDistance(path[i-1],path[i],surface)<required-.0001)return false;return true;
+ const near=surfacesNear(path,surfaces,()=>required);
+ for(let i=1;i<path.length;i++)for(const surface of near)if(segmentFaceGap(path[i-1],path[i],surface)<required&&segmentFaceDistance(path[i-1],path[i],surface)<required-.0001)return false;return true;
 }
 export function solidQuantities(m:Member):{volume:number;formwork:number;surfaces:Surface[];errors:string[]}{
  if(m.shapeModel){const g=shapeGeometry(m.shapeModel);return {volume:g.volume,formwork:g.formwork,surfaces:g.surfaces,errors:g.errors};}

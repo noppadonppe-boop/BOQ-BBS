@@ -24,7 +24,7 @@ import {BeamAssemblyEditor,BeamAssemblySummary} from './BeamAssemblyEditor';
 import {HelixView} from './HelixView';
 import {SpatialBarView} from './SpatialBar';
 import {TangentBarView} from './TangentBar';
-import {useEffect,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import {Plus,Save,Trash2,RotateCcw,Download,FileUp} from 'lucide-react';
 import {Member,Project,Bar,blankBar,Attachment,Vec3,barSchema} from '../domain/model';
 import {takeoff,sum,validateMember} from '../domain/engine';
@@ -65,7 +65,8 @@ export function MemberEditor({member,project,attachments,run,readOnly=false,init
  useEffect(()=>{onDirty?.(dirty||inputDirty);},[dirty,inputDirty]);
  const edit=(input:Member)=>{const next=resetStaleQuantityBasis(m,resetStaleNoRebar(m,input)),geometryChanged=JSON.stringify([next.x,next.y,next.z,next.cover,next.geometry,next.prismGeometry,next.pedestal,next.shapeModel?.parts])!==JSON.stringify([m.x,m.y,m.z,m.cover,m.geometry,m.prismGeometry,m.pedestal,m.shapeModel?.parts]);const sourceChanged=JSON.stringify(next.sourceSchedule)!==JSON.stringify(m.sourceSchedule),viewsChanged=JSON.stringify(next.drawingViews)!==JSON.stringify(m.drawingViews);setM({...next,status:'Draft',bars:geometryChanged||sourceChanged?next.bars.map(b=>({...b,bsDimensionsConfirmed:false,placementConfirmed:false})):viewsChanged?next.bars.map(b=>({...b,placementConfirmed:false})):next.bars});setDirty(true);};
  let scheduleHint='';try{scheduleHint=scheduleReferences(m).join(', ');}catch(e:any){scheduleHint=e.message;}
- const q=takeoff(m,project.spec),errors=validateMember(m,project.spec),row=q.rows.find(b=>b.id===selected),locations=[...new Set(m.occurrences.map(o=>`${o.zone}/${o.floor}`))],steel=steelCoverage(m,{project,attachments});
+ // heavy for large members (cover checks of every bar): only when the member or spec changes
+ const q=useMemo(()=>takeoff(m,project.spec),[m,project.spec]),errors=useMemo(()=>validateMember(m,project.spec),[m,project.spec]),row=q.rows.find(b=>b.id===selected),locations=[...new Set(m.occurrences.map(o=>`${o.zone}/${o.floor}`))],steel=steelCoverage(m,{project,attachments});
  const save=async()=>{const result=await command('saveMember',project.id,{member:m});setM({...m,version:result.version});setDirty(false);};
  const sourcePreview=sourceDraft&&bar&&sourceDraft.bar.id===bar.id?previewSourceBar(m,sourceDraft,bar,points,project.spec,attachments,pathPending||posePending):undefined;
  const saveBar=()=>{if(!bar||readOnly||pathPending||posePending)return;let parsed:Vec3[]=[];try{parsed=JSON.parse(points||'[]');if(!Array.isArray(parsed))throw Error();}catch{alert('พิกัดต้องเป็น [[x,y,z], …]');return;}const valid=barSchema.safeParse({...bar,points:parsed});if(!valid.success){alert(valid.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('\n'));return;}try{edit(sourceDraft&&sourceDraft.bar.id===bar.id?applySourceBar(m,sourceDraft,valid.data,project.spec,attachments):{...m,bars:m.bars.some(b=>b.id===bar.id)?m.bars.map(b=>b.id===bar.id?valid.data:b):[...m.bars,valid.data]});setSelected(bar.id);setBar(null);setSourceDraft(null);}catch(e){alert(e instanceof Error?e.message:'ใช้ชุดเหล็กไม่ได้');}};
