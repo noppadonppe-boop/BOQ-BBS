@@ -164,7 +164,10 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
    toJoint:z.boolean().optional()}).strict(),
   /** closed links (STIRRUPS / HOOP) across a band of `width` (out-to-out, centred) running along `dir` (e.g. the strip over a pile row),
    * from the bottom cover up to under the top of the first pour stage */
-  stirrups:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,width:mm,dir:z.enum(['x','y'])}).strict().optional()}).strict(),
+  stirrups:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,width:mm,dir:z.enum(['x','y']),
+   /** the links are the bottom bars across the band (HOOP = bottom bars of that direction): that bottom layer is not placed
+    * and the other bottom layer sits inside the links */
+   replacesBottom:z.boolean().optional()}).strict().optional()}).strict(),
  /** Footing cast monolithic with the floor slab: top flush with the slab top; the slab (thickness) is a
   * reference region only (no slab concrete / bars); top bars extend `extend` mm beyond the footing into the slab. */
  slab:z.object({enabled:z.boolean(),thickness:mm,extend:mm}).strict(),
@@ -1019,9 +1022,10 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    out.push({...base,role:`${role}-${k+1}`,note:`${note} · ช่วง ${len} mm${hookNote}`,count:list.length,points:shape(fixed),offsets:off});
   });
  };
- const zX=c.bottom+r.bottomX.diameter/2,zY=c.bottom+r.bottomX.diameter+r.bottomY.diameter/2;
- mesh('bottom-x','เหล็กล่าง · ทิศ X',r.bottomX,true,zX,true);
- mesh('bottom-y','เหล็กล่าง · ทิศ Y',r.bottomY,false,zY,true,r.bottomX.shape==='41'?r.bottomX.diameter:0);
+ // stirrups that are the bottom bars across their band (HOOP): that layer is not placed, the other one sits inside the links
+ const hoop=r.stirrups?.enabled&&r.stirrups.replacesBottom&&i.shape==='rect'?r.stirrups:undefined,hoopUnder=hoop?hoop.diameter:0;
+ if(!hoop||hoop.dir!=='y'){const zX=c.bottom+(hoop?hoopUnder:0)+r.bottomX.diameter/2;mesh('bottom-x','เหล็กล่าง · ทิศ X',r.bottomX,true,zX,true);}
+ if(!hoop||hoop.dir!=='x'){const zY=c.bottom+(hoop?hoopUnder:r.bottomX.diameter)+r.bottomY.diameter/2;mesh('bottom-y','เหล็กล่าง · ทิศ Y',r.bottomY,false,zY,true,!hoop&&r.bottomX.shape==='41'?r.bottomX.diameter:0);}
  if(r.topX.enabled)mesh('top-x','เหล็กบน · ทิศ X',r.topX,true,T-c.top-r.topX.diameter/2,false);
  if(r.topY.enabled)mesh('top-y','เหล็กบน · ทิศ Y',r.topY,false,T-c.top-(r.topX.enabled?r.topX.diameter:0)-r.topY.diameter/2,false);
  // ---- construction joints between pour stages (inside the footing thickness): joint mesh and vertical bars through the joint
@@ -1096,7 +1100,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    const s=spread(c.side+sideIn+d/2+50,L-c.side-sideIn-d/2-50,sr.spacing);
    if(half<=2*d||z1-z0<=4*d||!s)warn('เหล็กปลอก (STIRRUPS) ในฐาน: วางไม่ได้ ตรวจความกว้าง/ความสูง');
    else{const pts=link(alongX?1:0,2,alongX?0:1,mid-half,mid+half,z0,z1,s.from,det.hook135*d<det.hook135Min?det.hook135Min:det.hook135*d,rad,d);
-    out.push({role:'stirrup',note:`เหล็กปลอก (STIRRUPS) ในฐาน · กว้าง ${Math.round(sr.width)} mm (นอก-นอก) แนว ${alongX?'X':'Y'} · สูง ${Math.round(z1-z0+d)} mm @ ${sr.spacing} mm`,diameter:d,grade:g,count:s.count,points:pts,axis:alongX?'Y':'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:alongX?'X':'Y',from:s.from,to:s.to});}}
+    out.push({role:'stirrup',note:`${sr.replacesBottom?'เหล็กล่าง ทิศ '+(alongX?'Y':'X')+' แบบปลอก (HOOP)':'เหล็กปลอก (STIRRUPS) ในฐาน'} · กว้าง ${Math.round(sr.width)} mm (นอก-นอก) แนว ${alongX?'X':'Y'} · สูง ${Math.round(z1-z0+d)} mm @ ${sr.spacing} mm`,diameter:d,grade:g,count:s.count,points:pts,axis:alongX?'Y':'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:alongX?'X':'Y',from:s.from,to:s.to});}}
  }
  // Vertical face bars on every face of the plan outline, ends straight or turned inward 90°.
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).

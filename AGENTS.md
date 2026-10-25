@@ -96,7 +96,7 @@
   `src/domain/foundationTemplates.ts` (`fields` = footing input subset: size, depth, piles, bars, pours, levels; `columns` =
   positions + reference section; J-078: 2 pours = FOOTING HEIGHT + 400 slab, joint mesh at the Stage 1 top, ADD top bars into the slab, U legs (Shape 41) and face bars rise into Stage 2 with an inward Ldh = S.H.A. of the lap table; `sideBars.toJoint` stops face bars under the joint); `applyFoundationTemplate()` keeps detailing, column bars and pile length (when 0).
   UI: footing section 1 button → `FoundationTemplatePicker.tsx`; General Spec list `FoundationTemplateList.tsx`; spec import
-  key `foundationTemplates`. Footing stirrups `rebar.stirrups {width, dir}` (closed links over a band, role `stirrup`).
+  key `foundationTemplates`. Footing stirrups `rebar.stirrups {width, dir, replacesBottom}` (closed links over a band, role `stirrup`; replacesBottom = HOOP that is the bottom layer across the band).
   J-078 Phase 1 (F10 / F12 from MPK01B-IFC-S-PLIE FD Review): `tmp/j078Foundations.test.ts` → `tmp/Spec-Project-J-078.json`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
