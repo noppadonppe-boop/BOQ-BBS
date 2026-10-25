@@ -15,6 +15,7 @@ import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker
 import {FoundationTemplatePicker} from './FoundationTemplatePicker';
 import {applyFoundationTemplate,foundationTemplateCurrent} from '../domain/foundationTemplates';
 import {syncColumnTemplate} from '../domain/columnTemplates';
+import {applyBeamTemplate,beamTemplateSummary,type BeamTemplate} from '../domain/beamTemplates';
 import {useSpecProfiles} from '../data/specProfiles';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
@@ -175,7 +176,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Beam'&&<>
    <div className="segmented beam-layout" role="group" aria-label="รูปแบบคาน">{([['single','คานช่วงเดียว'],['group','กลุ่มคาน · หลายช่วง / คานยื่น / กริด']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Beam'?prev:v==='group'?beamGroupFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>
    {input.layout==='group'?<BeamGroupEditor input={input} projectId={project.id} templates={spec.beamTemplates} readOnly={readOnly} selected={Math.min(beamSel,Math.max(0,input.spans.length-1))} onSelect={setBeamSel} edit={f=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const next=structuredClone(prev);f(next);return next;})}/>
-    :<div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div>}
+    :<><BeamTemplateField templates={spec.beamTemplates||[]} readOnly={readOnly} onPick={t=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const g=beamGroupFrom({...prev,spans:[],grids:[]});g.spans=[applyBeamTemplate({...g.spans[0],length:prev.length||g.spans[0].length},t)];return g;})}/>
+     <div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div></>}
    {groundFields('คาน')}</>}
   {input.category==='Slab'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
   {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
@@ -447,4 +449,17 @@ function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,onSync,note}:{in
   {stale&&onSync&&<span className="notice warning ct-stale">Template ใน Spec เปลี่ยนแล้ว แต่เสานี้ยังเป็นค่าเดิม <button type="button" className="primary" disabled={readOnly} onClick={()=>onSync(synced!)}>อัปเดตตาม Template</button></span>}
   {note&&<small className="muted">{note}</small>}
  </div>;
+}
+
+/** Single beam: pick a mark of the spec's Beam Templates → the beam becomes a one-span beam group with the template's
+ * size and bars (EX per section, stirrup zones, side bars need the span model). */
+function BeamTemplateField({templates,readOnly,onPick}:{templates:BeamTemplate[];readOnly:boolean;onPick:(t:BeamTemplate)=>void}){
+ const [v,setV]=useState(''),t=templates.find(x=>x.name.toUpperCase()===v.trim().toUpperCase());
+ if(!templates.length)return <p className="muted">General Spec ของโครงการยังไม่มี Beam Template · นำเข้าไฟล์ Spec ที่หน้า General Spec แล้วกด “บันทึก Spec” เพื่อเลือกเบอร์คานตามแบบ</p>;
+ return <div className="ct-bar"><label className="field"><span>เบอร์คานตามแบบ (Beam Template {templates.length} เบอร์)</span>
+  <input list="beam-tpl-single" maxLength={32} disabled={readOnly} placeholder="พิมพ์ / เลือกเบอร์ เช่น 2B1" value={v} onChange={e=>setV(e.target.value.slice(0,32))}/></label>
+  <datalist id="beam-tpl-single">{templates.map(x=><option key={x.id} value={x.name}>{beamTemplateSummary(x)}</option>)}</datalist>
+  <button type="button" className="primary" disabled={readOnly||!t} onClick={()=>t&&onPick(t)}>ใช้เบอร์นี้</button>
+  {t?<small className="muted">{beamTemplateSummary(t)} · เปลี่ยนเป็นกลุ่มคาน 1 ช่วง (ความยาวคาน = ยาว c/c ระหว่างเสา 300 · ปรับเสาได้ในตาราง) เพื่อใส่ EX เหล็กข้าง และปลอกตามโซน</small>
+   :v.trim()&&<small className="muted">ไม่พบเบอร์ {v.trim()} ใน Beam Template</small>}</div>;
 }
