@@ -993,7 +993,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // geometry are one Mark; non-rectangular shapes give one Mark per bar length.
  const topStack=(r.topX.enabled?r.topX.diameter:0)+(r.topY.enabled?r.topY.diameter:0),slabOn=footingSlabOn(i),ts=i.slab.thickness;
  // vertical face bars are the outermost layer: meshes and loops move inside them
- // first pour with a mesh at its top (joint 1, lower stage): Shape 41 legs and first-pour face bars stop under that mesh
+ // first pour with a mesh at its top (joint 1, lower stage): face bars set to the first pour stop under that mesh
  const J1=footingPour(i).levels[0],jm1=J1!==undefined?jointRebar(i,0).mesh:undefined,firstTop=J1!==undefined&&J1<T-c.top-topStack?J1-(jm1?.enabled&&jm1.at==='lower'?jm1.cover+jm1.x.diameter+jm1.y.diameter:50):undefined;
  const vb=r.sideBars,sideIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0;
  // below: bars of this layer stop under the other bottom layer's U returns (Shape 41 legs rise to just under the top mesh)
@@ -1002,7 +1002,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   if(!s){warn(`${note}: วางเหล็กไม่ได้`);return;}
   // slab-cast footing: top bars run on into the slab by `extend`; their bends/hooks must stay inside the slab thickness
   const ext=slabOn&&!up&&!own?c.side+sideIn+d/2+i.slab.extend:0;
-  const room=own?own.room:up?(l.shape==='41'?(jm1?.enabled&&jm1.at==='lower'&&firstTop!==undefined?firstTop:T-c.top-topStack)-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
+  const room=own?own.room:up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
   const sh=shapedEnds(l,det,up?1:-1,room,note,warn);
   const segs:{a:number;b:number;at:number}[]=[];
   for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at));for(const [a,b] of lineIntervals(inner,runX?0:1,pos))if(b-a+2*ext>sh.minRun)segs.push({a:a-ext,b:b+ext,at});}
