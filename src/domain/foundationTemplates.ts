@@ -42,11 +42,18 @@ export function applyFoundationTemplate(i:FoundationInput,t:FoundationTemplate):
  v.template={id:t.id,name:t.name};
  return v;
 }
+/** The footing still matches its template (geometry, piles without length / cut-off, bars, pours, levels, column positions);
+ * false = the template in the spec changed (or the footing was edited) since it was applied. */
+export function foundationTemplateCurrent(i:FoundationInput,t:FoundationTemplate){
+ const f=t.fields,same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b),pile=(p:FoundationInput['pile'])=>({...p,length:0,cutoff:0});
+ if(!(Object.keys(f) as (keyof typeof f)[]).every(k=>k==='pile'?same(pile(f.pile),pile(i.pile)):same(f[k],i[k])))return false;
+ const cols=[i.column,...i.extraColumns];return t.columns.every((c,k)=>cols[k]&&cols[k].offsetX===c.offsetX&&cols[k].offsetY===c.offsetY);
+}
 const barText=(l:{diameter:number;spacing:number})=>`Y${l.diameter}-${Math.round(l.spacing*10)/10}`;
 /** One-line summary of a template (picker / spec list). */
 export function foundationTemplateSummary(t:FoundationTemplate){
  const f=t.fields,p=f.pile,piles=f.foundationType!=='pile'?'ฐานแผ่':`เข็ม ${p.layout==='grid'?p.nx*p.ny:p.count} ต้น Ø${p.size}`,r=f.rebar;
- return [`${f.width}×${f.length}×${f.thickness}`,piles,`ล่าง ${r.stirrups?.enabled&&r.stirrups.replacesBottom?(r.stirrups.dir==='x'?`${barText(r.bottomX)} / HOOP ${barText(r.stirrups)}`:`HOOP ${barText(r.stirrups)} / ${barText(r.bottomY)}`):`${barText(r.bottomX)} / ${barText(r.bottomY)}`}`,...f.pour.joints.slice(0,Math.max(0,f.pour.count-1)).map((j,k)=>j.mesh.enabled?`ตะแกรงบน Stage ${k+1} ${barText(j.mesh.x)} / ${barText(j.mesh.y)}${j.mesh.end==='straight'?'':' (ปลายงอ)'}`:''),
+ return [`${f.width}×${f.length}×${f.thickness}`,piles,`ล่าง${r.bottomX.shape==='41'&&f.pour.count>1?` (ตัว U ขึ้น Stage ${f.pour.count} + Ldh ${r.bottomX.leg||15*r.bottomX.diameter})`:''} ${r.stirrups?.enabled&&r.stirrups.replacesBottom?(r.stirrups.dir==='x'?`${barText(r.bottomX)} / HOOP ${barText(r.stirrups)}`:`HOOP ${barText(r.stirrups)} / ${barText(r.bottomY)}`):`${barText(r.bottomX)} / ${barText(r.bottomY)}`}`,...f.pour.joints.slice(0,Math.max(0,f.pour.count-1)).map((j,k)=>j.mesh.enabled?`ตะแกรงบน Stage ${k+1} ${barText(j.mesh.x)} / ${barText(j.mesh.y)}${j.mesh.end==='straight'?'':' (ปลายงอ)'}`:''),
   r.topX.enabled?`บน${f.pour.count>1?` Stage ${f.pour.count}`:''} ${barText(r.topX)}${r.topY.enabled?` / ${barText(r.topY)}`:''}${f.slab.enabled?` (ยื่นเข้าพื้น ${f.slab.extend})`:''}`:'',f.pour.count>1?`เท ${f.pour.count} ครั้ง (${[...f.pour.heights.slice(0,f.pour.count-1),f.thickness-f.pour.heights.slice(0,f.pour.count-1).reduce((a,b)=>a+b,0)].join(' + ')})`:'',
-  r.side.enabled?`LOOPS ${barText(r.side)}`:'',r.sideBars.enabled?`ข้าง ${barText(r.sideBars)}`:'',r.stirrups?.enabled?`${r.stirrups.replacesBottom?'HOOP':'ปลอก'} ${barText(r.stirrups)} กว้าง ${r.stirrups.width}`:'',t.columns.length>1?`เสา ${t.columns.length} ต้น`:''].filter(Boolean).join(' · ');
+  r.side.enabled?`LOOPS ${barText(r.side)}`:'',r.sideBars.enabled?`ข้าง ${barText(r.sideBars)}${f.pour.count>1?(r.sideBars.toJoint?' (ถึง Stage 1)':` (ขึ้น Stage ${f.pour.count}${r.sideBars.top==='inward'?` + Ldh ${r.sideBars.leg||15*r.sideBars.diameter}`:''})`):''}`:'',r.stirrups?.enabled?`${r.stirrups.replacesBottom?'HOOP':'ปลอก'} ${barText(r.stirrups)} กว้าง ${r.stirrups.width}`:'',t.columns.length>1?`เสา ${t.columns.length} ต้น`:''].filter(Boolean).join(' · ');
 }

@@ -13,6 +13,7 @@ import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
 import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker';
 import {FoundationTemplatePicker} from './FoundationTemplatePicker';
+import {applyFoundationTemplate,foundationTemplateCurrent} from '../domain/foundationTemplates';
 import {syncColumnTemplate} from '../domain/columnTemplates';
 import {useSpecProfiles} from '../data/specProfiles';
 import {SaveTemplateButton} from './ElementTemplates';
@@ -125,6 +126,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   <h4>1. มิติและรูปร่าง (จำเป็น)</h4>
   {input.category==='Foundation'&&<div className="ct-bar"><button type="button" className={spec.foundationTemplates?.length?'ct-open':''} disabled={readOnly} title={spec.foundationTemplates?.length?'เลือกฐานรากตามแบบ (ขนาด เข็ม เหล็ก ระดับ ตำแหน่งเสา) จาก General Spec ของโครงการ':'ยังไม่มี Foundation Template · นำเข้าที่ General Spec'} onClick={()=>setFtPicker(true)}><Box size={15}/>Foundation Template (ตามแบบ)</button>
    {input.template&&<span className="ct-link on">มาจาก Template <b>{input.template.name}</b>{!spec.foundationTemplates?.some(t=>t.id===input.template!.id)&&' (ไม่พบใน Spec แล้ว)'}</span>}
+   {input.template&&(()=>{const t=spec.foundationTemplates?.find(x=>x.id===input.template!.id);return t&&!foundationTemplateCurrent(input,t)&&<span className="notice warning ct-stale">ค่าในฐานนี้ไม่ตรงกับ Template {t.name} ใน Spec (Template ถูกแก้ / นำเข้าใหม่ หรือแก้ค่าในฐานเอง) <button type="button" className="primary" disabled={readOnly} onClick={()=>setInput(applyFoundationTemplate(input,t))}>อัปเดตตาม Template</button></span>;})()}
    {!spec.foundationTemplates?.length&&<small className="muted">General Spec ของโครงการยังไม่มี Foundation Template</small>}</div>}
   {ftPicker&&input.category==='Foundation'&&<FoundationTemplatePicker spec={spec} input={input} onApply={next=>setInput(next)} onClose={()=>setFtPicker(false)}/>}
   {input.category==='Foundation'&&<><div className="form-grid">{select('ชนิดฐานราก','foundationType',[['spread','ฐานแผ่'],['pile','ฐานเสาเข็ม']])}{select('รูปร่างแปลนฐาน','shape',[['rect','สี่เหลี่ยม'],['circle','กลม'],['hex','6 เหลี่ยม'],['oct','8 เหลี่ยม'],['L','ตัวแอล (L)'],['U','ตัวยู (U)']])}{num('หนา','thickness')}</div>
