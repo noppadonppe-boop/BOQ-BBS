@@ -9,14 +9,14 @@ import {Field} from './EditorControls';
 import {SpecEditor} from './SpecEditor';
 
 type Draft={id?:string;version?:number;name:string;description:string;spec:Spec;archived?:boolean};
-type Props={projects:Project[];canManage:boolean;canChange:(p:Project)=>boolean;run:(f:()=>Promise<unknown>,m?:string)=>Promise<void>;onFailure:(m:string)=>void};
+type Props={projects:Project[];canManage:boolean;canChange:(p:Project)=>boolean;run:(f:()=>Promise<unknown>,m?:string)=>Promise<void>;onFailure:(m:string)=>void;initialId?:string};
 const fromProfile=(p:SpecProfile):Draft=>({id:p.id,version:p.version,name:p.name,description:p.description,spec:p.spec,archived:p.archived});
 
 /** Workspace-level General Spec: a library of spec profiles. Projects choose a profile in the
  * project form; saving a profile re-applies it to every linked project (live link). */
-export function GeneralSpecPage({projects,canManage,canChange,run,onFailure}:Props){
+export function GeneralSpecPage({projects,canManage,canChange,run,onFailure,initialId}:Props){
  const {profiles,loading}=useSpecProfiles(onFailure);
- const [selected,setSelected]=useState(''),[draft,setDraft]=useState<Draft|null>(null),[dirty,setDirty]=useState(false),[progress,setProgress]=useState(''),[source,setSource]=useState('');
+ const [selected,setSelected]=useState(initialId||''),[draft,setDraft]=useState<Draft|null>(null),[dirty,setDirty]=useState(false),[progress,setProgress]=useState(''),[source,setSource]=useState('');
  const current=profiles.find(p=>p.id===selected);
  useEffect(()=>{if(!selected&&profiles.length&&!draft)setSelected(profiles[0].id);},[profiles,selected,draft]);
  useEffect(()=>{if(current&&!dirty)setDraft(fromProfile(current));},[current,dirty]);
