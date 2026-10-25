@@ -409,21 +409,23 @@ function PilePositions({value,readOnly,onChange}:{value:[number,number][];readOn
  const [text,setText]=useState(value.map(p=>`${p[0]}, ${p[1]}`).join('\n'));
  useEffect(()=>{setText(t=>{const cur=t.split('\n').map(l=>l.split(/[,\s]+/).filter(Boolean).map(Number));return JSON.stringify(cur.filter(r=>r.length===2&&r.every(Number.isFinite)))===JSON.stringify(value)?t:value.map(p=>`${p[0]}, ${p[1]}`).join('\n');});},[value]);
  return <label className="field full"><span>ตำแหน่งเสาเข็ม (x, y mm จากมุมซ้ายล่างของฐาน · บรรทัดละ 1 ต้น) · {value.length} ต้น</span>
-  <textarea rows={Math.min(8,Math.max(3,value.length+1))} disabled={readOnly} value={text} onChange={e=>{setText(e.target.value);onChange(e.target.value.split('\n').map(l=>l.split(/[,\s]+/).filter(Boolean).map(Number)).filter(r=>r.length===2&&r.every(Number.isFinite)).slice(0,100).map(r=>[r[0],r[1]] as [number,number]));}}/></label>;
+  <textarea rows={Math.min(8,Math.max(3,value.length+1))} disabled={readOnly} value={text} onChange={e=>{setText(e.target.value);onChange(e.target.value.split('\n').map(l=>l.split(/[,\s]+/).filter(Boolean).map(Number)).filter(r=>r.length===2&&r.every(Number.isFinite)).slice(0,300).map(r=>[r[0],r[1]] as [number,number]));}}/></label>;
 }
 /** Raised blocks (e.g. the second pour over part of the plan) and lowered top areas of a rect footing, as boxes in
  * footing-local mm (x/y from the plan corner, z from the footing bottom). */
 function FootingBoxes({input,readOnly,onChange}:{input:FoundationInput;readOnly:boolean;onChange:(key:'blocks'|'cuts'|'walls',v:FootingBox[])=>void}){
  const T=input.thickness,table=(key:'blocks'|'cuts'|'walls',title:string,hint:string,blank:FootingBox)=>{const list=input[key]||[];
-  const put=(k:number,patch:Partial<FootingBox>)=>onChange(key,list.map((b,n)=>n===k?{...b,...patch}:b));
+  // no undefined fields (Firestore): a cleared value removes the key
+  const put=(k:number,patch:Partial<FootingBox>)=>onChange(key,list.map((b,n)=>n===k?Object.fromEntries(Object.entries({...b,...patch}).filter(([,v])=>v!==undefined)) as FootingBox:b));
   const cell=(k:number,f:keyof FootingBox)=>f==='label'?<input aria-label={f} maxLength={40} disabled={readOnly} value={list[k].label} onChange={e=>put(k,{label:e.target.value})}/>:<NumInput aria-label={f} type="number" step="any" style={{width:76}} disabled={readOnly} value={list[k][f] as number} onChange={e=>put(k,{[f]:Number(e.target.value)||0})}/>;
   return <div className="footing-boxes"><b>{title}</b> <small className="muted">{hint}</small>
-   {list.length>0&&<div className="table-scroll"><table><thead><tr><th>ชื่อ</th><th>x0</th><th>y0</th><th>x1</th><th>y1</th><th>z0</th><th>z1</th><th/></tr></thead>
-    <tbody>{list.map((_,k)=><tr key={k}>{(['label','x0','y0','x1','y1','z0','z1'] as const).map(f=><td key={f}>{cell(k,f)}</td>)}<td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(key,list.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
-   <button type="button" disabled={readOnly||list.length>=20} onClick={()=>onChange(key,[...list,blank])}>+ เพิ่ม</button></div>;};
+   {list.length>0&&<div className="table-scroll"><table><thead><tr><th>ชื่อ</th><th>x0</th><th>y0</th><th>x1</th><th>y1</th><th>z0</th><th>z1</th>{key!=='walls'&&<th title="เหล็กบนของส่วนนี้ (ว่าง = เท่าเหล็กบนของฐาน)">เหล็กบน Ø @</th>}<th/></tr></thead>
+    <tbody>{list.map((b,k)=><tr key={k}>{(['label','x0','y0','x1','y1','z0','z1'] as const).map(f=><td key={f}>{cell(k,f)}</td>)}
+     {key!=='walls'&&<td><span className="bar-cell"><NumInput aria-label="เหล็กบน Ø" type="number" style={{width:52}} placeholder="—" disabled={readOnly} value={b.bars?.diameter??''} onChange={e=>{const d=Number(e.target.value)||0;put(k,{bars:d?{diameter:d,spacing:b.bars?.spacing||200}:undefined});}}/>@<NumInput aria-label="เหล็กบน @" type="number" style={{width:60}} disabled={readOnly||!b.bars} value={b.bars?.spacing??''} onChange={e=>b.bars&&put(k,{bars:{...b.bars,spacing:Number(e.target.value)||b.bars.spacing}})}/></span></td>}<td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(key,list.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
+   <button type="button" disabled={readOnly||list.length>=(key==='blocks'?80:key==='walls'?30:20)} onClick={()=>onChange(key,[...list,blank])}>+ เพิ่ม</button></div>;};
  return <div className="footing-boxes-wrap">
   {table('blocks','ส่วนเพิ่ม (ยกสูง / เทเฉพาะบางส่วน เช่น Stage 2)','กล่องคอนกรีตเพิ่มบนฐาน · มีตะแกรงบน LOOPS และเหล็กแนวตั้งผิวข้างขึ้นถึงผิวบนของส่วนนี้',{label:'',x0:0,y0:0,x1:Math.min(1000,input.width),y1:input.length,z0:T,z1:T+400})}
-  {table('cuts','ส่วนลดระดับ (ผิวบนต่ำกว่าฐาน)','ตัดจากผิวบนฐาน: z1 = ความหนาฐาน, z0 = ระดับผิวบนของส่วนนี้ · มีตะแกรงบนของส่วนนี้',{label:'',x0:0,y0:0,x1:input.width,y1:Math.min(900,input.length),z0:Math.max(0,T-450),z1:T})}
+  {table('cuts','ส่วนลดระดับ (ผิวบนต่ำกว่าฐาน)','ตัดจากผิวบนฐาน: z1 = ความหนาฐาน, z0 = ระดับผิวบนของส่วนนี้ · มีตะแกรงบนของส่วนนี้ · z0 = 0 = ตัดทั้งความหนา (มุมที่ตัดออกของแปลน เช่น ฐานรูปตัว L: เหล็กทุกชั้นเดินตามแปลนที่เหลือ)',{label:'',x0:0,y0:0,x1:input.width,y1:Math.min(900,input.length),z0:Math.max(0,T-450),z1:T})}
   {table('walls','ผนัง RC บนฐาน (อ้างอิง)','แนวผนัง x0–x1 × y0–y1 (ความหนาผนัง) · z0 = ฐานผนัง, z1 = ความสูงที่แสดง · แสดงในแปลน / รูปตัด / 3D ไม่คิดปริมาณ (เหล็กผนังตามแบบผนัง)',{label:'',x0:0,y0:0,x1:input.width,y1:Math.min(300,input.length),z0:T,z1:T+1000})}
   <p className="muted">พิกัด mm จากมุมซ้ายล่างของฐาน (x ไปขวา, y ขึ้น) · z จากใต้ฐาน · การเทแยก Stage ตั้งที่ “ลำดับการเทคอนกรีต” (เช่น Stage 1 สูงเท่าฐาน → ส่วนเพิ่มเป็น Stage 2)</p></div>;
 }

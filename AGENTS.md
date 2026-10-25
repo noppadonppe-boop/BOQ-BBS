@@ -100,10 +100,13 @@
   Footing extra boxes (rect): `blocks` (raised parts / later-pour blocks over part of the plan) and `cuts` (lowered top areas,
   z1 = thickness) as footing-local boxes → member geometry solids / voids (`boxCells` volume, formwork, pour stages); bars:
   own top mesh per cut / block group (`mesh(..., area {only|minus})`), loops around plan − cuts above the cut top and around
-  each block group, face bars one Mark per top height (`topAt`). Piles `pile.layout 'custom'` + `positions`. `walls` = RC walls on the footing as reference boxes → placement context
+  each block group, face bars one Mark per top height (`topAt`). Full-depth cuts (z0 = 0, z1 = thickness) are plan openings (`footingOpenings()`; `footingOutline()` = rect − openings, so L-shaped
+  mats keep every bar layer / area on the remaining plan). Boxes may carry own top bars `bars {diameter, spacing}`; blocks of equal height
+  form one group only when they touch; `footingTopAt()` = concrete top at a plan point (bars, starter / column regions). Piles `pile.layout 'custom'` + `positions` (≤ 300; blocks ≤ 80, member geometry solids ≤ 80).
+  Block groups enclosed by concrete at least as high get no loops; block-top bars shorter than max(300, 20d) are left out. `walls` = RC walls on the footing as reference boxes → placement context
   regions `genwall*` (no quantities; views kind 'wall', outline redrawn over the bars; 3D boxes in `Element3DModal`). Sections lower the
   footing top over cuts (`buildView`). UI `FootingBoxes` / `PilePositions` in `ElementInputPanel.tsx`.
-  J-078 Phase 1 (F10 / F12) and Phase 2 (F-xx, pilot F-01) from MPK01B-IFC-S-PLIE FD Review: `tmp/j078Foundations.test.ts` →
+  J-078 Phase 1 (F10 / F12) and Phase 2 (F-01 … F-17: stepped mats, tank mats F-10/11, ribbed water-tank bases F-12…17) from MPK01B-IFC-S-PLIE FD Review: `tmp/j078Foundations.test.ts` →
   `tmp/Spec-Project-J-078.json`.
 - Project Beam Template (beam schedule of the beam details): `spec.beamTemplates` in `src/domain/beamTemplates.ts` (per mark:
   size, `sections` = labels as drawn per END / MID / CON / CANT / ALL SPAN, `rebar` = beam-group span bars derived by

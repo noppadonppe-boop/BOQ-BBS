@@ -11,7 +11,7 @@ export function FoundationTemplatePlan({t,size=150}:{t:FoundationTemplate;size?:
  const st=f.rebar.stirrups?.enabled?f.rebar.stirrups:undefined;
  return <svg className="ft-plan" width={w+2*pad} height={h+2*pad} viewBox={`0 0 ${w+2*pad} ${h+2*pad}`} aria-hidden>
   <rect x={pad} y={pad} width={w} height={h} className="ft-outline"/>
-  {(f.cuts||[]).map((b,n)=><rect key={`c${n}`} x={pad+b.x0*k} y={y(b.y1)} width={(b.x1-b.x0)*k} height={(b.y1-b.y0)*k} className="ft-cut"/>)}
+  {(f.cuts||[]).map((b,n)=><rect key={`c${n}`} x={pad+b.x0*k} y={y(b.y1)} width={(b.x1-b.x0)*k} height={(b.y1-b.y0)*k} className={b.z0<=.5&&b.z1>=f.thickness-1?"ft-open":"ft-cut"}/>)}
   {(f.blocks||[]).map((b,n)=><rect key={`b${n}`} x={pad+b.x0*k} y={y(b.y1)} width={(b.x1-b.x0)*k} height={(b.y1-b.y0)*k} className="ft-block"/>)}
   {st&&(st.dir==='x'?<rect x={pad} y={pad+h/2-st.width*k/2} width={w} height={st.width*k} className="ft-band"/>:<rect x={pad+w/2-st.width*k/2} y={pad} width={st.width*k} height={h} className="ft-band"/>)}
   {piles.map(([px,py],n)=><circle key={n} cx={pad+px*k} cy={y(py)} r={f.pile.size*k/2} className="ft-pile"/>)}
