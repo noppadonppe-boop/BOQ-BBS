@@ -101,7 +101,8 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  for(const v of views){
   out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2});
   text(v.title,v.box.x+2,v.box.y+4,2.8,{bold:true});
-  out.push(...renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z}).map(p=>p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p));
+  // one view of a large member has more prims than a spread call takes as arguments
+  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z}))out.push(p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p);
  }
  if(bg)out.push(...bg.marks);
  // Notes and Mark legend.

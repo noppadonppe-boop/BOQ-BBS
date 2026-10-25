@@ -38,6 +38,8 @@ function sandRect(m:Member,a:number,b:number,normal:number|undefined,cut:number|
 const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
+// min / max of long coordinate lists (spreading them into Math.min overflows the call stack on large members)
+const low=(a:number[],start=Infinity)=>a.reduce((m,v)=>v<m?v:m,start),high=(a:number[],start=-Infinity)=>a.reduce((m,v)=>v>m?v:m,start);
 export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns}:ViewSpec){
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
  // Footing concrete comes from the true plan outline (circle / polygons / L / U), not the bounding box.
@@ -110,7 +112,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   // coupler at the top end of footing column bars (vertical sections): a box centred on the bar end
   const couplers:[number,number][]=[];
   const ce=barCouplerEnds(input,r.id);
-  if(normal!==undefined&&normal!==2&&(ce.top||ce.bottom)){const zs=r.paths.flatMap(p=>p.map(q=>q[2])),zTop=Math.max(...zs),zBot=Math.min(...zs);
+  if(normal!==undefined&&normal!==2&&(ce.top||ce.bottom)){const zs=r.paths.flatMap(p=>p.map(q=>q[2])),zTop=high(zs),zBot=low(zs);
    for(const l of lines){if(Math.abs(l.a[0]-l.b[0])>=.5)continue;const hi=l.a[1]>l.b[1]?l.a:l.b,lo=hi===l.a?l.b:l.a;
     if(ce.top&&Math.abs(hi[1]-zTop)<1)couplers.push(hi);if(ce.bottom&&Math.abs(lo[1]-zBot)<1)couplers.push(lo);}}
   return {row:r,lines,dots,couplers};
@@ -160,7 +162,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  }
  const us=[...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
  const vs=[...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:(only?[Math.min(...us),Math.max(...us)]:[Math.min(0,...us),Math.max(1,...us)]) as [number,number],v:(only?[Math.min(...vs),Math.max(...vs)]:[Math.min(0,...vs),Math.max(1,...vs)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:(only?[low(us),high(us)]:[low(us,0),high(us,1)]) as [number,number],v:(only?[low(vs),high(vs)]:[low(vs,0),high(vs,1)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
