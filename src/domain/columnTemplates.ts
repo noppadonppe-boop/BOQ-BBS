@@ -117,7 +117,7 @@ export function applyTemplateFooting(c:FootingColumn,t:ColumnTemplate,k:number,t
  const r=t.rows[k];if(!r)return c;
  return {...structuredClone(c),type,columnNo:t.name.slice(0,50),shape:'rect',width:r.width,depth:r.depth,
   main:{...withoutLayout(c.main),corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r),...(r.layout?{layout:structuredClone(r.layout)}:{})},
-  tie:{diameter:r.tie.diameter,spacing:r.tie.s2||r.tie.s1}};
+  tie:{diameter:r.tie.diameter,spacing:r.tie.s2||r.tie.s1,pattern:rowPattern(t,r)}};
 }
 /** Re-apply the linked template (spec change / template edit); unlinked or missing templates leave the input as is. */
 export function syncColumnTemplate(i:ColumnInput,spec:Pick<Spec,'columnTemplates'|'columnZoneRules'>):ColumnInput{

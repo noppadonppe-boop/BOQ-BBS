@@ -63,7 +63,8 @@
   `data/columnTemplateExcel.ts`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx` (default view = schedule grid
   `ScheduleGrid`: types × level ranges via `scheduleLevels()`, cell = single storey, type header = stack). Footing section 5
   uses the same grid (`FootingTemplatePicker`, pedestal | starter) → `applyTemplateFooting()` on the selected footing column
-  (ties at S2; test `tmp/footingTemplate.test.ts`). Test: `tmp/columnTemplate.test.ts`;
+  (ties at S2 + set-2 pattern `column.tie.pattern` = `rowPattern()`, drawn as roles `column-tie-in<k>` above each hoop via
+  `columnTieLayout()`; test `tmp/footingTemplate.test.ts`). Test: `tmp/columnTemplate.test.ts`;
   J-078 schedule data + Excel generator: `tmp/j078.test.ts` → `tmp/J-078-column-templates.xlsx`.
   Sections as drawn: `main.layout` (`sectionLayoutSchema` in `elementInput.ts`: bars u/v as fractions of the bar-centre
   box + bundles n/dir, ties = closed rects u0..u1 × v0..v1) on template rows / column main / storey main / footing column
