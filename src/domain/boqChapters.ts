@@ -9,22 +9,25 @@ import {pileInput} from './pileReport';
 import {siteKinds,siteLabels,siteUnits} from './siteWork';
 import {locationTree} from './locations';
 import {quantityBasisCoverage} from './quantityBasis';
+import {civilMeasures} from './civilInput';
 import {reinforcementCoverage} from './reinforcementCoverage';
 
 // Owner / consultant BOQ chapters per project (`project.boqChapters`): the owner's item list (code 1 / 1.1 / 1.1.2,
 // description, unit) with a rule per quantity item telling which system quantity goes there. Every quantity of the
 // selected members goes to the most specific matching item; the rest is reported as unmatched.
-export const boqComponents=['concrete','formwork','excavation','backfill','lean','rebar','pile','pilecut','site'] as const;
+export const boqComponents=['concrete','formwork','excavation','backfill','lean','rebar','pile','pilecut','site','count','length','area','pieces'] as const;
+/** Optional measures: only counted where an item asks for them (never reported as unmatched). */
+const measures:readonly string[]=['count','length','area','pieces'];
 export type BoqComponent=typeof boqComponents[number];
-export const boqComponentLabels:Record<BoqComponent,string>={concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ถมกลับ',lean:'คอนกรีตหยาบ',rebar:'เหล็กเสริม',pile:'เสาเข็ม',pilecut:'ตัดหัวเข็ม',site:'งานรองพื้น / รายการเพิ่มเอง'};
-const baseUnits:Record<BoqComponent,string>={concrete:'m³',formwork:'m²',excavation:'m³',backfill:'m³',lean:'m³',rebar:'kg',pile:'ต้น',pilecut:'ต้น',site:''};
-const componentWords:[BoqComponent,RegExp][]=[['concrete',/^(concrete|คอนกรีต(โครงสร้าง)?)$/i],['formwork',/^(formwork|แบบหล่อ|ไม้แบบ)$/i],['excavation',/^(excavation|ขุดดิน|งานดินขุด)$/i],['backfill',/^(backfill|ถมกลับ|ดินถมกลับ)$/i],['lean',/^(lean|lean concrete|คอนกรีตหยาบ)$/i],['rebar',/^(rebar|reinforcement|เหล็กเสริม|เหล็ก)$/i],['pile',/^(pile|piles|เสาเข็ม)$/i],['pilecut',/^(pile ?cut|pile cutting|ตัดหัวเข็ม|ตัดหัวเสาเข็ม)$/i],['site',/^(site|site ?work|งานรองพื้น|รายการเพิ่มเอง|รองพื้น)$/i]];
+export const boqComponentLabels:Record<BoqComponent,string>={concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ถมกลับ',lean:'คอนกรีตหยาบ',rebar:'เหล็กเสริม',pile:'เสาเข็ม',pilecut:'ตัดหัวเข็ม',site:'งานรองพื้น / รายการเพิ่มเอง',count:'จำนวนชิ้น',length:'ความยาว',area:'พื้นที่',pieces:'จำนวนท่อน'};
+const baseUnits:Record<BoqComponent,string>={concrete:'m³',formwork:'m²',excavation:'m³',backfill:'m³',lean:'m³',rebar:'kg',pile:'ต้น',pilecut:'ต้น',site:'',count:'ชุด',length:'m',area:'m²',pieces:'ท่อน'};
+const componentWords:[BoqComponent,RegExp][]=[['concrete',/^(concrete|คอนกรีต(โครงสร้าง)?)$/i],['formwork',/^(formwork|แบบหล่อ|ไม้แบบ)$/i],['excavation',/^(excavation|ขุดดิน|งานดินขุด)$/i],['backfill',/^(backfill|ถมกลับ|ดินถมกลับ)$/i],['lean',/^(lean|lean concrete|คอนกรีตหยาบ)$/i],['rebar',/^(rebar|reinforcement|เหล็กเสริม|เหล็ก)$/i],['pile',/^(pile|piles|เสาเข็ม)$/i],['pilecut',/^(pile ?cut|pile cutting|ตัดหัวเข็ม|ตัดหัวเสาเข็ม)$/i],['site',/^(site|site ?work|งานรองพื้น|รายการเพิ่มเอง|รองพื้น)$/i],['count',/^(count|จำนวน|จำนวนชิ้น|จำนวนชุด)$/i],['length',/^(length|ความยาว)$/i],['area',/^(area|พื้นที่)$/i],['pieces',/^(pieces|จำนวนท่อน|ท่อน)$/i]];
 export const parseComponent=(t:string)=>componentWords.find(([,re])=>re.test(t.trim().replace(/\s+/g,' ')))?.[0];
 
 const text=(max:number)=>z.string().trim().max(max);
 export const boqRuleSchema=z.object({
  component:z.enum(boqComponents),disciplines:z.array(z.enum(disciplines)).max(4).optional(),categories:z.array(z.enum(categories)).max(categories.length).optional(),
- mix:text(60).optional(),diameters:z.array(z.number().int().min(4).max(60)).max(20).optional(),grades:z.array(text(20)).max(10).optional(),buildings:z.array(text(20)).max(50).optional(),siteItem:text(120).optional(),
+ mix:text(60).optional(),diameters:z.array(z.number().int().min(4).max(3000)).max(20).optional(),grades:z.array(text(20)).max(10).optional(),buildings:z.array(text(20)).max(50).optional(),siteItem:text(120).optional(),
 }).strict();
 export type BoqRule=z.infer<typeof boqRuleSchema>;
 export const boqItemSchema=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),code:text(30),title:text(300).min(1),unit:text(20),note:text(300).optional(),rule:boqRuleSchema.optional()}).strict();
@@ -56,7 +59,7 @@ export function boqContributions(bundle:SnapshotBundle):Contribution[]{
  const out:Contribution[]=[],tree=locationTree(bundle.project.locations);
  for(const m of bundle.members){
   const frozen=bundle.calculations?.[m.id],q=frozen||takeoff(m,bundle.project.spec),category=reportCategory(m),discipline=disciplineOf(m.category),mix=memberConcrete(m),fc=(m.elementInput as {detailing?:{concrete?:{fc?:number}}}|undefined)?.detailing?.concrete?.fc;
-  const pile=pileInput(m),pq=pile?pileQuantities(pile):undefined;
+  const pile=pileInput(m),pq=pile?pileQuantities(pile):undefined,cm=civilMeasures(m);
   for(const o of m.occurrences){
    const building=(o.loc?.building&&tree.byId.get(o.loc.building)?.code)||o.building||'',base={memberId:m.id,category,discipline,mix,fc,building};
    for(const k of ['concrete','formwork','excavation','backfill','lean'] as const){const v=(q as unknown as Record<string,number>)[k]||0;if(v>0)out.push({...base,component:k,value:v*o.quantity,unit:baseUnits[k],label:boqComponentLabels[k]});}
@@ -64,6 +67,12 @@ export function boqContributions(bundle:SnapshotBundle):Contribution[]{
     const w=frozen?frozen.bars.find(r=>r.id===b.id)?.weight:('rows' in q?(q.rows as {id:string;weight:number}[]).find(r=>r.id===b.id)?.weight:undefined);
     if(w&&Number.isFinite(w))out.push({...base,component:'rebar',value:w*o.quantity,unit:'kg',label:`${b.grade} Ø${b.diameter}`,diameter:b.diameter,grade:b.grade});
    }
+   out.push({...base,component:'count',value:o.quantity,unit:'ชุด',label:'จำนวนชิ้น'});
+   // pipes: size and class act as the bar size / mix of a rule (columns H / G)
+   const pipe=cm.pipe?{diameter:cm.pipe.size,mix:cm.pipe.pipeClass}:{};
+   if(cm.length)out.push({...base,...pipe,component:'length',value:cm.length*o.quantity,unit:'m',label:'ความยาว'});
+   if(cm.pieces)out.push({...base,...pipe,component:'pieces',value:cm.pieces*o.quantity,unit:'ท่อน',label:'จำนวนท่อน'});
+   if(cm.area)out.push({...base,component:'area',value:cm.area*o.quantity,unit:'m²',label:'พื้นที่'});
    if(pq?.count){out.push({...base,component:'pile',value:pq.count*o.quantity,length:pq.totalLength*o.quantity,unit:'ต้น',label:`เสาเข็ม ${pq.size} mm`});if(pq.cutCount)out.push({...base,component:'pilecut',value:pq.cutCount*o.quantity,length:pq.totalCutLength*o.quantity,unit:'ต้น',label:'ตัดหัวเข็ม'});}
    if(m.siteWork){
     siteKinds.forEach(k=>{const each=(q as unknown as Record<string,number>)[k]??0;if(each>0)out.push({...base,component:'site',value:each*o.quantity,unit:siteUnits[k],label:siteLabels[k]});});
@@ -81,6 +90,7 @@ export function boqChapterReport(bundle:SnapshotBundle,chapters:BoqChapters){
  for(const c of boqContributions(bundle)){
   let best:BoqItem|undefined,score=-1;for(const i of items)if(matches(i.rule!,c)){const s=specificity(i.rule!);if(s>score){best=i;score=s;}}
   if(best){const v=(byLength(c.component,best.unit)?c.length??0:c.value)*unitFactor(c.component,best.unit),s=sums.get(best.id)||{q:0,ids:new Set<string>()};s.q+=v;s.ids.add(c.memberId);sums.set(best.id,s);if(pending.has(c.memberId))provisional.add(best.id);continue;}
+  if(measures.includes(c.component))continue;
   const key=JSON.stringify([c.component,c.component==='rebar'||c.component==='site'?c.label:'',c.unit]),u=miss.get(key)||{component:c.component,label:c.label,unit:c.unit,quantity:0,members:0,categories:[],ids:new Set<string>(),cats:new Set<string>()};
   u.quantity+=c.value;u.ids.add(c.memberId);u.cats.add(labels[c.category]);miss.set(key,u);
  }
@@ -104,7 +114,7 @@ export function chaptersFromRows(rows:BoqSheetRow[],source:string,at:string,newI
    const component=parseComponent(r.component);if(!component){problems.push(`${r.source}: ปริมาณจากระบบ “${r.component}” ไม่รู้จัก (${Object.values(boqComponentLabels).join(' · ')})`);continue;}
    const ds=list(r.disciplines).map(t=>[t,disciplineWord(t)] as const),cs=list(r.categories).map(t=>[t,categoryWord(t)] as const);
    const bad=[...ds.filter(x=>!x[1]).map(x=>`หมวดงาน “${x[0]}”`),...cs.filter(x=>!x[1]).map(x=>`ประเภท “${x[0]}”`)];
-   const dia=list(r.diameters).map(t=>Number(t.replace(/^(DB|RB|Y|T|Ø|D)/i,'')));if(dia.some(n=>!Number.isInteger(n)||n<4||n>60))bad.push(`ขนาดเหล็ก “${r.diameters}”`);
+   const dia=list(r.diameters).map(t=>Number(t.replace(/^(DB|RB|Y|T|Ø|D)/i,'')));if(dia.some(n=>!Number.isInteger(n)||n<4||n>3000))bad.push(`ขนาดเหล็ก / ท่อ “${r.diameters}”`);
    if(bad.length){problems.push(`${r.source}: ไม่รู้จัก ${bad.join(', ')}`);continue;}
    rule={component,...(ds.length?{disciplines:ds.map(x=>x[1]!)}:{}),...(cs.length?{categories:cs.map(x=>x[1]!)}:{}),...(r.mix?{mix:r.mix}:{}),...(dia.length?{diameters:dia}:{}),...(r.grades?{grades:list(r.grades)}:{}),...(r.buildings?{buildings:list(r.buildings)}:{}),...(r.siteItem?{siteItem:r.siteItem}:{})};
   }

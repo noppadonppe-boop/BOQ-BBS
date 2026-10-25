@@ -168,6 +168,18 @@
   `disc-<id>` and folds its categories), page `DisciplinePage`, Settings `DisciplineSettings` (`components/Disciplines.tsx`).
   RC categories now include `Stair` / `Lift` (free-form like `Custom`: `freeFormCategory()` → shape tab, prisms, rebar sketch;
   concrete mix of slabs / walls). Report group `Discipline`. Test: `tmp/disciplines.test.tsx`.
+- Civil Work (phase 2a): categories `UDitch VDitch Trench Manhole Pit UGTank AGTank ConcretePaving AsphaltPaving`
+  (`civilCategories` in `src/domain/civilInputSchema.ts`, discipline Civil). Member `civilInput` (channel / vchannel / box /
+  paving / asphalt) → `applyCivilInput()` (`src/domain/civilInput.ts`): channel / box / paving = shape model (base + walls /
+  `shaft` + cover with void opening; buried → shape `site` earthwork, on ground → lean only), V-ditch = prism (needs the
+  spec concrete-geometry method; the form shows validateMember blockers), asphalt = quantity only (layers as site items
+  `asph-*`, `takeoff` zero concrete). Civil RC types are free-form (rebar via sketch / notes; auto rebar is phase 2b).
+  UI tab “รูปทรงสำเร็จรูป” `components/CivilForm.tsx`. BOQ components `count` / `length` / `area` (`civilMeasures()`; never
+  reported unmatched). Test: `tmp/civil.test.tsx`.
+  Pipe laying `RCPipe` / `PEPipe` (kind `pipe`, quantity only like asphalt: `quantityOnlyCategories`): `pipeQuantities()`;
+  the trench is the member excavation (prismoid, side slope), bedding = site sand, pipe volume = `excavation.buriedConcrete`
+  (backfill = excavation − sand − pipe); `takeoff` counts earthwork for pipes. BOQ `pieces` (ท่อน); pipe size / class match a
+  rule's diameters (column H, ≤ 3000) / mix (column G). Test: `tmp/pipe.test.tsx`.
 - Owner / consultant BOQ chapters per project: `project.boqChapters` (`src/domain/boqChapters.ts`: items code / title / unit +
   optional `rule {component, disciplines, categories, mix, diameters, grades, buildings, siteItem}`; no rule = heading).
   `boqContributions()` = every quantity per occurrence (concrete, formwork, excavation, backfill, lean, rebar per bar,

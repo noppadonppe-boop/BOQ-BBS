@@ -1,3 +1,4 @@
+import type {CivilCategory} from './civilInputSchema';
 import type {Category,Member,Vec3} from './model';
 
 export type ElementDefaultProfile={
@@ -75,8 +76,27 @@ const profiles:Record<Category,ElementDefaultProfile>={
     reinforcement:'กำหนดรูปแบบเหล็กจากแบบต้นทาง',
     quantityBasis:'กล่องพื้นฐาน X × Y × Z',
     notes:['ใช้ Geometry editor เมื่อรูปทรงไม่ใช่กล่องพื้นฐาน']
-  }
+  },
+  ...civilProfiles()
 };
+// Civil Work (phase 2a): geometry from the parametric form “รูปทรงสำเร็จรูป”, bars with the free-form tools
+function civilProfiles():Record<CivilCategory,ElementDefaultProfile>{
+ const p=(category:CivilCategory,dimensions:Vec3,cover:number,faces:boolean[],description:string,reinforcement:string,quantityBasis:string,notes:string[]):ElementDefaultProfile=>({category,dimensions,cover,faces,description,reinforcement,quantityBasis,notes});
+ const ditch=['X = ความยาว, Y = ความกว้างภายนอก, Z = ความสูงรวม','กรอกขนาดในแท็บ “รูปทรงสำเร็จรูป” แล้ววาดเหล็กบนรูปตัด'];
+ return {
+  UDitch:p('UDitch',[10000,700,650],50,[false,false,true,true,false,false],'รางระบายน้ำ U คอนกรีตเสริมเหล็ก (หล่อในที่)','เหล็กปลอก U ตามขวาง + เหล็กยาวตามแนวราง','หน้าตัด × ความยาว · BOQ เป็น m ได้',ditch),
+  VDitch:p('VDitch',[10000,1400,600],40,[false,false,false,false,false,false],'รางระบายน้ำ V / คางหมู (คอนกรีตดาด)','ตะแกรงเหล็ก / Wire mesh ตามแบบ (ถ้ามี)','หน้าตัดดาด × ความยาว · BOQ เป็น m ได้',ditch),
+  Trench:p('Trench',[10000,900,1070],50,[false,false,true,true,false,false],'Trench / รางเคเบิล พร้อมฝา','เหล็กปลอก U + เหล็กยาว · ฝาตามแบบ','หน้าตัด × ความยาว · BOQ เป็น m ได้',ditch),
+  Manhole:p('Manhole',[1600,1600,1900],50,[true,true,true,true,false,false],'บ่อพัก (Manhole) คอนกรีตเสริมเหล็ก','ตะแกรงพื้นบ่อ · เหล็กผนังสองผิว · ฝา','พื้น + ผนัง + ฝา (หักช่องเปิด)',['ขนาดภายในตามแบบ · ช่องเปิดฝาเป็นช่องว่าง (void)']),
+  Pit:p('Pit',[2200,2200,1750],50,[true,true,true,true,false,false],'บ่อ / Pit คอนกรีตเสริมเหล็ก','ตะแกรงพื้นบ่อ · เหล็กผนังสองผิว','พื้น + ผนัง (+ ฝาถ้ามี)',['งานดินขุด / คอนกรีตหยาบจากข้อมูลหน้างานของรูปทรง']),
+  UGTank:p('UGTank',[4900,3900,3000],50,[true,true,true,true,false,false],'ถังเก็บน้ำใต้ดิน คอนกรีตเสริมเหล็ก (กันซึม)','ตะแกรงพื้น 2 ชั้น · ผนังสองผิว · พื้นบน','พื้น + ผนัง + พื้นบน (หักช่องเปิด)',['ตรวจ Mix คอนกรีตกันซึมใน General Spec']),
+  AGTank:p('AGTank',[4900,3900,3000],50,[true,true,true,true,false,false],'ถังเก็บน้ำบนดิน คอนกรีตเสริมเหล็ก','ตะแกรงพื้น · ผนังสองผิว · พื้นบน','พื้น + ผนัง + พื้นบน (หักช่องเปิด)',['ไม่มีงานดินขุดเต็มความลึก (ขุดเฉพาะชั้นรองพื้น)']),
+  ConcretePaving:p('ConcretePaving',[6000,4000,200],50,[true,true,true,true,false,false],'ถนน / ลานคอนกรีต (ต่อแผ่น)','ตะแกรงเหล็ก / Wire mesh · Dowel ที่รอยต่อ','กว้าง × ยาว × หนา · BOQ เป็น m² ได้',['1 สมาชิก = 1 แผ่น / ช่วงเท · จำนวน = จำนวนแผ่น']),
+  RCPipe:p('RCPipe',[20000,720,720],0,[false,false,false,false,false,false],'งานวางท่อระบายน้ำ ค.ส.ล. (ท่อสำเร็จรูป)','ไม่มีเหล็กเสริม (ท่อสำเร็จรูปตามชั้นคุณภาพ)','ความยาว (m) · จำนวนท่อน · ขุดร่อง · ทรายรองท่อ · ถมกลับ',['X = ความยาวแนวท่อ · กรอกในแท็บ “รูปทรงสำเร็จรูป”','ถมกลับหักปริมาตรท่อและทรายรองท่อ']),
+  PEPipe:p('PEPipe',[50000,200,200],0,[false,false,false,false,false,false],'งานวางท่อ PE / HDPE','ไม่มีเหล็กเสริม','ความยาว (m) · จำนวนท่อน · ขุดร่อง · ทรายรองท่อ · ถมกลับ',['ขนาดท่อ PE ใช้ขนาดผิวนอก (OD) ตามมาตรฐาน']),
+  AsphaltPaving:p('AsphaltPaving',[20000,6000,300],0,[false,false,false,false,false,false],'ผิวทางแอสฟัลต์ (ปริมาณอย่างเดียว)','ไม่มีเหล็กเสริม','พื้นที่ × ชั้นวัสดุ (m² / m³) · ไม่มีคอนกรีต',['ชั้นวัสดุกำหนดในแท็บ “รูปทรงสำเร็จรูป” · ออกเป็นรายการใน BOQ']),
+ };
+}
 
 export function elementDefaults(category:Category):ElementDefaultProfile{return profiles[category];}
 

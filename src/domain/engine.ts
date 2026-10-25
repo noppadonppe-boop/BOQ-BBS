@@ -1,3 +1,4 @@
+import {quantityOnlyCategories} from './civilInputSchema';
 import {declaredNoRebar} from './reinforcementScopeSchema';
 import {CODE99_HOLD,CODE99_REVIEW_POLICY,type Code99Review} from './code99ReviewSchema';
 import {FLAT_END_COVER_POLICY,polylineCoverSagitta} from './flatEndCover';
@@ -95,12 +96,13 @@ export function schedule(m:Member,spec:Spec){return m.bars.map(b=>{
 });}
 export function minimumProblems(m:Member,s:Spec,reviews:Code99Review[]=[]){return bsEnabled(s)?schedule(m,s).flatMap(b=>b.standard.problems.filter(p=>p!==CODE99_HOLD||s.code99ReviewPolicy!==CODE99_REVIEW_POLICY||!reviews.some(r=>r.memberId===m.id&&r.barId===b.id)).map(p=>`${b.mark}: ${p}`)):[];}
 export function takeoff(m:Member,spec:Spec){
- const geometry=solidQuantities(m),gross=geometry.volume,formGross=geometry.formwork;
+ // asphalt paving / precast pipes are quantity only (layers / pipe items): no concrete or formwork
+ const geometry=quantityOnlyCategories.includes(m.category)?{...solidQuantities(m),volume:0,formwork:0}:solidQuantities(m),gross=geometry.volume,formGross=geometry.formwork;
  const concrete=gross-sum(m.deductions.map(d=>d.volume));
  const formwork=formGross-sum(m.deductions.map(d=>d.formwork));
  const e=m.excavation,dx=e.topX-e.bottomX,dy=e.topY-e.bottomY;
  // earthwork: footings, and shape-model members that carry site data (custom pile caps, pits, shafts …)
- const earth=m.category==='Foundation'||!!m.shapeModel?.site;
+ const earth=m.category==='Foundation'||!!m.shapeModel?.site||m.civilInput?.kind==='pipe';
  const excavation=earth?e.depth*(e.bottomX*e.bottomY+(e.bottomX*dy+e.bottomY*dx)/2+dx*dy/3)/1e9:0;
  // lean concrete: footings / site work, and slabs or beams cast on ground (other members carry zero lean)
  const lean=m.lean.x*m.lean.y*m.lean.thickness/1e9;
