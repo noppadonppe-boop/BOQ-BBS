@@ -8,7 +8,7 @@ import {textWidth,type Prim} from './drawingPrims';
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
 export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean};
-type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'lean'|'sand'|'pile';circle?:boolean};
+type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'wall'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
 export const barPalette=['#167561','#c2410c','#2563eb','#9333ea','#b45309','#0e7490','#be123c','#4d7c0f','#7c3aed','#0369a1','#a16207','#15803d'];
@@ -45,7 +45,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  if(only){rows=rows.filter(r=>/column-(main|tie)/.test(r.id));const fe=footingExtent(input);
   for(const c of footingColumns(input)){const {w,d}=columnExtent(c),ox=(fe.w-w)/2+c.offsetX,oy=(fe.d-d)/2+c.offsetY;(input.column.type==='pedestal'?polys:refs).push(columnOutline(c).map(([x,y])=>[ox+x,oy+y] as Pt));}}
  const isFooting=(id:string)=>!!foot&&(id==='main'||id.startsWith('footing'));
- const boxes=only?[]:[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:'context' as const}))];
+ const boxes=only?[]:[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:s.id.startsWith('context_genwall')?'wall' as const:'context' as const}))];
  const sm=m.shapeModel,earth=m.category==='Foundation'||!!sm?.site,holes:Pt[][]=[],edges:Line[]=[];
  if(!only){if(m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
  rects.push(...sandRect(m,a,b,normal,cut));}
@@ -212,7 +212,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const lvW=v.levels.length?Math.max(...v.levels.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
  const s=Math.min((box.w-2*M-lvW)/spanU,(box.h-2*M)/spanV),offU=(box.w-2*M-lvW-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
  const X=(x:number)=>box.x+M+offU+(x-u[0])*s,Y=(y:number)=>box.y+box.h-M-offV-(y-vr[0])*s,out:Prim[]=[];
- const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
+ const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},wall:{fill:'#b9c4c1',stroke:'#3d5054',width:1*k},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>out.push(r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
  v.rects.filter(r=>r.kind==='sand').forEach(rect);
  v.rects.filter(r=>r.kind==='lean').forEach(rect);
@@ -292,6 +292,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   out.push({t:'rect',x:cx-tw/2,y:cy-bh/2,w:tw,h:bh,stroke:'#8a4a3f',width:.5*k,dash:[3*k,2*k]},{t:'text',x:cx,y:cy+ss*.35,text:t.text,size:ss,color:'#8a4a3f',anchor:'middle',halo:true});
   taken.push({x0:cx-tw/2,x1:cx+tw/2,y0:cy-bh/2,y1:cy+bh/2});
  }
+ // walls on the footing (reference): outline again over the bars so the wall lines stay visible
+ v.rects.filter(r=>r.kind==='wall').forEach(r=>out.push({t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,stroke:'#22393f',width:1.6*k}));
  const axisName=['X','Y','Z'];
  out.push({t:'text',x:box.x+box.w-6*k,y:box.y+box.h-6*k,text:`${axisName[v.axes[0]]} → · ${axisName[v.axes[1]]} ↑`,size:9*k*fs,color:'#9aa8a6',anchor:'end'});
  return out;

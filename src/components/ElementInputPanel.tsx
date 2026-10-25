@@ -404,8 +404,8 @@ function PilePositions({value,readOnly,onChange}:{value:[number,number][];readOn
 }
 /** Raised blocks (e.g. the second pour over part of the plan) and lowered top areas of a rect footing, as boxes in
  * footing-local mm (x/y from the plan corner, z from the footing bottom). */
-function FootingBoxes({input,readOnly,onChange}:{input:FoundationInput;readOnly:boolean;onChange:(key:'blocks'|'cuts',v:FootingBox[])=>void}){
- const T=input.thickness,table=(key:'blocks'|'cuts',title:string,hint:string,blank:FootingBox)=>{const list=input[key]||[];
+function FootingBoxes({input,readOnly,onChange}:{input:FoundationInput;readOnly:boolean;onChange:(key:'blocks'|'cuts'|'walls',v:FootingBox[])=>void}){
+ const T=input.thickness,table=(key:'blocks'|'cuts'|'walls',title:string,hint:string,blank:FootingBox)=>{const list=input[key]||[];
   const put=(k:number,patch:Partial<FootingBox>)=>onChange(key,list.map((b,n)=>n===k?{...b,...patch}:b));
   const cell=(k:number,f:keyof FootingBox)=>f==='label'?<input aria-label={f} maxLength={40} disabled={readOnly} value={list[k].label} onChange={e=>put(k,{label:e.target.value})}/>:<NumInput aria-label={f} type="number" step="any" style={{width:76}} disabled={readOnly} value={list[k][f] as number} onChange={e=>put(k,{[f]:Number(e.target.value)||0})}/>;
   return <div className="footing-boxes"><b>{title}</b> <small className="muted">{hint}</small>
@@ -415,6 +415,7 @@ function FootingBoxes({input,readOnly,onChange}:{input:FoundationInput;readOnly:
  return <div className="footing-boxes-wrap">
   {table('blocks','ส่วนเพิ่ม (ยกสูง / เทเฉพาะบางส่วน เช่น Stage 2)','กล่องคอนกรีตเพิ่มบนฐาน · มีตะแกรงบน LOOPS และเหล็กแนวตั้งผิวข้างขึ้นถึงผิวบนของส่วนนี้',{label:'',x0:0,y0:0,x1:Math.min(1000,input.width),y1:input.length,z0:T,z1:T+400})}
   {table('cuts','ส่วนลดระดับ (ผิวบนต่ำกว่าฐาน)','ตัดจากผิวบนฐาน: z1 = ความหนาฐาน, z0 = ระดับผิวบนของส่วนนี้ · มีตะแกรงบนของส่วนนี้',{label:'',x0:0,y0:0,x1:input.width,y1:Math.min(900,input.length),z0:Math.max(0,T-450),z1:T})}
+  {table('walls','ผนัง RC บนฐาน (อ้างอิง)','แนวผนัง x0–x1 × y0–y1 (ความหนาผนัง) · z0 = ฐานผนัง, z1 = ความสูงที่แสดง · แสดงในแปลน / รูปตัด / 3D ไม่คิดปริมาณ (เหล็กผนังตามแบบผนัง)',{label:'',x0:0,y0:0,x1:input.width,y1:Math.min(300,input.length),z0:T,z1:T+1000})}
   <p className="muted">พิกัด mm จากมุมซ้ายล่างของฐาน (x ไปขวา, y ขึ้น) · z จากใต้ฐาน · การเทแยก Stage ตั้งที่ “ลำดับการเทคอนกรีต” (เช่น Stage 1 สูงเท่าฐาน → ส่วนเพิ่มเป็น Stage 2)</p></div>;
 }
 /** Concrete mix of the member (spec mixes): by member type, or a mix chosen here; its f'c picks the lap table. */

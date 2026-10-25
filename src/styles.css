@@ -364,3 +364,4 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .foundation-templates{margin-top:18px}.ft-list{display:flex;flex-direction:column;gap:6px}.ft-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;border:1px solid var(--border);border-radius:var(--r);padding:8px}.ft-row p{margin:2px 0}
 .ft-plan .ft-block{fill:rgba(196,120,40,.28);stroke:#b26a1c;stroke-width:.6}.ft-plan .ft-cut{fill:rgba(120,120,120,.18);stroke:#888;stroke-width:.5;stroke-dasharray:2 2}
 .footing-boxes-wrap{margin:10px 0}.footing-boxes{margin:8px 0}.footing-boxes table{font-size:12px}.footing-boxes td{padding:2px}.footing-boxes input{min-width:0}
+.ft-plan .ft-wall{fill:#5d6f74;stroke:#22393f;stroke-width:.5}

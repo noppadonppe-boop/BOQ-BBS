@@ -189,6 +189,8 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  blocks:z.array(footingBoxSchema).max(20).optional(),
  /** lowered areas cut out of the footing top (z0 = top of that area, z1 = footing thickness): own top mesh */
  cuts:z.array(footingBoxSchema).max(20).optional(),
+ /** RC walls standing on the footing (z0 = base, z1 = top shown): reference only (wall bars on the wall drawings) */
+ walls:z.array(footingBoxSchema).max(30).optional(),
  /** ref = which face carries the given level: top of footing (`top`) or bottom of footing (`bottom`); the other follows
   * from the thickness. Levels in m, + above / − below the project datum. */
  levels:z.object({enabled:z.boolean(),ground:level,ref:z.enum(['top','bottom']),top:level,bottom:level}).strict(),
@@ -1688,11 +1690,12 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    else if(ped&&(Math.abs(col.offsetX)>.5||Math.abs(col.offsetY)>.5))shape={z:T+H,pedestal:{x:0,y:0,z:0},geometry:{solids:[{id:'footing1',label:'ฐานราก',origin:[0,0,0],size:[X,Y,T],faces:footingFaces},{id:'pedestal',label:'เสาตอม่อ',origin:[ox,oy,T],size:[w,d,H],faces:sideFaces}],voids:[]}};
    shape={...shape,deductions:[...deductions,...auto]};
    // Bars projecting above the concrete sit in placement-only reference regions (not in BOQ).
-   const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('gencol')&&!r.id.startsWith('genslab')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
+   const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('gencol')&&!r.id.startsWith('genslab')&&!r.id.startsWith('genwall')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
    const regions=cols.filter(c=>c.projection>0).flatMap(c=>{const ci=cols.indexOf(c),cb=colBox(c);return (c.shape==='circle'?[{x0:0,y0:0,x1:cb.w,y1:cb.d}]:columnBoxes(c)).map((b,k)=>({id:ci?`gencol-c${ci+1}-${k+1}`:`gencol${k+1}`,label:`${c.columnNo||(many?`C${ci+1}`:'เสา')} (อ้างอิง)`.slice(0,80),origin:[cb.ox+b.x0,cb.oy+b.y0,T+cb.h] as V3,size:[b.x1-b.x0,b.y1-b.y0,c.projection+c.cover+maxMainDiameter(c)] as V3,reference:`เหล็กเสาโผล่${ped?'เหนือตอม่อ':'จากฐาน'} ${c.projection} mm · พื้นที่อ้างอิง ไม่คิดปริมาณ`,cover:c.cover,openings:[]}));});
-   const slabRegions=slabOn?footingSlabRegions(input,X,Y):[],all=[...keep,...regions,...slabRegions];
+   const wallRegions=(input.walls||[]).filter(b=>b.x1>b.x0&&b.y1>b.y0&&b.z1>b.z0).map((b,k)=>({id:`genwall${k+1}`,label:`${b.label||`ผนัง ${k+1}`} (อ้างอิง)`.slice(0,80),origin:[b.x0,b.y0,b.z0] as V3,size:[b.x1-b.x0,b.y1-b.y0,b.z1-b.z0] as V3,reference:'ผนัง RC บนฐาน · พื้นที่อ้างอิง ไม่คิดปริมาณ (เหล็กผนังตามแบบผนัง)',cover:input.cover.side,openings:[]}));
+   const slabRegions=slabOn?footingSlabRegions(input,X,Y):[],all=[...keep,...regions,...wallRegions,...slabRegions];
    if(all.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ (พื้น ${slabRegions.length} + เสา ${regions.length} + กำหนดเอง ${keep.length}) · ตัดพื้นที่กำหนดเองบางส่วนออก`);
-   const context=all.length>REGION_LIMIT?[...keep.slice(0,Math.max(0,REGION_LIMIT-regions.length-slabRegions.length)),...regions,...slabRegions].slice(0,REGION_LIMIT):all,firstBar=col.type!=='none'?columnSectionPreview(col).bars[0]:undefined;
+   const context=all.length>REGION_LIMIT?[...keep.slice(0,Math.max(0,REGION_LIMIT-regions.length-wallRegions.length-slabRegions.length)),...regions,...wallRegions,...slabRegions].slice(0,REGION_LIMIT):all,firstBar=col.type!=='none'?columnSectionPreview(col).bars[0]:undefined;
    // Default section A-A passes through the first row of column bars so they appear in the section view.
    if(!m.drawingViews)shape={...shape,sectionY:firstBar?Number((oy+firstBar.y).toFixed(1)):Y/2};
    const {placementContext:_c,...rest}=next;

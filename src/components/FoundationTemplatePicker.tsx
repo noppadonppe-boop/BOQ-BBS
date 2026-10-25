@@ -15,6 +15,7 @@ export function FoundationTemplatePlan({t,size=150}:{t:FoundationTemplate;size?:
   {(f.blocks||[]).map((b,n)=><rect key={`b${n}`} x={pad+b.x0*k} y={y(b.y1)} width={(b.x1-b.x0)*k} height={(b.y1-b.y0)*k} className="ft-block"/>)}
   {st&&(st.dir==='x'?<rect x={pad} y={pad+h/2-st.width*k/2} width={w} height={st.width*k} className="ft-band"/>:<rect x={pad+w/2-st.width*k/2} y={pad} width={st.width*k} height={h} className="ft-band"/>)}
   {piles.map(([px,py],n)=><circle key={n} cx={pad+px*k} cy={y(py)} r={f.pile.size*k/2} className="ft-pile"/>)}
+  {(f.walls||[]).map((b,n)=><rect key={`w${n}`} x={pad+b.x0*k} y={y(b.y1)} width={(b.x1-b.x0)*k} height={(b.y1-b.y0)*k} className="ft-wall"/>)}
   {t.columns.map((c,n)=><rect key={n} x={pad+(W/2+c.offsetX-c.width/2)*k} y={y(L/2+c.offsetY+c.depth/2)} width={c.width*k} height={c.depth*k} className="ft-col"/>)}
  </svg>;
 }

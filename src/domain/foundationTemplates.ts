@@ -8,7 +8,7 @@ const mm=z.number().finite().min(0).max(200000);
 const off=z.number().finite().min(-100000).max(100000);
 /** footing input taken from a template (the rest — detailing, columns' bars, pile length — stays the element's) */
 export const foundationTemplateFieldsSchema=foundationSchema.pick({foundationType:true,shape:true,diameter:true,chamfer:true,armX:true,armY:true,
- width:true,length:true,thickness:true,pile:true,lean:true,cover:true,rebar:true,slab:true,pour:true,subbase:true,levels:true,excavation:true,blocks:true,cuts:true});
+ width:true,length:true,thickness:true,pile:true,lean:true,cover:true,rebar:true,slab:true,pour:true,subbase:true,levels:true,excavation:true,blocks:true,cuts:true,walls:true});
 export type FoundationTemplateFields=z.infer<typeof foundationTemplateFieldsSchema>;
 export const foundationTemplateSchema=z.object({
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),
@@ -31,7 +31,7 @@ export const foundationTemplatesSchema=z.array(foundationTemplateSchema).max(300
  * pour stages and levels; columns moved to the template positions (C1 + extra columns linked to C1), keeping the
  * element's column type, section and bars (a footing without columns gets starter bars at the reference size). */
 export function applyFoundationTemplate(i:FoundationInput,t:FoundationTemplate):FoundationInput{
- const f=structuredClone(t.fields),{blocks:_b,cuts:_c,...base}=structuredClone(i),v:FoundationInput={...base,...f};
+ const f=structuredClone(t.fields),{blocks:_b,cuts:_c,walls:_w,...base}=structuredClone(i),v:FoundationInput={...base,...f};
  if(!(f.pile.length>0))v.pile={...v.pile,length:i.pile.length,cutoff:i.pile.cutoff};
  const [c1,...rest]=t.columns;
  if(c1){
@@ -56,5 +56,5 @@ export function foundationTemplateSummary(t:FoundationTemplate){
  const f=t.fields,p=f.pile,piles=f.foundationType!=='pile'?'ฐานแผ่':`เข็ม ${p.layout==='custom'?(p.positions||[]).length:p.layout==='grid'?p.nx*p.ny:p.count} ต้น Ø${p.size}`,r=f.rebar;
  return [`${f.width}×${f.length}×${f.thickness}`,piles,`ล่าง${r.bottomX.shape==='41'&&f.pour.count>1?` (ตัว U ขึ้น Stage ${f.pour.count} + Ldh ${r.bottomX.leg||15*r.bottomX.diameter})`:''} ${r.stirrups?.enabled&&r.stirrups.replacesBottom?(r.stirrups.dir==='x'?`${barText(r.bottomX)} / HOOP ${barText(r.stirrups)}`:`HOOP ${barText(r.stirrups)} / ${barText(r.bottomY)}`):`${barText(r.bottomX)} / ${barText(r.bottomY)}`}`,...f.pour.joints.slice(0,Math.max(0,f.pour.count-1)).map((j,k)=>j.mesh.enabled?`ตะแกรงบน Stage ${k+1} ${barText(j.mesh.x)} / ${barText(j.mesh.y)}${j.mesh.end==='straight'?'':' (ปลายงอ)'}`:''),
   r.topX.enabled?`บน${f.blocks?.length||f.cuts?.length?' (ทุกระดับ)':f.pour.count>1?` Stage ${f.pour.count}`:''} ${barText(r.topX)}${r.topY.enabled?` / ${barText(r.topY)}`:''}${f.slab.enabled?` (ยื่นเข้าพื้น ${f.slab.extend})`:''}`:'',f.pour.count>1?`เท ${f.pour.count} ครั้ง (${[...f.pour.heights.slice(0,f.pour.count-1),Math.max(f.thickness,...(f.blocks||[]).map(b=>b.z1))-f.pour.heights.slice(0,f.pour.count-1).reduce((a,b)=>a+b,0)].join(' + ')})`:'',
-  r.side.enabled?`LOOPS ${barText(r.side)}`:'',r.sideBars.enabled?`ข้าง ${barText(r.sideBars)}${f.pour.count>1?(r.sideBars.toJoint?' (ถึง Stage 1)':` (ขึ้น Stage ${f.pour.count}${r.sideBars.top==='inward'?` + Ldh ${r.sideBars.leg||15*r.sideBars.diameter}`:''})`):''}`:'',r.stirrups?.enabled?`${r.stirrups.replacesBottom?'HOOP':'ปลอก'} ${barText(r.stirrups)} กว้าง ${r.stirrups.width}`:'',t.columns.length>1?`เสา ${t.columns.length} ต้น`:'',f.blocks?.length?`ส่วนเพิ่ม ${f.blocks.length} (${[...new Set(f.blocks.map(b=>`+${b.z1-b.z0}`))].join('/')})`:'',f.cuts?.length?`ส่วนลดระดับ ${f.cuts.length}`:''].filter(Boolean).join(' · ');
+  r.side.enabled?`LOOPS ${barText(r.side)}`:'',r.sideBars.enabled?`ข้าง ${barText(r.sideBars)}${f.pour.count>1?(r.sideBars.toJoint?' (ถึง Stage 1)':` (ขึ้น Stage ${f.pour.count}${r.sideBars.top==='inward'?` + Ldh ${r.sideBars.leg||15*r.sideBars.diameter}`:''})`):''}`:'',r.stirrups?.enabled?`${r.stirrups.replacesBottom?'HOOP':'ปลอก'} ${barText(r.stirrups)} กว้าง ${r.stirrups.width}`:'',t.columns.length>1?`เสา ${t.columns.length} ต้น`:'',f.blocks?.length?`ส่วนเพิ่ม ${f.blocks.length} (${[...new Set(f.blocks.map(b=>`+${b.z1-b.z0}`))].join('/')})`:'',f.cuts?.length?`ส่วนลดระดับ ${f.cuts.length}`:'',f.walls?.length?`ผนัง ${f.walls.length} ช่วง`:''].filter(Boolean).join(' · ');
 }
