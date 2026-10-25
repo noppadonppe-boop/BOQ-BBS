@@ -175,6 +175,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <ColumnPourFields input={input} readOnly={readOnly} edit={f=>setInput(prev=>{if(prev?.category!=='Column')return prev;const next=structuredClone(prev);next.pour??={...DEFAULT_COLUMN_POUR};f(next);return next;})}/></>}
   {input.category==='Beam'&&<>
    <div className="segmented beam-layout" role="group" aria-label="รูปแบบคาน">{([['single','คานช่วงเดียว'],['group','กลุ่มคาน · หลายช่วง / คานยื่น / กริด']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Beam'?prev:v==='group'?beamGroupFrom(prev):{...prev,layout:'single'})}>{t}</button>)}</div>
+   <BeamTemplateStatus spec={spec}/>
    {input.layout==='group'?<BeamGroupEditor input={input} projectId={project.id} templates={spec.beamTemplates} readOnly={readOnly} selected={Math.min(beamSel,Math.max(0,input.spans.length-1))} onSelect={setBeamSel} edit={f=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const next=structuredClone(prev);f(next);return next;})}/>
     :<><BeamTemplateField templates={spec.beamTemplates||[]} readOnly={readOnly} onPick={t=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const g=beamGroupFrom({...prev,spans:[],grids:[]});g.spans=[applyBeamTemplate({...g.spans[0],length:prev.length||g.spans[0].length},t)];return g;})}/>
      <div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div></>}
@@ -455,11 +456,23 @@ function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,onSync,note}:{in
  * size and bars (EX per section, stirrup zones, side bars need the span model). */
 function BeamTemplateField({templates,readOnly,onPick}:{templates:BeamTemplate[];readOnly:boolean;onPick:(t:BeamTemplate)=>void}){
  const [v,setV]=useState(''),t=templates.find(x=>x.name.toUpperCase()===v.trim().toUpperCase());
- if(!templates.length)return <p className="muted">General Spec ของโครงการยังไม่มี Beam Template · นำเข้าไฟล์ Spec ที่หน้า General Spec แล้วกด “บันทึก Spec” เพื่อเลือกเบอร์คานตามแบบ</p>;
+ if(!templates.length)return null;
  return <div className="ct-bar"><label className="field"><span>เบอร์คานตามแบบ (Beam Template {templates.length} เบอร์)</span>
   <input list="beam-tpl-single" maxLength={32} disabled={readOnly} placeholder="พิมพ์ / เลือกเบอร์ เช่น 2B1" value={v} onChange={e=>setV(e.target.value.slice(0,32))}/></label>
   <datalist id="beam-tpl-single">{templates.map(x=><option key={x.id} value={x.name}>{beamTemplateSummary(x)}</option>)}</datalist>
   <button type="button" className="primary" disabled={readOnly||!t} onClick={()=>t&&onPick(t)}>ใช้เบอร์นี้</button>
   {t?<small className="muted">{beamTemplateSummary(t)} · เปลี่ยนเป็นกลุ่มคาน 1 ช่วง (ความยาวคาน = ยาว c/c ระหว่างเสา 300 · ปรับเสาได้ในตาราง) เพื่อใส่ EX เหล็กข้าง และปลอกตามโซน</small>
    :v.trim()&&<small className="muted">ไม่พบเบอร์ {v.trim()} ใน Beam Template</small>}</div>;
+}
+/** Why the beam page sees no / old Beam Templates: the project uses a copy of its General Spec profile, so templates
+ * imported there arrive only after the profile is saved and the project is updated to that version. */
+function BeamTemplateStatus({spec}:{spec:Project['spec']}){
+ const {profiles,loading}=useSpecProfiles(),ref=spec.profileRef,profile=ref&&profiles.find(x=>x.id===ref.id),n=spec.beamTemplates?.length||0,pn=profile?.spec.beamTemplates?.length||0;
+ if(loading)return null;
+ const fix='ไปที่ ตั้งค่าโครงการ → General Spec ของโครงการ → “อัปเดตตาม Spec ล่าสุด”';
+ if(!ref)return n?null:<p className="notice warning">โครงการนี้ไม่ได้ผูก General Spec ส่วนกลาง จึงไม่มี Beam Template · เลือก Spec profile ที่นำเข้า Beam Template แล้วในหน้าแก้ไขโครงการ</p>;
+ if(!profile)return n?null:<p className="notice warning">ไม่พบ General Spec “{ref.name}” ที่โครงการผูกไว้ (ถูกลบ หรือไม่มีสิทธิ์อ่าน) · โครงการนี้ยังไม่มี Beam Template</p>;
+ if(profile.version>ref.version&&pn!==n)return <p className="notice warning">General Spec “{profile.name}” v{profile.version} มี Beam Template {pn} เบอร์ แต่โครงการนี้ยังใช้ v{ref.version} ({n} เบอร์) · {fix}</p>;
+ if(!n)return <p className="notice warning">General Spec “{profile.name}” ยังไม่มี Beam Template · ที่หน้า General Spec เปิด “{profile.name}” นำเข้าไฟล์ Spec (มี beamTemplates) แล้วกด “บันทึก Spec” จากนั้นอัปเดตโครงการตาม Spec ล่าสุด</p>;
+ return null;
 }
