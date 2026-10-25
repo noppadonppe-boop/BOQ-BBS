@@ -439,6 +439,8 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
   const edgeMat=new THREE.LineBasicMaterial({color:0x8fa3a8});scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(bodyGeo),edgeMat));
   const mats=new Map<string,THREE.MeshLambertMaterial>(),mat=(k:string)=>{let m=mats.get(k);if(!m){m=new THREE.MeshLambertMaterial({color:colorOf(k),...(k==='pile'?{transparent:true,opacity:.55}:{})});mats.set(k,m);}return m;};
   for(const c of contextBoxes(beamColumnBoxes(member.elementInput)))scene.add(c);
+  // RC walls on a footing (reference, no quantities)
+  for(const c of contextBoxes((member.placementContext?.regions||[]).filter(r=>r.id.startsWith('genwall')),0x6f8186,.45))scene.add(c);
   const pickables:THREE.Mesh[]=[],coupMat=new THREE.MeshLambertMaterial({color:0x5b6b70});
   for(const r of rows){const k=keyOf(r.id);for(const path of r.paths){const pts=path.map(P);if(pts.length<2)continue;const mesh=new THREE.Mesh(new THREE.TubeGeometry(new PolyCurve(pts),Math.max(2,(pts.length-1)*2),Math.max(r.diameter,4)/2000,6,false),mat(k));mesh.userData.key=k;scene.add(mesh);pickables.push(mesh);
    for(const c of couplerMeshes(pts,r.diameter,barCouplerEnds(member.elementInput,r.id),coupMat)){c.userData.key=k;scene.add(c);pickables.push(c);}}}

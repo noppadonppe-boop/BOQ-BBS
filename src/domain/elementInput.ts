@@ -373,7 +373,9 @@ export type BeamRebar=z.infer<typeof beamRebarSchema>;
 /** One span of a beam group, grid to grid (cantilever: grid to tip). `top` = top of beam from the group datum
  * (mm, − = dropped). Sections END / MID / CON / CANT are chosen by the span's position. */
 const beamSpanSchema=z.object({mark:z.string().trim().min(1).max(32),kind:z.enum(['span','cantilever']),length:mm,width:mm,depth:mm,
- top:z.number().finite().min(-20000).max(20000),rebar:beamRebarSchema}).strict();
+ top:z.number().finite().min(-20000).max(20000),rebar:beamRebarSchema,
+ /** Project Beam Template the span follows (spec.beamTemplates id; re-applied when the spec changes) */
+ template:z.string().max(40).optional()}).strict();
 /** Grid line: label, support (column) width along the beam (0 = no column, e.g. on a girder / free end), column size
  * across the beam `supportY` (0 = same as `support`), extra top bars over the support (count 0 = none). */
 const beamGridSchema=z.object({label:z.string().trim().max(20),support:mm,supportY:mm.default(0),extraTop:countLayer}).strict();
@@ -1466,15 +1468,17 @@ export function beamColumnBoxes(input:unknown):{label:string;origin:V3;size:V3}[
 }
 export const beamZoneLabels:Record<BeamZone,string>={end:'END',mid:'MID',con:'CON',cant:'CANT'};
 /** Beam group bars (rules from the spec's typical beam details, all × clear span from the support face):
- * - main bottom bars per span, into interior supports to the far face − 50, hooked into end supports / level changes;
- * - main top bars merged across spans of equal size, count and level, hooked into end supports, bent down at tips;
+ * - main top / bottom bars continuous along spans of equal size and level (bottom not into a cantilever): the count
+ *   all spans share runs through, extra bars of heavier spans run on their own; hooked into end supports / level
+ *   changes, top bent down at tips;
  * - EX top / bottom bars of the END / CON / CANT sections over each support: end support topEnd · L (hooked into the
  *   column), continuous support topCont · La both sides (La = longer adjacent span), cantilever: the whole cantilever +
  *   max(topCont · La, cantilever length) into the back span; EX bars of the MID section from bottomEnd / bottomCont · L;
  * - stirrups: END / CON spacing over stirrupZone · L from each support face, MID between, CANT over a cantilever;
  *   2 legs = one closed link, 4 / 6 / 8 legs = outer link + inner links;
  * - side face bars per face between the main bars, ties across the width at alternate levels;
- * - bars longer than the stock length are split with laps (top at mid-span, bottom near the supports). */
+ * - bars longer than the stock length are split with laps (top in the middle third of a span, bottom over / within
+ *   L/4 of the supports), the lap centre as far along as the stock length allows. */
 function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
  const out:GenBar[]=[],{spans,grid,columns}=beamGroupLayout(i),c=i.cover,gr=i.grids,g=det.mainGrade;
  const rules={topEnd:.25,topCont:.3,bottomEnd:.125,bottomCont:.1,stirrupZone:.25,...det.beam};
@@ -1513,24 +1517,43 @@ function beamGroupBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]
  const midSplices=(list:GroupSpan[]):[number,number][]=>list.filter(s=>s.kind!=='cantilever').map(s=>[s.a+s.clear/3,s.b-s.clear/3]);
  const nearSupports=(s:GroupSpan):[number,number][]=>[[s.a+lapLength(det,s.rebar.bottom.diameter||20)/2,s.a+s.clear/4],[s.b-s.clear/4,s.b-lapLength(det,s.rebar.bottom.diameter||20)/2]];
 
- // ---- main bottom bars, one set per span
- for(const s of spans){const b=s.rebar.bottom,d=b.diameter;if(b.count<1||!d)continue;
-  const z=zBot(s,d),{lo,hi}=across(s,d);if(hi<lo){warn(`${s.label} เหล็กล่าง: คานแคบเกินไป`);continue;}
-  const end=(side:'a'|'b')=>{const k=side==='a'?s.k:s.k+1,other=side==='a'?spans[s.k-1]:spans[s.k+1],q=col(k),dir=side==='a'?-1:1;
-   if(!q)return {x:anchorX(k,dir,d,s),hook:0};
-   if(other&&other.kind!=='cantilever'&&s.kind!=='cantilever'&&Math.abs(other.z0-s.z0)<25)return {x:dir<0?q.x0+50:q.x1-50,hook:0};
-   return {x:anchorX(k,dir,d,s),hook:up(s,z,d)};};
-  const A=end('a'),B=end('b');
-  emit(`s${s.k+1}-bottom`,`${s.label} · เหล็กล่าง${s.kind==='cantilever'?' (ช่วงยื่น)':''}`,d,b.count,A.x,B.x,z,A.hook,B.hook,'bottom',lo,hi,nearSupports(s));
- }
- // ---- main top bars: merge neighbouring spans of the same size, count and top level
- let k=0;
- while(k<spans.length){const s=spans[k],t=s.rebar.top,d=t.diameter;if(t.count<1||!d){k++;continue;}
-  let e=k;while(e+1<spans.length&&spans[e+1].rebar.top.count===t.count&&spans[e+1].rebar.top.diameter===d&&Math.abs(spans[e+1].z1-s.z1)<25)e++;
-  const parts=spans.slice(k,e+1),last=spans[e],z=zTop(s,d),lo=Math.max(...parts.map(p=>across(p,d).lo)),hi=Math.min(...parts.map(p=>across(p,d).hi));
-  const marks=[...new Set(parts.map(p=>p.mark))].join(' / ');
-  emit(`top-${k+1}${e>k?`-${e+1}`:''}`,`${parts.length>1?`${marks} (${gr[s.k]?.label||'ปลาย'}–${gr[last.k+1]?.label||'ปลาย'})`:s.label} · เหล็กบน`,d,t.count,anchorX(s.k,-1,d,s),anchorX(last.k+1,1,d,last),z,down(s,z,d),down(last,z,d),'top',lo,hi,midSplices(parts));
-  k=e+1;}
+ // ---- main top / bottom bars, continuous through the beam: neighbouring spans with the same bar size and level form a
+ // chain (bottom: not into a cantilever). The bars every span of a stretch has run through it as one bar (laps: top in
+ // the middle third of a span, bottom over / near the supports); the extra main bars of heavier spans are runs of their
+ // own: top into the lighter span by the continuous-support cut-off (topCont · La), bottom to the far column face − 50.
+ const mainBars=(layer:'top'|'bottom')=>{
+  const top=layer==='top',lvl=(s:GroupSpan)=>top?s.z1:s.z0,cnt=(j:number)=>spans[j].rebar[layer].count;
+  const joins=(x:GroupSpan,y:GroupSpan)=>{const p=x.rebar[layer],q=y.rebar[layer];return p.count>0&&q.count>0&&p.diameter===q.diameter&&Math.abs(lvl(x)-lvl(y))<25&&(top||(x.kind!=='cantilever'&&y.kind!=='cantilever'));};
+  const run=(k:number,e:number,a:number,b:number,n:number,base:number)=>{
+   const A=spans[a],B=spans[b],parts=spans.slice(a,b+1),d=A.rebar[layer].diameter;
+   const lo=Math.max(...parts.map(p=>across(p,d).lo)),hi=Math.min(...parts.map(p=>across(p,d).hi));
+   if(hi<lo){warn(`${A.label} เหล็ก${top?'บน':'ล่าง'}: คานแคบเกินไป`);return;}
+   const z0=top?zTop(A,d):zBot(A,d),p=base>0?placeEx({count:base,diameter:d},{count:n,diameter:d},lo,hi,z0,top?-1:1):{z:z0,from:lo,to:hi},z=p.z;
+   const end=(s:GroupSpan,side:'a'|'b')=>{const g=side==='a'?s.k:s.k+1,dir=side==='a'?-1:1,q=col(g),other=spans[side==='a'?s.k-1:s.k+1],inside=side==='a'?s.k>k:s.k<e;
+    if(inside){ // the neighbour in the chain has fewer bars: extra bars continue past the support
+     if(top){const La=Math.max(s.clear,other.clear),f=q?(dir<0?q.x0:q.x1):grid[g];return {x:f+dir*rules.topCont*La,hook:0};}
+     return {x:q?(dir<0?q.x0+50:q.x1-50):dir<0?s.a:s.b,hook:0};}
+    if(top)return {x:anchorX(g,dir,d,s),hook:down(s,z,d)};
+    if(!q)return {x:anchorX(g,dir,d,s),hook:0};
+    if(other&&other.kind!=='cantilever'&&s.kind!=='cantilever'&&Math.abs(other.z0-s.z0)<25)return {x:dir<0?q.x0+50:q.x1-50,hook:0};
+    return {x:anchorX(g,dir,d,s),hook:up(s,z,d)};};
+   const L=end(A,'a'),R=end(B,'b');
+   const zones:[number,number][]=top?midSplices(parts):[...parts.flatMap(nearSupports),...parts.slice(0,-1).map((s,j):[number,number]=>[s.b-s.clear/4,parts[j+1].a+parts[j+1].clear/4])];
+   const marks=[...new Set(parts.map(x=>x.mark))].join(' / ');
+   const what=`${parts.length>1?`${marks} (${gr[A.k]?.label||'ปลาย'}–${gr[B.k+1]?.label||'ปลาย'})`:A.label} · เหล็ก${top?'บน':'ล่าง'}${!top&&A.kind==='cantilever'?' (ช่วงยื่น)':''}${base>0?` เพิ่ม ${n} เส้น (เฉพาะช่วงนี้)`:parts.length>1?' ต่อเนื่อง':''}`;
+   emit(`${layer}-${a+1}${b>a?`-${b+1}`:''}${base>0?`-x${base}`:''}`,what,d,n,L.x,R.x,z,L.hook,R.hook,top?'top':'bottom',p.from,p.to,zones);
+  };
+  // spans a..b of the chain k..e: bars above `base` that all of them have, then the stretches that have more
+  const stack=(k:number,e:number,a:number,b:number,base:number)=>{
+   const n=Math.min(...spans.slice(a,b+1).map(s=>s.rebar[layer].count))-base;if(n>0)run(k,e,a,b,n,base);
+   for(let j=a;j<=b;j++){if(cnt(j)<=base+n)continue;let q=j;while(q<b&&cnt(q+1)>base+n)q++;stack(k,e,j,q,base+n);j=q;}
+  };
+  let k=0;
+  while(k<spans.length){const t=spans[k].rebar[layer];if(t.count<1||!t.diameter){k++;continue;}
+   let e=k;while(e+1<spans.length&&joins(spans[e],spans[e+1]))e++;
+   stack(k,e,k,e,0);k=e+1;}
+ };
+ mainBars('bottom');mainBars('top');
  // ---- EX bars over the supports (top and bottom), from the END / CON / CANT sections of the adjacent spans
  gr.forEach((gd,gk)=>{
   const L0=spans[gk-1],R0=spans[gk];if(!L0&&!R0)return;
