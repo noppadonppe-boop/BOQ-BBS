@@ -12,6 +12,7 @@ import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
 import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker';
+import {FoundationTemplatePicker} from './FoundationTemplatePicker';
 import {syncColumnTemplate} from '../domain/columnTemplates';
 import {useSpecProfiles} from '../data/specProfiles';
 import {SaveTemplateButton} from './ElementTemplates';
@@ -47,7 +48,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const [manualBars,setManualBars]=useState(()=>m.bars.filter(b=>!isGeneratedBar(b)));
  const [view3d,setView3d]=useState(false);
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
- const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0),[picker,setPicker]=useState(false);
+ const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0),[picker,setPicker]=useState(false),[ftPicker,setFtPicker]=useState(false);
  const spec=project.spec;
  // typed but not yet applied = unsaved work (the member popup asks before closing)
  const snapshot=JSON.stringify([input,occurrences,manualBars,items]),[applied,setApplied]=useState(snapshot),dirty=snapshot!==applied;
@@ -122,6 +123,10 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
 
   <div className="element-input-layout"><div className="element-input-form">
   <h4>1. มิติและรูปร่าง (จำเป็น)</h4>
+  {input.category==='Foundation'&&<div className="ct-bar"><button type="button" className={spec.foundationTemplates?.length?'ct-open':''} disabled={readOnly} title={spec.foundationTemplates?.length?'เลือกฐานรากตามแบบ (ขนาด เข็ม เหล็ก ระดับ ตำแหน่งเสา) จาก General Spec ของโครงการ':'ยังไม่มี Foundation Template · นำเข้าที่ General Spec'} onClick={()=>setFtPicker(true)}><Box size={15}/>Foundation Template (ตามแบบ)</button>
+   {input.template&&<span className="ct-link on">มาจาก Template <b>{input.template.name}</b>{!spec.foundationTemplates?.some(t=>t.id===input.template!.id)&&' (ไม่พบใน Spec แล้ว)'}</span>}
+   {!spec.foundationTemplates?.length&&<small className="muted">General Spec ของโครงการยังไม่มี Foundation Template</small>}</div>}
+  {ftPicker&&input.category==='Foundation'&&<FoundationTemplatePicker spec={spec} input={input} onApply={next=>setInput(next)} onClose={()=>setFtPicker(false)}/>}
   {input.category==='Foundation'&&<><div className="form-grid">{select('ชนิดฐานราก','foundationType',[['spread','ฐานแผ่'],['pile','ฐานเสาเข็ม']])}{select('รูปร่างแปลนฐาน','shape',[['rect','สี่เหลี่ยม'],['circle','กลม'],['hex','6 เหลี่ยม'],['oct','8 เหลี่ยม'],['L','ตัวแอล (L)'],['U','ตัวยู (U)']])}{num('หนา','thickness')}</div>
    <div className="form-grid">{input.shape==='circle'?num('เส้นผ่านศูนย์กลาง','diameter'):<>{num(input.shape==='hex'?'กว้าง X (มุมถึงมุม)':'กว้าง X','width')}{num(input.shape==='hex'?'ยาว Y (ด้านถึงด้าน)':'ยาว Y','length')}</>}
     {(input.shape==='hex'||input.shape==='oct')&&num('ระยะตัดมุม (0 = รูปปกติ)','chamfer')}
@@ -201,6 +206,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <div className="mesh-layer">{check('มีเหล็กแนวตั้งผิวข้าง (รอบฐาน · ชั้นนอกสุด)','rebar.sideBars.enabled')}{input.rebar.sideBars.enabled&&<div className="form-grid">{dia('เหล็กแนวตั้งผิวข้าง · ขนาด','rebar.sideBars.diameter')}{num('เหล็กแนวตั้งผิวข้าง · ระยะห่าง @','rebar.sideBars.spacing')}
     {select('ปลายบน','rebar.sideBars.top',[['inward','งอฉากเข้าใน (ใต้เหล็กบน)'],['straight','ปลายตรง']])}{select('ปลายล่าง','rebar.sideBars.bottom',[['straight','ปลายตรง (ที่ cover ล่าง)'],['inward','งอฉากเข้าใน (เหนือเหล็กล่าง)']])}
     {(input.rebar.sideBars.top==='inward'||input.rebar.sideBars.bottom==='inward')&&num(`ระยะงอเข้าใน (0 = 15d = ${15*input.rebar.sideBars.diameter})`,'rebar.sideBars.leg')}</div>}</div>
+   <div className="mesh-layer"><label className="check"><input type="checkbox" disabled={readOnly} checked={!!input.rebar.stirrups?.enabled} onChange={e=>set('rebar.stirrups',{...(input.rebar.stirrups||{diameter:20,spacing:200,width:1000,dir:input.width>=input.length?'x':'y'}),enabled:e.target.checked})}/>มีเหล็กปลอก (STIRRUPS / HOOP) ในฐาน · แถบกลางฐาน เช่น แนวเสาเข็ม</label>
+    {input.rebar.stirrups?.enabled&&<div className="form-grid">{dia('เหล็กปลอก · ขนาด','rebar.stirrups.diameter')}{num('เหล็กปลอก · ระยะห่าง @','rebar.stirrups.spacing')}{num('ความกว้างปลอก (นอก-นอก)','rebar.stirrups.width')}{select('แนวของแถบ','rebar.stirrups.dir',[['x','ตามแนว X'],['y','ตามแนว Y']])}</div>}</div>
    <p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · ขางอถูกจำกัดไม่ให้เกินความหนาฐาน − cover · ถ้าขอ 180° ไม่พอดีความหนา ปลายนั้นจะเป็นปลายตรง</p>
    <h4>5. เสาตอม่อ / Starter bar</h4>
    <ColumnTemplateBar spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} note={input.column.type==='none'?'เลือกเสาตอม่อ หรือ Starter bar จากตารางเสาของโครงการ':`เติมให้${footingColumns(input).length>1?` ${footingColumnName(footingColumns(input)[Math.min(colSel,footingColumns(input).length-1)],Math.min(colSel,footingColumns(input).length-1),true)} (ที่เลือกอยู่)`:''}`}/>

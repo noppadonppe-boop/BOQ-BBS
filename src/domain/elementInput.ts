@@ -145,7 +145,7 @@ const base={
  appliedAt:z.string().max(40).optional(),
 };
 const level=z.number().finite().min(-1000).max(10000);
-const foundationSchema=z.object({...base,category:z.literal('Foundation'),
+export const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  foundationType:z.enum(['spread','pile']),
  /** Plan shape. hex/oct: width × length bounding box with corner chamfer (0 = regular); L/U: arm thicknesses as for columns. */
  shape:z.enum(footingShapes),diameter:mm,chamfer:mm,armX:mm,armY:mm,
@@ -159,7 +159,10 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh,side:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,
   /** pour stages that get loops (1 = first pour); empty = every stage */
   stages:z.array(z.number().int().min(1).max(6)).max(6)}).strict(),
-  sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm}).strict()}).strict(),
+  sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm}).strict(),
+  /** closed links (STIRRUPS / HOOP) across a band of `width` (out-to-out, centred) running along `dir` (e.g. the strip over a pile row),
+   * from the bottom cover up to under the top of the first pour stage */
+  stirrups:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,width:mm,dir:z.enum(['x','y'])}).strict().optional()}).strict(),
  /** Footing cast monolithic with the floor slab: top flush with the slab top; the slab (thickness) is a
   * reference region only (no slab concrete / bars); top bars extend `extend` mm beyond the footing into the slab. */
  slab:z.object({enabled:z.boolean(),thickness:mm,extend:mm}).strict(),
@@ -169,6 +172,8 @@ const foundationSchema=z.object({...base,category:z.literal('Foundation'),
  /** Columns 2–10 on the same footing (C1 = `column`): own number and offsets; linked = same section,
   * bars and height as C1. All columns share C1's type (pedestal / starter). */
  extraColumns:z.array(footingColumnSchema.extend({linked:z.boolean()}).strict()).max(9),
+ /** Project Foundation Template the input came from (display) */
+ template:z.object({id:z.string().max(40),name:z.string().max(40)}).strict().optional(),
  /** ref = which face carries the given level: top of footing (`top`) or bottom of footing (`bottom`); the other follows
   * from the thickness. Levels in m, + above / − below the project datum. */
  levels:z.object({enabled:z.boolean(),ground:level,ref:z.enum(['top','bottom']),top:level,bottom:level}).strict(),
@@ -1077,6 +1082,17 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   else runs.forEach((run,n)=>{const sz=run.hi>run.lo?spread(run.lo,run.hi,r.side.spacing):undefined;
    if(!sz){warn(`เหล็กรอบข้าง (LOOPS)${sel?` Stage ${run.name}`:''}: ความสูงไม่พอ`);return;}
    out.push({role:n?`side-loop-${n+1}`:'side-loop',note:`เหล็กรอบข้าง (LOOPS)${sel?` · Stage ${run.name}`:''} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(ring,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});});
+ }
+ // Stirrups (closed links) across a band centred on the footing, e.g. the beam strip over a pile row
+ const sr=r.stirrups;
+ if(sr?.enabled&&sr.diameter>0&&sr.spacing>0){
+  if(i.shape!=='rect')warn('เหล็กปลอก (STIRRUPS) ในฐาน: รองรับเฉพาะฐานสี่เหลี่ยม');
+  else{const d=sr.diameter,rad=radius(d,det),alongX=sr.dir==='x',L=alongX?X:Y,Wd=alongX?Y:X,J=footingPour(i).levels[0];
+   const half=Math.min(sr.width,Wd-2*(c.side+sideIn))/2-d/2,mid=Wd/2,z0=c.bottom+d/2,z1=(J!==undefined&&J<T?J:T-c.top)-(J!==undefined&&J<T?50:0)-d/2;
+   const s=spread(c.side+sideIn+d/2+50,L-c.side-sideIn-d/2-50,sr.spacing);
+   if(half<=2*d||z1-z0<=4*d||!s)warn('เหล็กปลอก (STIRRUPS) ในฐาน: วางไม่ได้ ตรวจความกว้าง/ความสูง');
+   else{const pts=link(alongX?1:0,2,alongX?0:1,mid-half,mid+half,z0,z1,s.from,det.hook135*d<det.hook135Min?det.hook135Min:det.hook135*d,rad,d);
+    out.push({role:'stirrup',note:`เหล็กปลอก (STIRRUPS) ในฐาน · กว้าง ${Math.round(sr.width)} mm (นอก-นอก) แนว ${alongX?'X':'Y'} · สูง ${Math.round(z1-z0+d)} mm @ ${sr.spacing} mm`,diameter:d,grade:g,count:s.count,points:pts,axis:alongX?'Y':'X',face:'side',radius:rad,shapeCode:'99',distributionAxis:alongX?'X':'Y',from:s.from,to:s.to});}}
  }
  // Vertical face bars on every face of the plan outline, ends straight or turned inward 90°.
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).

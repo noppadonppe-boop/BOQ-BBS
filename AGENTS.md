@@ -92,6 +92,12 @@
   profile directly via `onSave` → `GeneralSpecPage.save(spec)`).
   Extra provisions per code: `spec.codeData[code].provisions` (UI `Provisions` in `DesignCodeLibrary.tsx`).
   Project-side spec info / approval / files: `ProjectSpecPanel.tsx` in the project Settings page.
+- Project Foundation Template (footing types of the foundation drawings): `spec.foundationTemplates` in
+  `src/domain/foundationTemplates.ts` (`fields` = footing input subset: size, depth, piles, bars, pours, levels; `columns` =
+  positions + reference section); `applyFoundationTemplate()` keeps detailing, column bars and pile length (when 0).
+  UI: footing section 1 button → `FoundationTemplatePicker.tsx`; General Spec list `FoundationTemplateList.tsx`; spec import
+  key `foundationTemplates`. Footing stirrups `rebar.stirrups {width, dir}` (closed links over a band, role `stirrup`).
+  J-078 Phase 1 (F10 / F12 from MPK01B-IFC-S-PLIE FD Review): `tmp/j078Foundations.test.ts` → `tmp/Spec-Project-J-078.json`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
   key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of

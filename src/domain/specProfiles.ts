@@ -4,6 +4,7 @@ import {APP_NAME} from './auth';
 import {codeDataSchema,codeValues,designCodeIdSchema,lapConcrete,lapGrades,type DesignCodeId} from './designCodes';
 import type {ProjectDesign} from './specDetailing';
 import {concreteSpecSchema} from './concreteMixes';
+import {foundationTemplatesSchema} from './foundationTemplates';
 export {DEFAULT_DESIGN,designOf,detailingFromSpec,specLabel,type ProjectDesign} from './specDetailing';
 
 // General Spec profiles live outside projects (workspace level). A project picks one profile
@@ -34,7 +35,9 @@ const importCodeSchema=z.object({lapRows:codeDataSchema.shape.lap,beam:codeDataS
 export const specImportSchema=z.object({format:z.literal('form-spec-import'),source:z.string().max(300).default(''),description:z.string().max(1000).optional(),aciEdition:z.string().max(60).optional(),
  codes:z.partialRecord(designCodeIdSchema,importCodeSchema),
  /** concrete mixes + member types (replaces the spec's) */
- concrete:concreteSpecSchema.optional()}).strict();
+ concrete:concreteSpecSchema.optional(),
+ /** foundation types (replace those of the same name, others kept) */
+ foundationTemplates:foundationTemplatesSchema.optional()}).strict();
 export type SpecImport=z.infer<typeof specImportSchema>;
 /** Apply an import file to a spec; returns the new spec and a short list of what changed. */
 export function applySpecImport(spec:Spec,input:SpecImport){
@@ -47,6 +50,8 @@ export function applySpecImport(spec:Spec,input:SpecImport){
   if(part.provisions){const m=new Map((own.provisions||[]).map(p=>[p.id,p]));part.provisions.forEach(p=>m.set(p.id,p));own.provisions=[...m.values()];notes.push(`ข้อกำหนดเพิ่มเติม ${part.provisions.length} ข้อ`);}
   codeData[code]=own;
  }
+ let foundationTemplates=spec.foundationTemplates;
+ if(input.foundationTemplates){const names=new Set(input.foundationTemplates.map(t=>t.name.toUpperCase()));foundationTemplates=[...(spec.foundationTemplates||[]).filter(t=>!names.has(t.name.toUpperCase())),...input.foundationTemplates];notes.push(`Foundation Template ${input.foundationTemplates.length} แบบ`);}
  if(input.concrete)notes.push(`คอนกรีต ${input.concrete.mixes.length} Mix · ${input.concrete.uses.length} ประเภทชิ้นส่วน`);
- return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{})},notes};
+ return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(foundationTemplates?{foundationTemplates}:{})},notes};
 }
