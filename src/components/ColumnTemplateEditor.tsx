@@ -19,8 +19,12 @@ export function templatePreview(spec:Spec,t:ColumnTemplate,k:number){
 
 /** Project Column Template (column schedule of the project) kept in the spec: column types with a row per level
  * range (section, main bars, ties nYd@S1(d@S2)) and the tie zone rules of the typical column detail. */
-export function ColumnTemplateEditor({spec,readOnly,onChange,onClose,title}:{spec:Spec;readOnly:boolean;onChange:(next:Spec)=>void;onClose:()=>void;title:string}){
+export function ColumnTemplateEditor({spec,readOnly,onChange,onSave,onClose,title}:{spec:Spec;readOnly:boolean;onChange:(next:Spec)=>void;onSave?:(next:Spec)=>void;onClose:()=>void;title:string}){
  const list=spec.columnTemplates||[],rules=zoneRulesOf(spec);
+ // edits only change the draft spec: projects get the templates after the profile is saved
+ const key=(x:Spec)=>JSON.stringify([x.columnTemplates||[],x.columnZoneRules||null]),[opened]=useState(()=>key(spec)),changed=key(spec)!==opened;
+ const save=()=>{onSave?.(spec);onClose();};
+ const close=()=>{if(!changed||!onSave||confirm('Template ยังไม่ได้บันทึก · โครงการจะยังไม่เห็น Template นี้จนกว่าจะกด “บันทึก Spec”\nปิดโดยไม่บันทึกตอนนี้? (ค่าที่แก้ยังอยู่ในฉบับร่างของหน้านี้)'))onClose();};
  const [sel,setSel]=useState(list[0]?.id||''),[filter,setFilter]=useState(''),[msg,setMsg]=useState(''),[err,setErr]=useState('');
  const t=list.find(x=>x.id===sel)||list[0];
  const store=(next:ColumnTemplate[])=>{const {columnTemplates:_,...rest}=spec;onChange(next.length?{...rest,columnTemplates:next}:rest);};
@@ -44,7 +48,7 @@ export function ColumnTemplateEditor({spec,readOnly,onChange,onClose,title}:{spe
   return <tr><td>{label}</td><td>H / {div(r.lower,v=>setRules({...rules,[key]:{...r,lower:v}}),`${label} โซนล่าง`)} <b>= {fractionText(f.lower)}</b> @S2</td><td><b>{fractionText(f.middle)}</b> @S1{f.middle<=0&&<em className="danger-text"> · ไม่มีโซนกลาง</em>}</td><td>H / {div(r.upper,v=>setRules({...rules,[key]:{...r,upper:v}}),`${label} โซนบน`)} <b>= {fractionText(f.upper)}</b> + ความลึกคาน @S2</td></tr>;};
  const importFile=async(file:File)=>{try{setErr('');const r=await importColumnTemplates(file,list);store(r.templates);setSel(r.templates.at(-1)?.id||'');setMsg(`นำเข้า ${file.name}: ${r.notes.join(' · ')} · ตรวจค่าแล้วกด “บันทึก Spec”`);}catch(e:any){setErr(`นำเข้าไม่ได้ · ${e?.message||e}`);}};
 
- return <Modal title={title} onClose={onClose}>
+ return <Modal title={title} onClose={close}>
   <div className="column-templates">
    <p className="muted">ตารางหน้าตัดเสาของโครงการ (ตามตารางเสาในแบบ) · แต่ละประเภทแยกแถวตามช่วงชั้น · ที่หน้าเสากด “เลือกจาก Template โครงการ” เพื่อเติมหน้าตัด เหล็กยืน และเหล็กปลอก · บันทึกพร้อม Spec (กด “บันทึก Spec”)</p>
    <div className="actions ct-tools">
@@ -96,7 +100,8 @@ export function ColumnTemplateEditor({spec,readOnly,onChange,onClose,title}:{spe
      <p className="muted">ปลอก nYd@S1(d@S2): n = จำนวนชิ้นต่อชุด (ใช้ตรวจกับรูปแบบปลอกใน) · S1 โซนกลาง · S2 โซนล่าง/บน · สูงชั้น / คานลึก = 0 ใช้ค่าของเสาแต่ละต้น</p>
     </div>}
    </div>
-   <footer className="actions"><span className="muted">{list.length} ประเภทเสา · หน้าตัดตามรูปในแบบ {list.reduce((n,x)=>n+x.rows.filter(r=>r.layout).length,0)}/{list.reduce((n,x)=>n+x.rows.length,0)} ช่วงชั้น · การแก้ไขบันทึกเมื่อกด “บันทึก Spec” · เสาที่ผูก Template ปรับตามเมื่อ Spec ถูกใช้กับโครงการ</span><button className="primary" onClick={onClose}>เสร็จ</button></footer>
+   <footer className="actions"><span className="muted">{list.length} ประเภทเสา · หน้าตัดตามรูปในแบบ {list.reduce((n,x)=>n+x.rows.filter(r=>r.layout).length,0)}/{list.reduce((n,x)=>n+x.rows.length,0)} ช่วงชั้น {changed&&onSave?<b className="ct-unsaved"> · ยังไม่ได้บันทึก: กด “บันทึก Spec และอัปเดตโครงการ” โครงการที่ใช้ Spec นี้จึงจะเห็น Template</b>:' · เสาที่ผูก Template ปรับตามเมื่อ Spec ถูกใช้กับโครงการ'}</span>
+    {onSave&&!readOnly?<><button onClick={close}>ปิด</button><button className="primary" disabled={!changed} onClick={save}>บันทึก Spec และอัปเดตโครงการ</button></>:<button className="primary" onClick={onClose}>เสร็จ</button>}</footer>
   </div>
  </Modal>;
 }

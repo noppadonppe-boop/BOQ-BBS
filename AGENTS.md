@@ -60,7 +60,7 @@
   others H/6 · 2H/3 · H/6) in `src/domain/columnTemplates.ts` (`applyTemplateRow` single, `applyTemplateStack` → stack with
   `stack.zones`, `syncColumnTemplate`). Column input `template {id,row,beam,linked}`; linked columns are re-applied in the
   spec-change job (`data/direct/specJobs.ts`). UI: General Spec button → `ColumnTemplateEditor.tsx` (Excel via
-  `data/columnTemplateExcel.ts`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx` (default view = schedule grid
+  `data/columnTemplateExcel.ts`; edits change the draft only, its “บันทึก Spec และอัปเดตโครงการ” button saves the profile via `onSave`), column panel `ColumnTemplateBar` → `ColumnTemplatePicker.tsx` (default view = schedule grid
   `ScheduleGrid`: types × level ranges via `scheduleLevels()`, cell = single storey, type header = stack). Footing section 5
   uses the same grid (`FootingTemplatePicker`, pedestal | starter) → `applyTemplateFooting()` on the selected footing column
   (ties at S2 + set-2 pattern `column.tie.pattern` = `rowPattern()`, drawn as roles `column-tie-in<k>` above each hoop via

@@ -50,7 +50,7 @@ export function DesignCodeLibrary({spec,readOnly,onChange,bs,onSave}:Props){
   <GradeSection key={view} rows={vals.grades} custom={vals.custom.grades} label={info.label} readOnly={readOnly} canSave={!!onSave}
    onSave={grades=>{const {grades:_,...rest}=own,next=withData(grades?{...rest,grades}:rest);onChange(next);onSave?.(next);}}/>
   <Provisions items={own.provisions||[]} readOnly={readOnly} label={info.label} onChange={list=>{const {provisions:_,...rest}=own;store(list.length?{...rest,provisions:list}:rest);}}/>
-  {columns&&<ColumnTemplateEditor spec={spec} readOnly={readOnly} onChange={onChange} onClose={()=>setColumns(false)} title="Project Column Template"/>}
+  {columns&&<ColumnTemplateEditor spec={spec} readOnly={readOnly} onChange={onChange} onSave={onSave} onClose={()=>setColumns(false)} title="Project Column Template"/>}
   <p className="muted">การเปลี่ยนแปลงจะบันทึกเมื่อกด “บันทึก Spec” · โครงการที่เลือกใช้ Spec ชุดนี้จะถูกปรับตาม · ตารางเป็นข้อมูลอ้างอิงสำหรับการให้รายละเอียดเหล็ก ต้องตรวจกับแบบและวิศวกรผู้ออกแบบ</p>
  </section>;
 }
