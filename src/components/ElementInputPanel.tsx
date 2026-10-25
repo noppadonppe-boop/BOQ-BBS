@@ -19,6 +19,7 @@ import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
 import {detailingFromSpec,specLabel,specOutdated} from '../domain/specProfiles';
+import {concreteMixFor,kscToMpa,mixText} from '../domain/concreteMixes';
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const Element3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Element3DModal})));
 
@@ -245,11 +246,12 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Slab'&&<>{mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}<p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · จำกัดตามความหนาพื้น − cover</p></>}
   {input.category==='Wall'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p></>}
 
+  <ConcreteMixField spec={project.spec} input={input} readOnly={readOnly} onChange={mix=>setInput(prev=>prev&&{...prev,concreteMix:mix,detailing:detailingFromSpec(project.spec,prev.detailing,{category:prev.category,mix})})}/>
   <details className="detailing-defaults"><summary>มาตรฐานงอขอ / ระยะทาบ (กำหนดไว้เบื้องต้น)</summary>
    <div className="form-grid"><Field label="เกรดเหล็กหลัก" value={input.detailing.mainGrade} onChange={v=>set('detailing.mainGrade',v)} disabled={readOnly}/><Field label="เกรดเหล็กปลอก" value={input.detailing.tieGrade} onChange={v=>set('detailing.tieGrade',v)} disabled={readOnly}/>
     {num('รัศมีดัดใน Ø ≤ 16 (×d)','detailing.bendSmall','')}{num('รัศมีดัดใน Ø ≥ 20 (×d)','detailing.bendLarge','')}{num('รัศมีดัดในปลอก (×d)','detailing.tieBend','')}{num('ขอ 90° / ปลอกงอฉาก ส่วนตรงปลาย (×d)','detailing.hook90','')}{num('ขอปลอกวงกลม 135° ส่วนตรงปลาย (×d)','detailing.hook135','')}{num('ขอปลอกวงกลม 135° อย่างน้อย','detailing.hook135Min')}{num(input.detailing.lapTable?'ระยะทาบ (×d) · ใช้กับขนาดที่ไม่มีในตาราง Spec':'ระยะทาบ (×d)','detailing.lap','')}{num('ความยาวเหล็กเส้น','detailing.stockLength')}</div>
-   {input.detailing.lapTable&&<p className="spec-lap-table">ระยะทาบตาม Spec ({input.detailing.specRef}): {input.detailing.lapTable.map(r=>`${barName(r.bar)} = ${r.length}`).join(' · ')} mm <button type="button" disabled={readOnly} onClick={()=>set('detailing',detailingFromSpec(project.spec,input.detailing))}>ดึงค่าจาก Spec โครงการอีกครั้ง</button></p>}
-   {!input.detailing.lapTable&&<p><button type="button" disabled={readOnly} onClick={()=>set('detailing',detailingFromSpec(project.spec,input.detailing))}>ใช้ค่าจาก Spec โครงการ ({specLabel(project.spec)})</button></p>}
+   {input.detailing.lapTable&&<p className="spec-lap-table">ระยะทาบตาม Spec ({input.detailing.specRef}): {input.detailing.lapTable.map(r=>`${barName(r.bar)} = ${r.length}`).join(' · ')} mm <button type="button" disabled={readOnly} onClick={()=>set('detailing',detailingFromSpec(project.spec,input.detailing,{category:input.category,mix:input.concreteMix}))}>ดึงค่าจาก Spec โครงการอีกครั้ง</button></p>}
+   {!input.detailing.lapTable&&<p><button type="button" disabled={readOnly} onClick={()=>set('detailing',detailingFromSpec(project.spec,input.detailing,{category:input.category,mix:input.concreteMix}))}>ใช้ค่าจาก Spec โครงการ ({specLabel(project.spec)})</button></p>}
    <p className="muted">ค่าเริ่มต้น: รัศมีดัดขั้นต่ำ BS 8666:2000 Table 2 (2d / 3.5d) · ขอมาตรฐาน ACI 318 (90° = 12d ใช้กับปลอกสี่เหลี่ยมงอฉากอ้อมเหล็กมุม, ปลอกวงกลม 135° = 6d ≥ 75 mm) · ทาบ 40d · ปัดยาวตัดขึ้นทีละ {spec.rounding} mm ตาม General Spec</p></details>
 
   {problems.length>0&&<div className="notice warning"><b>ข้อมูลที่ยังขาด ({problems.length})</b>{'\n'}{problems.join('\n')}</div>}
@@ -381,6 +383,16 @@ function HeightFromLevels({what,readOnly,onUse}:{what:string;readOnly:boolean;on
   <div className="field"><span>ความสูง</span><button type="button" disabled={readOnly||!ok} onClick={()=>onUse(h)}>{ok?`ใช้ ${h.toLocaleString()} mm`:'กรอกระดับให้ครบ'}</button></div></div></details>;
 }
 
+/** Concrete mix of the member (spec mixes): by member type, or a mix chosen here; its f'c picks the lap table. */
+function ConcreteMixField({spec,input,readOnly,onChange}:{spec:Project['spec'];input:ElementInput;readOnly:boolean;onChange:(mix:string)=>void}){
+ const c=spec.concrete;if(!c)return null;
+ const auto=concreteMixFor(c,input.category),cur=input.detailing.concrete;
+ return <div className="form-grid concrete-mix"><label className="field"><span>คอนกรีต (Concrete Mix ตาม Spec)</span>
+  <select disabled={readOnly} value={input.concreteMix||''} onChange={e=>onChange(e.target.value)}>
+   <option value="">ตามประเภทชิ้นส่วน{auto?` · ${mixText(auto)}`:' (ไม่มีใน Spec)'}</option>
+   {c.mixes.map(m=><option key={m.id} value={m.id}>{mixText(m)}</option>)}</select></label>
+  <p className="muted">{cur?`ใช้ ${mixText(cur)} (${Math.round(kscToMpa(cur.fc)*10)/10} MPa) · ระยะทาบตามตาราง f'c ของ Mix นี้ · แสดงในแบบ A3`:'ยังไม่ได้ดึงค่า Mix · เลือก Mix หรือกด “ดึงค่าจาก Spec โครงการอีกครั้ง”'}</p></div>;
+}
 /** Project Column Template entry point of a column: pick button + the template / row the section came from. */
 function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,onSync,note}:{input?:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink?:()=>void;onSync?:(next:ColumnInput)=>void;note?:string}){
  const n=spec.columnTemplates?.length||0,ref=input?.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);

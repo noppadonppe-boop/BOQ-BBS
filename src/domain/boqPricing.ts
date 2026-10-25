@@ -5,6 +5,7 @@ import {siteItemKey,siteKinds,siteLabels,siteUnits} from './siteWork';
 import type {Member,SnapshotBundle,ReportGroup} from './model';
 import {boqPricingSchema,priceKey,priceEntryKey,type PriceEntry,type PriceKind,type CostComponent} from './boqPricingSchema';
 import {reportCategory} from './reportCategory';
+import {memberConcrete} from './concreteMixes';
 export const PRICING_POLICY='boq-pricing-1.0';
 export const COMPONENT_PRICING_POLICY='boq-pricing-2.0';
 export const componentLabels:Record<CostComponent,string>={combined:'ราคารวมเดิม',material:'ค่าวัสดุ',labor:'ค่าแรง'};
@@ -31,7 +32,7 @@ export const priceLabels:Record<PriceKind,string>={concrete:'คอนกรี�
 export type PriceItem={key:string;kind:PriceKind;diameter?:number;grade?:string;item?:string;label:string;unit:string;each:number};
 export function priceItems(member:Member,bundle:Pick<SnapshotBundle,'project'|'calculations'>):PriceItem[]{
  const frozen=bundle.calculations?.[member.id],q=frozen||takeoff(member,bundle.project.spec),items:PriceItem[]=[];
- for(const kind of ['concrete','formwork','excavation','backfill','lean'] as const){const each=q[kind];if(!Number.isFinite(each)||each<0)throw Error(member.code+': ปริมาณสำหรับคิดราคาไม่ถูกต้อง');if(each>0)items.push({kind,key:priceKey({kind}),label:priceLabels[kind],unit:kind==='formwork'?'m²':'m³',each});}
+ for(const kind of ['concrete','formwork','excavation','backfill','lean'] as const){const each=q[kind];if(!Number.isFinite(each)||each<0)throw Error(member.code+': ปริมาณสำหรับคิดราคาไม่ถูกต้อง');if(each>0)items.push({kind,key:priceKey({kind}),label:kind==='concrete'&&memberConcrete(member)?`${priceLabels.concrete} ${memberConcrete(member)}`:priceLabels[kind],unit:kind==='formwork'?'m²':'m³',each});}
  for(const kind of siteKinds){const each=q[kind]??0;if(!Number.isFinite(each)||each<0)throw Error(member.code+': ปริมาณสำหรับคิดราคาไม่ถูกต้อง');if(each>0)items.push({kind,key:priceKey({kind}),label:priceLabels[kind],unit:siteUnits[kind],each});}
  // manual items: same label and unit add up into one priced line
  const extras=new Map<string,PriceItem>();

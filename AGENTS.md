@@ -92,6 +92,12 @@
   profile directly via `onSave` → `GeneralSpecPage.save(spec)`).
   Extra provisions per code: `spec.codeData[code].provisions` (UI `Provisions` in `DesignCodeLibrary.tsx`).
   Project-side spec info / approval / files: `ProjectSpecPanel.tsx` in the project Settings page.
+- Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
+  (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
+  key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of
+  its category; `detailingFromSpec(spec, base, {category, mix})` writes `detailing.concrete` and picks the lap table by the
+  mix f'c (`lapConcreteFor`: 350 ksc → 35 MPa). Shown on the A3 notes / BOQ line (`memberConcrete`, `concreteNote`),
+  `quantityReport().concreteByMix`, price labels and the Excel BOQ. Test: `tmp/concreteMix.test.ts`.
 - Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
 - Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
   add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).

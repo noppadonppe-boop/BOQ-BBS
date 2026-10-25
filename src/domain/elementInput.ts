@@ -116,6 +116,8 @@ export const detailingSchema=z.object({
  /** Steel grade per bar size from the project spec (e.g. Y12–Y20 SD40, Y25–Y32 SD50); overrides main / tie grade. */
  grades:z.array(z.object({bar:z.number().int().min(1).max(60),grade:z.string().trim().min(1).max(40)}).strict()).max(30).optional(),
  beam:z.object({topEnd:frac2,topCont:frac2,bottomZone:frac2,bottomEnd:frac2.optional(),bottomCont:frac2.optional(),stirrupZone:frac2.optional()}).strict().optional(),
+ /** Concrete mix of the member from the spec (display; f'c in ksc picks the lap table). */
+ concrete:z.object({mix:z.string().max(24),name:z.string().max(80),fc:z.number().finite().min(0).max(2000)}).strict().optional(),
 }).strict();
 /** Lap length for diameter d: project-spec table (exact size, else the next larger size) or lap × d. */
 /** Grade of a generated bar of diameter d: spec table (exact size, else the next larger size), else `fallback`. */
@@ -138,6 +140,8 @@ const base={
  mode:z.enum(['manual','drawing']),
  source:z.object({attachmentId:z.string().max(80),fileName:z.string().max(250),extractedAt:z.string().max(40)}).strict().optional(),
  detailing:detailingSchema,
+ /** concrete mix id chosen for this member (missing = by member type in the spec) */
+ concreteMix:z.string().max(24).optional(),
  appliedAt:z.string().max(40).optional(),
 };
 const level=z.number().finite().min(-1000).max(10000);
@@ -487,7 +491,7 @@ export type WallInput=z.infer<typeof wallSchema>;
 
 /** `spec` = project spec: detailing defaults (bends, laps, grade) follow the project's General Spec. */
 export function defaultElementInput(category:InputCategory,mode:'manual'|'drawing'='manual',spec?:Spec):ElementInput{
- const common={version:ELEMENT_INPUT_VERSION,mode,detailing:spec?detailingFromSpec(spec,{...DEFAULT_DETAILING}):{...DEFAULT_DETAILING}};
+ const common={version:ELEMENT_INPUT_VERSION,mode,detailing:spec?detailingFromSpec(spec,{...DEFAULT_DETAILING},{category}):{...DEFAULT_DETAILING}};
  switch(category){
   case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE),pour:structuredClone(DEFAULT_FOOTING_POUR)};
   case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}},layout:'single',stack:structuredClone(DEFAULT_COLUMN_STACK),pour:{...DEFAULT_COLUMN_POUR}};

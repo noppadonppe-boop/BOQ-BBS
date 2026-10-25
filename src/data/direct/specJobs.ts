@@ -71,8 +71,8 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
   // columns linked to a Project Column Template follow the template of the new spec
   if(parsed.data.category==='Column')parsed.data=syncColumnTemplate(parsed.data,spec);
   // input not applied yet: only refresh its detailing so the next apply uses the new spec
-  if(!parsed.data.appliedAt)return {...m,elementInput:{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)}};
-  try{const r=applyElementInput(m,{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing)},{rounding:spec.rounding,withBars:m.bars.some(isGeneratedBar)});return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}
+  if(!parsed.data.appliedAt)return {...m,elementInput:{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})}};
+  try{const r=applyElementInput(m,{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})},{rounding:spec.rounding,withBars:m.bars.some(isGeneratedBar)});return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}
  };
  for(const m0 of selected){const fresh=regenerate(m0),m=fresh||m0;if(!fresh){const errors=validateMember(m0,spec);must(!errors.length,`${m0.code}: ${errors.join('\n')}`,'invalid-argument');}manifest.members.push({id:m0.id,before:m0,after:{...m,...(m.quantityBasis?{quantityBasis:provisionalQuantityBasis(m.quantityBasis.reference)}:{}),noRebar:undefined,status:'Draft',version:m.version+1,inputEpoch:id,updatedAt:manifest.preparedAt,bars:m.bars.map(b=>({...b,placementConfirmed:false,...(b.bsDimensionsConfirmed!==undefined?{bsDimensionsConfirmed:false}:{})}))}});}
  const nextSources=new Map(byId);manifest.sourceIntakes.forEach(a=>nextSources.set(a.id,a));manifest.sourceAdoptions.forEach(a=>nextSources.set(a.after.id,a.after));manifest.sourceChanges.forEach(c=>{nextSources.set(c.after.id,c.after);nextSources.set(c.next.id,c.next);});validateSourceChains([...nextSources.values()]);

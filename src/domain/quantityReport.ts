@@ -3,17 +3,19 @@ import {takeoff} from './engine';
 import type {SnapshotBundle,ReportGroup} from './model';
 import {reinforcementCoverage} from './reinforcementCoverage';
 import {reportCategory} from './reportCategory';
+import {memberConcrete} from './concreteMixes';
 export const BOQ_READINESS_POLICY='quantity-readiness-2.0';
 export const COMPONENT_BOQ_READINESS_POLICY='quantity-readiness-3.0';
 export const quantityKeys=['concrete','formwork','excavation','backfill','lean','rebar'] as const;
 export type QuantityRow={key:string;label:string;category:string;unassigned:boolean;values:number[]};
 export function quantityReport(bundle:SnapshotBundle,group:ReportGroup=bundle.scope?.group||'Member'){
  const totals=Array(7).fill(0);
- const rows=new Map<string,QuantityRow>(),rebar=new Map<string,{diameter:number;grade:string;weight:number;pieces:number}>();
+ const mixes=new Map<string,number>(),rows=new Map<string,QuantityRow>(),rebar=new Map<string,{diameter:number;grade:string;weight:number;pieces:number}>();
  for(const m of bundle.members){
   const frozen=bundle.calculations?.[m.id],q=frozen||takeoff(m,bundle.project.spec),quantity=m.occurrences.reduce((n,o)=>n+o.quantity,0);
   if(q.quantity!==quantity)throw Error(`${m.code}: จำนวนสมาชิกในชุดส่งงานไม่ตรงฐานคำนวณ`);
   [1,...quantityKeys.map(k=>q[k])].forEach((value,i)=>totals[i]+=value*quantity);
+  if(q.concrete>0){const mix=memberConcrete(m);mixes.set(mix,(mixes.get(mix)||0)+q.concrete*quantity);}
   for(const o of m.occurrences){
    const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Zone'?o.zone:group==='Floor'?o.floor:'Summary',key=group+':'+JSON.stringify(raw);
    const row=rows.get(key)||{key,label:group==='Member'?m.code:raw||'ไม่ระบุ',category:group==='Member'?reportCategory(m):'',unassigned:(group==='Zone'||group==='Floor')&&!raw,values:Array(7).fill(0)};
@@ -26,5 +28,5 @@ export function quantityReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sc
   }
  }
  const quantityCoverage=quantityBasisCoverage(bundle,group),coverage=reinforcementCoverage(bundle,group),list=[...rows.values()].sort((a,b)=>a.label.localeCompare(b.label,'th',{numeric:true})||a.key.localeCompare(b.key)).map(row=>{const raw=JSON.parse(row.key.slice(group.length+1)),key=JSON.stringify([group,raw]),pending=coverage.groupPending.get(key)||0,provisional=quantityCoverage.groupPending.get(key)||0,componentPending=quantityCoverage.groupComponentPending.get(key)||Array(7).fill(0);return {...row,pendingQuantityMembers:provisional,pendingQuantityComponents:componentPending,completeValues:row.values.map((value,i)=>componentPending[i]||i===6&&pending?null:value),pendingRebarMembers:pending,completeRebar:pending||componentPending[6]?null:row.values[6]};});
- return {readinessPolicy:bundle.members.some(m=>m.quantityBasis?.version===2)?COMPONENT_BOQ_READINESS_POLICY:BOQ_READINESS_POLICY,group,rows:list,totals,quantityCoverage,completeTotals:totals.map((value,i)=>quantityCoverage.componentPending[i]||i===6&&!coverage.complete?null:value),coverage,completeRebar:coverage.complete&&!quantityCoverage.componentPending[6]?totals[6]:null,rebar:[...rebar.values()].sort((a,b)=>a.diameter-b.diameter||a.grade.localeCompare(b.grade)),memberCount:bundle.members.length,occurrenceCount:bundle.members.reduce((n,m)=>n+m.occurrences.length,0)};
+ return {readinessPolicy:bundle.members.some(m=>m.quantityBasis?.version===2)?COMPONENT_BOQ_READINESS_POLICY:BOQ_READINESS_POLICY,group,rows:list,totals,quantityCoverage,completeTotals:totals.map((value,i)=>quantityCoverage.componentPending[i]||i===6&&!coverage.complete?null:value),coverage,completeRebar:coverage.complete&&!quantityCoverage.componentPending[6]?totals[6]:null,concreteByMix:[...mixes].map(([mix,volume])=>({mix,volume})).sort((a,b)=>(a.mix?0:1)-(b.mix?0:1)||a.mix.localeCompare(b.mix,'en',{numeric:true})),rebar:[...rebar.values()].sort((a,b)=>a.diameter-b.diameter||a.grade.localeCompare(b.grade)),memberCount:bundle.members.length,occurrenceCount:bundle.members.reduce((n,m)=>n+m.occurrences.length,0)};
 }

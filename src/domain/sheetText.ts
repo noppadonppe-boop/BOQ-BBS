@@ -8,7 +8,7 @@ export const sheetLangOf=(p:{titleBlock?:{sheetLanguage?:string}}):SheetLang=>p.
 type Text={
  category:Record<Category,string>;plan:string;sectionX:(y:number)=>string;sectionY:(x:number)=>string;columnSection:(kind:'pedestal'|'starter',z:number)=>string;notes:string;legend:string;
  coverNames:Record<string,string>;nts:string;cover:string;pedestal:string;bendRadius:(s:number,l:number,t:number)=>string;bendPerMark:string;
- hooks:(h90:number,h135:number,min:number,lap:string)=>string;lapSpec:(rows:string)=>string;rounding:(r:number,ed:string,steel:string)=>string;perTable:string;tie:string;
+ hooks:(h90:number,h135:number,min:number,lap:string)=>string;lapSpec:(rows:string)=>string;rounding:(r:number,ed:string,steel:string)=>string;concrete:(mix:string)=>string;perTable:string;tie:string;
  pile:(n:number,size:number,len:number,cut:number,embed:number,inConcrete:boolean)=>string;stages:(n:number,list:string)=>string;sketched:string;coupler:(list:string,stagger:number)=>string;
  quantity:(n:number,where:string)=>string;noLocation:string;dashes:string;perPiece:(mark:string,count:number)=>string;
  cols:[string,string,string,string,string,string,string,string];noBars:string;totalWeight:(kg:string,n:number)=>string;
@@ -22,6 +22,7 @@ const th:Text={
  coverNames:{bottom:'ล่าง',top:'บน',side:'ข้าง',edge:'ขอบ',face:'ผิว'},nts:'มิติทั้งหมดเป็นมิลลิเมตร (mm) · ไม่ใช้วัดจากแบบ (NTS)',cover:'ระยะหุ้มคอนกรีต C (Covering)',coupler:(l,st)=>`ปลายบนเหล็กยืนต่อด้วย Coupler (ข้อต่อทางกล): ${l}${st?` · เหลื่อมทีละครึ่ง ${st} mm`:''} · กล่องที่ปลายเหล็กในรูปตัด = Coupler`,pedestal:'เสาตอม่อ',
  bendRadius:(s,l,t)=>`รัศมีดัดใน ${s}d (Ø ≤ 16) / ${l}d (Ø ≥ 20) · ปลอก ${t}d`,bendPerMark:'รัศมีดัดตามข้อมูลแต่ละ Mark',
  hooks:(a,b,min,lap)=>`ขอ 90° = ${a}d (ปลอกสี่เหลี่ยมงอฉากอ้อมเหล็กมุม) · ขอปลอกวงกลม 135° = ${b}d ≥ ${min} mm · ทาบ ${lap}`,lapSpec:r=>`ตาม Spec (${r})`,
+ concrete:mix=>`คอนกรีต ${mix}`,
  rounding:(r,ed,steel)=>`ยาวตัดปัดขึ้นทีละ ${r} mm${ed?` (${ed})`:''} · เหล็ก ${steel}`,perTable:'ตามตาราง',tie:'ปลอก',
  pile:(n,size,len,cut,embed,c)=>`เสาเข็ม ${n} ต้น ${size} mm ยาว ${len} m · ตัดหัวเข็ม ${cut} mm · ฝังใน${c?'คอนกรีต':'ฐาน'} ${embed} mm`,stages:(n,l)=>`เทคอนกรีต ${n} ขั้น: ${l}`,
  sketched:'เหล็กที่วาดบนรูปตัด: รัศมีดัดขั้นต่ำ BS 8666 (2d Ø ≤ 16 / 3.5d Ø ≥ 20) · ขอมาตรฐานตามตาราง Standard Hooks ของ Spec',
@@ -38,6 +39,7 @@ const en:Text={
  coverNames:{bottom:'bottom',top:'top',side:'side',edge:'edge',face:'face'},nts:'All dimensions in millimetres (mm) · Do not scale (NTS)',cover:'Concrete cover C',coupler:(l,st)=>`Main bar top ends with mechanical couplers: ${l}${st?` · 50 % staggered ${st} mm`:''} · box at the bar end in sections = coupler`,pedestal:'Pedestal',
  bendRadius:(s,l,t)=>`Inner bend radius ${s}d (Ø ≤ 16) / ${l}d (Ø ≥ 20) · links ${t}d`,bendPerMark:'Bend radius as per each Mark',
  hooks:(a,b,min,lap)=>`90° hook = ${a}d (rectangular links bent around corner bars) · 135° circular link hook = ${b}d ≥ ${min} mm · lap ${lap}`,lapSpec:r=>`per Spec (${r})`,
+ concrete:mix=>`Concrete ${mix}`,
  rounding:(r,ed,steel)=>`Cut lengths rounded up to ${r} mm${ed?` (${ed})`:''} · steel ${steel}`,perTable:'per schedule',tie:'links',
  pile:(n,size,len,cut,embed,c)=>`Piles ${n} nos ${size} mm, length ${len} m · pile head cut-off ${cut} mm · embedded in ${c?'concrete':'footing'} ${embed} mm`,stages:(n,l)=>`Concrete poured in ${n} stages: ${l}`,
  sketched:'Bars drawn on sections: minimum bend radius BS 8666 (2d Ø ≤ 16 / 3.5d Ø ≥ 20) · standard hooks per the Spec Standard Hooks table',
@@ -54,6 +56,7 @@ const zh:Text={
  coverNames:{bottom:'底',top:'顶',side:'侧',edge:'边',face:'面'},nts:'所有尺寸单位为毫米 (mm) · 不按比例 (NTS)',cover:'混凝土保护层 C',coupler:(l,st)=>`纵筋顶端采用机械连接套筒 (Coupler): ${l}${st?` · 50 % 错开 ${st} mm`:''} · 剖面中钢筋端部方框 = 套筒`,pedestal:'短柱',
  bendRadius:(s,l,t)=>`内弯曲半径 ${s}d (Ø ≤ 16) / ${l}d (Ø ≥ 20) · 箍筋 ${t}d`,bendPerMark:'弯曲半径按各钢筋编号',
  hooks:(a,b,min,lap)=>`90° 弯钩 = ${a}d (矩形箍筋绕角筋弯折) · 圆形箍筋 135° 弯钩 = ${b}d ≥ ${min} mm · 搭接 ${lap}`,lapSpec:r=>`按规范 (${r})`,
+ concrete:mix=>`混凝土 ${mix}`,
  rounding:(r,ed,steel)=>`下料长度按 ${r} mm 向上取整${ed?` (${ed})`:''} · 钢筋 ${steel}`,perTable:'按表',tie:'箍筋',
  pile:(n,size,len,cut,embed,c)=>`桩 ${n} 根 ${size} mm 长 ${len} m · 截桩头 ${cut} mm · 嵌入${c?'混凝土':'承台'} ${embed} mm`,stages:(n,l)=>`混凝土分 ${n} 次浇筑: ${l}`,
  sketched:'剖面上绘制的钢筋: 最小弯曲半径 BS 8666 (2d Ø ≤ 16 / 3.5d Ø ≥ 20) · 标准弯钩按规范标准弯钩表',

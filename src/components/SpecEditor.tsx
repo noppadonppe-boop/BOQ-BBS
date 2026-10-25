@@ -3,6 +3,7 @@ import {currentStarterSpec} from '../domain/model';
 import {BS2000,BS2000V2,BS2000V3,BS2000V4,BS2000V5,BS2000V6,BS2000V7,BS2000V8,bsProfile} from '../domain/bs8666';
 import {DesignCodeLibrary} from './DesignCodeLibrary';
 import {ProjectMaterialsEditor} from './ProjectMaterials';
+import {ConcreteMixEditor} from './ConcreteMixEditor';
 import {FlatEndCoverPolicy} from './FlatEndCover';
 import {PrismPolicy} from './PrismEditor';
 import {BarPlacementPolicy} from './BarPlacements';
@@ -26,6 +27,7 @@ export function SpecEditor({spec:s,readOnly,onChange,onSave}:{spec:Spec;readOnly
    <label className="check"><input aria-label="ขั้นตอนตรวจรับ Code99" type="checkbox" disabled={readOnly} checked={s.code99ReviewPolicy==='code99-review-1.0'} onChange={e=>{if(e.target.checked)onChange({...s,code99ReviewPolicy:'code99-review-1.0'});else{const {code99ReviewPolicy:_c,...next}=s;onChange(next);}}}/>ขั้นตอนตรวจรับ Code99 · ผู้อนุมัติรับรองรูป/หลักฐานที่ผูกกับข้อมูล · แก้ Spec แล้วต้องตรวจใหม่</label>
    <div className="form-grid">{Object.entries(fields).map(([k,label])=><Field disabled={readOnly} key={k} label={label} value={s[k as keyof Spec] as string|number} type={['density','rounding'].includes(k)?'number':'text'} onChange={v=>onChange({...s,[k]:v})}/>)}
     <label className="field full"><span>หลักการวัดปริมาณ / ownership รอยต่อ / รายการหัก</span><textarea disabled={readOnly} value={s.measurementNotes} onChange={e=>onChange({...s,measurementNotes:e.target.value})}/></label></div>
+   <ConcreteMixEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <ProjectMaterialsEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <PrismPolicy spec={s} disabled={readOnly} onChange={onChange}/>
    <BarPlacementPolicy spec={s} disabled={readOnly} onChange={onChange}/>

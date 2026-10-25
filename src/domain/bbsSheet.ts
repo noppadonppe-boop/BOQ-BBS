@@ -10,6 +10,7 @@ import {buildView,columnSectionCut,defaultCuts,markColors,renderView,type ViewRo
 import {textWidth,wrapText,type Prim} from './drawingPrims';
 import {composeDrawingNumber} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
+import {concreteNote,memberConcrete} from './concreteMixes';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -25,7 +26,7 @@ const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const fmt=(v:number,d=2)=>v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 
 export function sheetBoq(s:SheetData):BoqLine[]{
- const q=s.takeoff,n=s.quantity,m=s.member,B=sheetText[sheetLangOf(s.project)].boq,out:BoqLine[]=[{item:B.concrete,unit:'m³',each:q.concrete,total:q.concrete*n}];
+ const q=s.takeoff,n=s.quantity,m=s.member,B=sheetText[sheetLangOf(s.project)].boq,mix=memberConcrete(m),out:BoqLine[]=[{item:mix?`${B.concrete} ${mix}`:B.concrete,unit:'m³',each:q.concrete,total:q.concrete*n}];
  // shape model with several pour stages: concrete per stage (manual deductions stay in the total above)
  const stages=m.shapeModel?shapeStageVolumes(m.shapeModel):[];if(stages.length>1)for(const st of stages)out.push({item:B.stage(st.stage),unit:'m³',each:st.volume,total:st.volume*n});
  // footing (box) pour stages: concrete and formwork per stage, construction joints between stages
@@ -80,6 +81,7 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
   input?.category==='Foundation'&&input.column.type!=='none'&&footingColumns(input).some(c=>c.splice?.type==='coupler')?T.coupler((m.siteWork?.items||[]).filter(it=>it.id.startsWith('gen-coupler-')).map(it=>`${it.label.replace(/^.*\) /,'')} × ${it.quantity}`).join(', '),Math.max(0,...footingColumns(input).filter(c=>c.splice?.type==='coupler').map(c=>c.splice.stagger))):'',
   det?T.bendRadius(det.bendSmall,det.bendLarge,det.tieBend):T.bendPerMark,
   det?T.hooks(det.hook90,det.hook135,det.hook135Min,det.lapTable?T.lapSpec(det.lapTable.map(r=>`Ø${r.bar}=${r.length}`).join(', ')):`${det.lap}d`):'',
+  det?.concrete?T.concrete(concreteNote(det.concrete,s.project.spec.concrete)):'',
   T.rounding(s.project.spec.rounding,s.project.spec.bsEdition||'',det?`${det.mainGrade} / ${T.tie} ${det.tieGrade}`:T.perTable),
   input?.category==='Foundation'&&input.foundationType==='pile'?(()=>{const p=pileQuantities(input);return T.pile(p.count,p.size,p.lengthEach,Math.round(p.cutLengthEach*1000),input.pile.embed,false);})():'',
   pourStageQuantities(m).length>1?T.stages(pourStageQuantities(m).length,pourStageQuantities(m).map(x=>`Stage ${x.stage} = ${Math.round(x.z0)}–${Math.round(x.z1)} mm ${x.concrete.toFixed(2)} m³`).join(' · ')):'',

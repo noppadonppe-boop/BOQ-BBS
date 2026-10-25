@@ -58,7 +58,7 @@ export function memberFromTemplate(t:ElementTemplate,code:string,project:Project
  if(p.boqCategory&&category==='Custom')m={...m,boqCategory:p.boqCategory};
  const parsed=p.elementInput!==undefined?elementInputSchema.safeParse(p.elementInput):undefined;
  if(parsed?.success&&parsed.data.category===category){
-  const input={...parsed.data,detailing:detailingFromSpec(project.spec,parsed.data.detailing)} as ElementInput;
+  const input={...parsed.data,detailing:detailingFromSpec(project.spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})} as ElementInput;
   m=applyElementInput(m,input,{rounding:project.spec.rounding}).member;
  }else if(p.shapeModel&&category==='Custom')m={...applyShapeModel(m,p.shapeModel),cover:p.cover};
  return m;
