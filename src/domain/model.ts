@@ -32,9 +32,9 @@ import {BS2000,BS2000V2,BS2000V3,BS2000V4,BS2000V5,BS2000V6,BS2000V7,BS2000V8} f
 import {scheduleSetupSchema} from './cuttingSchedule';
 import {drawingSetupSchema,DrawingProfile} from './drawingStandard';
 import {memberReviewSchema} from './memberReview';
-export const categories = ['Foundation','Beam','Column','Slab','Wall','Custom'] as const;
+export const categories = ['Foundation','Beam','Column','Slab','Wall','Stair','Lift','Custom'] as const;
 export type Category = typeof categories[number];
-export const labels: Record<Category,string> = {Foundation:'ฐานราก',Beam:'คาน',Column:'เสา',Slab:'พื้น',Wall:'ผนัง',Custom:'องค์ประกอบอื่น'};
+export const labels: Record<Category,string> = {Foundation:'ฐานราก',Beam:'คาน',Column:'เสา',Slab:'พื้น',Wall:'ผนัง',Stair:'บันได',Lift:'ลิฟต์ / Core',Custom:'องค์ประกอบอื่น'};
 const positive = z.number().finite().positive();
 const nonnegative = z.number().finite().nonnegative();
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
@@ -59,7 +59,7 @@ export type RestoreState={id:string;status:'Importing'|'Cancelling'|'Complete'|'
 export type SpecChangeState={id:string;status:'Applying'|'RollingBack'|'Complete'|'Cancelled';completed:number;total:number};
 export type ProjectLogo={path:string;name:string;contentType:'image/png'|'image/jpeg';size:number;sha256:string};
 /** `code` = Project No., `owner` = Client, `notes` = input note. Deleted projects are hidden but kept. */
-export type Project = {id:string;code:string;name:string;location:string;owner:string;notes:string;contractor?:string;subcontractor?:string;logo?:ProjectLogo|null;deleted?:{at:string;by:string;reason:string}|null;acl:Record<string,Role>;roleSets?:Record<string,Role[]>;version:number;createdAt:string;spec:Spec;activeRuleSetId?:string;revisionCounter?:number;historyEpoch?:string;engineeringFixtureEpoch?:string;stockEpoch?:string;restoreState?:RestoreState;locations?:Locations;specChangeState?:SpecChangeState;drawingProfile?:DrawingProfile|null;titleBlock:{company:string;drawnBy:string;checkedBy:string;approvedBy?:string;drawingPrefix:string;drawingSuffix?:string;drawingParts?:string[];sheetLanguage?:"th"|"en"|"zh"}};
+export type Project = {id:string;code:string;name:string;location:string;owner:string;notes:string;contractor?:string;subcontractor?:string;logo?:ProjectLogo|null;deleted?:{at:string;by:string;reason:string}|null;acl:Record<string,Role>;roleSets?:Record<string,Role[]>;version:number;createdAt:string;spec:Spec;activeRuleSetId?:string;revisionCounter?:number;historyEpoch?:string;engineeringFixtureEpoch?:string;stockEpoch?:string;restoreState?:RestoreState;locations?:Locations;disciplines?:import('./disciplines').Discipline[];specChangeState?:SpecChangeState;drawingProfile?:DrawingProfile|null;titleBlock:{company:string;drawnBy:string;checkedBy:string;approvedBy?:string;drawingPrefix:string;drawingSuffix?:string;drawingParts?:string[];sheetLanguage?:"th"|"en"|"zh"}};
 const sourceMarkSchema=z.object({id,mark:z.string().min(1).max(32)});
 export const sourceDocumentReviewSchema=z.object({annotationVersion:z.number().int().positive(),bars:z.array(sourceMarkSchema).max(300),reviewedAt:z.string().max(40),reviewedBy:id,note:z.string().trim().min(1).max(500).optional(),noRebarBasis:z.string().trim().min(1).max(500).optional()});
 const sourceIntakeBase={note:z.string().trim().min(1).max(500),receivedAt:z.string().max(40),receivedBy:id,specChangeJobId:id,review:sourceDocumentReviewSchema.optional()};
@@ -71,7 +71,7 @@ export const attachmentSchema=z.object({id,name:z.string().min(1).max(250),path:
 export type Attachment=z.infer<typeof attachmentSchema>;
 export type Stock = {id:string;diameter:number;grade:string;length:number;quantity:number;reserved:number;location:string;source:string;version:number;kind?:'Standard'|'Offcut'};
 export type FrozenCalculation={quantity:number;concrete:number;formwork:number;excavation:number;backfill:number;lean:number;rebar:number;sand?:number;sheet?:number;compaction?:number;bars:{id:string;cutLength:number;geometricLength:number;eachWeight:number;weight:number}[]};
-export type ReportGroup='Member'|'Category'|'Zone'|'Floor'|'Building'|'Level'|'WBS'|'Summary';
+export type ReportGroup='Member'|'Discipline'|'Category'|'Zone'|'Floor'|'Building'|'Level'|'WBS'|'Summary';
 export type ExportScope={memberId?:string;category?:string;zone?:string;floor?:string;zoneUnassigned?:boolean;floorUnassigned?:boolean;building?:string;level?:string;wbsZone?:string;wbsUnassigned?:boolean;wbsLabel?:string;group?:ReportGroup};
 export type SnapshotBundle={schemaVersion:number;project:Project;members:Member[];attachments:Attachment[];stock:any[];stockLedger:any[];cutPlans:any[];createdAt:string;status:string;version:number;scope?:ExportScope;revisionNumber?:string;engineVersion?:string;inventory?:{version:1;scope:import('./inventoryReport').InventoryScope};sourceMemberQuantities?:Record<string,{quantity:number;memberVersion:number}>;calculations?:Record<string,FrozenCalculation>;code99Reviews?:Code99Review[];issuedReference?:IssuedReference;historyIndex?:{collection:string;id:string;digest:string}[]};
 export type SnapshotFile={path:string;name:string;size:number;sha256:string;contentType:string};
@@ -98,9 +98,9 @@ export const bs2000V8Spec:Spec={...bs2000V7Spec,minimumStandard:BS2000V8.id,rule
 // Frozen captures keep their explicit historical profile; no migration occurs.
 export const currentStarterSpec:Spec={...bs2000V8Spec};
 export function blankMember(category:Category,code:string): Member {
- const dims:Record<Category,Vec3>={Foundation:[2400,2400,600],Beam:[6000,300,600],Column:[400,400,3200],Slab:[6000,4000,150],Wall:[6000,200,3000],Custom:[1000,1000,1000]};
+ const dims:Record<Category,Vec3>={Foundation:[2400,2400,600],Beam:[6000,300,600],Column:[400,400,3200],Slab:[6000,4000,150],Wall:[6000,200,3000],Stair:[4000,1200,1800],Lift:[2400,2400,3500],Custom:[1000,1000,1000]};
  const [x,y,z]=dims[category];
- const faces:Record<Category,boolean[]>={Foundation:[true,true,true,true,false,false],Beam:[false,false,true,true,true,false],Column:[true,true,true,true,false,false],Slab:[true,true,true,true,true,false],Wall:[true,true,true,true,false,false],Custom:[true,true,true,true,true,true]};
+ const faces:Record<Category,boolean[]>={Foundation:[true,true,true,true,false,false],Beam:[false,false,true,true,true,false],Column:[true,true,true,true,false,false],Slab:[true,true,true,true,true,false],Wall:[true,true,true,true,false,false],Stair:[false,false,true,true,true,false],Lift:[true,true,true,true,false,false],Custom:[true,true,true,true,true,true]};
  return {id:crypto.randomUUID(),code,category,description:'',version:0,status:'Draft',x,y,z,cover:category==='Foundation'?75:40,faces:faces[category],pedestal:{x:0,y:0,z:0},excavation:{bottomX:category==='Foundation'?3000:0,bottomY:category==='Foundation'?3000:0,topX:category==='Foundation'?3000:0,topY:category==='Foundation'?3000:0,depth:category==='Foundation'?1200:0,buriedConcrete:0},lean:{x:category==='Foundation'?2600:0,y:category==='Foundation'?2600:0,thickness:category==='Foundation'?100:0},deductions:[],occurrences:[{id:crypto.randomUUID(),zone:'A',floor:'L1',grid:'',quantity:1}],bars:[]};
 }
 export function blankBar(mark:string): Bar {return {id:crypto.randomUUID(),mark,diameter:16,grade:'SD40',count:8,axis:'X',face:'bottom',shape:'straight',shapeCode:'',start:0,end:0,tail:0,radius:0,distributionStart:0,distributionEnd:0,points:[],cutOverride:0,placementConfirmed:false,note:''};}

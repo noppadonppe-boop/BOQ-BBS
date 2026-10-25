@@ -6,6 +6,7 @@ import type {Member,SnapshotBundle,ReportGroup} from './model';
 import {boqPricingSchema,priceKey,priceEntryKey,type PriceEntry,type PriceKind,type CostComponent} from './boqPricingSchema';
 import {reportCategory} from './reportCategory';
 import {isWbsGroup,locationTree,occurrenceGroup,wbsGroupDisplay} from './locations';
+import {disciplineLabel,disciplineOf,disciplines} from './disciplines';
 import {memberConcrete} from './concreteMixes';
 export const PRICING_POLICY='boq-pricing-1.0';
 export const COMPONENT_PRICING_POLICY='boq-pricing-2.0';
@@ -53,7 +54,7 @@ export function pricingReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sco
   for(const o of m.occurrences)for(const item of items)for(const component of components){
    if(lines.length>=100000)throw Error('รายการราคามากกว่า100,000รายการ เลือกสมาชิก/ประเภท/โซน/ชั้นเพื่อแบ่งขอบเขต');
    const rawQuantity=item.each*o.quantity,quantity=p?roundedQuantity(rawQuantity,p.quantityDecimals):String(rawQuantity),entry=entries.get(JSON.stringify([item.key,component]))||null,amount=entry&&entry.rate!==null?exactAmount(quantity,entry.rate,p!.amountDecimals):null;
-   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):occurrenceGroup(group,o),groupKey=JSON.stringify([group,raw]),groupLabel=group==='Member'?m.code:isWbsGroup(group)?wbsGroupDisplay(tree,raw).label:raw||'ไม่ระบุ';
+   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Discipline'?disciplineOf(m.category):occurrenceGroup(group,o),groupKey=JSON.stringify([group,raw]),groupLabel=group==='Member'?m.code:isWbsGroup(group)?wbsGroupDisplay(tree,raw).label:group==='Discipline'?disciplineLabel(raw):raw||'ไม่ระบุ';
    const line:PriceLine={...item,component,policy,memberId:m.id,memberCode:m.code,category:m.category,occurrenceId:o.id,zone:o.zone,floor:o.floor,grid:o.grid,rawQuantity,quantity,quantityDecimals:p?.quantityDecimals??null,currency:p?.currency||null,amountDecimals:p?.amountDecimals??null,entry,amount:amount?.amount??null,minor:amount?.minor??null,groupKey,groupLabel};lines.push(line);
    const key=JSON.stringify([groupKey,line.currency]),decimals=p?.amountDecimals??2,old=groups.get(key)||{record:{key:groupKey,label:groupLabel,currency:line.currency,decimals,priced:0,missing:0,subtotal:'0',total:null},minor:0n},scale=Math.max(decimals,old.record.decimals);
    old.minor*=pow(scale-old.record.decimals);if(amount)old.minor+=BigInt(amount.minor)*pow(scale-decimals);if(old.minor>MAX_MINOR)throw Error('ยอดรวมเกินความละเอียดที่รองรับ แบ่งขอบเขตส่งออก');old.record.decimals=scale;old.record.priced+=amount?1:0;old.record.missing+=amount?0:1;groups.set(key,old);
@@ -61,7 +62,7 @@ export function pricingReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sco
  }
  const missing=lines.filter(l=>l.amount===null).length,groupMissing=new Map<string,number>();for(const g of groups.values())groupMissing.set(g.record.key,(groupMissing.get(g.record.key)||0)+g.record.missing);
  const quantityCoverage=quantityBasisCoverage(bundle,group),coverage=reinforcementCoverage(bundle,group);
- const pendingIds=new Set([...quantityCoverage.pending.map(m=>m.id),...coverage.pending.map(m=>m.memberId)]),pendingGroups=new Map<string,Set<string>>();for(const m of bundle.members)for(const o of m.occurrences){const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):occurrenceGroup(group,o),key=JSON.stringify([group,raw]),set=pendingGroups.get(key)||new Set<string>();if(pendingIds.has(m.id))set.add(m.id);pendingGroups.set(key,set);}
+ const pendingIds=new Set([...quantityCoverage.pending.map(m=>m.id),...coverage.pending.map(m=>m.memberId)]),pendingGroups=new Map<string,Set<string>>();for(const m of bundle.members)for(const o of m.occurrences){const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Discipline'?disciplineOf(m.category):occurrenceGroup(group,o),key=JSON.stringify([group,raw]),set=pendingGroups.get(key)||new Set<string>();if(pendingIds.has(m.id))set.add(m.id);pendingGroups.set(key,set);}
  const rank=(key:string)=>isWbsGroup(group)?wbsGroupDisplay(tree,JSON.parse(key)[1]).rank:0;
  const rows=[...groups.values()].sort((a,b)=>rank(a.record.key)-rank(b.record.key)).map(g=>{const pending=pendingGroups.get(g.record.key)?.size||0,total=groupMissing.get(g.record.key)?null:fixedDecimal(g.minor,g.record.decimals);return {...g.record,missing:groupMissing.get(g.record.key)||0,subtotal:fixedDecimal(g.minor,g.record.decimals),total,completeTotal:pending?null:total,pendingQuantities:pending};});
  const currencies=new Map<string,{currency:string|null;decimals:number;minor:bigint;priced:number;missing:number}>();

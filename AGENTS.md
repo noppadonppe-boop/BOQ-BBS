@@ -161,6 +161,13 @@
   `mapLocByCode()`), `copyMember` checks links against the target tree. Tests: `tmp/wbsCopy.test.ts`, `tmp/locations.test.ts`, `tmp/locationsPage.test.tsx`, `tmp/wbsMigration.test.tsx`,
   `tmp/wbsPicker.test.tsx`, `tmp/wbsReport.test.tsx`, `tmp/wbsRename.test.ts`, `tmp/wbsImport.test.ts`, `tmp/wbsIfc.test.ts`
   (real web-ifc in Node: mock `web-ifc/web-ifc.wasm?url` to `web-ifc-node.wasm`).
+- Disciplines (หมวดงาน, phase 1): `src/domain/disciplines.ts` (RC / Steel / Civil / Arch; a member's discipline follows its
+  category via `disciplineOf()`, so no data migration; Steel / Civil / Arch have no categories yet, `planned` lists them).
+  Project switch `project.disciplines` (default RC; saved by `saveProject`; disciplines with members always shown,
+  `projectDisciplines()`). Sidebar group “ข้อมูลองค์อาคาร” = `DisciplineNav` (header opens the discipline page
+  `disc-<id>` and folds its categories), page `DisciplinePage`, Settings `DisciplineSettings` (`components/Disciplines.tsx`).
+  RC categories now include `Stair` / `Lift` (free-form like `Custom`: `freeFormCategory()` → shape tab, prisms, rebar sketch;
+  concrete mix of slabs / walls). Report group `Discipline`. Test: `tmp/disciplines.test.tsx`.
 - Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
 - Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
   add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).

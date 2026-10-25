@@ -4,6 +4,7 @@ import type {Member,SnapshotBundle,ReportGroup} from './model';
 import {canonical} from './canonical';
 import {reportCategory} from './reportCategory';
 import {occurrenceGroup} from './locations';
+import {disciplineOf} from './disciplines';
 export const quantityComponents=['count','concrete','formwork','excavation','backfill','lean','rebar'] as const;
 export type QuantityComponent=typeof quantityComponents[number];
 export const quantityComponentLabels:Record<QuantityComponent,string>={count:'จำนวนองค์ประกอบ',concrete:'คอนกรีต',formwork:'แบบหล่อ',excavation:'ขุดดิน',backfill:'ดินถมกลับ',lean:'Lean concrete / ชั้นรองพื้น / รายการเพิ่ม',rebar:'ปริมาณเหล็ก BBS ที่กรอก'};
@@ -56,7 +57,7 @@ export const quantityBasisEnglish=(m:Member)=>m.quantityBasis?.version===2&&quan
 export function quantityBasisCoverage(b:Pick<SnapshotBundle,'members'>,group:ReportGroup='Member'){
  const ready=new Map(b.members.map(m=>[m,quantityComponentReadiness(m)])),pending=b.members.filter(m=>!ready.get(m)!.every(Boolean)),groups=new Map<string,Set<string>>(),componentGroups=new Map<string,Set<string>[]>();
  for(const m of b.members)for(const o of m.occurrences){
-  const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):occurrenceGroup(group,o),key=JSON.stringify([group,raw]),set=groups.get(key)||new Set<string>(),sets=componentGroups.get(key)||quantityComponents.map(()=>new Set<string>());
+  const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Discipline'?disciplineOf(m.category):occurrenceGroup(group,o),key=JSON.stringify([group,raw]),set=groups.get(key)||new Set<string>(),sets=componentGroups.get(key)||quantityComponents.map(()=>new Set<string>());
   if(!ready.get(m)!.every(Boolean))set.add(m.id);ready.get(m)!.forEach((value,i)=>{if(!value)sets[i].add(m.id);});groups.set(key,set);componentGroups.set(key,sets);
  }
  return {complete:!pending.length,pending,groupPending:new Map([...groups].map(([key,set])=>[key,set.size])),componentPending:quantityComponents.map((_,i)=>b.members.filter(m=>!ready.get(m)![i]).length),groupComponentPending:new Map([...componentGroups].map(([key,sets])=>[key,sets.map(set=>set.size)])),legacy:b.members.filter(m=>m.quantityBasis===undefined)};

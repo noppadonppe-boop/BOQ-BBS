@@ -52,6 +52,22 @@ const profiles:Record<Category,ElementDefaultProfile>={
     quantityBasis:'ความยาว × ความหนา × ความสูง',
     notes:['ความหนาเริ่มต้น 200 mm','ตรวจ boundary element / opening / joint จากแบบ']
   },
+  Stair:{
+    category:'Stair',dimensions:[4000,1200,1800],cover:20,
+    faces:[false,false,true,true,true,false],
+    description:'บันไดคอนกรีตเสริมเหล็ก (ท้องบันได + ชานพัก)',
+    reinforcement:'เหล็กหลักตามแนวลาดท้องบันได เหล็กกระจาย และเหล็กชานพักตามแบบ',
+    quantityBasis:'รูปทรงจากเครื่องมือรูปทรง / Prism (ท้องบันไดเอียง + ขั้นบันได)',
+    notes:['X = ความยาวราบ, Y = ความกว้างบันได, Z = ความสูงที่ขึ้น','จำลองรูปทรงด้วยแท็บ “รูปทรง” หรือ Prism แล้ววาดเหล็กบนรูปตัด']
+  },
+  Lift:{
+    category:'Lift',dimensions:[2400,2400,3500],cover:40,
+    faces:[true,true,true,true,false,false],
+    description:'ผนังปล่องลิฟต์ / Core wall และบ่อลิฟต์ (Pit)',
+    reinforcement:'เหล็กแนวตั้งและแนวนอนสองผิว มุมผนัง และพื้นบ่อลิฟต์ตามแบบ',
+    quantityBasis:'รูปทรงจากเครื่องมือรูปทรง (ผนังรอบ + ช่องว่างภายใน + พื้นบ่อ)',
+    notes:['X × Y = ขนาดปล่องภายนอก, Z = ความสูงต่อช่วงเท','ใช้รูปทรงแบบ solid + void สำหรับช่องลิฟต์']
+  },
   Custom:{
     category:'Custom',dimensions:[1000,1000,1000],cover:40,
     faces:[true,true,true,true,true,true],

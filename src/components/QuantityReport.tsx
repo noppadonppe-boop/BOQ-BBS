@@ -11,7 +11,7 @@ import {pileReport} from '../domain/pileReport';
 import {siteWorkReport} from '../domain/siteWorkReport';
 import {number} from './EditorControls';
 import {revisionLabel,statusLabel} from '../domain/memberReview';
-export const groupNames:Record<ReportGroup,string>={Member:'สมาชิก',Category:'ประเภท',Zone:'Zone',Floor:'ชั้น',Building:'อาคาร (WBS)',Level:'อาคาร · ชั้น (WBS)',WBS:'อาคาร · ชั้น · โซน (WBS)',Summary:'สรุปทั้งหมด'};
+export const groupNames:Record<ReportGroup,string>={Member:'สมาชิก',Discipline:'หมวดงาน',Category:'ประเภท',Zone:'Zone',Floor:'ชั้น',Building:'อาคาร (WBS)',Level:'อาคาร · ชั้น (WBS)',WBS:'อาคาร · ชั้น · โซน (WBS)',Summary:'สรุปทั้งหมด'};
 /** WBS filter: building → level / segment → zone (ids), or rows not linked to WBS. */
 function WbsScope({locations,scope,onChange,field}:{locations:Locations;scope:ExportScope;onChange:(s:ExportScope)=>void;field:(n:string)=>string}){
  const tree=useMemo(()=>locationTree(locations),[locations]),kids=scope.building?tree.children(scope.building):[];

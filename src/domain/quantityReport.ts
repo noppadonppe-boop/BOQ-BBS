@@ -4,6 +4,7 @@ import type {SnapshotBundle,ReportGroup} from './model';
 import {reinforcementCoverage} from './reinforcementCoverage';
 import {reportCategory} from './reportCategory';
 import {isWbsGroup,locationTree,occurrenceGroup,wbsGroupDisplay} from './locations';
+import {disciplineLabel,disciplineOf,disciplines} from './disciplines';
 import {memberConcrete} from './concreteMixes';
 export const BOQ_READINESS_POLICY='quantity-readiness-2.0';
 export const COMPONENT_BOQ_READINESS_POLICY='quantity-readiness-3.0';
@@ -18,8 +19,8 @@ export function quantityReport(bundle:SnapshotBundle,group:ReportGroup=bundle.sc
   [1,...quantityKeys.map(k=>q[k])].forEach((value,i)=>totals[i]+=value*quantity);
   if(q.concrete>0){const mix=memberConcrete(m);mixes.set(mix,(mixes.get(mix)||0)+q.concrete*quantity);}
   for(const o of m.occurrences){
-   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):occurrenceGroup(group,o),key=group+':'+JSON.stringify(raw),wbs=isWbsGroup(group)?wbsGroupDisplay(tree,raw):undefined;
-   const row=rows.get(key)||{key,label:group==='Member'?m.code:wbs?wbs.label:raw||'ไม่ระบุ',rank:wbs?.rank??0,category:group==='Member'?reportCategory(m):'',unassigned:(group==='Zone'||group==='Floor'||!!wbs)&&!raw,values:Array(7).fill(0)};
+   const raw=group==='Member'?m.id:group==='Category'?reportCategory(m):group==='Discipline'?disciplineOf(m.category):occurrenceGroup(group,o),key=group+':'+JSON.stringify(raw),wbs=isWbsGroup(group)?wbsGroupDisplay(tree,raw):undefined;
+   const row=rows.get(key)||{key,label:group==='Member'?m.code:wbs?wbs.label:group==='Discipline'?disciplineLabel(raw):raw||'ไม่ระบุ',rank:wbs?.rank??(group==='Discipline'?(disciplines as readonly string[]).indexOf(raw):0),category:group==='Member'?reportCategory(m):'',unassigned:(group==='Zone'||group==='Floor'||!!wbs)&&!raw,values:Array(7).fill(0)};
    [1,...quantityKeys.map(k=>q[k])].forEach((value,i)=>row.values[i]+=value*o.quantity);rows.set(key,row);
   }
   for(const b of m.bars){

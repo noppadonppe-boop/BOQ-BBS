@@ -1,3 +1,4 @@
+import {freeFormCategory} from './disciplines';
 import {z} from 'zod';
 import {APP_NAME} from './auth';
 import {barSchema,blankMember,categories,type Category,type Member,type Project} from './model';
@@ -36,7 +37,7 @@ export function templatePayload(m:Member,over:{elementInput?:ElementInput;shapeM
  const {appliedAt:_a,source:_s,...cleanInput}=(input||{}) as ElementInput&{appliedAt?:string;source?:unknown};
  const shape=over.shapeModel??m.shapeModel,bars=(over.bars??m.bars).filter(b=>!isGeneratedBar(b));
  return templatePayloadSchema.parse({description:m.description,cover:over.cover??m.cover,...(input?{elementInput:{...cleanInput,mode:'manual'}}:{}),
-  ...(m.category==='Custom'&&shape?{shapeModel:{...structuredClone(shape),confirmed:false}}:{}),...(m.category==='Custom'&&(over.boqCategory??m.boqCategory)?{boqCategory:over.boqCategory??m.boqCategory}:{}),
+  ...(freeFormCategory(m.category)&&shape?{shapeModel:{...structuredClone(shape),confirmed:false}}:{}),...(m.category==='Custom'&&(over.boqCategory??m.boqCategory)?{boqCategory:over.boqCategory??m.boqCategory}:{}),
   siteItems:over.siteItems??m.siteWork?.items??[],bars:bars.map(b=>({...b,placementConfirmed:false}))});
 }
 /** Summary line of a template for pickers. */
@@ -60,6 +61,6 @@ export function memberFromTemplate(t:ElementTemplate,code:string,project:Project
  if(parsed?.success&&parsed.data.category===category){
   const input={...parsed.data,detailing:detailingFromSpec(project.spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})} as ElementInput;
   m=applyElementInput(m,input,{rounding:project.spec.rounding}).member;
- }else if(p.shapeModel&&category==='Custom')m={...applyShapeModel(m,p.shapeModel),cover:p.cover};
+ }else if(p.shapeModel&&freeFormCategory(category))m={...applyShapeModel(m,p.shapeModel),cover:p.cover};
  return m;
 }

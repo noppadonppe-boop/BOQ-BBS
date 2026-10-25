@@ -2,6 +2,7 @@ import type {Member,ReportGroup,SnapshotBundle} from './model';
 import {elementInputSchema,pileQuantities,pileTypeLabels,type FoundationInput} from './elementInput';
 import {reportCategory} from './reportCategory';
 import {isWbsGroup,locationTree,occurrenceGroup,wbsGroupDisplay} from './locations';
+import {disciplineLabel,disciplineOf,disciplines} from './disciplines';
 
 /** Structured pile-cap input of a member, if any (stored input is migrated on read). */
 export function pileInput(m:Member):FoundationInput|undefined{
@@ -18,8 +19,8 @@ export function pileReport(bundle:SnapshotBundle,group:ReportGroup=bundle.scope?
   const q=pileQuantities(input);if(!q.count)continue;
   const pile=`${pileTypeLabels[q.type]} ${q.size} mm × ${q.lengthEach} m`;
   for(const o of m.occurrences){
-   const raw=group==='Member'?m.code:group==='Category'?reportCategory(m):occurrenceGroup(group,o),key=`${raw}|${pile}`;
-   const r=rows.get(key)||{key,label:isWbsGroup(group)?wbsGroupDisplay(tree,raw).label:raw||'ไม่ระบุ',pile,count:0,length:0,cutCount:0,cutLength:0};
+   const raw=group==='Member'?m.code:group==='Category'?reportCategory(m):group==='Discipline'?disciplineOf(m.category):occurrenceGroup(group,o),key=`${raw}|${pile}`;
+   const r=rows.get(key)||{key,label:isWbsGroup(group)?wbsGroupDisplay(tree,raw).label:group==='Discipline'?disciplineLabel(raw):raw||'ไม่ระบุ',pile,count:0,length:0,cutCount:0,cutLength:0};
    r.count+=q.count*o.quantity;r.length+=q.totalLength*o.quantity;r.cutCount+=q.cutCount*o.quantity;r.cutLength+=q.totalCutLength*o.quantity;rows.set(key,r);
   }
  }

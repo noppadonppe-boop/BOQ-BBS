@@ -6,6 +6,7 @@ import {userDocPath} from '../../domain/auth';
 import {projectProfileRoles,profileMaster} from '../../domain/authAccess';
 import {drawingProfileSchema} from '../../domain/drawingStandard';
 import {parseLocations} from '../../domain/locations';
+import {disciplines} from '../../domain/disciplines';
 import {digestData} from '../snapshots';
 import {actor,directory,directoryRef,profileOperationRef,projectRef,projectTransaction,encode,must,now} from './common';
 
@@ -30,7 +31,7 @@ export async function createDirectProject(data:Record<string,any>,id:string){
  });
 }
 export async function saveDirectProject(pid:string,data:Record<string,any>,id:string){
- const parsed=input.extend({titleBlock,drawingProfile:drawingProfileSchema.nullable().optional()}).parse(data.project);
+ const parsed=input.extend({titleBlock,drawingProfile:drawingProfileSchema.nullable().optional(),disciplines:z.array(z.enum(disciplines)).min(1).max(disciplines.length).optional()}).parse(data.project);
  if(parsed.logo)must(parsed.logo.path.startsWith(`projects/${pid}/`),'ไฟล์โลโก้ไม่ตรงโครงการ','invalid-argument');
  return projectTransaction('saveProject',pid,data,id,['admin'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({...parsed,logo:parsed.logo||null,version:p.version+1}));return {version:p.version+1};});
 }

@@ -3,7 +3,7 @@ import {categories} from './model';
 import type {ExportScope,Member,SnapshotBundle} from './model';
 import {reportCategory} from './reportCategory';
 
-export const reportGroups=['Member','Category','Zone','Floor','Building','Level','WBS','Summary'] as const;
+export const reportGroups=['Member','Discipline','Category','Zone','Floor','Building','Level','WBS','Summary'] as const;
 const optionalText=(max:number)=>z.preprocess(v=>v===''?undefined:v,z.string().max(max).optional());
 const optionalId=optionalText(80).refine(v=>!v||/^[a-zA-Z0-9_-]+$/.test(v),'WBS id ไม่ถูกต้อง');
 export const exportScopeSchema=z.object({

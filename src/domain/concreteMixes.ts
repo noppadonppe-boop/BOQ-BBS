@@ -39,7 +39,9 @@ export const kscToMpa=(v:number)=>v*KSC_TO_MPA;
 export function concreteMixFor(c:ConcreteSpec|undefined,category?:string,mix?:string):ConcreteMix|undefined{
  if(!c)return;
  if(mix){const own=c.mixes.find(m=>m.id===mix);if(own)return own;}
- const use=category?c.uses.find(u=>(u.categories as string[]).includes(category)):undefined;
+ // stairs are cast with the slabs, lift cores with the walls
+ const as=category==='Stair'?'Slab':category==='Lift'?'Wall':category;
+ const use=as?c.uses.find(u=>(u.categories as string[]).includes(as)):undefined;
  return use&&c.mixes.find(m=>m.id===use.mix);
 }
 /** Lap-table concrete (MPa key) for a strength in ksc: the nearest table within 3 % (350 ksc → 35, 450 → 45),
