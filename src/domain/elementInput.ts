@@ -1097,19 +1097,33 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const ext=slabOn&&!up&&!own&&!area?c.side+sideIn+d/2+i.slab.extend:0;
   const room=own?own.room:up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
   const sh=shapedEnds(l,det,up?1:-1,room,note,warn);
-  const segs:{a:number;b:number;at:number}[]=[];
-  for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at));let iv=lineIntervals(inner,runX?0:1,pos);if(area?.minus){const cut=area.minus,at=(v:number)=>rectSpan(cut,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.only){const only=area.only,at=(v:number)=>rectSpan(only,runX,v).map(([p,q])=>[p+covA,q-covA] as [number,number]);iv=within(within(within(iv,at(pos)),at(pos-covA+.5)),at(pos+covA-.5));}for(const [a,b] of iv)if(b-a+2*ext>sh.minRun&&(!area?.only||b-a>=Math.max(300,20*d)))segs.push({a:a-ext,b:b+ext,at});}
+  // steps in the top (lowered areas): bars of a lowered area run on into the higher concrete by the lap length; bars of the
+  // footing top turn down at the step face past the lower top bars (12d below them)
+  const L=lapLength(det,d),floorZ=c.bottom+r.bottomX.diameter+r.bottomY.diameter,steps=!up&&!!area&&i.shape==='rect'&&cuts.length>0;
+  const segs:{a:number;b:number;at:number;la:number;lb:number}[]=[];let into=false;
+  for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at)),full=lineIntervals(inner,runX?0:1,pos);let iv=full;if(area?.minus){const cut=area.minus,at=(v:number)=>rectSpan(cut,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.only){const only=area.only,at=(v:number)=>rectSpan(only,runX,v).map(([p,q])=>[p+covA,q-covA] as [number,number]);iv=within(within(within(iv,at(pos)),at(pos-covA+.5)),at(pos+covA-.5));}
+   const topAt=(u:number)=>footingTopAt(i,runX?u:pos,runX?pos:u),leg=(t:number)=>Math.max(0,Math.min(z-(t-c.top-d/2)+12*d,z-floorZ-d));
+   for(let [a,b] of iv){let la=0,lb=0;
+    if(steps){const [A,B]=full.find(([p,q])=>p<=(a+b)/2&&(a+b)/2<=q)||[a,b];
+     const end=(e:number,dir:-1|1,lim:number):[number,number]=>{if(Math.abs(e-lim)<=1)return [e,0];const t=topAt(e+dir*(covA+5)),own=topAt(e);
+      if(area?.only?.every(q=>cuts.includes(q))&&t>own+1){into=true;return [dir<0?Math.max(lim,e-L):Math.min(lim,e+L),0];}
+      if(area?.minus&&sh.code==='00'&&t<own-1)return [e,leg(t)];return [e,0];};
+     [a,la]=end(a,-1,A);[b,lb]=end(b,1,B);}
+    if(b-a+2*ext>sh.minRun&&(!area?.only||b-a>=Math.max(300,20*d)))segs.push({a:a-ext,b:b+ext,at,la:Math.round(la),lb:Math.round(lb)});}}
   if(ext)note+=` · ยื่นเข้าพื้น ${Math.round(i.slab.extend)} mm`;
+  if(into)note+=` · ยื่นเลยขั้นเข้าส่วนที่สูงกว่า ${Math.round(L)} mm`;
   if(!segs.length){warn(`${note}: วางเหล็กไม่ได้ (ช่วงสั้นกว่ารูป Shape ${sh.code})`);return;}
   const pt=(along:number,at:number,zz:number):V3=>runX?[along,at,zz]:[at,along,zz];
-  const shape=(sg:{a:number;b:number;at:number}):V3[]=>sh.points(sg.a,sg.b,z).map(([u,w])=>pt(u,sg.at,w));
+  const shape=(sg:{a:number;b:number;at:number;la:number;lb:number}):V3[]=>sg.la||sg.lb?[...(sg.la?[pt(sg.a,sg.at,z-sg.la)]:[]),pt(sg.a,sg.at,z),pt(sg.b,sg.at,z),...(sg.lb?[pt(sg.b,sg.at,z-sg.lb)]:[])]:sh.points(sg.a,sg.b,z).map(([u,w])=>pt(u,sg.at,w));
   const base={diameter:d,grade:g,axis:(runX?'X':'Y') as Bar['axis'],face:(up?'bottom':'top') as Bar['face'],radius:sh.radius,shapeCode:sh.code},hookNote=sh.suffix;
-  const uniform=segs.every(sg=>Math.abs(sg.a-segs[0].a)<.5&&Math.abs(sg.b-segs[0].b)<.5)&&new Set(segs.map(sg=>sg.at)).size===segs.length;
-  if(uniform){out.push({...base,role,note:note+hookNote,count:segs.length,points:shape(segs[0]),distributionAxis:runX?'Y':'X',from:segs[0].at,to:segs.at(-1)!.at});return;}
-  const groups=new Map<number,typeof segs>();for(const sg of segs){const key=Math.round(sg.b-sg.a);groups.set(key,[...(groups.get(key)||[]),sg]);}
-  [...groups.entries()].sort((x,y)=>y[0]-x[0]).forEach(([len,list],k)=>{
+  const legged=(sg:{la:number;lb:number})=>sg.la||sg.lb?{radius:radius(d,det),shapeCode:sg.la&&sg.lb?'21':'11'}:{};
+  const stepNote=(sg:{la:number;lb:number})=>sg.la||sg.lb?` · งอลงที่ขั้นระดับ ${Math.max(sg.la,sg.lb)} mm`:'';
+  const uniform=segs.every(sg=>Math.abs(sg.a-segs[0].a)<.5&&Math.abs(sg.b-segs[0].b)<.5&&sg.la===segs[0].la&&sg.lb===segs[0].lb)&&new Set(segs.map(sg=>sg.at)).size===segs.length;
+  if(uniform){out.push({...base,...legged(segs[0]),role,note:note+hookNote+stepNote(segs[0]),count:segs.length,points:shape(segs[0]),distributionAxis:runX?'Y':'X',from:segs[0].at,to:segs.at(-1)!.at});return;}
+  const groups=new Map<string,typeof segs>();for(const sg of segs){const key=`${Math.round(sg.b-sg.a)}|${sg.la}|${sg.lb}`;groups.set(key,[...(groups.get(key)||[]),sg]);}
+  [...groups.entries()].sort((x,y)=>parseInt(y[0])-parseInt(x[0])).forEach(([key,list],k)=>{const len=parseInt(key);
    const first=list[0],off=list.map(sg=>{const du=sg.a-first.a,dv=sg.at-first.at;return (runX?[du,dv,0]:[dv,du,0]) as V3;}),fixed={...first,b:first.a+len};
-   out.push({...base,role:`${role}-${k+1}`,note:`${note} · ช่วง ${len} mm${hookNote}`,count:list.length,points:shape(fixed),offsets:off});
+   out.push({...base,...legged(first),role:`${role}-${k+1}`,note:`${note} · ช่วง ${len} mm${hookNote}${stepNote(first)}`,count:list.length,points:shape(fixed),offsets:off});
   });
  };
  // stirrups that are the bottom bars across their band (HOOP): that layer is not placed, the other one sits inside the links

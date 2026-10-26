@@ -99,7 +99,8 @@
   key `foundationTemplates`. Footing stirrups `rebar.stirrups {width, dir, replacesBottom}` (closed links over a band, role `stirrup`; replacesBottom = HOOP that is the bottom layer across the band).
   Footing extra boxes (rect): `blocks` (raised parts / later-pour blocks over part of the plan) and `cuts` (lowered top areas,
   z1 = thickness) as footing-local boxes → member geometry solids / voids (`boxCells` volume, formwork, pour stages); bars:
-  own top mesh per cut / block group (`mesh(..., area {only|minus})`), loops around plan − cuts above the cut top and around
+  own top mesh per cut / block group (`mesh(..., area {only|minus})`; at a step, cut top bars run on into the higher concrete
+  by the lap length and straight footing top bars turn down at the step face to 12d below the lower bars), loops around plan − cuts above the cut top and around
   each block group, face bars one Mark per top height (`topAt`). Full-depth cuts (z0 = 0, z1 = thickness) are plan openings (`footingOpenings()`; `footingOutline()` = rect − openings, so L-shaped
   mats keep every bar layer / area on the remaining plan). Boxes may carry own top bars `bars {diameter, spacing}`; blocks of equal height
   form one group only when they touch; `footingTopAt()` = concrete top at a plan point (bars, starter / column regions). Piles `pile.layout 'custom'` + `positions` (≤ 300; blocks ≤ 80, member geometry solids ≤ 80).
