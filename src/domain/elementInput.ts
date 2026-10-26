@@ -102,7 +102,10 @@ const footingBoxSchema=z.object({label:z.string().max(40),x0:z.number().finite()
  bars:z.object({diameter:dia,spacing:mm}).strict().optional(),
  /** upstand rib (blocks): `top.count` bars along the rib instead of the top mesh, inverted U links across it (legs down onto
   * the bottom mesh, feet `foot` mm turned outward) */
- rib:z.object({top:z.object({count:z.number().int().min(1).max(10),diameter:dia}).strict(),links:z.object({diameter:dia,spacing:mm,foot:mm}).strict().optional()}).strict().optional()}).strict();
+ rib:z.object({top:z.object({count:z.number().int().min(1).max(10),diameter:dia}).strict(),links:z.object({diameter:dia,spacing:mm,foot:mm}).strict().optional()}).strict().optional(),
+ /** walls: vertical wall bars cast into the footing (both faces, from the bottom mesh up to the concrete top under the
+  * wall + `lap`; 0 = lap length of the lap table) */
+ dowels:z.object({diameter:dia,spacing:mm,lap:mm}).strict().optional()}).strict();
 export type FootingBox=z.infer<typeof footingBoxSchema>;
 export type PileInput=z.infer<typeof pileSchema>;
 export type FootingColumn=z.infer<typeof footingColumnSchema>;
@@ -1152,6 +1155,17 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
      diameter:d,grade:g,count:o.length,axis:runX?'Y':'X',face:'side',radius:rad,shapeCode:'99',points:points.map(p=>[p[0]+o[0][0],p[1]+o[0][1],p[2]] as V3),offsets:o.map(v=>[v[0]-o[0][0],v[1]-o[0][1],0] as V3)}));
    }});
  }
+ // wall bars cast into the footing: both faces along the wall, from the bottom mesh up to the concrete top under the wall + lap
+ (i.shape==='rect'?i.walls||[]:[]).forEach((b,k)=>{const dw=b.dowels;if(!dw)return;
+  const d=dw.diameter,runX=b.x1-b.x0>=b.y1-b.y0,[l0,l1,n0,n1]=runX?[b.x0,b.x1,b.y0,b.y1]:[b.y0,b.y1,b.x0,b.x1],name=b.label||`ผนัง ${k+1}`;
+  const zBot=c.bottom+r.bottomX.diameter+r.bottomY.diameter+d/2,lap=dw.lap||lapLength(det,d),zTop=Math.min(footingTopAt(i,(b.x0+b.x1)/2,(b.y0+b.y1)/2)+lap,b.z1-c.top-d/2);
+  const sp=spread(l0+c.side+d/2,l1-c.side-d/2,dw.spacing),f0=n0+c.side+d/2,f1=n1-c.side-d/2;
+  if(!sp||f1-f0<d||zTop-zBot<=10*d){warn(`เหล็กผนังฝังในฐาน ${name}: วางไม่ได้ ตรวจขนาด / ความสูงผนัง`);return;}
+  const at=Array.from({length:sp.count},(_,j)=>sp.count===1?sp.from:sp.from+(sp.to-sp.from)*j/(sp.count-1)),pt=(along:number,across:number,z:number):V3=>runX?[along,across,z]:[across,along,z];
+  const offs=[f0,f1].flatMap(v=>at.map(t=>{const [u,w]=runX?[t-at[0],v-f0]:[v-f0,t-at[0]];return [u,w,0] as V3;}));
+  out.push({role:`wall${k+1}-dowel`,note:`เหล็กผนังฝังในฐาน ${name} · 2 ผิว Y${d}@${dw.spacing} · จากตะแกรงล่างถึงผิวฐาน + ระยะทาบ ${Math.round(lap)} mm`,diameter:d,grade:g,count:offs.length,
+   points:[pt(at[0],f0,zBot),pt(at[0],f0,zTop)],axis:'Z',face:'side',radius:0,shapeCode:'00',offsets:offs});
+ });
  // ---- construction joints between pour stages (inside the footing thickness): joint mesh and vertical bars through the joint
  const pour=footingPour(i);
  pour.levels.forEach((J,k)=>{

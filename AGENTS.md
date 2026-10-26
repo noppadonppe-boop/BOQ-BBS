@@ -107,7 +107,8 @@
   the bottom mesh (feet outward), straight face bars (r.side) instead of loops; equal ribs share one Mark (roles `rib<k>-top|face|link`).
   Footing `items` (e.g. anchor bolts) → site-work items `gen-item-<k>`.
   Block groups enclosed by concrete at least as high get no loops; block-top bars shorter than max(300, 20d) are left out. `walls` = RC walls on the footing as reference boxes → placement context
-  regions `genwall*` (no quantities; views kind 'wall', outline redrawn over the bars; 3D boxes in `Element3DModal`). Sections lower the
+  regions `genwall*` (no concrete; wall `dowels {diameter, spacing, lap}` = wall bars cast into the footing, both faces from the
+  bottom mesh to `footingTopAt()` + lap (0 = lap table), role `wall<k>-dowel`; views kind 'wall', outline redrawn over the bars; 3D boxes in `Element3DModal`). Sections lower the
   footing top over cuts (`buildView`). UI `FootingBoxes` / `PilePositions` in `ElementInputPanel.tsx`.
   J-078 Phase 1 (F10 / F12) and Phase 2 (F-01 … F-17: stepped mats, tank mats F-10/11, ribbed water-tank bases F-12…17) from MPK01B-IFC-S-PLIE FD Review: `tmp/j078Foundations.test.ts` →
   `tmp/Spec-Project-J-078.json`.
