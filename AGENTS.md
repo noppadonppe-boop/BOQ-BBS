@@ -103,6 +103,9 @@
   each block group, face bars one Mark per top height (`topAt`). Full-depth cuts (z0 = 0, z1 = thickness) are plan openings (`footingOpenings()`; `footingOutline()` = rect − openings, so L-shaped
   mats keep every bar layer / area on the remaining plan). Boxes may carry own top bars `bars {diameter, spacing}`; blocks of equal height
   form one group only when they touch; `footingTopAt()` = concrete top at a plan point (bars, starter / column regions). Piles `pile.layout 'custom'` + `positions` (≤ 300; blocks ≤ 80, member geometry solids ≤ 80).
+  Ribs: block `rib {top {count, diameter}, links {diameter, spacing, foot}}` = n top bars along the rib, inverted U links down onto
+  the bottom mesh (feet outward), straight face bars (r.side) instead of loops; equal ribs share one Mark (roles `rib<k>-top|face|link`).
+  Footing `items` (e.g. anchor bolts) → site-work items `gen-item-<k>`.
   Block groups enclosed by concrete at least as high get no loops; block-top bars shorter than max(300, 20d) are left out. `walls` = RC walls on the footing as reference boxes → placement context
   regions `genwall*` (no quantities; views kind 'wall', outline redrawn over the bars; 3D boxes in `Element3DModal`). Sections lower the
   footing top over cuts (`buildView`). UI `FootingBoxes` / `PilePositions` in `ElementInputPanel.tsx`.

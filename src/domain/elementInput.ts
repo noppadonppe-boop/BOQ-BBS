@@ -99,7 +99,10 @@ const pileSchema=z.object({
 /** Extra box on / cut from a footing (footing-local mm; z from the footing bottom). */
 const footingBoxSchema=z.object({label:z.string().max(40),x0:z.number().finite().min(-100000).max(200000),y0:z.number().finite().min(-100000).max(200000),x1:z.number().finite().min(-100000).max(200000),y1:z.number().finite().min(-100000).max(200000),z0:mm,z1:mm,
  /** top bars of this block / lowered area when they differ from the footing top bars (both directions) */
- bars:z.object({diameter:dia,spacing:mm}).strict().optional()}).strict();
+ bars:z.object({diameter:dia,spacing:mm}).strict().optional(),
+ /** upstand rib (blocks): `top.count` bars along the rib instead of the top mesh, inverted U links across it (legs down onto
+  * the bottom mesh, feet `foot` mm turned outward) */
+ rib:z.object({top:z.object({count:z.number().int().min(1).max(10),diameter:dia}).strict(),links:z.object({diameter:dia,spacing:mm,foot:mm}).strict().optional()}).strict().optional()}).strict();
 export type FootingBox=z.infer<typeof footingBoxSchema>;
 export type PileInput=z.infer<typeof pileSchema>;
 export type FootingColumn=z.infer<typeof footingColumnSchema>;
@@ -196,6 +199,8 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  cuts:z.array(footingBoxSchema).max(20).optional(),
  /** RC walls standing on the footing (z0 = base, z1 = top shown): reference only (wall bars on the wall drawings) */
  walls:z.array(footingBoxSchema).max(30).optional(),
+ /** embedded / extra BOQ items of the footing (e.g. anchor bolts): site-work items `gen-item-<k>`, rebuilt on apply */
+ items:z.array(z.object({label:z.string().trim().min(1).max(120),unit:z.string().trim().min(1).max(12),quantity:z.number().finite().nonnegative().max(1e9),note:z.string().max(200).optional()}).strict()).max(10).optional(),
  /** ref = which face carries the given level: top of footing (`top`) or bottom of footing (`bottom`); the other follows
   * from the thickness. Levels in m, + above / − below the project datum. */
  levels:z.object({enabled:z.boolean(),ground:level,ref:z.enum(['top','bottom']),top:level,bottom:level}).strict(),
@@ -1114,11 +1119,39 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // lowered areas and blocks: a top mesh of their own (bars as the footing top mesh)
  const tops=[...cuts.map((b,k)=>({z:b.z0,floor:0,rects:[b],name:`ส่วนลดระดับ ${b.label||k+1}`,tag:`cut${k+1}`})),
   ...blockGroups.map((gr,k)=>({z:gr.z1,floor:gr.z0,rects:gr.rects,name:gr.rects.map((b,n)=>b.label||`ส่วนเพิ่ม ${n+1}`).filter((v,n,a)=>a.indexOf(v)===n).join(' + '),tag:`blk${k+1}`}))];
- for(const t of tops){const dx=r.topX.enabled?r.topX.diameter:0,room=(zz:number)=>({room:Math.max(0,zz-t.floor-c.bottom)});
+ for(const t of tops){if(t.rects.some(b=>b.rib))continue;const dx=r.topX.enabled?r.topX.diameter:0,room=(zz:number)=>({room:Math.max(0,zz-t.floor-c.bottom)});
   // own bars of the box (first box of a block group) replace size / spacing, shape as the footing top bars
   const own=t.rects.find(b=>b.bars)?.bars,lx=own?{...r.topX,...own}:r.topX,ly=own?{...r.topY,...own}:r.topY,dxo=own?own.diameter:dx;
   if(r.topX.enabled){const zz=t.z-c.top-dxo/2;mesh(`top-x-${t.tag}`,`เหล็กบน ${t.name} · ทิศ X`,lx,true,zz,false,0,room(zz),{only:t.rects});}
   if(r.topY.enabled){const zz=t.z-c.top-dxo-ly.diameter/2;mesh(`top-y-${t.tag}`,`เหล็กบน ${t.name} · ทิศ Y`,ly,false,zz,false,0,room(zz),{only:t.rects});}}
+ // upstand ribs: n top bars along the rib inside inverted U links (legs down onto the bottom mesh, feet turned outward);
+ // ribs of equal size and bars share one Mark (offsets)
+ const ribs=blocks.filter(b=>b.rib);
+ if(ribs.length){const floorZ=c.bottom+r.bottomX.diameter+r.bottomY.diameter,same=new Map<string,FootingBox[]>(),MAX=2000;
+  for(const b of ribs){const key=JSON.stringify([Math.round(b.x1-b.x0),Math.round(b.y1-b.y0),Math.round(b.z0),Math.round(b.z1),b.rib]);same.set(key,[...(same.get(key)||[]),b]);}
+  [...same.values()].forEach((list,k)=>{const b=list[0],rb=b.rib!,runX=b.x1-b.x0>=b.y1-b.y0,du=rb.links?.diameter??0,name=list.length>1?`${list.length} แนว`:b.label||`ครีบ ${k+1}`;
+   const [l0,l1,n0,n1]=runX?[b.x0,b.x1,b.y0,b.y1]:[b.y0,b.y1,b.x0,b.x1],pt=(along:number,across:number,z:number):V3=>runX?[along,across,z]:[across,along,z];
+   const shift=(q:FootingBox,along:number,across:number):V3=>{const [u,v]=runX?[along,across]:[across,along];return [q.x0-b.x0+u,q.y0-b.y0+v,0];};
+   const chunks=<T,>(a:T[])=>Array.from({length:Math.ceil(a.length/MAX)},(_,j)=>a.slice(j*MAX,(j+1)*MAX));
+   const dt=rb.top.diameter,n=rb.top.count,zt=b.z1-c.top-du-dt/2,a0=n0+c.side+du+dt/2,a1=n1-c.side-du-dt/2;
+   if(n>1&&a1-a0<dt*(n-1))warn(`เหล็กบนครีบ ${name}: ${n}Y${dt} ไม่พอที่ในความกว้าง ${Math.round(n1-n0)} mm`);
+   else{const across=n===1?[(n0+n1)/2]:Array.from({length:n},(_,j)=>a0+(a1-a0)*j/(n-1)),offs=list.flatMap(q=>across.map(v=>shift(q,0,v-across[0])));
+    out.push({role:`rib${k+1}-top`,note:`เหล็กบนครีบ ${name} · ${n}Y${dt} ต่อครีบ · ยาวตลอดครีบ`,diameter:dt,grade:g,count:offs.length,points:[pt(l0+c.side+dt/2,across[0],zt),pt(l1-c.side-dt/2,across[0],zt)],axis:runX?'X':'Y',face:'top',radius:0,shapeCode:'00',...(offs.length>1?{offsets:offs}:{})});}
+   // face bars (r.side) along both faces inside the links, from above the rib foot up to under the top bars
+   if(r.side.enabled){const dl=r.side.diameter,sz=spread(b.z0+50+dl/2,zt-dt/2-dl/2-25,r.side.spacing),f0=n0+c.side+du+dl/2,f1=n1-c.side-du-dl/2;
+    if(!sz||f1-f0<dl)warn(`เหล็กข้างครีบ ${name}: วางไม่ได้`);
+    else{const zs=Array.from({length:sz.count},(_,j)=>sz.count===1?sz.from:sz.from+(sz.to-sz.from)*j/(sz.count-1)),offs=list.flatMap(q=>[f0,f1].flatMap(v=>zs.map(z=>{const o=shift(q,0,v-f0);return [o[0],o[1],z-zs[0]] as V3;})));
+     out.push({role:`rib${k+1}-face`,note:`เหล็กข้างครีบ ${name} · 2 ข้าง × ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm ต่อครีบ`,diameter:dl,grade:g,count:offs.length,points:[pt(l0+c.side+dl/2,f0,zs[0]),pt(l1-c.side-dl/2,f0,zs[0])],axis:runX?'X':'Y',face:'side',radius:0,shapeCode:'00',offsets:offs});}}
+   if(rb.links){const d=du,rad=radius(d,det),zTop=b.z1-c.top-d/2,zBot=floorZ+d/2,f=rb.links.foot,u0=n0+c.side+d/2,u1=n1-c.side-d/2;
+    const sp=spread(l0+c.side+d/2+50,l1-c.side-d/2-50,rb.links.spacing);
+    if(!sp||u1-u0<=2*rad||zTop-zBot<=4*d){warn(`เหล็กตั้งรูปตัว U ครีบ ${name}: วางไม่ได้ ตรวจขนาดครีบ`);return;}
+    if(f>0&&(u0-f<c.side||u1+f>(runX?Y:X)-c.side))warn(`เหล็กตั้งรูปตัว U ครีบ ${name}: ขางอ ${f} mm ยื่นเกินผิวฐาน`);
+    const at=Array.from({length:sp.count},(_,j)=>sp.count===1?sp.from:sp.from+(sp.to-sp.from)*j/(sp.count-1)),offs=list.flatMap(q=>at.map(t=>shift(q,t-at[0],0)));
+    const points=[...(f>0?[pt(at[0],u0-f,zBot)]:[]),pt(at[0],u0,zBot),pt(at[0],u0,zTop),pt(at[0],u1,zTop),pt(at[0],u1,zBot),...(f>0?[pt(at[0],u1+f,zBot)]:[])];
+    chunks(offs).forEach((o,j,all)=>out.push({role:`rib${k+1}-link${all.length>1?`-${j+1}`:''}`,note:`เหล็กตั้งรูปตัว U ครีบ ${name} @ ${rb.links!.spacing} mm (${sp.count} ตัวต่อครีบ) · ขาลงถึงตะแกรงล่าง${f>0?` งอออก ${Math.round(f)} mm`:''}`,
+     diameter:d,grade:g,count:o.length,axis:runX?'Y':'X',face:'side',radius:rad,shapeCode:'99',points:points.map(p=>[p[0]+o[0][0],p[1]+o[0][1],p[2]] as V3),offsets:o.map(v=>[v[0]-o[0][0],v[1]-o[0][1],0] as V3)}));
+   }});
+ }
  // ---- construction joints between pour stages (inside the footing thickness): joint mesh and vertical bars through the joint
  const pour=footingPour(i);
  pour.levels.forEach((J,k)=>{
@@ -1191,7 +1224,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    const enclosed=(gr:{z1:number;rects:FootingBox[]})=>{const ol=outlineOf(gr.rects),ccw=signedArea(ol)>0;
     return ol.every((a,k)=>{const b=ol[(k+1)%ol.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<1)return true;const u=[(b[0]-a[0])/len,(b[1]-a[1])/len],n=ccw?[u[1],-u[0]]:[-u[1],u[0]];
      for(let t=Math.min(100,len/2);t<len;t+=200){const x=a[0]+u[0]*t+n[0]*50,y=a[1]+u[1]*t+n[1]*50;if(x<0||y<0||x>X||y>Y||footingTopAt(i,x,y)<gr.z1-1)return false;}return true;});};
-   blockGroups.forEach((gr,k)=>{if(enclosed(gr))return;const rg=inset(outlineOf(gr.rects),c.side+sideIn+dl/2),sz=spread(gr.z0+50+dl/2,gr.z1-c.top-topStack-dl/2,r.side.spacing);
+   // (ribs: straight face bars instead, see above)
+   blockGroups.forEach((gr,k)=>{if(enclosed(gr)||gr.rects.some(b=>b.rib))return;const rg=inset(outlineOf(gr.rects),c.side+sideIn+dl/2),sz=spread(gr.z0+50+dl/2,gr.z1-c.top-topStack-dl/2,r.side.spacing);
     if(rg.length<3||!sz){warn(`เหล็กรอบข้าง (LOOPS) ส่วนเพิ่ม ${k+1}: ความสูงไม่พอ`);return;}
     out.push({role:`side-loop-blk${k+1}`,note:`เหล็กรอบข้าง (LOOPS) ${gr.rects.map(b=>b.label).filter(Boolean).join(' + ')||`ส่วนเพิ่ม ${k+1}`} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(rg,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});});
   }
@@ -1858,7 +1892,8 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    // generated BOQ items: one coupler per starter / pedestal main bar with a coupler top end (rebuilt on every apply)
    const cpl=new Map<number,number>();
    for(const c of cols)if(c.type!=='none'&&c.splice?.type==='coupler')for(const b of columnBarPositions(c,c.cover+(c.type==='pedestal'?c.tie.diameter:0)))cpl.set(b.d,(cpl.get(b.d)||0)+1);
-   const siteItems=[...(m.siteWork?.items||[]).filter(it=>!it.id.startsWith('gen-')),...[...cpl].sort((p,q)=>q[0]-p[0]).map(([d,n])=>({id:`gen-coupler-${d}`,label:`ข้อต่อเหล็กแบบกลไก (Coupler) ${d<=9?'RB':'DB'}${d}`,unit:'ตัว',quantity:n}))];
+   const siteItems=[...(m.siteWork?.items||[]).filter(it=>!it.id.startsWith('gen-')),...[...cpl].sort((p,q)=>q[0]-p[0]).map(([d,n])=>({id:`gen-coupler-${d}`,label:`ข้อต่อเหล็กแบบกลไก (Coupler) ${d<=9?'RB':'DB'}${d}`,unit:'ตัว',quantity:n})),
+    ...(input.items||[]).map((it,k)=>({...it,id:`gen-item-${k+1}`}))];
    next=withSiteWork(next,{...(m.siteWork||emptySiteWork()),items:siteItems,sand:{x:earth.sand>0?earth.sx:0,y:earth.sand>0?earth.sy:0,thickness:earth.sand},sheet:{x:earth.sheet[0],y:earth.sheet[1]},compaction:input.subbase.compaction.enabled&&depth>0?{x:bx,y:by}:{x:0,y:0}});
    // pour stages: levels between stages (quantities per stage from the geometry, see pourStageQuantities)
    {const pr=footingPour(input),{pourStages:_p,...r2}=next;next=pr.levels.length&&pr.stages.every(s=>s.height>0)?{...r2,pourStages:{levels:pr.levels}}:r2 as Member;}

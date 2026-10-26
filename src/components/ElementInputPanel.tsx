@@ -148,6 +148,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      <Field label="ความยาวเสาเข็ม (m)" type="number" value={input.pile.length} onChange={v=>set('pile.length',Math.max(0,Number(v)||0))} disabled={readOnly}/>{num('ระยะตัดหัวเข็ม ต่อต้น','pile.cutoff')}{num('ระยะฝังหัวเข็มในฐาน','pile.embed')}{num('ระยะเยื้องกลุ่มเข็ม X (จากกึ่งกลางฐาน)','pile.offsetX')}{num('ระยะเยื้องกลุ่มเข็ม Y (จากกึ่งกลางฐาน)','pile.offsetY')}</div>
     <p className="muted">{pileSummary(input)}</p></>}
    {input.shape==='rect'&&<FootingBoxes input={input} readOnly={readOnly} onChange={(key,v)=>setInput(prev=>prev?.category!=='Foundation'?prev:v.length?{...prev,[key]:v}:(()=>{const {[key]:_,...rest}=prev;return rest as typeof prev;})())}/>}
+   <FootingItems value={input.items||[]} readOnly={readOnly} onChange={v=>setInput(prev=>prev?.category!=='Foundation'?prev:v.length?{...prev,items:v}:(()=>{const {items:_,...rest}=prev;return rest as typeof prev;})())}/>
    <h4>งานดินและชั้นรองพื้น</h4>{(()=>{const earth=footingEarth(input),q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string,neg=false)=><NumInput aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
     return <div className="earthwork-input"><div>
      {check('กำหนดระดับอ้างอิง (คำนวณความลึกขุดให้)','levels.enabled')}
@@ -413,15 +414,32 @@ function PilePositions({value,readOnly,onChange}:{value:[number,number][];readOn
 }
 /** Raised blocks (e.g. the second pour over part of the plan) and lowered top areas of a rect footing, as boxes in
  * footing-local mm (x/y from the plan corner, z from the footing bottom). */
+/** Embedded / extra BOQ items of a footing (e.g. anchor bolts): site-work items rebuilt on apply. */
+function FootingItems({value,readOnly,onChange}:{value:NonNullable<FoundationInput['items']>;readOnly:boolean;onChange:(v:NonNullable<FoundationInput['items']>)=>void}){
+ const put=(k:number,patch:Partial<NonNullable<FoundationInput['items']>[number]>)=>onChange(value.map((it,n)=>n===k?{...it,...patch}:it));
+ return <div className="footing-boxes"><b>รายการฝังในฐาน / รายการ BOQ เพิ่ม</b> <small className="muted">เช่น Anchor bolt · คิดเป็นรายการงานในฐานนี้ (สร้างใหม่ทุกครั้งที่กดใช้ข้อมูล)</small>
+  {value.length>0&&<div className="table-scroll"><table><thead><tr><th>รายการ</th><th>จำนวน</th><th>หน่วย</th><th/></tr></thead>
+   <tbody>{value.map((it,k)=><tr key={k}><td><input aria-label="รายการ" maxLength={120} style={{minWidth:280}} disabled={readOnly} value={it.label} onChange={e=>put(k,{label:e.target.value})}/></td>
+    <td><NumInput aria-label="จำนวน" type="number" step="any" style={{width:70}} disabled={readOnly} value={it.quantity} onChange={e=>put(k,{quantity:Math.max(0,Number(e.target.value)||0)})}/></td>
+    <td><input aria-label="หน่วย" maxLength={12} style={{width:60}} disabled={readOnly} value={it.unit} onChange={e=>put(k,{unit:e.target.value})}/></td>
+    <td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(value.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
+  <button type="button" disabled={readOnly||value.length>=10} onClick={()=>onChange([...value,{label:'Anchor bolt',unit:'ชุด',quantity:1}])}>+ เพิ่ม</button></div>;
+}
 function FootingBoxes({input,readOnly,onChange}:{input:FoundationInput;readOnly:boolean;onChange:(key:'blocks'|'cuts'|'walls',v:FootingBox[])=>void}){
  const T=input.thickness,table=(key:'blocks'|'cuts'|'walls',title:string,hint:string,blank:FootingBox)=>{const list=input[key]||[];
   // no undefined fields (Firestore): a cleared value removes the key
   const put=(k:number,patch:Partial<FootingBox>)=>onChange(key,list.map((b,n)=>n===k?Object.fromEntries(Object.entries({...b,...patch}).filter(([,v])=>v!==undefined)) as FootingBox:b));
   const cell=(k:number,f:keyof FootingBox)=>f==='label'?<input aria-label={f} maxLength={40} disabled={readOnly} value={list[k].label} onChange={e=>put(k,{label:e.target.value})}/>:<NumInput aria-label={f} type="number" step="any" style={{width:76}} disabled={readOnly} value={list[k][f] as number} onChange={e=>put(k,{[f]:Number(e.target.value)||0})}/>;
   return <div className="footing-boxes"><b>{title}</b> <small className="muted">{hint}</small>
-   {list.length>0&&<div className="table-scroll"><table><thead><tr><th>ชื่อ</th><th>x0</th><th>y0</th><th>x1</th><th>y1</th><th>z0</th><th>z1</th>{key!=='walls'&&<th title="เหล็กบนของส่วนนี้ (ว่าง = เท่าเหล็กบนของฐาน)">เหล็กบน Ø @</th>}<th/></tr></thead>
+   {list.length>0&&<div className="table-scroll"><table><thead><tr><th>ชื่อ</th><th>x0</th><th>y0</th><th>x1</th><th>y1</th><th>z0</th><th>z1</th>{key!=='walls'&&<th title="เหล็กบนของส่วนนี้ (ว่าง = เท่าเหล็กบนของฐาน)">เหล็กบน Ø @</th>}{key==='blocks'&&<th title="ครีบ (ส่วนเพิ่มแคบ): เหล็กบน n เส้นตามแนวครีบ + เหล็กตั้งรูปตัว U ขาลงถึงตะแกรงล่าง งอออก · ว่าง = ไม่ใช่ครีบ">ครีบ: บน n-Ø · U Ø @ ขา</th>}<th/></tr></thead>
     <tbody>{list.map((b,k)=><tr key={k}>{(['label','x0','y0','x1','y1','z0','z1'] as const).map(f=><td key={f}>{cell(k,f)}</td>)}
-     {key!=='walls'&&<td><span className="bar-cell"><NumInput aria-label="เหล็กบน Ø" type="number" style={{width:52}} placeholder="—" disabled={readOnly} value={b.bars?.diameter??''} onChange={e=>{const d=Number(e.target.value)||0;put(k,{bars:d?{diameter:d,spacing:b.bars?.spacing||200}:undefined});}}/>@<NumInput aria-label="เหล็กบน @" type="number" style={{width:60}} disabled={readOnly||!b.bars} value={b.bars?.spacing??''} onChange={e=>b.bars&&put(k,{bars:{...b.bars,spacing:Number(e.target.value)||b.bars.spacing}})}/></span></td>}<td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(key,list.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
+     {key!=='walls'&&<td><span className="bar-cell"><NumInput aria-label="เหล็กบน Ø" type="number" style={{width:52}} placeholder="—" disabled={readOnly} value={b.bars?.diameter??''} onChange={e=>{const d=Number(e.target.value)||0;put(k,{bars:d?{diameter:d,spacing:b.bars?.spacing||200}:undefined});}}/>@<NumInput aria-label="เหล็กบน @" type="number" style={{width:60}} disabled={readOnly||!b.bars} value={b.bars?.spacing??''} onChange={e=>b.bars&&put(k,{bars:{...b.bars,spacing:Number(e.target.value)||b.bars.spacing}})}/></span></td>}
+     {key==='blocks'&&<td><span className="bar-cell">{(()=>{const rb=b.rib,num=(label:string,v:number|undefined,w:number,set:(n:number)=>void,off=false)=><NumInput aria-label={label} title={label} type="number" style={{width:w}} placeholder="—" disabled={readOnly||off} value={v??''} onChange={e=>set(Number(e.target.value)||0)}/>;
+      return <>{num('ครีบ: จำนวนเหล็กบน',rb?.top.count,40,n=>put(k,{rib:n?{top:{count:Math.min(10,Math.round(n)),diameter:rb?.top.diameter||12},links:rb?rb.links:{diameter:12,spacing:200,foot:100}}:undefined}))}-Y
+       {num('ครีบ: Ø เหล็กบน',rb?.top.diameter,44,d=>rb&&d&&put(k,{rib:{...rb,top:{...rb.top,diameter:d}}}),!rb)} · U
+       {num('ครีบ: Ø เหล็กตัว U (0 = ไม่มี)',rb?.links?.diameter,44,d=>rb&&put(k,{rib:d?{...rb,links:{diameter:d,spacing:rb.links?.spacing||200,foot:rb.links?.foot??100}}:{top:rb.top}}),!rb)}@
+       {num('ครีบ: ระยะเรียงเหล็กตัว U',rb?.links?.spacing,52,v=>rb?.links&&v&&put(k,{rib:{...rb,links:{...rb.links,spacing:v}}}),!rb?.links)}
+       {num('ครีบ: ขางอออกที่ปลายล่าง (mm)',rb?.links?.foot,48,v=>rb?.links&&put(k,{rib:{...rb,links:{...rb.links,foot:v}}}),!rb?.links)}</>;})()}</span></td>}<td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(key,list.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
    <button type="button" disabled={readOnly||list.length>=(key==='blocks'?80:key==='walls'?30:20)} onClick={()=>onChange(key,[...list,blank])}>+ เพิ่ม</button></div>;};
  return <div className="footing-boxes-wrap">
   {table('blocks','ส่วนเพิ่ม (ยกสูง / เทเฉพาะบางส่วน เช่น Stage 2)','กล่องคอนกรีตเพิ่มบนฐาน · มีตะแกรงบน LOOPS และเหล็กแนวตั้งผิวข้างขึ้นถึงผิวบนของส่วนนี้',{label:'',x0:0,y0:0,x1:Math.min(1000,input.width),y1:input.length,z0:T,z1:T+400})}
