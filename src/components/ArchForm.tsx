@@ -1,7 +1,7 @@
 import {useMemo,useState} from 'react';
 import {Plus,Trash2} from 'lucide-react';
 import {labels,type Member,type Project} from '../domain/model';
-import {archInputSchema,finishKindLabels,type ArchInput,type FinishKind,type OpeningInput,type RoofInput,type RoomInput,type RoomOpening,type WallInput} from '../domain/archInputSchema';
+import {archInputSchema,finishKindLabels,type ArchInput,type FinishKind,type FixtureInput,type OpeningInput,type RailingInput,type RoofInput,type RoomInput,type RoomOpening,type WallInput} from '../domain/archInputSchema';
 import {applyArchInput,archItems,defaultArchInput,isArchCategory,openingItems,openingQuantities,roofQuantities,roomProblems,roomQuantities,wallQuantities} from '../domain/archInput';
 import {Field,NumInput,number} from './EditorControls';
 
@@ -16,22 +16,22 @@ export function ArchForm({member,project,readOnly,onApply}:{member:Member;projec
  const preview=useMemo(()=>{if(!check.success)return null;try{const next=applyArchInput(member,input,project.spec);return {next,problems:archItems(member.code,input,project.spec.finishes).problems};}catch(e:any){return {error:String(e?.message||e)};}},[member,input,project.spec]);
  const items=preview&&!('error' in preview)?preview.next.siteWork?.items.filter(i=>i.id.startsWith('arch-'))||[]:[];
  return <section className="civil-form arch-form">
-  <div className="section-heading"><div><h3>งานสถาปัตย์ · {labels[member.category]}</h3><p className="muted">{input.kind==='room'?'ขนาดห้อง + รหัสวัสดุผิวจากคลังวัสดุผิว (General Spec) → ปริมาณพื้น บัว ผนัง ฝ้า หักช่องเปิดให้':input.kind==='wall'?'แนวผนังก่อ: ยาว × สูง − ช่องเปิด · ชนิดผนังจากคลังวัสดุผิว · เสาเอ็น ทับหลัง คานเอ็นคิดให้เป็นความยาว':input.kind==='roof'?'พื้นที่แปลน + มุมลาด → พื้นที่มุงจริง · วัสดุมุงจากคลังวัสดุผิว · ครอบสัน เชิงชาย ปั้นลมเป็นความยาว':'แบบประตู / หน้าต่าง · รหัสสมาชิกคือรหัสแบบ (D1, W1 …) · ตำแหน่งและจำนวนกรอกในตารางตำแหน่ง (ห้อง / ชั้น ใน WBS)'}</p></div></div>
-  <fieldset disabled={readOnly}>{input.kind==='room'?<RoomFields input={input} project={project} onChange={setInput}/>:input.kind==='wall'?<WallFields input={input} project={project} onChange={setInput}/>:input.kind==='roof'?<RoofFields input={input} project={project} onChange={setInput}/>:<OpeningFields input={input} onChange={setInput}/>}</fieldset>
+  <div className="section-heading"><div><h3>งานสถาปัตย์ · {labels[member.category]}</h3><p className="muted">{input.kind==='room'?'ขนาดห้อง + รหัสวัสดุผิวจากคลังวัสดุผิว (General Spec) → ปริมาณพื้น บัว ผนัง ฝ้า หักช่องเปิดให้':input.kind==='wall'?'แนวผนังก่อ: ยาว × สูง − ช่องเปิด · ชนิดผนังจากคลังวัสดุผิว · เสาเอ็น ทับหลัง คานเอ็นคิดให้เป็นความยาว':input.kind==='roof'?'พื้นที่แปลน + มุมลาด → พื้นที่มุงจริง · วัสดุมุงจากคลังวัสดุผิว · ครอบสัน เชิงชาย ปั้นลมเป็นความยาว':input.kind==='railing'?'แนวราว: ความยาว × รายการของชนิดราว (คลังวัสดุผิว → ราว)':input.kind==='fixture'?'สุขภัณฑ์ / ครุภัณฑ์ / ป้าย · รหัสสมาชิกคือรหัสตามแบบ · จำนวนกรอกในตารางตำแหน่ง (ห้องใน WBS)':'แบบประตู / หน้าต่าง · รหัสสมาชิกคือรหัสแบบ (D1, W1 …) · ตำแหน่งและจำนวนกรอกในตารางตำแหน่ง (ห้อง / ชั้น ใน WBS)'}</p></div></div>
+  <fieldset disabled={readOnly}>{input.kind==='room'?<RoomFields input={input} project={project} onChange={setInput}/>:input.kind==='wall'?<WallFields input={input} project={project} onChange={setInput}/>:input.kind==='roof'?<RoofFields input={input} project={project} onChange={setInput}/>:input.kind==='railing'?<RailingFields input={input} project={project} onChange={setInput}/>:input.kind==='fixture'?<FixtureFields input={input} onChange={setInput}/>:<OpeningFields input={input} onChange={setInput}/>}</fieldset>
   {!check.success?<p role="alert" className="notice danger">กรอกตัวเลขให้ถูกต้อง ({check.error.issues[0]?.path.join('.')}: {check.error.issues[0]?.message})</p>
    :preview&&'error' in preview?<p role="alert" className="notice danger">{preview.error}</p>
    :preview&&<>{input.kind==='room'&&<RoomKpis input={input}/>}{input.kind==='wall'&&<Kpis rows={(q=>[['ผนังสุทธิ',`${number(q.net,2)} m²`],['ช่องเปิด',`${number(q.open,2)} m²`],['เสาเอ็น',`${q.stiffeners} ต้น · ${number(q.stiffener,2)} m`],['ทับหลัง',`${number(q.lintel,2)} m`],['คานเอ็น',`${number(q.tie,2)} m`]])(wallQuantities(input))}/>}
     {input.kind==='roof'&&<Kpis rows={(q=>[['พื้นที่แปลน',`${number(q.plan,2)} m²`],['พื้นที่มุง (ตามลาด)',`${number(q.slope,2)} m²`]])(roofQuantities(input))}/>}
     {input.kind==='opening'&&<div className="kpis compact">{[['พื้นที่ช่องเปิด',`${number(openingQuantities(input).area,2)} m²`],['ความยาววงกบ',`${number(openingQuantities(input).perimeter,2)} m`]].map(([k,v])=><div key={k}><small>{k}</small><strong>{v}</strong></div>)}</div>}
     {preview.problems.length>0&&<p className="notice warning">{preview.problems.join(' · ')}</p>}
-    <div className="table-scroll"><table className="civil-layers"><thead><tr><th>รายการ BOQ (ต่อ 1 {input.kind==='room'?'ห้อง':input.kind==='opening'?'ชุด':'แนว / หลัง'})</th><th>หน่วย</th><th className="num">ปริมาณ</th></tr></thead><tbody>{items.map(i=><tr key={i.id}><td>{i.label}</td><td>{i.unit}</td><td className="num">{number(i.quantity,2)}</td></tr>)}{!items.length&&<tr><td colSpan={3} className="muted">ยังไม่เลือกวัสดุผิว</td></tr>}</tbody></table></div></>}
+    <div className="table-scroll"><table className="civil-layers"><thead><tr><th>รายการ BOQ (ต่อ 1 {input.kind==='room'?'ห้อง':input.kind==='opening'||input.kind==='fixture'?'ชุด':'แนว / หลัง'})</th><th>หน่วย</th><th className="num">ปริมาณ</th></tr></thead><tbody>{items.map(i=><tr key={i.id}><td>{i.label}</td><td>{i.unit}</td><td className="num">{number(i.quantity,2)}</td></tr>)}{!items.length&&<tr><td colSpan={3} className="muted">ยังไม่เลือกวัสดุผิว</td></tr>}</tbody></table></div></>}
   <footer className="actions"><button className="primary" disabled={readOnly||!preview||'error' in preview} onClick={()=>preview&&!('error' in preview)&&onApply(preview.next)}>คำนวณปริมาณ</button><span className="muted">รายการ BOQ ที่เพิ่มเองในสมาชิกยังคงอยู่</span></footer>
  </section>;
 }
 const Kpis=({rows}:{rows:string[][]})=><div className="kpis compact">{rows.map(([k,v])=><div key={k}><small>{k}</small><strong>{v}</strong></div>)}</div>;
 function RoomKpis({input}:{input:RoomInput}){
  const q=roomQuantities(input);
- return <div className="kpis compact">{[['พื้น',`${number(q.floor,2)} m²`],['เส้นรอบรูป',`${number(q.perimeter,2)} m`],['บัว',`${number(q.skirting,2)} m`],['ผนัง',`${number(q.wall,2)} m²`],...(input.dado?[['ผนังส่วนล่าง',`${number(q.dado,2)} m²`]]:[]),['ฝ้า',`${number(q.ceiling,2)} m²`],['ช่องเปิด',`${number(q.openArea,2)} m²`]].map(([k,v])=><div key={k}><small>{k}</small><strong>{v}</strong></div>)}</div>;
+ return <div className="kpis compact">{[['พื้น',`${number(q.floor,2)} m²`],['เส้นรอบรูป',`${number(q.perimeter,2)} m`],['บัว',`${number(q.skirting,2)} m`],['ผนัง',`${number(q.wall,2)} m²`],...(input.dado?[['ผนังส่วนล่าง',`${number(q.dado,2)} m²`]]:[]),...(input.waterproof?[['กันซึม',`${number(q.waterproof,2)} m²`]]:[]),['ฝ้า',`${number(q.ceiling,2)} m²`],['ช่องเปิด',`${number(q.openArea,2)} m²`]].map(([k,v])=><div key={k}><small>{k}</small><strong>{v}</strong></div>)}</div>;
 }
 const m2mm=(v:number)=>Number.isFinite(v)?Math.round(v*1000):0;
 function RoomFields({input,project,onChange}:{input:RoomInput;project:Project;onChange:(i:ArchInput)=>void}){
@@ -52,6 +52,8 @@ function RoomFields({input,project,onChange}:{input:RoomInput;project:Project;on
    {pick('floor',input.floor,v=>set({floor:v}),`${finishKindLabels.floor} (F)`)}{pick('skirting',input.skirting,v=>set({skirting:v}),`${finishKindLabels.skirting} (S)`)}
    {pick('wall',input.wall,v=>set({wall:v}),`${finishKindLabels.wall} (W)`)}{pick('ceiling',input.ceiling,v=>set({ceiling:v}),`${finishKindLabels.ceiling} (C)`)}
    <label className="check full"><input type="checkbox" checked={!!input.dado} onChange={e=>set({dado:e.target.checked?{finish:lib.find(f=>f.kind==='wall'&&f.code!==input.wall)?.code||input.wall||'W2',height:1200}:undefined})}/>ผนังส่วนล่างใช้วัสดุอื่น (เช่น บุกระเบื้องถึงความสูง)</label>
+   <label className="check full"><input type="checkbox" checked={!!input.waterproof} onChange={e=>set({waterproof:e.target.checked?{finish:lib.find(f=>f.kind==='waterproof')?.code||'WP1',upturn:300}:undefined})}/>งานกันซึม (พื้น + ยกขอบผนัง)</label>
+   {input.waterproof&&<>{pick('waterproof',input.waterproof.finish,v=>set({waterproof:{...input.waterproof!,finish:v||input.waterproof!.finish}}),'ระบบกันซึม (WP)')}<Field label="ยกขอบกันซึม (mm)" type="number" value={input.waterproof.upturn} onChange={v=>set({waterproof:{...input.waterproof!,upturn:Math.max(0,v||0)}})}/></>}
    {input.dado&&<>{pick('wall',input.dado.finish,v=>set({dado:{...input.dado!,finish:v||input.dado!.finish}}),'ผนังส่วนล่าง')}<Field label="สูงผนังส่วนล่าง (m)" type="number" step="0.01" value={input.dado.height/1000} onChange={v=>set({dado:{...input.dado!,height:m2mm(v)}})}/></>}
   </div>
   <OpeningsTable title="ช่องเปิดในห้อง" hint="(หักผนัง · ประตูหักบัวด้วย · ดึงอัตโนมัติจากตารางประตู-หน้าต่างได้ที่หน้า Architecture)" list={input.openings} onChange={openings=>set({openings})}/></>;
@@ -112,4 +114,24 @@ function RoofFields({input,project,onChange}:{input:RoofInput;project:Project;on
   <Field label="ครอบสัน (m)" type="number" step="0.01" value={input.ridge} onChange={v=>set({ridge:Math.max(0,v||0)})}/>
   <Field label="เชิงชาย (m)" type="number" step="0.01" value={input.eave} onChange={v=>set({eave:Math.max(0,v||0)})}/>
   <Field label="ปั้นลม (m)" type="number" step="0.01" value={input.verge} onChange={v=>set({verge:Math.max(0,v||0)})}/></div>;
+}
+function RailingFields({input,project,onChange}:{input:RailingInput;project:Project;onChange:(i:ArchInput)=>void}){
+ const set=(p:Partial<RailingInput>)=>onChange({...input,...p});
+ return <div className="form-grid">
+  <Field label="ความยาวราว (m)" type="number" step="0.01" value={input.length/1000} onChange={v=>set({length:Math.max(1,m2mm(v))})}/>
+  <Field label="สูง (mm)" type="number" value={input.height} onChange={v=>set({height:Math.max(0,v||0)})}/>
+  <LibraryPick project={project} kind="railing" value={input.type} label={`ชนิด${finishKindLabels.railing} (RL)`} onChange={v=>set({type:v})}/></div>;
+}
+function FixtureFields({input,onChange}:{input:FixtureInput;onChange:(i:ArchInput)=>void}){
+ const set=(p:Partial<FixtureInput>)=>onChange({...input,...p});
+ return <><div className="form-grid">
+  <label className="field full"><span>รายละเอียด (ยี่ห้อ / รุ่น / ขนาด ตามแบบ)</span><input maxLength={200} value={input.description} onChange={e=>set({description:e.target.value})} placeholder="ชักโครกแบบนั่งราบ พร้อมอุปกรณ์"/></label>
+  <label className="field"><span>หน่วย</span><input maxLength={12} value={input.unit} onChange={e=>set({unit:e.target.value||'ชุด'})}/></label></div>
+  <div className="civil-rebar"><b>รายการ BOQ ต่อชุด</b> <small className="muted">(ว่าง = 1 รายการ: รหัส + รายละเอียด)</small>
+   <table className="civil-layers"><thead><tr><th>รายการ</th><th>หน่วย</th><th className="num">ต่อชุด</th><th/></tr></thead><tbody>{input.items.map(it=><tr key={it.id}>
+    <td><input aria-label="รายการ" maxLength={120} value={it.label} onChange={e=>set({items:input.items.map(x=>x.id===it.id?{...x,label:e.target.value}:x)})}/></td>
+    <td><input aria-label="หน่วย" maxLength={12} value={it.unit} onChange={e=>set({items:input.items.map(x=>x.id===it.id?{...x,unit:e.target.value}:x)})}/></td>
+    <td><NumInput aria-label="ต่อชุด" type="number" min={0} step="any" value={it.factor} onChange={e=>set({items:input.items.map(x=>x.id===it.id?{...x,factor:Math.max(0,Number(e.target.value)||0)}:x)})}/></td>
+    <td><button type="button" aria-label="ลบรายการ" onClick={()=>set({items:input.items.filter(x=>x.id!==it.id)})}><Trash2 size={14}/></button></td></tr>)}</tbody></table>
+   <button type="button" disabled={input.items.length>=10} onClick={()=>set({items:[...input.items,{id:newId(),label:input.items.length?'อุปกรณ์ประกอบ':input.description||'รายการ',unit:input.unit,basis:'set',factor:1}]})}><Plus size={14}/>รายการ BOQ</button></div></>;
 }

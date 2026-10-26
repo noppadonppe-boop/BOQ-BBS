@@ -206,6 +206,9 @@
   `เสาเอ็น / ทับหลัง / คานเอ็น ค.ส.ล.` in m) and `Roof` (kind `roof`: plan area / cos pitch, covering = library kind `roof`,
   ridge / eave / verge m). Excel sheet “Walls” (`planWallImport`: openings by door / window type codes). Measures: wall
   area = net, length; roof area = slope.
+  Phase 3c: room `waterproof {finish, upturn}` (library kind `waterproof`: floor + (perimeter − doors) × upturn), `Railing`
+  (kind `railing`: length × library kind `railing` items per m) and `Fixture` (kind `fixture`: description, unit, items per set;
+  placed by WBS like doors; Excel sheet “Fixtures”, `planFixtureImport`). Rooms sheet columns P / Q = waterproof code / upturn (m).
 - Steel Structure (phase 4a): category `SteelAssembly` (member = Tekla-style assembly, `steelCategories` in
   `src/domain/steelInputSchema.ts`, quantity only). `member.steelInput {type, name, parts[mark, profile, grade, count,
   length, main, weight?], bolts, welds, paint}`; profiles parsed from their names by `parseProfile()` (`steelProfiles.ts`:

@@ -1,5 +1,5 @@
 import {blankMember,type Member,type Project} from './model';
-import {finishKindLabels,finishKinds,finishesSchema,type Finish,type FinishKind,type OpeningInput,type RoofInput,type RoomInput,type RoomOpening,type WallInput} from './archInputSchema';
+import {finishKindLabels,finishKinds,finishesSchema,type Finish,type FinishKind,type OpeningInput,type FixtureInput,type RailingInput,type RoofInput,type RoomInput,type RoomOpening,type WallInput} from './archInputSchema';
 import {applyArchInput,openingQuantities,roofQuantities,roomQuantities,wallQuantities} from './archInput';
 import {locationTree,newLocationId,nextOrder,wbsCode,withLoc,type LocationTree,type Locations,type OccurrenceLoc} from './locations';
 import {canonical} from './canonical';
@@ -23,7 +23,7 @@ export function finishesFromRows(rows:FinishRow[]):{finishes:Finish[];problems:s
   if(!f){f={id:key(),code:r.code.trim().slice(0,20),kind,name:(r.name||r.code).trim().slice(0,120),items:[]};by.set(k,f);}
   if(r.item){const factor=r.factor?num(r.factor):1;if(factor===undefined||factor<0){problems.push(`${r.source}: ตัวคูณ “${r.factor}” ไม่ใช่ตัวเลข`);continue;}
    if(f.items.length>=6){problems.push(`${r.source}: ${f.code} มีรายการได้ไม่เกิน 6`);continue;}
-   f.items.push({id:key(),label:r.item.trim().slice(0,120),unit:(r.unit||(kind==='skirting'?'m':'m²')).trim().slice(0,12),factor});}
+   f.items.push({id:key(),label:r.item.trim().slice(0,120),unit:(r.unit||(kind==='skirting'||kind==='railing'?'m':'m²')).trim().slice(0,12),factor});}
  }
  const finishes=[...by.values()],check=finishesSchema.safeParse(finishes);
  if(!check.success)problems.push(...check.error.issues.slice(0,5).map(i=>`${i.path.join('.')}: ${i.message}`));
@@ -48,6 +48,9 @@ export function sampleFinishes():Finish[]{
   f('masonry','WT2','ผนังก่อคอนกรีตมวลเบา 7.5 cm ฉาบ 2 ด้าน',[['ก่อคอนกรีตมวลเบา หนา 7.5 cm','m²',1],['ฉาบปูนสำหรับมวลเบา','m²',2]]),
   f('roof','R1','หลังคากระเบื้องคอนกรีต',[['มุงกระเบื้องคอนกรีต','m²',1],['ฉนวนกันความร้อนใต้หลังคา','m²',1]]),
   f('roof','R2','หลังคาเมทัลชีท 0.47 mm',[['มุงแผ่นเมทัลชีท หนา 0.47 mm','m²',1]]),
+  f('waterproof','WP1','กันซึมชนิดทา (Cementitious) 2 ชั้น',[['กันซึมชนิดทา Cementitious 2 ชั้น','m²',1]]),
+  f('railing','RL1','ราวกันตกสแตนเลส สูง 1.10 m',[['ราวกันตกสแตนเลส สูง 1.10 m','m',1]]),
+  f('railing','RL2','ราวจับบันไดเหล็กกล่อง ทาสี',[['ราวจับบันไดเหล็กกล่อง','m',1],['ทาสีราวเหล็ก','m',1]]),
  ];
 }
 
@@ -62,8 +65,8 @@ export function resolvePath(tree:LocationTree,path:string):OccurrenceLoc|undefin
 const occurrence=(tree:LocationTree,loc:OccurrenceLoc,quantity:number)=>withLoc(tree,{id:crypto.randomUUID(),zone:'',floor:'',grid:'',quantity},loc);
 
 // ---------------------------------------------------------------- room finish schedule
-export type RoomRow={building:string;level:string;room:string;name:string;width:string;length:string;area:string;perimeter:string;height:string;floor:string;skirting:string;wall:string;ceiling:string;dado:string;dadoHeight:string;source:string};
-export const roomHead=['อาคาร','ชั้น','ห้อง (รหัส)','ชื่อห้อง','กว้าง (m)','ยาว (m)','พื้นที่ (m²)','เส้นรอบรูป (m)','สูงฝ้า (m)','พื้น','บัว','ผนัง','ฝ้า','ผนังส่วนล่าง','สูงผนังส่วนล่าง (m)'];
+export type RoomRow={building:string;level:string;room:string;name:string;width:string;length:string;area:string;perimeter:string;height:string;floor:string;skirting:string;wall:string;ceiling:string;dado:string;dadoHeight:string;waterproof?:string;upturn?:string;source:string};
+export const roomHead=['อาคาร','ชั้น','ห้อง (รหัส)','ชื่อห้อง','กว้าง (m)','ยาว (m)','พื้นที่ (m²)','เส้นรอบรูป (m)','สูงฝ้า (m)','พื้น','บัว','ผนัง','ฝ้า','ผนังส่วนล่าง','สูงผนังส่วนล่าง (m)','กันซึม (WP)','ยกขอบกันซึม (m)'];
 export type ImportAction<T>={item:T;action:'add'|'update'|'same';code:string};
 export type RoomImportPlan={locations:Locations;roomsAdded:number;members:ImportAction<Member>[];problems:string[]};
 /** Rows → WBS rooms (added under existing levels) + Room members (code = WBS path, e.g. A-L2-201). */
@@ -79,7 +82,8 @@ export function planRoomImport(project:Project,members:Member[],rows:RoomRow[]):
   const m=(v:string)=>{const n=num(v);return n===undefined?0:Math.round(n*1000);},code=`${root.code}-${level.code}-${room.code}`;
   const old=members.find(x=>x.category==='Room'&&x.code.toUpperCase()===code.toUpperCase()),oldIn=old?.archInput?.kind==='room'?old.archInput:undefined;
   const input:RoomInput={kind:'room',name:(r.name||room.name).slice(0,120),width:m(r.width),length:m(r.length),area:num(r.area)??0,perimeter:num(r.perimeter)??0,height:m(r.height),floor:r.floor.trim(),skirting:r.skirting.trim(),wall:r.wall.trim(),ceiling:r.ceiling.trim(),
-   ...(r.dado.trim()&&m(r.dadoHeight)>0?{dado:{finish:r.dado.trim(),height:m(r.dadoHeight)}}:{}),openings:oldIn?.openings||[]};
+   ...(r.dado.trim()&&m(r.dadoHeight)>0?{dado:{finish:r.dado.trim(),height:m(r.dadoHeight)}}:{}),openings:oldIn?.openings||[],
+   ...(r.waterproof?.trim()?{waterproof:{finish:r.waterproof.trim(),upturn:m(r.upturn||'')}}:{})};
   const base=old||{...blankMember('Room',code),occurrences:[occurrence(tree,{building:root.id,level:level.id,room:room.id},1)]};
   try{const next=applyArchInput({...base,description:input.name},input,project.spec);out.push({item:next,code,action:!old?'add':canonical(old.archInput)===canonical(next.archInput)&&old.description===next.description?'same':'update'});}
   catch(e:any){problems.push(`${r.source}: ${e?.message||e}`);}
@@ -184,4 +188,29 @@ export function wallScheduleRows(members:Member[],tree:LocationTree){
 }
 export function roofScheduleRows(members:Member[],tree:LocationTree){
  return members.filter(m=>m.category==='Roof'&&m.archInput?.kind==='roof').map(m=>{const i=m.archInput as RoofInput;return {m,i,q:roofQuantities(i),count:m.occurrences.reduce((n,o)=>n+o.quantity,0),where:placeText(tree,m)};});
+}
+
+// ---------------------------------------------------------------- railings / fixtures
+export type FixtureRow={code:string;description:string;unit:string;locations:string;quantity:string;source:string};
+export const fixtureHead=['รหัส','รายละเอียด','หน่วย','ตำแหน่ง (WBS × จำนวน คั่นด้วย ;)','จำนวนรวม (ถ้าไม่ระบุตำแหน่ง)'];
+export function planFixtureImport(project:Project,members:Member[],rows:FixtureRow[]):{members:ImportAction<Member>[];problems:string[]}{
+ const tree=locationTree(project.locations),problems:string[]=[],out:ImportAction<Member>[]=[];
+ for(const r of rows){
+  if(!r.code)continue;const code=r.code.trim().slice(0,50),placed=r.locations.trim()?parsePlacements(tree,r.locations):[];
+  if(typeof placed==='string'){problems.push(`${r.source}: ${placed}`);continue;}
+  const old=members.find(x=>x.category==='Fixture'&&x.code.toUpperCase()===code.toUpperCase()),oldIn=old?.archInput?.kind==='fixture'?old.archInput:undefined;
+  const input:FixtureInput={kind:'fixture',description:r.description.trim().slice(0,200),unit:(r.unit.trim()||oldIn?.unit||'ชุด').slice(0,12),items:oldIn?.items||[]};
+  const qty=num(r.quantity),occurrences=placed.length?placed.map(p=>occurrence(tree,p.loc,p.quantity)):old?.occurrences||[{id:crypto.randomUUID(),zone:'',floor:'',grid:'',quantity:Math.max(1,Math.round(qty||1))}];
+  try{const next=applyArchInput({...(old||blankMember('Fixture',code)),description:input.description,occurrences},input,project.spec);
+   const same=!!old&&canonical([old.archInput,old.occurrences.map(o=>[o.loc||null,o.quantity])])===canonical([next.archInput,next.occurrences.map(o=>[o.loc||null,o.quantity])]);
+   out.push({item:next,code,action:!old?'add':same?'same':'update'});}
+  catch(e:any){problems.push(`${r.source}: ${e?.message||e}`);}
+ }
+ return {members:out,problems};
+}
+export function railingScheduleRows(members:Member[],tree:LocationTree){
+ return members.filter(m=>m.category==='Railing'&&m.archInput?.kind==='railing').map(m=>({m,i:m.archInput as RailingInput,count:m.occurrences.reduce((n,o)=>n+o.quantity,0),where:placeText(tree,m)}));
+}
+export function fixtureScheduleRows(members:Member[],tree:LocationTree){
+ return members.filter(m=>m.category==='Fixture'&&m.archInput?.kind==='fixture').map(m=>({m,i:m.archInput as FixtureInput,count:m.occurrences.reduce((n,o)=>n+o.quantity,0),where:m.occurrences.map(o=>`${o.loc?wbsCode(tree,o.loc):[o.building,o.floor,o.grid].filter(Boolean).join('-')||'—'}${o.quantity>1?`×${o.quantity}`:''}`).join('; ')}));
 }

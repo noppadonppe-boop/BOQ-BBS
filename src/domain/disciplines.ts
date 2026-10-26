@@ -12,7 +12,7 @@ export const disciplineInfo:Record<Discipline,DisciplineInfo>={
  RC:{label:'RC Structure',short:'RC',deliverable:'แบบ BBS',categories:['Foundation','Beam','Column','Slab','Wall','Stair','Lift','Custom'],planned:[]},
  Steel:{label:'Steel Structure',short:'Steel',deliverable:'Material / Bolt list (Shop drawing ระยะถัดไป)',categories:steelCategories,planned:['Assembly drawing: Elevation · Section · มิติ · สัญลักษณ์เชื่อม (ระยะ 4b)']},
  Civil:{label:'Civil Work',short:'Civil',deliverable:'แบบ BBS + ปริมาณ',categories:civilCategories,planned:[]},
- Arch:{label:'Architecture Work',short:'Arch',deliverable:'ปริมาณ + ตาราง Door / Window',categories:archCategories,planned:['Hand rail / อื่น ๆ']},
+ Arch:{label:'Architecture Work',short:'Arch',deliverable:'ปริมาณ + ตาราง Door / Window',categories:archCategories,planned:[]},
 };
 export const disciplineOf=(c:Category):Discipline=>disciplines.find(d=>disciplineInfo[d].categories.includes(c))||'RC';
 /** Disciplines shown in the project: chosen in Settings (default RC) plus any that already have members. */

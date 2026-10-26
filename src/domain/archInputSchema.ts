@@ -2,15 +2,16 @@ import {z} from 'zod';
 
 // Architecture Work (phase 3a): rooms (finish schedule) and doors / windows. Quantity only: the input becomes the
 // member's BOQ items (`siteWork.items` ids `arch-*`), so every report, pricing and the owner BOQ take them as they are.
-export const archCategories=['Room','Opening','MasonryWall','Roof'] as const;
+export const archCategories=['Room','Opening','MasonryWall','Roof','Railing','Fixture'] as const;
 export type ArchCategory=typeof archCategories[number];
 const mm=z.number().finite().min(0).max(200000),id=z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),code=z.string().trim().max(20);
 
 /** Finish library of the spec (General Spec → คลังวัสดุผิว): a code per face kind, BOQ items per m² (m for skirting);
- * masonry = wall types (per m² of net wall, both faces' plaster as factor 2), roof = coverings (per m² of roof slope). */
-export const finishKinds=['floor','skirting','wall','ceiling','masonry','roof'] as const;
+ * masonry = wall types (per m² of net wall, both faces' plaster as factor 2), roof = coverings (per m² of roof slope),
+ * waterproof = systems (per m² of floor + upturn), railing = railing / handrail types (per m). */
+export const finishKinds=['floor','skirting','wall','ceiling','masonry','roof','waterproof','railing'] as const;
 export type FinishKind=typeof finishKinds[number];
-export const finishKindLabels:Record<FinishKind,string>={floor:'พื้น',skirting:'บัว',wall:'ผนัง',ceiling:'ฝ้า',masonry:'ผนังก่อ',roof:'หลังคา'};
+export const finishKindLabels:Record<FinishKind,string>={floor:'พื้น',skirting:'บัว',wall:'ผนัง',ceiling:'ฝ้า',masonry:'ผนังก่อ',roof:'หลังคา',waterproof:'กันซึม',railing:'ราว'};
 export const finishItemSchema=z.object({id,label:z.string().trim().min(1).max(120),unit:z.string().trim().min(1).max(12),factor:z.number().finite().min(0).max(1000)}).strict();
 export const finishSchema=z.object({id,code:code.min(1),kind:z.enum(finishKinds),name:z.string().trim().min(1).max(120),items:z.array(finishItemSchema).max(6)}).strict();
 export type Finish=z.infer<typeof finishSchema>;
@@ -25,7 +26,9 @@ export const archInputSchema=z.discriminatedUnion('kind',[
  /** room: size by width × length or measured area / perimeter (> 0 overrides), ceiling height; finish codes per face,
   * optional dado (lower wall finish up to a height); openings deducted from the wall / skirting */
  z.object({kind:z.literal('room'),name:z.string().trim().max(120),width:mm,length:mm,area:z.number().finite().min(0).max(1e6),perimeter:z.number().finite().min(0).max(1e5),height:mm,
-  floor:code,skirting:code,wall:code,ceiling:code,dado:z.object({finish:code.min(1),height:mm}).strict().optional(),openings:z.array(roomOpeningSchema).max(40)}).strict(),
+  floor:code,skirting:code,wall:code,ceiling:code,dado:z.object({finish:code.min(1),height:mm}).strict().optional(),openings:z.array(roomOpeningSchema).max(40),
+  /** waterproofing: floor + upturn on the walls (door widths left out) */
+  waterproof:z.object({finish:code.min(1),upturn:mm}).strict().optional()}).strict(),
  /** door / window type of the schedule: size, description, BOQ items per set / opening area / frame length */
  z.object({kind:z.literal('opening'),type:z.enum(['door','window']),width:z.number().finite().positive().max(20000),height:z.number().finite().positive().max(20000),description:z.string().trim().max(200),items:z.array(openingItemSchema).max(10)}).strict(),
  /** masonry wall run: length × height − openings, wall type code; stiffener columns at the ends, at ≤ spacing and beside
@@ -34,9 +37,15 @@ export const archInputSchema=z.discriminatedUnion('kind',[
   stiffenerSpacing:mm,stiffenersAtOpenings:z.boolean(),lintelBearing:mm,tieBeams:z.number().int().min(0).max(10)}).strict(),
  /** roof: plan area (width × length or measured), pitch (°) → slope area; covering code; ridge / eave / verge lengths (m) */
  z.object({kind:z.literal('roof'),width:mm,length:mm,area:z.number().finite().min(0).max(1e6),pitch:z.number().finite().min(0).max(75),covering:code,ridge:z.number().finite().min(0).max(1e5),eave:z.number().finite().min(0).max(1e5),verge:z.number().finite().min(0).max(1e5)}).strict(),
+ /** railing / handrail run: length (m of rail per run), height, type code (library kind railing) */
+ z.object({kind:z.literal('railing'),length:z.number().finite().positive().max(200000),height:mm,type:code}).strict(),
+ /** fixture / furniture / sign type: description, BOQ items per set (empty = one item per set) */
+ z.object({kind:z.literal('fixture'),description:z.string().trim().max(200),unit:z.string().trim().min(1).max(12),items:z.array(openingItemSchema).max(10)}).strict(),
 ]);
 export type ArchInput=z.infer<typeof archInputSchema>;
 export type RoomInput=Extract<ArchInput,{kind:'room'}>;
 export type OpeningInput=Extract<ArchInput,{kind:'opening'}>;
 export type WallInput=Extract<ArchInput,{kind:'wall'}>;
 export type RoofInput=Extract<ArchInput,{kind:'roof'}>;
+export type RailingInput=Extract<ArchInput,{kind:'railing'}>;
+export type FixtureInput=Extract<ArchInput,{kind:'fixture'}>;
