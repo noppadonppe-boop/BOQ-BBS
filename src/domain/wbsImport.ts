@@ -2,10 +2,12 @@ import {guessLevel,locationIssues,locationTree,newLocationId,nextOrder,rootKinds
 
 // WBS import (Excel rows / IFC spatial structure) merged into the draft tree: match by IFC GlobalId, then by code under the
 // same parent; matched nodes keep their id (member links stay valid), nothing is removed.
-export type WbsImportRow={root:string;kind:LocationKind;code:string;name:string;elevation?:number;chainage?:{from:number;to:number};levels?:string[];ifcGuid?:string;note?:string;source:string};
+export type WbsImportRow={root:string;kind:LocationKind;code:string;name:string;
+ /** room: code of its level */
+ level?:string;elevation?:number;chainage?:{from:number;to:number};levels?:string[];ifcGuid?:string;note?:string;source:string};
 export type WbsImportAction={row:WbsImportRow;action:'add'|'update'|'same';path:string;changes:string[]};
 
-const kindWords:[LocationKind,RegExp][]=[['building',/^(building|bldg|อาคาร)$/i],['external',/^(external|ext|งานภายนอก|ภายนอก)$/i],['level',/^(level|storey|story|floor|ชั้น)$/i],['zone',/^(zone|โซน)$/i],['segment',/^(segment|line|ช่วง|สาย|ช่วง\s*\/\s*สาย)$/i]];
+const kindWords:[LocationKind,RegExp][]=[['building',/^(building|bldg|อาคาร)$/i],['external',/^(external|ext|งานภายนอก|ภายนอก)$/i],['level',/^(level|storey|story|floor|ชั้น)$/i],['zone',/^(zone|โซน)$/i],['segment',/^(segment|line|ช่วง|สาย|ช่วง\s*\/\s*สาย)$/i],['room',/^(room|space|ห้อง)$/i]];
 export const parseKind=(text:string):LocationKind|undefined=>kindWords.find(([,re])=>re.test(text.trim()))?.[0];
 /** Code from free text (IFC / Excel names): A–Z 0–9 + . _ -, max 20. */
 export const toCode=(text:string)=>text.toUpperCase().normalize('NFKD').replace(/[^A-Z0-9+._-]+/g,'-').replace(/^-+|-+$/g,'').replace(/-{2,}/g,'-').slice(0,20);
@@ -16,6 +18,7 @@ export function rowsFromLocations(l:Locations|undefined):WbsImportRow[]{
  for(const r of t.roots){
   rows.push({root:r.code,kind:r.kind,code:r.code,name:r.name,ifcGuid:r.ifcGuid,note:r.note,source:''});
   for(const k of ['level','segment','zone'] as const)for(const n of t.children(r.id,k))rows.push({root:r.code,kind:k,code:n.code,name:n.name,elevation:n.elevation,chainage:n.chainage,levels:n.levels?.map(code).filter(Boolean),ifcGuid:n.ifcGuid,note:n.note,source:''});
+  for(const lv of t.children(r.id,'level'))for(const n of t.children(lv.id,'room'))rows.push({root:r.code,kind:'room',level:lv.code,code:n.code,name:n.name,ifcGuid:n.ifcGuid,note:n.note,source:''});
  }
  return rows;
 }
@@ -41,13 +44,21 @@ export function mergeWbsImport(current:Locations|undefined,rows:WbsImportRow[]){
   rootOf.set(r.code.toUpperCase(),apply(r,byGuid(r.ifcGuid)||findRoot(r.code),()=>({id:newLocationId(),kind:r.kind,parentId:null,code:r.code,name:r.name||(r.kind==='building'?`อาคาร ${r.code}`:'งานภายนอกอาคาร'),order:nextOrder(l(),null,r.kind),...(r.ifcGuid?{ifcGuid:r.ifcGuid}:{}),...(r.note?{note:r.note}:{})}),r.code));
  }
  const pendingLevels:[LocationNode,WbsImportRow][]=[];
- for(const r of rows.filter(r=>!rootKinds.includes(r.kind))){
+ for(const r of rows.filter(r=>!rootKinds.includes(r.kind)&&r.kind!=='room')){
   const root=rootOf.get(r.root.toUpperCase());
   if(!root){problems.push(`${r.source}: ไม่พบ ${r.root}`);continue;}
   if(!r.code){problems.push(`${r.source}: ไม่มีรหัส`);continue;}
   const same=nodes.find(n=>n.parentId===root.id&&n.kind===r.kind&&n.code.toUpperCase()===r.code.toUpperCase());
   const n=apply(r,byGuid(r.ifcGuid)||same,()=>({id:newLocationId(),kind:r.kind,parentId:root.id,code:r.code,name:r.name,order:nextOrder(l(),root.id,r.kind),...(r.elevation!==undefined?{elevation:r.elevation}:{}),...(r.chainage?{chainage:r.chainage}:{}),...(r.ifcGuid?{ifcGuid:r.ifcGuid}:{}),...(r.note?{note:r.note}:{})}),`${root.code}-${r.code}`);
   if(r.kind==='zone'&&r.levels?.length)pendingLevels.push([n,r]);
+ }
+ // rooms under their level (by code), after every level exists
+ for(const r of rows.filter(r=>r.kind==='room')){
+  const root=rootOf.get(r.root.toUpperCase()),lv=root&&nodes.find(n=>n.parentId===root.id&&n.kind==='level'&&n.code.toUpperCase()===(r.level||'').toUpperCase());
+  if(!root||!lv){problems.push(`${r.source}: ไม่พบชั้น ${r.level||'—'} ของห้อง ${r.code}${root?'':` (${r.root})`}`);continue;}
+  if(!r.code){problems.push(`${r.source}: ไม่มีรหัสห้อง`);continue;}
+  const same=nodes.find(n=>n.parentId===lv.id&&n.kind==='room'&&n.code.toUpperCase()===r.code.toUpperCase());
+  apply(r,byGuid(r.ifcGuid)||same,()=>({id:newLocationId(),kind:'room',parentId:lv.id,code:r.code,name:r.name,order:nextOrder(l(),lv.id,'room'),...(r.ifcGuid?{ifcGuid:r.ifcGuid}:{}),...(r.note?{note:r.note}:{})}),`${root.code}-${lv.code}-${r.code}`);
  }
  // zone → levels by code, after every level exists
  for(const [z,r] of pendingLevels){
@@ -60,8 +71,9 @@ export function mergeWbsImport(current:Locations|undefined,rows:WbsImportRow[]){
 }
 
 // ---------------------------------------------------------------- IFC spatial structure
-export type IfcSpatial={buildings:{guid:string;name:string;longName:string;storeys:{guid:string;name:string;longName:string;elevation:number}[]}[]};
-/** IfcBuilding → building, IfcBuildingStorey → level (code from the storey name, elevation in mm). */
+export type IfcSpatial={buildings:{guid:string;name:string;longName:string;storeys:{guid:string;name:string;longName:string;elevation:number;spaces?:{guid:string;name:string;longName:string}[]}[]}[]};
+/** IfcBuilding → building, IfcBuildingStorey → level (code from the storey name, elevation in mm), IfcSpace → room
+ * (code from the space name / number, name from the long name). */
 export function ifcRows(s:IfcSpatial):WbsImportRow[]{
  const rows:WbsImportRow[]=[],usedRoot=new Set<string>();
  s.buildings.forEach((b,i)=>{
@@ -72,6 +84,9 @@ export function ifcRows(s:IfcSpatial):WbsImportRow[]{
   for(const st of [...b.storeys].sort((a,b)=>a.elevation-b.elevation)){
    const name=st.name||st.longName;let c=guessLevel(name)?.code||toCode(name)||'LV';const base=c;for(let k=2;used.has(c);k++)c=`${base}-${k}`.slice(0,20);used.add(c);
    rows.push({root:code,kind:'level',code:c,name:st.longName&&st.longName!==name?`${name} · ${st.longName}`:name||c,elevation:Math.round(st.elevation),ifcGuid:st.guid,source:`IFC ${name||c}`});
+   const usedRoom=new Set<string>();
+   for(const sp of st.spaces||[]){let rc=toCode(sp.name||sp.longName)||'R';const b0=rc;for(let k=2;usedRoom.has(rc);k++)rc=`${b0}-${k}`.slice(0,20);usedRoom.add(rc);
+    rows.push({root:code,kind:'room',level:c,code:rc,name:(sp.longName||sp.name||rc).slice(0,120),ifcGuid:sp.guid,source:`IFC ${sp.name||sp.longName||rc}`});}
   }
  });
  return rows;

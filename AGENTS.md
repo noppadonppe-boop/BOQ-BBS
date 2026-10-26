@@ -199,6 +199,8 @@
   “Openings” (`src/data/archExcel.ts`; `planRoomImport` adds WBS rooms, member code = A-L2-201; `planOpeningImport`
   places by WBS paths `A-L2-201×2`), and `syncRoomOpenings()` = wall / skirting deductions from the doors / windows placed
   in each room. Owner BOQ: finish items by name (column K), `area` = room floor area. Test: `tmp/arch.test.tsx`.
+  WBS Excel / IFC import carry rooms (kind ห้อง + level code in column K; IfcSpace under a storey → room, `WbsImportRow.level`).
+  Test: `tmp/wbsRooms.test.ts`.
   Phase 3b: `MasonryWall` (kind `wall`: length × height − openings, type = library kind `masonry` WT, stiffener columns at
   the ends / ≤ spacing / beside openings, lintels = opening width + 2 × bearing, tie beams × length, `wallQuantities()`; items
   `เสาเอ็น / ทับหลัง / คานเอ็น ค.ส.ล.` in m) and `Roof` (kind `roof`: plan area / cos pitch, covering = library kind `roof`,

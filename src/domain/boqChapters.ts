@@ -105,6 +105,8 @@ export function boqChapterReport(bundle:SnapshotBundle,chapters:BoqChapters){
 export type BoqSheetRow={code:string;title:string;unit:string;component:string;disciplines:string;categories:string;mix:string;diameters:string;grades:string;buildings:string;siteItem:string;note:string;source:string};
 const list=(t:string)=>t.split(/[,;/]+/).map(s=>s.trim()).filter(Boolean);
 const categoryWord=(t:string)=>categories.find(c=>c.toUpperCase()===t.toUpperCase()||labels[c]===t||labels[c].split(' / ')[0]===t);
+/** Category cell: names split by , ; (and by / only where the whole name is not a label such as “ห้อง / งานผิว”). */
+const categoryList=(t:string)=>t.split(/[,;]+/).map(s=>s.trim()).filter(Boolean).flatMap(s=>categoryWord(s)?[s]:list(s));
 const disciplineWord=(t:string)=>disciplines.find(d=>d.toUpperCase()===t.toUpperCase()||disciplineInfo[d].label.toUpperCase()===t.toUpperCase()||disciplineInfo[d].short.toUpperCase()===t.toUpperCase());
 /** Sheet rows → chapters; rows without a quantity source are headings. Problems name the row. */
 export function chaptersFromRows(rows:BoqSheetRow[],source:string,at:string,newId:()=>string=()=>crypto.randomUUID().replace(/-/g,'').slice(0,16)):{chapters?:BoqChapters;problems:string[]}{
@@ -114,7 +116,7 @@ export function chaptersFromRows(rows:BoqSheetRow[],source:string,at:string,newI
   let rule:BoqRule|undefined;
   if(r.component){
    const component=parseComponent(r.component);if(!component){problems.push(`${r.source}: ปริมาณจากระบบ “${r.component}” ไม่รู้จัก (${Object.values(boqComponentLabels).join(' · ')})`);continue;}
-   const ds=list(r.disciplines).map(t=>[t,disciplineWord(t)] as const),cs=list(r.categories).map(t=>[t,categoryWord(t)] as const);
+   const ds=list(r.disciplines).map(t=>[t,disciplineWord(t)] as const),cs=categoryList(r.categories).map(t=>[t,categoryWord(t)] as const);
    const bad=[...ds.filter(x=>!x[1]).map(x=>`หมวดงาน “${x[0]}”`),...cs.filter(x=>!x[1]).map(x=>`ประเภท “${x[0]}”`)];
    const dia=list(r.diameters).map(t=>Number(t.replace(/^(DB|RB|Y|T|Ø|D)/i,'')));if(dia.some(n=>!Number.isInteger(n)||n<4||n>3000))bad.push(`ขนาดเหล็ก / ท่อ “${r.diameters}”`);
    if(bad.length){problems.push(`${r.source}: ไม่รู้จัก ${bad.join(', ')}`);continue;}
