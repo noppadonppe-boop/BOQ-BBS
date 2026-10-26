@@ -11,6 +11,7 @@ import {locationTree} from './locations';
 import {quantityBasisCoverage} from './quantityBasis';
 import {civilMeasures} from './civilInput';
 import {archMeasures} from './archInput';
+import {steelMeasures} from './steelInput';
 import {reinforcementCoverage} from './reinforcementCoverage';
 
 // Owner / consultant BOQ chapters per project (`project.boqChapters`): the owner's item list (code 1 / 1.1 / 1.1.2,
@@ -39,8 +40,8 @@ export type BoqChapters=z.infer<typeof boqChaptersSchema>;
 /** Indent level from the code: "2" → 0, "2.1" → 1, "2.1.3" → 2 (other codes: 0). */
 export const itemLevel=(code:string)=>Math.max(0,code.split(/[.\-]/).filter(Boolean).length-1);
 const specificity=(r:BoqRule)=>[r.disciplines,r.categories,r.mix,r.diameters,r.grades,r.buildings,r.siteItem].filter(v=>Array.isArray(v)?v.length:v).length;
-/** Pile / pile cutting by length when the item unit is metres; rebar in tonnes when the unit says so. */
-const unitFactor=(component:BoqComponent,unit:string)=>{const u=unit.trim().toLowerCase();if(component==='rebar'&&/^(t|ton|tons|tonne|ตัน)$/.test(u))return 0.001;return 1;};
+/** Pile / pile cutting by length when the item unit is metres; rebar (and kg items such as steel) in tonnes when the unit says so. */
+const unitFactor=(component:BoqComponent,unit:string,from='')=>{const u=unit.trim().toLowerCase();if((component==='rebar'||from==='kg')&&/^(t|ton|tons|tonne|ตัน)$/.test(u))return 0.001;return 1;};
 const byLength=(component:BoqComponent,unit:string)=>(component==='pile'||component==='pilecut')&&/^(m|เมตร|ม\.?)$/i.test(unit.trim());
 
 type Contribution={component:BoqComponent;value:number;length?:number;unit:string;label:string;memberId:string;category:Category;discipline:Discipline;mix:string;fc?:number;diameter?:number;grade?:string;building:string};
@@ -60,7 +61,7 @@ export function boqContributions(bundle:SnapshotBundle):Contribution[]{
  const out:Contribution[]=[],tree=locationTree(bundle.project.locations);
  for(const m of bundle.members){
   const frozen=bundle.calculations?.[m.id],q=frozen||takeoff(m,bundle.project.spec),category=reportCategory(m),discipline=disciplineOf(m.category),mix=memberConcrete(m),fc=(m.elementInput as {detailing?:{concrete?:{fc?:number}}}|undefined)?.detailing?.concrete?.fc;
-  const pile=pileInput(m),pq=pile?pileQuantities(pile):undefined,cm={...civilMeasures(m),...archMeasures(m)};
+  const pile=pileInput(m),pq=pile?pileQuantities(pile):undefined,cm={...civilMeasures(m),...archMeasures(m),...steelMeasures(m)};
   for(const o of m.occurrences){
    const building=(o.loc?.building&&tree.byId.get(o.loc.building)?.code)||o.building||'',base={memberId:m.id,category,discipline,mix,fc,building};
    for(const k of ['concrete','formwork','excavation','backfill','lean'] as const){const v=(q as unknown as Record<string,number>)[k]||0;if(v>0)out.push({...base,component:k,value:v*o.quantity,unit:baseUnits[k],label:boqComponentLabels[k]});}
@@ -90,7 +91,7 @@ export function boqChapterReport(bundle:SnapshotBundle,chapters:BoqChapters){
  const pending=new Set([...quantityBasisCoverage(bundle).pending.map(m=>m.id),...reinforcementCoverage(bundle).pending.map(m=>m.memberId)]),provisional=new Set<string>();
  for(const c of boqContributions(bundle)){
   let best:BoqItem|undefined,score=-1;for(const i of items)if(matches(i.rule!,c)){const s=specificity(i.rule!);if(s>score){best=i;score=s;}}
-  if(best){const v=(byLength(c.component,best.unit)?c.length??0:c.value)*unitFactor(c.component,best.unit),s=sums.get(best.id)||{q:0,ids:new Set<string>()};s.q+=v;s.ids.add(c.memberId);sums.set(best.id,s);if(pending.has(c.memberId))provisional.add(best.id);continue;}
+  if(best){const v=(byLength(c.component,best.unit)?c.length??0:c.value)*unitFactor(c.component,best.unit,c.unit),s=sums.get(best.id)||{q:0,ids:new Set<string>()};s.q+=v;s.ids.add(c.memberId);sums.set(best.id,s);if(pending.has(c.memberId))provisional.add(best.id);continue;}
   if(measures.includes(c.component))continue;
   const key=JSON.stringify([c.component,c.component==='rebar'||c.component==='site'?c.label:'',c.unit]),u=miss.get(key)||{component:c.component,label:c.label,unit:c.unit,quantity:0,members:0,categories:[],ids:new Set<string>(),cats:new Set<string>()};
   u.quantity+=c.value;u.ids.add(c.memberId);u.cats.add(labels[c.category]);miss.set(key,u);

@@ -1,6 +1,7 @@
 import type {Category,Project} from './model';
 import {civilCategories,quantityOnlyCategories} from './civilInputSchema';
 import {archCategories} from './archInputSchema';
+import {steelCategories} from './steelInputSchema';
 
 // Work disciplines (หมวดงาน) above the element categories. A member's discipline follows its category, so existing
 // members are RC without any migration. Steel / Civil / Architecture get their categories in later phases.
@@ -9,7 +10,7 @@ export type Discipline=typeof disciplines[number];
 export type DisciplineInfo={label:string;short:string;deliverable:string;categories:readonly Category[];planned:string[]};
 export const disciplineInfo:Record<Discipline,DisciplineInfo>={
  RC:{label:'RC Structure',short:'RC',deliverable:'แบบ BBS',categories:['Foundation','Beam','Column','Slab','Wall','Stair','Lift','Custom'],planned:[]},
- Steel:{label:'Steel Structure',short:'Steel',deliverable:'Shop drawing',categories:[],planned:['เสา / คาน / Bracing (เหล็กรูปพรรณ)','Purlin / Girt / Truss','Connection: Base plate · End plate · Splice','Bolt / Weld · รายการวัสดุ (BOM)']},
+ Steel:{label:'Steel Structure',short:'Steel',deliverable:'Material / Bolt list (Shop drawing ระยะถัดไป)',categories:steelCategories,planned:['Assembly drawing: Elevation · Section · มิติ · สัญลักษณ์เชื่อม (ระยะ 4b)']},
  Civil:{label:'Civil Work',short:'Civil',deliverable:'แบบ BBS + ปริมาณ',categories:civilCategories,planned:[]},
  Arch:{label:'Architecture Work',short:'Arch',deliverable:'ปริมาณ + ตาราง Door / Window',categories:archCategories,planned:['Hand rail / อื่น ๆ']},
 };

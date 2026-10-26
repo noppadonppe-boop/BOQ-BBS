@@ -5,6 +5,7 @@ import {disciplineInfo,disciplineOf,disciplines,projectDisciplines,type Discipli
 import type {takeoff} from '../domain/engine';
 import {number} from './EditorControls';
 import {ArchSchedules} from './ArchSchedules';
+import {SteelSchedules} from './SteelSchedules';
 
 export const disciplineIcons:Record<Discipline,typeof Layers3>={RC:Building2,Steel:Factory,Civil:Route,Arch:DoorOpen};
 export const disciplinePage=(d:Discipline)=>`disc-${d}`;
@@ -38,6 +39,7 @@ export function DisciplinePage({discipline,project,members,totals,canEdit,canEdi
    <tr className="total"><td>TOTAL</td><td className="num">{sum('n')}</td><td className="num">{number(sum('qty'),0)}</td><td className="num">{number(sum('concrete'))}</td><td className="num">{number(sum('formwork'))}</td><td className="num">{number(sum('rebar'))}</td><td/></tr>
   </tbody></table></div><p className="muted">ปริมาณจากข้อมูลทำงานล่าสุด · BOQ Summary จัดกลุ่ม “หมวดงาน” ได้</p></section>:null}
   {discipline==='Arch'&&project&&run&&<ArchSchedules project={project} members={members} canEdit={canEditMembers} busy={busy} run={run}/>}
+  {discipline==='Steel'&&project&&run&&<SteelSchedules project={project} members={members} canEdit={canEditMembers} busy={busy} run={run}/>}
   {!info.categories.length&&<section className="panel padded"><p className="notice">หมวดนี้เปิดใช้ในโครงการแล้ว · ประเภทองค์ประกอบและเครื่องมือ{info.deliverable}จะเพิ่มในระยะถัดไป</p><h3>รายการที่จะรองรับ</h3><ul>{info.planned.map(p=><li key={p}>{p}</li>)}</ul>{canEdit&&<p className="muted">ปิดหมวดนี้ได้ที่ “โครงการ & สำรองข้อมูล” → หมวดงานในโครงการ</p>}</section>}
  </>;
 }

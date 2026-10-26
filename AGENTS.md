@@ -204,6 +204,16 @@
   `เสาเอ็น / ทับหลัง / คานเอ็น ค.ส.ล.` in m) and `Roof` (kind `roof`: plan area / cos pitch, covering = library kind `roof`,
   ridge / eave / verge m). Excel sheet “Walls” (`planWallImport`: openings by door / window type codes). Measures: wall
   area = net, length; roof area = slope.
+- Steel Structure (phase 4a): category `SteelAssembly` (member = Tekla-style assembly, `steelCategories` in
+  `src/domain/steelInputSchema.ts`, quantity only). `member.steelInput {type, name, parts[mark, profile, grade, count,
+  length, main, weight?], bolts, welds, paint}`; profiles parsed from their names by `parseProfile()` (`steelProfiles.ts`:
+  H / C / [ / L / PIPE / RHS / PL / RB, area → kg/m at 7,850, H root radius table, paint perimeter; listed weight wins).
+  `applySteelInput()` (`steelInput.ts`) writes site items `stl-*` (kg per profile + grade, plates per thickness, bolts,
+  welds m, paint m²); owner BOQ: kg items in tonnes when the unit says so, `area` = paint area. A3 sheet `steelSheet.ts`
+  (material list, bolt list, welds, notes, main part strip, plate outlines, title block) → `SteelSheetPreview.tsx` in the
+  “แบบ & BBS” tab (PDF via `drawPrims`, DXF via `primsDxf`); form tab “Assembly เหล็ก” `SteelForm.tsx`; Steel page
+  `SteelSchedules.tsx` + Excel Parts / Bolts / Welds / Assemblies (`src/data/steelExcel.ts`, `planSteelImport`).
+  Elevation / sections / weld symbols = phase 4b. Test: `tmp/steel.test.tsx` (sample FS-AS-C21).
 - Owner / consultant BOQ chapters per project: `project.boqChapters` (`src/domain/boqChapters.ts`: items code / title / unit +
   optional `rule {component, disciplines, categories, mix, diameters, grades, buildings, siteItem}`; no rule = heading).
   `boqContributions()` = every quantity per occurrence (concrete, formwork, excavation, backfill, lean, rebar per bar,
