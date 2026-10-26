@@ -1091,8 +1091,16 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const d=l.diameter,inner=inset(plan,c.side+sideIn+d/2),ai=runX?1:0,covA=c.side+d/2;
   let lo=Math.min(...inner.map(p=>p[ai])),hi=Math.max(...inner.map(p=>p[ai]));
   if(area?.only){lo=Math.max(lo,Math.min(...area.only.map(b=>runX?b.y0:b.x0))+covA+.01);hi=Math.min(hi,Math.max(...area.only.map(b=>runX?b.y1:b.x1))-covA-.01);}
-  const s=hi>lo?spread(lo,hi,l.spacing):undefined;
-  if(!s){warn(`${note}: วางเหล็กไม่ได้`);return;}
+  // several boxes (cut / block group): bars spaced per band of equal extent across the distribution, so each part keeps its
+  // own end bars at the cover (no bar left against a re-entrant step face) and bars run on through parts of the same level
+  const bands:[number,number][]=[];
+  if(area?.only&&area.only.length>1){const E=[...new Set(area.only.flatMap(b=>runX?[b.y0,b.y1]:[b.x0,b.x1]))].sort((p,q)=>p-q);let last='';
+   for(let j=0;j+1<E.length;j++){const key=JSON.stringify(rectSpan(area.only,runX,(E[j]+E[j+1])/2));if(key==='[]'){last='';continue;}
+    if(key===last&&bands.at(-1)![1]===E[j])bands.at(-1)![1]=E[j+1];else bands.push([E[j],E[j+1]]);last=key;}}
+  else bands.push([lo-covA-.01,hi+covA+.01]);
+  const ats=bands.flatMap(([p,q])=>{const a=Math.max(lo,p+covA+.01),b=Math.min(hi,q-covA-.01),sp=b>a?spread(a,b,l.spacing):undefined;
+   return sp?Array.from({length:sp.count},(_,k)=>sp.count===1?sp.from:sp.from+(sp.to-sp.from)*k/(sp.count-1)):[];});
+  if(!ats.length){warn(`${note}: วางเหล็กไม่ได้`);return;}
   // slab-cast footing: top bars run on into the slab by `extend`; their bends/hooks must stay inside the slab thickness
   const ext=slabOn&&!up&&!own&&!area?c.side+sideIn+d/2+i.slab.extend:0;
   const room=own?own.room:up?(l.shape==='41'?T-c.top-topStack-below:T-c.top)-d/2-z:z-(slabOn?T-ts+c.top:c.bottom)-d/2;
@@ -1101,7 +1109,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   // footing top turn down at the step face past the lower top bars (12d below them)
   const L=lapLength(det,d),floorZ=c.bottom+r.bottomX.diameter+r.bottomY.diameter,steps=!up&&!!area&&i.shape==='rect'&&cuts.length>0;
   const segs:{a:number;b:number;at:number;la:number;lb:number}[]=[];let into=false;
-  for(let k=0;k<s.count;k++){const at=s.count===1?s.from:s.from+(s.to-s.from)*k/(s.count-1),pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at)),full=lineIntervals(inner,runX?0:1,pos);let iv=full;if(area?.minus){const cut=area.minus,at=(v:number)=>rectSpan(cut,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.only){const only=area.only,at=(v:number)=>rectSpan(only,runX,v).map(([p,q])=>[p+covA,q-covA] as [number,number]);iv=within(within(within(iv,at(pos)),at(pos-covA+.5)),at(pos+covA-.5));}
+  for(const at of ats){const pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at)),full=lineIntervals(inner,runX?0:1,pos);let iv=full;if(area?.minus){const cut=area.minus,at=(v:number)=>rectSpan(cut,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.only){const only=area.only,at=(v:number)=>rectSpan(only,runX,v).map(([p,q])=>[p+covA,q-covA] as [number,number]);iv=within(within(within(iv,at(pos)),at(pos-covA+.5)),at(pos+covA-.5));}
    const topAt=(u:number)=>footingTopAt(i,runX?u:pos,runX?pos:u),leg=(t:number)=>Math.max(0,Math.min(z-(t-c.top-d/2)+12*d,z-floorZ-d));
    for(let [a,b] of iv){let la=0,lb=0;
     if(steps){const [A,B]=full.find(([p,q])=>p<=(a+b)/2&&(a+b)/2<=q)||[a,b];
@@ -1134,7 +1142,13 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  if(r.topX.enabled)mesh('top-x','เหล็กบน · ทิศ X',r.topX,true,T-c.top-r.topX.diameter/2,false,0,undefined,around);
  if(r.topY.enabled)mesh('top-y','เหล็กบน · ทิศ Y',r.topY,false,T-c.top-(r.topX.enabled?r.topX.diameter:0)-r.topY.diameter/2,false,0,undefined,around);
  // lowered areas and blocks: a top mesh of their own (bars as the footing top mesh)
- const tops=[...cuts.map((b,k)=>({z:b.z0,floor:0,rects:[b],name:`ส่วนลดระดับ ${b.label||k+1}`,tag:`cut${k+1}`})),
+ // lowered areas of the same top level (and own bars) that touch are one area: their bars run on through the joint
+ const cutGroups:{z:number;rects:FootingBox[];names:string[]}[]=[];
+ cuts.forEach((b,k)=>{const touch=(q:FootingBox)=>q.x0<=b.x1+1&&b.x0<=q.x1+1&&q.y0<=b.y1+1&&b.y0<=q.y1+1,key=JSON.stringify(b.bars||null);
+  const same=cutGroups.filter(gr=>Math.abs(gr.z-b.z0)<1&&JSON.stringify(gr.rects[0].bars||null)===key&&gr.rects.some(touch));
+  if(!same.length){cutGroups.push({z:b.z0,rects:[b],names:[b.label||String(k+1)]});return;}
+  same[0].rects.push(b);same[0].names.push(b.label||String(k+1));for(const o of same.slice(1)){same[0].rects.push(...o.rects);same[0].names.push(...o.names);cutGroups.splice(cutGroups.indexOf(o),1);}});
+ const tops=[...cutGroups.map((gr,k)=>({z:gr.z,floor:0,rects:gr.rects,name:`ส่วนลดระดับ ${gr.names.join(' + ')}`,tag:`cut${k+1}`})),
   ...blockGroups.map((gr,k)=>({z:gr.z1,floor:gr.z0,rects:gr.rects,name:gr.rects.map((b,n)=>b.label||`ส่วนเพิ่ม ${n+1}`).filter((v,n,a)=>a.indexOf(v)===n).join(' + '),tag:`blk${k+1}`}))];
  for(const t of tops){if(t.rects.some(b=>b.rib))continue;const dx=r.topX.enabled?r.topX.diameter:0,room=(zz:number)=>({room:Math.max(0,zz-t.floor-c.bottom)});
   // own bars of the box (first box of a block group) replace size / spacing, shape as the footing top bars
