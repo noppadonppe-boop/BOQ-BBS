@@ -2,7 +2,7 @@ import {useState} from 'react';
 import {ArrowLeft,ArrowRight,Plus,X} from 'lucide-react';
 import type {Member,Project} from '../domain/model';
 import {command} from '../data/firebase';
-import {composeDrawingNumber,MAX_DRAWING_PARTS} from '../domain/drawingStandard';
+import {composeDrawingNumber,MAX_DRAWING_PARTS,sheetSetupOf,viewScaleChoices,viewScaleLabel,type SheetSize,type ViewScale} from '../domain/drawingStandard';
 import {planDrawingNumbers} from '../domain/drawingNumbers';
 import {Field,Modal} from './EditorControls';
 
@@ -19,14 +19,14 @@ const partLabel=(i:number,n:number,v:string)=>i===0?'Prefix':v.trim().toUpperCas
  * Saving keeps the owner drawing profile in step (its texts take precedence on the sheet) and renumbers members:
  * runs stay, members without a number get the next run, numbers follow the new segments. */
 export function TitleBlockDialog({project,members,run,onClose}:{project:Project;members:Member[];run:(f:()=>Promise<unknown>,m?:string)=>Promise<void>;onClose:()=>void}){
- const [initial]=useState(()=>({fields:fieldsOf(project),parts:initialParts(project)}));
- const [f,setF]=useState<Fields>(initial.fields),[parts,setParts]=useState<string[]>(initial.parts),[saving,setSaving]=useState(false);
+ const [initial]=useState(()=>({fields:fieldsOf(project),parts:initialParts(project),sheet:sheetSetupOf(project)}));
+ const [f,setF]=useState<Fields>(initial.fields),[parts,setParts]=useState<string[]>(initial.parts),[sheet,setSheet]=useState<{size:SheetSize;scale:ViewScale}>(initial.sheet),[saving,setSaving]=useState(false);
  const set=(k:keyof Fields,v:string)=>setF({...f,[k]:v.slice(0,limits[k])});
  const setPart=(i:number,v:string)=>setParts(parts.map((p,j)=>j===i?v.slice(0,50):p));
  const move=(i:number,d:number)=>{const n=[...parts];[n[i],n[i+d]]=[n[i+d],n[i]];setParts(n);};
  // a new segment goes before a trailing "BBS" so the layout stays …-Suffix n-BBS-Run-Rev
  const add=()=>{const at=parts.length&&parts[parts.length-1].trim().toUpperCase()==='BBS'?parts.length-1:parts.length;setParts([...parts.slice(0,at),'',...parts.slice(at)]);};
- const changed=JSON.stringify({fields:f,parts})!==JSON.stringify(initial);
+ const changed=JSON.stringify({fields:f,parts,sheet})!==JSON.stringify(initial);
  // closing with unsaved text asks first (× / outside click / ยกเลิก)
  const close=()=>{if(!changed||window.confirm('ยังไม่ได้บันทึก Title block · ปิดและทิ้งข้อความที่แก้?'))onClose();};
  const cleanParts=parts.map(s=>s.trim());
@@ -39,7 +39,7 @@ export function TitleBlockDialog({project,members,run,onClose}:{project:Project;
  const save=()=>{setSaving(true);return run(async()=>{
   const {company,drawnBy,checkedBy,approvedBy,...fields}=f,trim=(s:string)=>s.trim(),prof=project.drawingProfile;
   const drawingProfile=prof?{...prof,projectName:trim(fields.name).slice(0,80),company:trim(company).slice(0,80),owner:trim(fields.owner).slice(0,80),location:trim(fields.location).slice(0,80),preparedBy:trim(drawnBy).slice(0,60),checkedBy:trim(checkedBy).slice(0,60)}:prof;
-  await command('saveProject',project.id,{project:{...project,...fields,name:trim(fields.name),titleBlock:{...tb,company,drawnBy,checkedBy,approvedBy},drawingProfile},version:project.version});
+  await command('saveProject',project.id,{project:{...project,...fields,name:trim(fields.name),titleBlock:{...tb,company,drawnBy,checkedBy,approvedBy,sheetSize:sheet.size,viewScale:sheet.scale},drawingProfile},version:project.version});
   await command('renumberDrawings',project.id,{parts:cleanParts});
   onClose();
  },'บันทึก Title block และเลขแบบ BBS แล้ว').finally(()=>setSaving(false));};
@@ -51,6 +51,12 @@ export function TitleBlockDialog({project,members,run,onClose}:{project:Project;
    <div className="form-grid">{(Object.keys(projectLabels) as (keyof typeof projectLabels)[]).map(k=><Field key={k} label={projectLabels[k]} value={f[k]} onChange={v=>set(k,String(v))}/>)}</div>
    <h3>ผู้จัดทำ</h3>
    <div className="form-grid">{(Object.keys(blockLabels) as (keyof typeof blockLabels)[]).map(k=><Field key={k} label={blockLabels[k]} value={f[k]} onChange={v=>set(k,String(v))}/>)}</div>
+   <h3>กระดาษและมาตราส่วน (ค่าเริ่มต้นของแบบ BBS)</h3>
+   <div className="form-grid">
+    <div className="field"><span>ขนาดกระดาษเริ่มต้น</span><span className="segmented" role="group" aria-label="ขนาดกระดาษเริ่มต้น">{(['A3','A2'] as const).map(z=><button key={z} type="button" className={sheet.size===z?'active':''} aria-pressed={sheet.size===z} onClick={()=>setSheet({...sheet,size:z})}>{z==='A3'?'A3 · 420 × 297':'A2 · 594 × 420'}</button>)}</span></div>
+    <label className="field"><span>มาตราส่วนรูปเริ่มต้น</span><select value={String(sheet.scale)} onChange={e=>setSheet({...sheet,scale:e.target.value==='auto'?'auto':Number(e.target.value)})}>{(['auto',...viewScaleChoices] as ViewScale[]).map(v=><option key={String(v)} value={String(v)}>{v==='auto'?'Auto (มาตรฐานที่พอดีกรอบ)':viewScaleLabel(v)}</option>)}</select></label>
+   </div>
+   <p className="muted">ใช้กับทุกสมาชิกที่ไม่ได้เลือกเอง · เปลี่ยนรายสมาชิกได้ที่แถบเครื่องมือ “แบบ & BBS” · Auto = มาตราส่วนมาตรฐาน (1:20, 1:25, 1:50, 1:75, 1:100 …) ที่ใหญ่ที่สุดที่พอดีกรอบ</p>
    <h3>เลขแบบ BBS · Prefix-Suffix…-BBS-Run(001–999)-R(0–9)</h3>
    <div className="drawing-parts">
     {parts.map((v,i)=><div className="drawing-part" key={i}>

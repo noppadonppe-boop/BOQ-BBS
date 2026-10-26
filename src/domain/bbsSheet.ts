@@ -8,13 +8,20 @@ import {barCouplerEnds,footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
 import {buildView,columnSectionCut,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
 import {textWidth,wrapText,type Prim} from './drawingPrims';
-import {composeDrawingNumber} from './drawingStandard';
+import {composeDrawingNumber,sheetSetupOf,sheetSizes,standardScales,type ViewScale} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
 import {concreteNote,memberConcrete} from './concreteMixes';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
 export const SHEET={w:420,h:297,left:20,margin:10,strip:135,title:72,bbsRow:9,bbsHead:6,boqRow:4.4};
+/** Paper of a sheet (A3 / A2 landscape): same frame, text and tables; the views and the BBS table get the extra room. */
+export const sheetFormat=(s:Pick<SheetData,'project'|'member'>)=>{const {size,scale}=sheetSetupOf(s.project,s.member);return {...SHEET,...sheetSizes[size],size,scale};};
+/** Paper scale (sheet mm per model mm) for a view: fixed 1:N when it fits, else the largest standard 1:N that fits. */
+function pickScale(fit:number,want:ViewScale){
+ if(want!=='auto'&&1/want<=fit*1.0001)return {s:1/want,n:want,fits:true};
+ const n=standardScales.find(n=>1/n<=fit);return n?{s:1/n,n,fits:want==='auto'}:{s:fit,n:0,fits:want==='auto'};
+}
 export type SheetRow=ViewRow&{grade:string;shapeCode:string;cutLength:number;weight:number};
 export type SheetData={member:Member;rows:SheetRow[];input?:ElementInput;project:Project;quantity:number;
  takeoff:{concrete:number;formwork:number;excavation:number;backfill:number;lean:number;rebar:number;sand?:number;sheet?:number;compaction?:number};
@@ -49,15 +56,18 @@ export function sheetBoq(s:SheetData):BoqLine[]{
  return out;
 }
 function layout(s:SheetData){
- const S=SHEET,sx=S.w-S.margin-S.strip,titleTop=S.h-S.margin-S.title,boq=sheetBoq(s),boqH=7+5+boq.length*S.boqRow+(s.provisional?5:0),boqTop=titleTop-3-boqH,tableTop=S.margin+8;
+ const S=sheetFormat(s),sx=S.w-S.margin-S.strip,titleTop=S.h-S.margin-S.title,boq=sheetBoq(s),boqH=7+5+boq.length*S.boqRow+(s.provisional?5:0),boqTop=titleTop-3-boqH,tableTop=S.margin+8;
  const perPage=Math.max(1,Math.floor((boqTop-4-tableTop-S.bbsHead)/S.bbsRow));
  return {sx,titleTop,boq,boqTop,tableTop,perPage,pages:Math.max(1,Math.ceil(s.rows.length/perPage),beamSheetPages(s.input))};
 }
 export function sheetPageCount(s:SheetData){return layout(s).pages;}
 
-/** All primitives of one A3 sheet (mm). */
-export function drawSheet(s:SheetData,page=0):Prim[]{
- const S=SHEET,L=layout(s),{sx}=L,out:Prim[]=[],ink='#22393f',grid='#9fb2ad',k=.26,lang=sheetLangOf(s.project),T=sheetText[lang];
+export type SheetViewScale={title:string;n:number;fits:boolean};
+/** All primitives of one sheet (mm). */
+export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page).prims;}
+/** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */
+export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];size:keyof typeof sheetSizes}{
+ const S=sheetFormat(s),L=layout(s),{sx}=L,out:Prim[]=[],ink='#22393f',grid='#9fb2ad',k=.26,lang=sheetLangOf(s.project),T=sheetText[lang];
  const line=(x1:number,y1:number,x2:number,y2:number,width=.2,stroke=grid)=>out.push({t:'line',x1,y1,x2,y2,stroke,width});
  // generated Thai phrases (bar descriptions, notes typed in Thai) are translated for EN / ZH sheets
  const text=(t:string,x:number,y:number,size=2.6,o:{anchor?:'start'|'middle'|'end';bold?:boolean;color?:string;raw?:boolean}={})=>out.push({t:'text',x,y,text:o.raw?t:sheetPhrase(t,lang),size,color:o.color||ink,anchor:o.anchor,bold:o.bold});
@@ -70,12 +80,13 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  text(`${m.code} · ${T.category[m.category]} · ${lang==='zh'?'配筋详图':'REINFORCEMENT DETAIL'}`,S.left+4,S.margin+6,4.2,{bold:true});
  text(`${s.project.code} · ${s.project.name}`,S.left+4,S.margin+10.5,2.6,{color:'#4b6166',raw:true});
  line(S.left,S.margin+13,sx,S.margin+13,.3,ink);
- const left=S.left+2,colW=(sx-S.left-6)/2,topY=S.margin+15,topH=128,botY=topY+topH+3,botH=S.h-S.margin-botY-2;
+ // A3: 128 mm for plan / section X–X; larger paper keeps the same split of the height
+ const left=S.left+2,colW=(sx-S.left-6)/2,topY=S.margin+15,topH=Math.round((S.h-S.margin-topY)*128/262),botY=topY+topH+3,botH=S.h-S.margin-botY-2;
  // beam group: elevation + cross-sections (paged) instead of plan / sections X–Y
  const bg=beamGroupSheet(m,s.rows,input,{x:left,y:topY,w:sx-left-2,h:S.h-S.margin-topY-2},page,k);
  const det=input?.detailing,names=T.coverNames;
  const notes=[
-  T.nts,
+  bg?T.nts:T.scaled(S.size),
   `${T.cover}: ${input?Object.entries(input.cover).map(([k2,v])=>`${names[k2]||k2} ${v}`).join(' · '):m.cover}${input?.category==='Foundation'&&input.column.type!=='none'?` · ${input.column.type==='pedestal'?T.pedestal:'Starter'} ${footingColumns(input).map(c=>c.columnNo).filter(Boolean).join(', ')} ${input.column.cover}`:''}`,
   input?.category==='Column'&&input.layout!=='stack'&&input.rebar.top.mode==='coupler'?T.coupler((m.siteWork?.items||[]).filter(it=>it.id.startsWith('gen-coupler-')).map(it=>`${it.label.replace(/^.*\) /,'')} × ${it.quantity}`).join(', '),0):'',
   input?.category==='Foundation'&&input.column.type!=='none'&&footingColumns(input).some(c=>c.splice?.type==='coupler')?T.coupler((m.siteWork?.items||[]).filter(it=>it.id.startsWith('gen-coupler-')).map(it=>`${it.label.replace(/^.*\) /,'')} × ${it.quantity}`).join(', '),Math.max(0,...footingColumns(input).filter(c=>c.splice?.type==='coupler').map(c=>c.splice.stagger))):'',
@@ -98,11 +109,16 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  const colBox=colCut?under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH}:undefined;
  const views=bg?bg.views:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:{axes:[0,1] as [number,number]},cuts},{title:T.sectionX(Math.round(cuts.y)),box:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},{title:T.sectionY(Math.round(cuts.x)),box:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
   ...(colCut&&colBox?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{axes:[0,1] as [number,number],normal:2,cut:colCut.z,columns:true}}]:[])];
+ // beam-group marks are placed for the fitted views: those views stay not to scale
+ const scales:SheetViewScale[]=[];
  for(const v of views){
   out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2});
-  text(v.title,v.box.x+2,v.box.y+4,2.8,{bold:true});
+  let used={n:0,fits:true};
+  const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,S.scale);used=r;return r.s;};
   // one view of a large member has more prims than a spread call takes as arguments
-  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z}))out.push(p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p);
+  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z,scale}))out.push(p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p);
+  text(`${v.title} · ${used.n?`1:${used.n}`:'NTS'}`,v.box.x+2,v.box.y+4,2.8,{bold:true});
+  scales.push({title:v.title,...used});
  }
  if(bg)out.push(...bg.marks);
  // Notes and Mark legend.
@@ -145,8 +161,9 @@ export function drawSheet(s:SheetData,page=0):Prim[]{
  grid3([[B.drawn,prof?.preparedBy||p.titleBlock.drawnBy||''],[B.checked,prof?.checkedBy||p.titleBlock.checkedBy||''],[B.approved,p.titleBlock.approvedBy||'']],rowsH[4]);
  const number=m.drawingSetup?.number||composeDrawingNumber(p,m.drawingSetup?.run,m.drawingSetup?.rev);
  grid3([[B.number,number],[B.rev,m.drawingSetup?.revision||s.revision],[B.date,s.date]],rowsH[5]);
- grid3([[B.size,'A3 · NTS'],[B.sheet,`${page+1} / ${L.pages}`],[B.status,s.status]],rowsH[6]);
- return out;
+ const ns=[...new Set(scales.map(v=>v.n))],scaleText=ns.length===1?ns[0]?`1:${ns[0]}`:'NTS':'AS SHOWN';
+ grid3([[B.size,`${S.size} · ${scaleText}`],[B.sheet,`${page+1} / ${L.pages}`],[B.status,s.status]],rowsH[6]);
+ return {prims:out,scales,size:S.size};
 }
 /** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
  * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */

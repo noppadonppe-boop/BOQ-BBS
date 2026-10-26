@@ -215,11 +215,12 @@ export function viewHeight(v:ViewData,width:number,maxHeight:number,k=1){
 }
 /** Draw a view into `box`. `k` converts the screen design sizes (px) to the target unit
  * (k = 1 for px, ≈ 0.26 for mm on an A3 sheet). */
-export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};zCut?:number;fontScale?:number}):Prim[]{
+export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};zCut?:number;fontScale?:number;scale?:(fit:number)=>number}):Prim[]{
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  // level marks sit right of the concrete: keep room for their text inside the box
  const lvW=v.levels.length?Math.max(...v.levels.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
- const s=Math.min((box.w-2*M-lvW)/spanU,(box.h-2*M)/spanV),offU=(box.w-2*M-lvW-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
+ // `scale` picks the drawing scale (target units per model mm) from the largest one that fits, e.g. a standard 1:N
+ const fit=Math.min((box.w-2*M-lvW)/spanU,(box.h-2*M)/spanV),s=opts.scale?opts.scale(fit):fit,offU=(box.w-2*M-lvW-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
  const X=(x:number)=>box.x+M+offU+(x-u[0])*s,Y=(y:number)=>box.y+box.h-M-offV-(y-vr[0])*s,out:Prim[]=[];
  const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},wall:{fill:'#b9c4c1',stroke:'#3d5054',width:1*k},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>out.push(r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});

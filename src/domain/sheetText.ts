@@ -7,7 +7,7 @@ export const sheetLangOf=(p:{titleBlock?:{sheetLanguage?:string}}):SheetLang=>p.
 
 type Text={
  category:Record<Category,string>;plan:string;sectionX:(y:number)=>string;sectionY:(x:number)=>string;columnSection:(kind:'pedestal'|'starter',z:number)=>string;notes:string;legend:string;
- coverNames:Record<string,string>;nts:string;cover:string;pedestal:string;bendRadius:(s:number,l:number,t:number)=>string;bendPerMark:string;
+ coverNames:Record<string,string>;nts:string;scaled:(size:string)=>string;cover:string;pedestal:string;bendRadius:(s:number,l:number,t:number)=>string;bendPerMark:string;
  hooks:(h90:number,h135:number,min:number,lap:string)=>string;lapSpec:(rows:string)=>string;rounding:(r:number,ed:string,steel:string)=>string;concrete:(mix:string)=>string;perTable:string;tie:string;
  pile:(n:number,size:number,len:number,cut:number,embed:number,inConcrete:boolean)=>string;stages:(n:number,list:string)=>string;sketched:string;coupler:(list:string,stagger:number)=>string;
  quantity:(n:number,where:string)=>string;noLocation:string;dashes:string;perPiece:(mark:string,count:number)=>string;
@@ -19,7 +19,7 @@ type Text={
 };
 const th:Text={
  category:{Foundation:'ฐานราก',Beam:'คาน',Column:'เสา',Slab:'พื้น',Wall:'ผนัง',Stair:'บันได',Lift:'ลิฟต์ / Core',Custom:'องค์ประกอบอื่น',UDitch:'รางระบายน้ำ U',VDitch:'รางระบายน้ำ V',Trench:'รางเคเบิล (Trench)',Manhole:'บ่อพัก',Pit:'บ่อ (Pit)',UGTank:'ถังเก็บน้ำใต้ดิน',AGTank:'ถังเก็บน้ำบนดิน',ConcretePaving:'ถนน / ลานคอนกรีต',AsphaltPaving:'ผิวทางแอสฟัลต์',RCPipe:'ท่อ ค.ส.ล.',PEPipe:'ท่อ PE',Room:'ห้อง / งานผิว',Opening:'ประตู-หน้าต่าง',MasonryWall:'ผนังก่อ',Roof:'หลังคา',Railing:'ราวกันตก / ราวบันได',Fixture:'สุขภัณฑ์ / ครุภัณฑ์',SteelAssembly:'Assembly เหล็กรูปพรรณ'},plan:'แปลน',sectionX:y=>`รูปตัด X–X (Y = ${y})`,sectionY:x=>`รูปตัด Y–Y (X = ${x})`,columnSection:(k,z)=>k==='pedestal'?`รูปตัดเสาตอม่อ Z–Z (Z = ${z})`:`แปลนเหล็กเสาเริ่ม Starter (Z = ${z})`,notes:'หมายเหตุ',legend:'สัญลักษณ์ Mark',
- coverNames:{bottom:'ล่าง',top:'บน',side:'ข้าง',edge:'ขอบ',face:'ผิว'},nts:'มิติทั้งหมดเป็นมิลลิเมตร (mm) · ไม่ใช้วัดจากแบบ (NTS)',cover:'ระยะหุ้มคอนกรีต C (Covering)',coupler:(l,st)=>`ปลายบนเหล็กยืนต่อด้วย Coupler (ข้อต่อทางกล): ${l}${st?` · เหลื่อมทีละครึ่ง ${st} mm`:''} · กล่องที่ปลายเหล็กในรูปตัด = Coupler`,pedestal:'เสาตอม่อ',
+ coverNames:{bottom:'ล่าง',top:'บน',side:'ข้าง',edge:'ขอบ',face:'ผิว'},nts:'มิติทั้งหมดเป็นมิลลิเมตร (mm) · ไม่ใช้วัดจากแบบ (NTS)',scaled:z=>`มิติทั้งหมดเป็นมิลลิเมตร (mm) · มาตราส่วนตามที่ระบุในแต่ละรูป เมื่อพิมพ์บนกระดาษ ${z} · ใช้ค่ามิติที่เขียนเป็นหลัก`,cover:'ระยะหุ้มคอนกรีต C (Covering)',coupler:(l,st)=>`ปลายบนเหล็กยืนต่อด้วย Coupler (ข้อต่อทางกล): ${l}${st?` · เหลื่อมทีละครึ่ง ${st} mm`:''} · กล่องที่ปลายเหล็กในรูปตัด = Coupler`,pedestal:'เสาตอม่อ',
  bendRadius:(s,l,t)=>`รัศมีดัดใน ${s}d (Ø ≤ 16) / ${l}d (Ø ≥ 20) · ปลอก ${t}d`,bendPerMark:'รัศมีดัดตามข้อมูลแต่ละ Mark',
  hooks:(a,b,min,lap)=>`เหล็กปลอก Ø6–Ø9 ขอ 135° = ${b}d ≥ ${min} mm · เหล็กปลอก Ø10 ขึ้นไป งอฉาก 90° = ${a}d · ทาบ ${lap}`,lapSpec:r=>`ตาม Spec (${r})`,
  concrete:mix=>`คอนกรีต ${mix}`,
@@ -36,7 +36,7 @@ const th:Text={
 };
 const en:Text={
  category:{Foundation:'Foundation',Beam:'Beam',Column:'Column',Slab:'Slab',Wall:'Wall',Stair:'Stair',Lift:'Lift / core',Custom:'Other element',UDitch:'U-ditch',VDitch:'V-ditch',Trench:'Trench',Manhole:'Manhole',Pit:'Pit',UGTank:'Underground tank',AGTank:'Above-ground tank',ConcretePaving:'Concrete paving',AsphaltPaving:'Asphalt paving',RCPipe:'RC pipe laying',PEPipe:'PE pipe laying',Room:'Room finishes',Opening:'Door / window',MasonryWall:'Masonry wall',Roof:'Roof',Railing:'Railing / handrail',Fixture:'Fixture / furniture',SteelAssembly:'Steel assembly'},plan:'Plan',sectionX:y=>`Section X–X (Y = ${y})`,sectionY:x=>`Section Y–Y (X = ${x})`,columnSection:(k,z)=>k==='pedestal'?`Pedestal section Z–Z (Z = ${z})`:`Starter bar layout (Z = ${z})`,notes:'Notes',legend:'Mark legend',
- coverNames:{bottom:'bottom',top:'top',side:'side',edge:'edge',face:'face'},nts:'All dimensions in millimetres (mm) · Do not scale (NTS)',cover:'Concrete cover C',coupler:(l,st)=>`Main bar top ends with mechanical couplers: ${l}${st?` · 50 % staggered ${st} mm`:''} · box at the bar end in sections = coupler`,pedestal:'Pedestal',
+ coverNames:{bottom:'bottom',top:'top',side:'side',edge:'edge',face:'face'},nts:'All dimensions in millimetres (mm) · Do not scale (NTS)',scaled:z=>`All dimensions in millimetres (mm) · Scales as shown on each view when printed on ${z} · Written dimensions govern`,cover:'Concrete cover C',coupler:(l,st)=>`Main bar top ends with mechanical couplers: ${l}${st?` · 50 % staggered ${st} mm`:''} · box at the bar end in sections = coupler`,pedestal:'Pedestal',
  bendRadius:(s,l,t)=>`Inner bend radius ${s}d (Ø ≤ 16) / ${l}d (Ø ≥ 20) · links ${t}d`,bendPerMark:'Bend radius as per each Mark',
  hooks:(a,b,min,lap)=>`links Ø6–Ø9: 135° hook = ${b}d ≥ ${min} mm · links Ø10 and larger: 90° hook = ${a}d · lap ${lap}`,lapSpec:r=>`per Spec (${r})`,
  concrete:mix=>`Concrete ${mix}`,
@@ -53,7 +53,7 @@ const en:Text={
 };
 const zh:Text={
  category:{Foundation:'基础',Beam:'梁',Column:'柱',Slab:'板',Wall:'墙',Stair:'楼梯',Lift:'电梯井',Custom:'其他构件',UDitch:'U型排水沟',VDitch:'V型排水沟',Trench:'电缆沟',Manhole:'检查井',Pit:'坑',UGTank:'地下水池',AGTank:'地上水池',ConcretePaving:'混凝土路面',AsphaltPaving:'沥青路面',RCPipe:'钢筋混凝土管',PEPipe:'PE管',Room:'房间装修',Opening:'门窗',MasonryWall:'砌体墙',Roof:'屋面',Railing:'栏杆扶手',Fixture:'洁具 / 家具',SteelAssembly:'钢结构构件'},plan:'平面图',sectionX:y=>`剖面 X–X (Y = ${y})`,sectionY:x=>`剖面 Y–Y (X = ${x})`,columnSection:(k,z)=>k==='pedestal'?`短柱剖面 Z–Z (Z = ${z})`:`插筋平面布置 (Z = ${z})`,notes:'说明',legend:'钢筋编号图例',
- coverNames:{bottom:'底',top:'顶',side:'侧',edge:'边',face:'面'},nts:'所有尺寸单位为毫米 (mm) · 不按比例 (NTS)',cover:'混凝土保护层 C',coupler:(l,st)=>`纵筋顶端采用机械连接套筒 (Coupler): ${l}${st?` · 50 % 错开 ${st} mm`:''} · 剖面中钢筋端部方框 = 套筒`,pedestal:'短柱',
+ coverNames:{bottom:'底',top:'顶',side:'侧',edge:'边',face:'面'},nts:'所有尺寸单位为毫米 (mm) · 不按比例 (NTS)',scaled:z=>`所有尺寸单位为毫米 (mm) · 比例见各图 (${z} 纸打印) · 以标注尺寸为准`,cover:'混凝土保护层 C',coupler:(l,st)=>`纵筋顶端采用机械连接套筒 (Coupler): ${l}${st?` · 50 % 错开 ${st} mm`:''} · 剖面中钢筋端部方框 = 套筒`,pedestal:'短柱',
  bendRadius:(s,l,t)=>`内弯曲半径 ${s}d (Ø ≤ 16) / ${l}d (Ø ≥ 20) · 箍筋 ${t}d`,bendPerMark:'弯曲半径按各钢筋编号',
  hooks:(a,b,min,lap)=>`箍筋 Ø6–Ø9 135° 弯钩 = ${b}d ≥ ${min} mm · 箍筋 Ø10 及以上 90° 弯钩 = ${a}d · 搭接 ${lap}`,lapSpec:r=>`按规范 (${r})`,
  concrete:mix=>`混凝土 ${mix}`,
