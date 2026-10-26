@@ -188,6 +188,22 @@
   the cover slab, one Mark via offsets + turns), horizontal loops (99), cover slab mesh around the opening (`meshBars`);
   paving = top (single) or both meshes. V-ditch prism lining is `t` square to the slopes (`vDitchInner`); A3 views draw
   prism members (`buildView`: profile / `prismSection`). Test: `tmp/civilRebar.test.tsx`.
+- Architecture Work (phase 3a): categories `Room` / `Opening` (`archCategories` in `src/domain/archInputSchema.ts`, quantity
+  only like pipes). Finish library `spec.finishes` (kind floor | skirting | wall | ceiling, code, BOQ items × factor per m² /
+  m; UI `FinishLibrary.tsx` in General Spec, Excel sheet “Finishes”, spec import key `finishes`, `sampleFinishes()`).
+  Member `archInput` room {size w × l or area / perimeter, ceiling height, finish codes, dado, openings} | opening {type,
+  w × h, description, items per set / area / frame length} → `applyArchInput()` (`src/domain/archInput.ts`) writes the
+  quantities as site items `arch-*` (other items kept; re-applied in the spec-change job). WBS kind `room` under a level
+  (`occurrence.loc.room`, label cache in `grid`, `roomLoc`, rooms copied / removed with their level). Schedules on the
+  Architecture page (`ArchSchedules.tsx`): room finish schedule, totals per finish, door / window schedule, Excel “Rooms” +
+  “Openings” (`src/data/archExcel.ts`; `planRoomImport` adds WBS rooms, member code = A-L2-201; `planOpeningImport`
+  places by WBS paths `A-L2-201×2`), and `syncRoomOpenings()` = wall / skirting deductions from the doors / windows placed
+  in each room. Owner BOQ: finish items by name (column K), `area` = room floor area. Test: `tmp/arch.test.tsx`.
+  Phase 3b: `MasonryWall` (kind `wall`: length × height − openings, type = library kind `masonry` WT, stiffener columns at
+  the ends / ≤ spacing / beside openings, lintels = opening width + 2 × bearing, tie beams × length, `wallQuantities()`; items
+  `เสาเอ็น / ทับหลัง / คานเอ็น ค.ส.ล.` in m) and `Roof` (kind `roof`: plan area / cos pitch, covering = library kind `roof`,
+  ridge / eave / verge m). Excel sheet “Walls” (`planWallImport`: openings by door / window type codes). Measures: wall
+  area = net, length; roof area = slope.
 - Owner / consultant BOQ chapters per project: `project.boqChapters` (`src/domain/boqChapters.ts`: items code / title / unit +
   optional `rule {component, disciplines, categories, mix, diameters, grades, buildings, siteItem}`; no rule = heading).
   `boqContributions()` = every quantity per occurrence (concrete, formwork, excavation, backfill, lean, rebar per bar,

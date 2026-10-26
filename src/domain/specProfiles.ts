@@ -5,6 +5,7 @@ import {codeDataSchema,codeValues,designCodeIdSchema,lapConcrete,lapGrades,type 
 import type {ProjectDesign} from './specDetailing';
 import {concreteSpecSchema} from './concreteMixes';
 import {foundationTemplatesSchema} from './foundationTemplates';
+import {finishesSchema} from './archInputSchema';
 import {beamTemplatesSchema} from './beamTemplates';
 export {DEFAULT_DESIGN,designOf,detailingFromSpec,specLabel,type ProjectDesign} from './specDetailing';
 
@@ -40,7 +41,9 @@ export const specImportSchema=z.object({format:z.literal('form-spec-import'),sou
  /** foundation types (replace those of the same name, others kept) */
  foundationTemplates:foundationTemplatesSchema.optional(),
  /** beam marks of the beam details (replace those of the same name, others kept) */
- beamTemplates:beamTemplatesSchema.optional()}).strict();
+ beamTemplates:beamTemplatesSchema.optional(),
+ /** finish library (replace those of the same kind + code, others kept) */
+ finishes:finishesSchema.optional()}).strict();
 export type SpecImport=z.infer<typeof specImportSchema>;
 /** Apply an import file to a spec; returns the new spec and a short list of what changed. */
 export function applySpecImport(spec:Spec,input:SpecImport){
@@ -57,6 +60,8 @@ export function applySpecImport(spec:Spec,input:SpecImport){
  if(input.foundationTemplates){const names=new Set(input.foundationTemplates.map(t=>t.name.toUpperCase()));foundationTemplates=[...(spec.foundationTemplates||[]).filter(t=>!names.has(t.name.toUpperCase())),...input.foundationTemplates];notes.push(`Foundation Template ${input.foundationTemplates.length} แบบ`);}
  let beamTemplates=spec.beamTemplates;
  if(input.beamTemplates){const names=new Set(input.beamTemplates.map(t=>t.name.toUpperCase()));beamTemplates=[...(spec.beamTemplates||[]).filter(t=>!names.has(t.name.toUpperCase())),...input.beamTemplates];notes.push(`Beam Template ${input.beamTemplates.length} เบอร์`);}
+ let finishes=spec.finishes;
+ if(input.finishes){const keys=new Set(input.finishes.map(f=>`${f.kind}|${f.code.toUpperCase()}`));finishes=[...(spec.finishes||[]).filter(f=>!keys.has(`${f.kind}|${f.code.toUpperCase()}`)),...input.finishes];notes.push(`วัสดุผิว ${input.finishes.length} รายการ`);}
  if(input.concrete)notes.push(`คอนกรีต ${input.concrete.mixes.length} Mix · ${input.concrete.uses.length} ประเภทชิ้นส่วน`);
- return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{})},notes};
+ return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{})},notes};
 }

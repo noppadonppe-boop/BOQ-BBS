@@ -2,12 +2,12 @@ import {z} from 'zod';
 import type {Member} from './model';
 
 // Project Location / WBS tree: buildings and external works at the root, levels / zones (and segments of external works)
-// below them. Flat list with parentId; levels and zones are independent dimensions of one building.
-export const locationKinds=['building','external','level','zone','segment'] as const;
+// below them, rooms below levels. Flat list with parentId; levels and zones are independent dimensions of one building.
+export const locationKinds=['building','external','level','zone','segment','room'] as const;
 export type LocationKind=typeof locationKinds[number];
-export const locationKindLabels:Record<LocationKind,string>={building:'อาคาร',external:'งานภายนอก',level:'ชั้น',zone:'โซน',segment:'ช่วง / สาย'};
+export const locationKindLabels:Record<LocationKind,string>={building:'อาคาร',external:'งานภายนอก',level:'ชั้น',zone:'โซน',segment:'ช่วง / สาย',room:'ห้อง'};
 export const rootKinds:LocationKind[]=['building','external'];
-export const childKinds=(parent:LocationKind):LocationKind[]=>parent==='building'?['level','zone']:parent==='external'?['segment','zone','level']:[];
+export const childKinds=(parent:LocationKind):LocationKind[]=>parent==='building'?['level','zone']:parent==='external'?['segment','zone','level']:parent==='level'?['room']:[];
 const id=z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 export const locationNodeSchema=z.object({
  id,kind:z.enum(locationKinds),parentId:id.nullable(),
@@ -22,7 +22,7 @@ export type LocationNode=z.infer<typeof locationNodeSchema>;
 export const locationsSchema=z.object({version:z.number().int().nonnegative(),nodes:z.array(locationNodeSchema).max(3000)}).strict();
 export type Locations=z.infer<typeof locationsSchema>;
 /** Occurrence reference (ids are the truth; occurrence.zone / floor / building stay as label cache). */
-export const occurrenceLocSchema=z.object({building:id.optional(),level:id.optional(),zone:id.optional(),segment:id.optional()}).strict();
+export const occurrenceLocSchema=z.object({building:id.optional(),level:id.optional(),zone:id.optional(),segment:id.optional(),room:id.optional()}).strict();
 export type OccurrenceLoc=z.infer<typeof occurrenceLocSchema>;
 export const emptyLocations=():Locations=>({version:1,nodes:[]});
 
@@ -54,11 +54,13 @@ export function locationTree(l:Locations|undefined):LocationTree{
  for(const a of kids.values())a.sort(sortNodes);
  return {byId,roots:nodes.filter(n=>!n.parentId).sort(sortNodes),children:(p,kind)=>(kids.get(p)||[]).filter(n=>!kind||n.kind===kind)};
 }
-/** WBS code, e.g. A-L02-Z1 / EXT-ROAD-01. */
+/** WBS code, e.g. A-L02-Z1 / EXT-ROAD-01 / A-L2-201 (room). */
 export function wbsCode(tree:LocationTree,loc:OccurrenceLoc|undefined):string{
- if(!loc)return '';return [loc.building,loc.level,loc.segment,loc.zone].map(i=>i&&tree.byId.get(i)?.code).filter(Boolean).join('-');
+ if(!loc)return '';return [loc.building,loc.level,loc.segment,loc.zone,loc.room].map(i=>i&&tree.byId.get(i)?.code).filter(Boolean).join('-');
 }
-export function nodePath(tree:LocationTree,n:LocationNode):string{const p=n.parentId?tree.byId.get(n.parentId):undefined;return p?`${p.code}-${n.code}`:n.code;}
+export function nodePath(tree:LocationTree,n:LocationNode):string{const p=n.parentId?tree.byId.get(n.parentId):undefined;return p?`${nodePath(tree,p)}-${n.code}`:n.code;}
+/** Building / level of a room node (rooms sit under a level). */
+export function roomLoc(tree:LocationTree,roomId:string):OccurrenceLoc|undefined{const r=tree.byId.get(roomId),lv=r?.parentId?tree.byId.get(r.parentId):undefined,b=lv?.parentId?tree.byId.get(lv.parentId):undefined;return r?.kind==='room'&&lv&&b?{building:b.id,level:lv.id,room:r.id}:undefined;}
 
 export const nextOrder=(l:Locations,parentId:string|null,kind:LocationKind)=>Math.max(-1,...l.nodes.filter(n=>n.parentId===parentId&&(n.kind===kind||!parentId)).map(n=>n.order))+1;
 export const newLocationId=()=>crypto.randomUUID().replace(/-/g,'').slice(0,20);
@@ -81,10 +83,11 @@ export function copyRoot(l:Locations,sourceId:string,code:string,name:string):Lo
  const src=l.nodes.find(n=>n.id===sourceId);if(!src||src.parentId)throw Error('ไม่พบอาคารต้นแบบ');
  const root={...src,id:newLocationId(),code,name,order:nextOrder(l,null,src.kind),ifcGuid:undefined,archived:undefined},map=new Map<string,string>();
  const kids=l.nodes.filter(n=>n.parentId===sourceId).map(n=>{const c={...n,id:newLocationId(),parentId:root.id,ifcGuid:undefined};map.set(n.id,c.id);return c;});
- return {...l,nodes:[...l.nodes,root,...kids.map(n=>n.levels?{...n,levels:n.levels.map(i=>map.get(i)!).filter(Boolean)}:n)]};
+ const rooms=l.nodes.filter(n=>n.parentId&&map.has(n.parentId)).map(n=>({...n,id:newLocationId(),parentId:map.get(n.parentId!)!,ifcGuid:undefined}));
+ return {...l,nodes:[...l.nodes,root,...kids.map(n=>n.levels?{...n,levels:n.levels.map(i=>map.get(i)!).filter(Boolean)}:n),...rooms]};
 }
 export function removeNode(l:Locations,nodeId:string):Locations{
- const gone=new Set([nodeId,...l.nodes.filter(n=>n.parentId===nodeId).map(n=>n.id)]);
+ const gone=new Set([nodeId]);for(let grew=true;grew;){grew=false;for(const n of l.nodes)if(n.parentId&&gone.has(n.parentId)&&!gone.has(n.id)){gone.add(n.id);grew=true;}}
  return {...l,nodes:l.nodes.filter(n=>!gone.has(n.id)).map(n=>n.levels?.some(i=>gone.has(i))?{...n,levels:n.levels.filter(i=>!gone.has(i))}:n)};
 }
 /** Swap order with the previous / next sibling of the same kind. */
@@ -138,6 +141,7 @@ export function locIssues(tree:LocationTree,loc:OccurrenceLoc):string[]{
  if(!loc.building)return Object.values(loc).some(Boolean)?['เลือกอาคาร / งานภายนอกก่อน']:[];
  if(!b||b.parentId)return ['ไม่พบอาคาร / งานภายนอก'];
  for(const k of ['level','zone','segment'] as const){const id=loc[k];if(!id)continue;const n=tree.byId.get(id);if(!n||n.kind!==k||n.parentId!==b.id)out.push(`${k} ไม่อยู่ใน ${b.code}`);}
+ if(loc.room){const r=tree.byId.get(loc.room);if(!r||r.kind!=='room'||!loc.level||r.parentId!==loc.level)out.push('ห้องไม่อยู่ในชั้นที่เลือก');}
  const z=loc.zone?tree.byId.get(loc.zone):undefined;if(z?.levels?.length&&loc.level&&!z.levels.includes(loc.level))out.push(`โซน ${z.code} ไม่ได้ใช้กับชั้นนี้`);
  if(loc.level&&loc.segment)out.push('เลือกชั้นหรือช่วงอย่างใดอย่างหนึ่ง');
  return out;
@@ -147,7 +151,8 @@ export function withLoc(tree:LocationTree,o:Occ,loc:OccurrenceLoc):Occ{
  const clean=Object.fromEntries(Object.entries(loc).filter(([,v])=>v)) as OccurrenceLoc;
  if(!clean.building){const {loc:_l,building:_b,...rest}=o;return rest;}
  const code=(id?:string)=>id?tree.byId.get(id)?.code||'':'';
- return {...o,loc:clean,building:code(clean.building),floor:code(clean.level||clean.segment),zone:code(clean.zone)};
+ // a room's code is kept in the grid label (the old free-text position)
+ return {...o,loc:clean,building:code(clean.building),floor:code(clean.level||clean.segment),zone:code(clean.zone),...(clean.room?{grid:code(clean.room)}:{})};
 }
 /** Free-text zone / floor edit on a linked row: drop the link so labels and loc never disagree. */
 export function unlinkLoc<T extends Occ>(o:T):T{if(!o.loc&&o.building===undefined)return o;const {loc:_l,building:_b,...rest}=o;return rest as T;}
@@ -155,7 +160,8 @@ export function unlinkLoc<T extends Occ>(o:T):T{if(!o.loc&&o.building===undefine
 export function mapLocByCode(from:LocationTree,to:LocationTree,loc:OccurrenceLoc|undefined):OccurrenceLoc{
  const b=loc?.building&&from.byId.get(loc.building),root=b&&to.roots.find(r=>r.code===b.code&&r.kind===b.kind&&!r.archived);if(!root)return {};
  const pick=(id:string|undefined,kind:'level'|'segment'|'zone')=>{const c=id&&from.byId.get(id)?.code;return c?to.children(root.id,kind).find(n=>n.code===c&&!n.archived)?.id:undefined;};
- return Object.fromEntries(Object.entries({building:root.id,level:pick(loc!.level,'level'),segment:pick(loc!.segment,'segment'),zone:pick(loc!.zone,'zone')}).filter(([,v])=>v)) as OccurrenceLoc;
+ const level=pick(loc!.level,'level'),rc=loc!.room&&from.byId.get(loc!.room)?.code,room=level&&rc?to.children(level,'room').find(n=>n.code===rc&&!n.archived)?.id:undefined;
+ return Object.fromEntries(Object.entries({building:root.id,level,segment:pick(loc!.segment,'segment'),zone:pick(loc!.zone,'zone'),room}).filter(([,v])=>v)) as OccurrenceLoc;
 }
 /** Save-time check: linked occurrences must point at existing, consistent WBS nodes. */
 export function occurrenceLocProblems(locations:Locations|undefined,occurrences:Occ[]):string[]{
@@ -184,7 +190,7 @@ export function wbsGroupDisplay(tree:LocationTree,raw:string):{label:string;rank
 }
 export function atLocation(tree:LocationTree,node:LocationNode,o:Occ):'id'|'label'|false{
  const loc=o.loc;
- if(loc)return (node.parentId?loc[node.kind as 'level'|'zone'|'segment']===node.id:loc.building===node.id||tree.children(node.id).some(k=>Object.values(loc).includes(k.id)))&&'id';
+ if(loc)return (node.parentId?loc[node.kind as 'level'|'zone'|'segment'|'room']===node.id:loc.building===node.id||tree.children(node.id).some(k=>Object.values(loc).includes(k.id)))&&'id';
  if(tree.roots.length!==1)return false;if(!node.parentId)return 'label';
  const s=(node.kind==='level'?o.floor:node.kind==='zone'?o.zone:'').trim().toUpperCase();
  return !!s&&(s===node.code.toUpperCase()||s===node.name.trim().toUpperCase())&&'label';

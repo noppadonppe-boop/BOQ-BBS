@@ -13,14 +13,16 @@ import {atLocation,childKinds,copyRoot,defaultLevelPlan,emptyLocations,generateL
 
 type Tool=null|'levels'|'copy'|'suggest'|'rename'|'import';
 type Takeoff=ReturnType<typeof takeoff>;
-const prefix:Record<LocationKind,string>={building:'',external:'EXT',level:'L',zone:'Z',segment:'S'};
+const prefix:Record<LocationKind,string>={building:'',external:'EXT',level:'L',zone:'Z',segment:'S',room:''};
 function freeCode(l:Locations,parentId:string|null,kind:LocationKind){
  const used=new Set(l.nodes.filter(n=>n.parentId===parentId&&(parentId?n.kind===kind:true)).map(n=>n.code.toUpperCase()));
+ // rooms: level number + running number (L2 → 201, 202 …)
+ if(kind==='room'){const lv=l.nodes.find(n=>n.id===parentId)?.code.replace(/\D/g,'')||'';for(let i=1;;i++){const c=`${lv}${String(i).padStart(2,'0')}`;if(!used.has(c))return c;}}
  if(kind==='building'){for(let i=0;i<26*27;i++){const c=i<26?String.fromCharCode(65+i):String.fromCharCode(64+Math.floor(i/26))+String.fromCharCode(65+i%26);if(!used.has(c))return c;}}
  if(kind==='external'&&!used.has('EXT'))return 'EXT';
  for(let i=1;;i++)if(!used.has(prefix[kind]+i))return prefix[kind]+i;
 }
-const defaultName=(kind:LocationKind,code:string)=>kind==='building'?`อาคาร ${code}`:kind==='external'?'งานภายนอกอาคาร':kind==='level'?`ชั้น ${code.replace(/^L0*/,'')}`:kind==='zone'?`Zone ${code.replace(/^Z/,'')}`:code;
+const defaultName=(kind:LocationKind,code:string)=>kind==='building'?`อาคาร ${code}`:kind==='external'?'งานภายนอกอาคาร':kind==='level'?`ชั้น ${code.replace(/^L0*/,'')}`:kind==='zone'?`Zone ${code.replace(/^Z/,'')}`:kind==='room'?`ห้อง ${code}`:code;
 
 /** Project menu “โครงสร้าง WBS / ตำแหน่ง”: buildings / external works → levels, zones, segments (`project.locations`). */
 export function LocationsPage({project,members,totals,canEdit,busy,run}:{project:Project;members:Member[];totals:Takeoff[];canEdit:boolean;busy:boolean;run:(f:()=>Promise<unknown>,message?:string)=>void}){
@@ -67,7 +69,7 @@ export function LocationsPage({project,members,totals,canEdit,busy,run}:{project
 
 export function NodeDetail({node,draft,tree,disabled,patch,edit,add,tool,setTool,usage,linked=0,onRename,onRemove,onSelect}:{node:LocationNode;draft:Locations;tree:ReturnType<typeof locationTree>;disabled:boolean;patch:(p:Partial<LocationNode>)=>void;edit:(l:Locations)=>void;add:(k:LocationKind,parent:string|null)=>void;tool:Tool;setTool:(t:Tool)=>void;usage:number;linked?:number;onRename?:()=>void;onRemove:()=>void;onSelect:(id:string)=>void}){
  const parent=node.parentId?tree.byId.get(node.parentId):undefined,root=!parent,levels=parent?tree.children(parent.id,'level'):[];
- const kids=root?draft.nodes.filter(n=>n.parentId===node.id).length:0;
+ const kids=draft.nodes.filter(n=>n.parentId===node.id).length,rooms=node.kind==='level'?tree.children(node.id,'room'):[];
  return <>
   <div className="section-heading"><div><small className="eyebrow">{locationKindLabels[node.kind]}{parent?` · ${parent.code} ${parent.name}`:''}</small><h3>{parent?`${parent.code}-`:''}{node.code} <span className="muted">{node.name}</span></h3></div>
    <span className="actions"><button disabled={disabled} aria-label="เลื่อนขึ้น" onClick={()=>edit(moveNode(draft,node.id,-1))}><ChevronUp size={15}/></button><button disabled={disabled} aria-label="เลื่อนลง" onClick={()=>edit(moveNode(draft,node.id,1))}><ChevronDown size={15}/></button></span></div>
@@ -82,9 +84,10 @@ export function NodeDetail({node,draft,tree,disabled,patch,edit,add,tool,setTool
   </div>
   {node.kind==='zone'&&levels.length>0&&<fieldset className="wbs-levels"><legend>ใช้กับชั้น {node.levels?.length?`(${node.levels.length})`:'(ทุกชั้น)'}</legend>{levels.map(l=><label className="check" key={l.id}><input type="checkbox" disabled={disabled} checked={!!node.levels?.includes(l.id)} onChange={e=>{const next=e.target.checked?[...(node.levels||[]),l.id]:(node.levels||[]).filter(i=>i!==l.id);patch({levels:next.length?next:undefined});}}/>{l.code}</label>)}</fieldset>}
   {root&&<div className="actions wbs-actions">{childKinds(node.kind).map(k=><button key={k} disabled={disabled} onClick={()=>add(k,node.id)}><Plus size={14}/>{locationKindLabels[k]}</button>)}<button disabled={disabled} onClick={()=>setTool(tool==='levels'?null:'levels')}><Layers size={14}/>สร้างชั้นอัตโนมัติ</button><button disabled={disabled} onClick={()=>setTool(tool==='copy'?null:'copy')}><Copy size={14}/>คัดลอก{locationKindLabels[node.kind]}นี้</button></div>}
+  {node.kind==='level'&&<div className="wbs-rooms"><small className="muted">ห้องในชั้นนี้ ({rooms.length}) · ใช้เป็นตำแหน่งของงานสถาปัตย์ (ตารางงานผิว / ประตู-หน้าต่าง)</small><div className="wbs-chips">{rooms.map(c=><button key={c.id} title={c.name} className={`wbs-chip${c.archived?' archived':''}`} onClick={()=>onSelect(c.id)}>{c.code}</button>)}</div><button disabled={disabled} onClick={()=>add('room',node.id)}><Plus size={14}/>ห้อง</button></div>}
   {root&&tool==='levels'&&<LevelTool root={node} draft={draft} tree={tree} onApply={l=>{edit(l);setTool(null);}}/>}
   {root&&tool==='copy'&&<CopyTool root={node} draft={draft} onApply={(l,id)=>{edit(l);setTool(null);onSelect(id);}}/>}
-  <footer className="wbs-remove">{usage>0?<small className="muted">มีตำแหน่งสมาชิกอ้างอยู่ {usage} แถว · ลบไม่ได้ ใช้ “เลิกใช้” แทน</small>:<button className="danger-text" disabled={disabled} onClick={()=>{if(!kids||confirm(`ลบ ${node.code} พร้อมชั้น / โซน / ช่วงข้างใน ${kids} รายการ?`))onRemove();}}><Trash2 size={14}/>ลบ{locationKindLabels[node.kind]}</button>}</footer>
+  <footer className="wbs-remove">{usage>0?<small className="muted">มีตำแหน่งสมาชิกอ้างอยู่ {usage} แถว · ลบไม่ได้ ใช้ “เลิกใช้” แทน</small>:<button className="danger-text" disabled={disabled} onClick={()=>{if(!kids||confirm(`ลบ ${node.code} พร้อมรายการข้างใน ${kids} รายการ?`))onRemove();}}><Trash2 size={14}/>ลบ{locationKindLabels[node.kind]}</button>}</footer>
  </>;
 }
 
@@ -130,7 +133,7 @@ function Summary({tree,node,members,totals,linked,occurrences}:{tree:ReturnType<
  const count=(k:LocationKind)=>[...tree.byId.values()].filter(n=>n.kind===k).length;
  return <aside className="panel padded wbs-summary"><h3>สรุป</h3>
   {sum&&node?<><p className="muted">{node.parentId?`${tree.byId.get(node.parentId)?.code}-`:''}{node.code}</p><dl><dt>สมาชิก</dt><dd>{sum.members}</dd><dt>แถวตำแหน่ง / จำนวน</dt><dd>{sum.rows} / {sum.qty}</dd><dt>คอนกรีต</dt><dd>{number(sum.concrete)} m³</dd><dt>แบบหล่อ</dt><dd>{number(sum.formwork)} m²</dd><dt>เหล็ก (ที่กรอก)</dt><dd>{number(sum.rebar)} kg</dd></dl>{sum.label&&<p className="notice">นับจากชื่อ Zone / ชั้นเดิม (ยังไม่ได้ย้ายข้อมูลสมาชิกเข้า WBS)</p>}{tree.roots.length>1&&!sum.rows&&<p className="muted">หลายอาคาร: นับเฉพาะสมาชิกที่ย้ายเข้า WBS แล้ว</p>}</>
-  :<dl><dt>อาคาร</dt><dd>{count('building')}</dd><dt>งานภายนอก</dt><dd>{count('external')}</dd><dt>ชั้น</dt><dd>{count('level')}</dd><dt>โซน</dt><dd>{count('zone')}</dd><dt>ช่วง / สาย</dt><dd>{count('segment')}</dd><dt>แถวตำแหน่งที่ผูก WBS</dt><dd>{linked} / {occurrences}</dd></dl>}
+  :<dl><dt>อาคาร</dt><dd>{count('building')}</dd><dt>งานภายนอก</dt><dd>{count('external')}</dd><dt>ชั้น</dt><dd>{count('level')}</dd><dt>โซน</dt><dd>{count('zone')}</dd><dt>ช่วง / สาย</dt><dd>{count('segment')}</dd><dt>ห้อง</dt><dd>{count('room')}</dd><dt>แถวตำแหน่งที่ผูก WBS</dt><dd>{linked} / {occurrences}</dd></dl>}
  </aside>;
 }
 

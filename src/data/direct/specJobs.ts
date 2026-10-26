@@ -5,6 +5,7 @@ import {readCollectionPages} from '../collections';
 import {attachmentSchema,Attachment,Member,Project,Spec,specSchema,SpecChangeState,SnapshotFile} from '../../domain/model';
 import {validateMember} from '../../domain/engine';
 import {applyElementInput,elementInputSchema,isGeneratedBar} from '../../domain/elementInput';
+import {applyArchInput} from '../../domain/archInput';
 import {detailingFromSpec} from '../../domain/specProfiles';
 import {syncColumnTemplate} from '../../domain/columnTemplates';
 import {syncBeamTemplates} from '../../domain/beamTemplates';
@@ -68,6 +69,8 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
  // A spec change re-derives the element-input detailing (bends, laps, grade) from the new spec and
  // regenerates the auto bars (gen-*) of members built from element input; manual bars are kept.
  const regenerate=(m:Member):Member|undefined=>{
+  // rooms / doors / windows: BOQ items follow the finish library of the new spec
+  if(action==='beginSpecChange'&&m.archInput){try{const next=applyArchInput(m,m.archInput,spec);return validateMember(next,spec).length?undefined:next;}catch{return;}}
   if(action!=='beginSpecChange'||!m.elementInput)return;
   const parsed=elementInputSchema.safeParse(m.elementInput);if(!parsed.success||parsed.data.category!==m.category)return;
   // columns linked to a Project Column Template follow the template of the new spec

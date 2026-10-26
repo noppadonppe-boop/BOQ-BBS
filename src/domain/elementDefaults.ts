@@ -77,7 +77,12 @@ const profiles:Record<Category,ElementDefaultProfile>={
     quantityBasis:'กล่องพื้นฐาน X × Y × Z',
     notes:['ใช้ Geometry editor เมื่อรูปทรงไม่ใช่กล่องพื้นฐาน']
   },
-  ...civilProfiles()
+  ...civilProfiles(),
+  // Architecture Work (phase 3a): quantity only, from the form “งานสถาปัตย์” (finish library of the spec)
+  Room:{category:'Room',dimensions:[4000,4000,2700],cover:0,faces:[false,false,false,false,false,false],description:'ห้อง / พื้นที่ (ตารางงานผิว)',reinforcement:'ไม่มีเหล็กเสริม',quantityBasis:'พื้น / ฝ้า = พื้นที่ห้อง · ผนัง = เส้นรอบรูป × สูงฝ้า − ช่องเปิด · บัว = เส้นรอบรูป − ความกว้างประตู',notes:['X × Y = กว้าง × ยาว (หรือกรอกพื้นที่ / เส้นรอบรูปตามแบบ), Z = สูงฝ้า','วัสดุผิวเลือกจากคลังวัสดุผิวใน General Spec']},
+  Opening:{category:'Opening',dimensions:[900,100,2000],cover:0,faces:[false,false,false,false,false,false],description:'ประตู / หน้าต่าง (ตาราง Door / Window)',reinforcement:'ไม่มีเหล็กเสริม',quantityBasis:'จำนวนชุด · พื้นที่ช่องเปิด · ความยาววงกบ ตามรายการของแบบ',notes:['รหัสสมาชิก = แบบประตู / หน้าต่าง (D1, W1 …) · ตำแหน่ง = ห้อง / ชั้น ใน WBS']},
+  MasonryWall:{category:'MasonryWall',dimensions:[5000,100,3000],cover:0,faces:[false,false,false,false,false,false],description:'ผนังก่อ (ชนิดผนังตามแบบ)',reinforcement:'เสาเอ็น / ทับหลัง / คานเอ็น ค.ส.ล. (คิดเป็นความยาว)',quantityBasis:'ยาว × สูง − ช่องเปิด · เสาเอ็นที่ปลาย ทุกระยะ และข้างช่องเปิด · ทับหลัง = กว้างช่องเปิด + ระยะฝาก 2 ข้าง',notes:['X = ความยาวแนวผนัง, Y = ความหนา, Z = ความสูง','ชนิดผนัง (อิฐ / บล็อก + ฉาบ) เลือกจากคลังวัสดุผิว → ผนังก่อ']},
+  Roof:{category:'Roof',dimensions:[10000,12000,1000],cover:0,faces:[false,false,false,false,false,false],description:'หลังคา (วัสดุมุง)',reinforcement:'ไม่มีเหล็กเสริม',quantityBasis:'พื้นที่แปลน / cos(มุมลาด) · ครอบสัน เชิงชาย ปั้นลม เป็นความยาว',notes:['วัสดุมุงเลือกจากคลังวัสดุผิว → หลังคา']},
 };
 // Civil Work (phase 2a): geometry from the parametric form “รูปทรงสำเร็จรูป”, bars with the free-form tools
 function civilProfiles():Record<CivilCategory,ElementDefaultProfile>{

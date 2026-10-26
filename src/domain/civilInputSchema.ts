@@ -3,8 +3,8 @@ import {z} from 'zod';
 // Parametric input of Civil Work members (phase 2a). Generators in civilInput.ts turn it into the existing geometry
 // (shape model / prism) or quantity-only site items; reinforcement: automatic (civilRebar.ts) or the free-form tools.
 export const civilCategories=['UDitch','VDitch','Trench','Manhole','Pit','UGTank','AGTank','ConcretePaving','AsphaltPaving','RCPipe','PEPipe'] as const;
-/** Civil members measured without concrete (no BBS): asphalt layers, precast RC / PE pipes. */
-export const quantityOnlyCategories:readonly string[]=['AsphaltPaving','RCPipe','PEPipe'];
+/** Members measured without concrete (no BBS): asphalt layers, precast RC / PE pipes, rooms, doors / windows, masonry walls, roofs. */
+export const quantityOnlyCategories:readonly string[]=['AsphaltPaving','RCPipe','PEPipe','Room','Opening','MasonryWall','Roof'];
 export type CivilCategory=typeof civilCategories[number];
 const mm=z.number().finite().min(0).max(200000),len=z.number().finite().positive().max(200000);
 /** Earthwork of buried parts: excavation to the underside of the lean layer, working space each side, lean layer. */

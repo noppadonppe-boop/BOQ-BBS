@@ -10,6 +10,7 @@ import {siteKinds,siteLabels,siteUnits} from './siteWork';
 import {locationTree} from './locations';
 import {quantityBasisCoverage} from './quantityBasis';
 import {civilMeasures} from './civilInput';
+import {archMeasures} from './archInput';
 import {reinforcementCoverage} from './reinforcementCoverage';
 
 // Owner / consultant BOQ chapters per project (`project.boqChapters`): the owner's item list (code 1 / 1.1 / 1.1.2,
@@ -59,7 +60,7 @@ export function boqContributions(bundle:SnapshotBundle):Contribution[]{
  const out:Contribution[]=[],tree=locationTree(bundle.project.locations);
  for(const m of bundle.members){
   const frozen=bundle.calculations?.[m.id],q=frozen||takeoff(m,bundle.project.spec),category=reportCategory(m),discipline=disciplineOf(m.category),mix=memberConcrete(m),fc=(m.elementInput as {detailing?:{concrete?:{fc?:number}}}|undefined)?.detailing?.concrete?.fc;
-  const pile=pileInput(m),pq=pile?pileQuantities(pile):undefined,cm=civilMeasures(m);
+  const pile=pileInput(m),pq=pile?pileQuantities(pile):undefined,cm={...civilMeasures(m),...archMeasures(m)};
   for(const o of m.occurrences){
    const building=(o.loc?.building&&tree.byId.get(o.loc.building)?.code)||o.building||'',base={memberId:m.id,category,discipline,mix,fc,building};
    for(const k of ['concrete','formwork','excavation','backfill','lean'] as const){const v=(q as unknown as Record<string,number>)[k]||0;if(v>0)out.push({...base,component:k,value:v*o.quantity,unit:baseUnits[k],label:boqComponentLabels[k]});}

@@ -4,6 +4,7 @@ import {labels,type Category,type Member,type Project} from '../domain/model';
 import {disciplineInfo,disciplineOf,disciplines,projectDisciplines,type Discipline} from '../domain/disciplines';
 import type {takeoff} from '../domain/engine';
 import {number} from './EditorControls';
+import {ArchSchedules} from './ArchSchedules';
 
 export const disciplineIcons:Record<Discipline,typeof Layers3>={RC:Building2,Steel:Factory,Civil:Route,Arch:DoorOpen};
 export const disciplinePage=(d:Discipline)=>`disc-${d}`;
@@ -26,7 +27,7 @@ export function DisciplineNav({project,members,available,page,go,children}:{proj
 
 type Takeoff=ReturnType<typeof takeoff>;
 /** Overview of one discipline: categories with counts and quantities, or what the discipline will hold. */
-export function DisciplinePage({discipline,members,totals,canEdit,go}:{discipline:Discipline;members:Member[];totals:Takeoff[];canEdit:boolean;go:(page:string)=>void}){
+export function DisciplinePage({discipline,project,members,totals,canEdit,canEditMembers=false,busy=false,run,go}:{discipline:Discipline;project?:Project;members:Member[];totals:Takeoff[];canEdit:boolean;canEditMembers?:boolean;busy?:boolean;run?:(f:()=>Promise<unknown>,message?:string)=>void;go:(page:string)=>void}){
  const info=disciplineInfo[discipline],Icon=disciplineIcons[discipline];
  const rows=info.categories.map(c=>{let n=0,qty=0,concrete=0,formwork=0,rebar=0;members.forEach((m,i)=>{if(m.category!==c)return;const q=totals[i];n++;if(!q)return;qty+=q.quantity;concrete+=q.concrete*q.quantity;formwork+=q.formwork*q.quantity;rebar+=q.rebar*q.quantity;});return {c,n,qty,concrete,formwork,rebar};});
  const sum=(k:'n'|'qty'|'concrete'|'formwork'|'rebar')=>rows.reduce((t,r)=>t+r[k],0);
@@ -35,8 +36,9 @@ export function DisciplinePage({discipline,members,totals,canEdit,go}:{disciplin
   {info.categories.length?<section className="panel padded"><div className="table-scroll"><table><thead><tr><th>ประเภทองค์ประกอบ</th><th className="num">สมาชิก</th><th className="num">จำนวนชิ้น</th><th className="num">คอนกรีต m³</th><th className="num">แบบหล่อ m²</th><th className="num">เหล็กที่กรอก kg</th><th/></tr></thead><tbody>
    {rows.map(r=><tr key={r.c}><td>{labels[r.c]}{(r.c==='Stair'||r.c==='Lift')&&<small className="block muted">ใช้เครื่องมือรูปทรง / Prism และวาดเหล็กบนรูปตัด</small>}</td><td className="num">{r.n}</td><td className="num">{number(r.qty,0)}</td><td className="num">{number(r.concrete)}</td><td className="num">{number(r.formwork)}</td><td className="num">{number(r.rebar)}</td><td><button onClick={()=>go(r.c)}>เปิด</button></td></tr>)}
    <tr className="total"><td>TOTAL</td><td className="num">{sum('n')}</td><td className="num">{number(sum('qty'),0)}</td><td className="num">{number(sum('concrete'))}</td><td className="num">{number(sum('formwork'))}</td><td className="num">{number(sum('rebar'))}</td><td/></tr>
-  </tbody></table></div><p className="muted">ปริมาณจากข้อมูลทำงานล่าสุด · BOQ Summary จัดกลุ่ม “หมวดงาน” ได้</p></section>
-  :<section className="panel padded"><p className="notice">หมวดนี้เปิดใช้ในโครงการแล้ว · ประเภทองค์ประกอบและเครื่องมือ{info.deliverable}จะเพิ่มในระยะถัดไป</p><h3>รายการที่จะรองรับ</h3><ul>{info.planned.map(p=><li key={p}>{p}</li>)}</ul>{canEdit&&<p className="muted">ปิดหมวดนี้ได้ที่ “โครงการ & สำรองข้อมูล” → หมวดงานในโครงการ</p>}</section>}
+  </tbody></table></div><p className="muted">ปริมาณจากข้อมูลทำงานล่าสุด · BOQ Summary จัดกลุ่ม “หมวดงาน” ได้</p></section>:null}
+  {discipline==='Arch'&&project&&run&&<ArchSchedules project={project} members={members} canEdit={canEditMembers} busy={busy} run={run}/>}
+  {!info.categories.length&&<section className="panel padded"><p className="notice">หมวดนี้เปิดใช้ในโครงการแล้ว · ประเภทองค์ประกอบและเครื่องมือ{info.deliverable}จะเพิ่มในระยะถัดไป</p><h3>รายการที่จะรองรับ</h3><ul>{info.planned.map(p=><li key={p}>{p}</li>)}</ul>{canEdit&&<p className="muted">ปิดหมวดนี้ได้ที่ “โครงการ & สำรองข้อมูล” → หมวดงานในโครงการ</p>}</section>}
  </>;
 }
 

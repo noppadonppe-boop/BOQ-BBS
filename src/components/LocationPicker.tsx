@@ -10,7 +10,8 @@ const live=(n:LocationNode,current?:string)=>!n.archived||n.id===current;
 function rebase(tree:LocationTree,loc:OccurrenceLoc,building:string):OccurrenceLoc{
  if(!building)return {};
  const kids=tree.children(building),same=(id:string|undefined,kind:'level'|'zone'|'segment')=>{const c=id&&tree.byId.get(id)?.code;return c?kids.find(n=>n.kind===kind&&n.code===c&&!n.archived)?.id:undefined;};
- return {building,level:same(loc.level,'level'),segment:same(loc.segment,'segment'),zone:same(loc.zone,'zone')};
+ const level=same(loc.level,'level'),rc=loc.room&&tree.byId.get(loc.room)?.code,room=level&&rc?tree.children(level,'room').find(n=>n.code===rc&&!n.archived)?.id:undefined;
+ return {building,level,segment:same(loc.segment,'segment'),zone:same(loc.zone,'zone'),room};
 }
 /** Building · level / segment · zone of one occurrence: WBS selects, or the old free text when the row is not linked. */
 export function LocationCells({tree,o,onChange,disabled,as='td',index,textFallback=true}:{tree:LocationTree;o:Occ;onChange:(o:Occ)=>void;disabled?:boolean;as?:'td'|'field';index?:number;textFallback?:boolean}){
@@ -18,8 +19,11 @@ export function LocationCells({tree,o,onChange,disabled,as='td',index,textFallba
  const set=(next:OccurrenceLoc)=>onChange(withLoc(tree,o,next));
  const cell=(label:string,node:React.ReactNode,key:string)=>as==='td'?<td key={key}>{node}</td>:<label className="field" key={key}><span>{label}{n}</span>{node}</label>;
  const building=<select aria-label={`อาคาร${n}`} disabled={disabled} value={b||''} onChange={e=>set(rebase(tree,loc,e.target.value))}><option value="">— ไม่ผูก WBS —</option>{tree.roots.filter(r=>live(r,b)).map(r=><option key={r.id} value={r.id}>{r.code} {r.name}</option>)}</select>;
- const level=b?<select aria-label={`ชั้น / ช่วง${n}`} disabled={disabled} value={loc.level?`l:${loc.level}`:loc.segment?`s:${loc.segment}`:''} onChange={e=>{const [t,id]=e.target.value.split(':');set({...loc,level:t==='l'?id:undefined,segment:t==='s'?id:undefined});}}><option value="">—</option>
-  {kids.filter(k=>k.kind==='level'&&live(k,loc.level)).map(k=><option key={k.id} value={`l:${k.id}`}>{k.code} {k.name}</option>)}{kids.filter(k=>k.kind==='segment'&&live(k,loc.segment)).map(k=><option key={k.id} value={`s:${k.id}`}>{k.code} {k.name}</option>)}</select>
+ // rooms of the chosen level: second select in the same cell (the columns stay building · level · zone)
+ const rooms=loc.level?tree.children(loc.level,'room').filter(r=>live(r,loc.room)):[];
+ const room=rooms.length>0&&<select aria-label={`ห้อง${n}`} disabled={disabled} value={loc.room||''} onChange={e=>set({...loc,room:e.target.value||undefined})}><option value="">— ทั้งชั้น —</option>{rooms.map(r=><option key={r.id} value={r.id}>{r.code} {r.name}</option>)}</select>;
+ const level=b?<><select aria-label={`ชั้น / ช่วง${n}`} disabled={disabled} value={loc.level?`l:${loc.level}`:loc.segment?`s:${loc.segment}`:''} onChange={e=>{const [t,id]=e.target.value.split(':');set({...loc,level:t==='l'?id:undefined,segment:t==='s'?id:undefined,room:undefined});}}><option value="">—</option>
+  {kids.filter(k=>k.kind==='level'&&live(k,loc.level)).map(k=><option key={k.id} value={`l:${k.id}`}>{k.code} {k.name}</option>)}{kids.filter(k=>k.kind==='segment'&&live(k,loc.segment)).map(k=><option key={k.id} value={`s:${k.id}`}>{k.code} {k.name}</option>)}</select>{room}</>
   :<input aria-label={`ชั้น${n}`} disabled={disabled} maxLength={80} placeholder="ชั้น (ข้อความ)" value={o.floor} onChange={e=>onChange({...o,floor:e.target.value})}/>;
  const zone=b?<select aria-label={`โซน${n}`} disabled={disabled} value={loc.zone||''} onChange={e=>set({...loc,zone:e.target.value||undefined})}><option value="">—</option>
   {kids.filter(k=>k.kind==='zone'&&live(k,loc.zone)&&(!k.levels?.length||!loc.level||k.levels.includes(loc.level)||k.id===loc.zone)).map(k=><option key={k.id} value={k.id}>{k.code} {k.name}</option>)}</select>

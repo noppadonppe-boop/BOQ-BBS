@@ -388,3 +388,7 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .civil-rebar{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.civil-bar-set{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0}.civil-bar-set>span{min-width:210px;font-weight:500}.civil-bar-set input{width:80px}.civil-bar-set label{display:flex;align-items:center;gap:4px}
 .workflow-steps .spec-step-summary{display:block;margin-top:6px;color:var(--text);font-weight:600;line-height:1.4}.workflow-steps .spec-step{display:flex;flex-direction:column}.workflow-steps .spec-step button{margin-top:auto}.workflow-steps .spec-step .spec-step-summary+button{margin-top:8px}
 .modal:has(.project-spec-modal){width:min(1200px,100%)}.project-spec-modal .project-spec-grid{margin:0 0 16px}.modal footer.actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+.finish-library .finish-kind{margin:10px 0}.finish-kind-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}.finish-kind-head button{margin-left:auto}.finish-row{border:1px solid var(--border);border-radius:var(--r-sm,6px);padding:6px 10px;margin:4px 0}.finish-row summary{cursor:pointer}.finish-items{width:100%;font-size:12.5px;margin:6px 0}.finish-items input{width:100%;min-width:0}
+.wbs-rooms{margin:12px 0;display:grid;gap:6px;justify-items:start}
+.arch-schedules h4{margin:18px 0 6px}.arch-import{border:1px solid var(--border);border-radius:var(--r-sm,6px);padding:10px 12px;margin:10px 0}
+.arch-table code{white-space:nowrap}

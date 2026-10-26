@@ -25,6 +25,7 @@ export function wbsRenamePlan(members:Member[],locations:Locations|undefined,inp
    if(l.building===node.id)n.building=to;
    if((l.level===node.id||l.segment===node.id)&&o.floor===from){n.floor=to;relabelled=true;}
    if(l.zone===node.id&&o.zone===from){n.zone=to;relabelled=true;}
+   if(l.room===node.id&&o.grid===from){n.grid=to;relabelled=true;}
    if(canonical(n)!==canonical(o))touched=true;return n;
   });
   if(!touched)return [];

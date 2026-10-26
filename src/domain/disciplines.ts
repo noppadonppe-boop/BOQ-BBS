@@ -1,5 +1,6 @@
 import type {Category,Project} from './model';
 import {civilCategories,quantityOnlyCategories} from './civilInputSchema';
+import {archCategories} from './archInputSchema';
 
 // Work disciplines (หมวดงาน) above the element categories. A member's discipline follows its category, so existing
 // members are RC without any migration. Steel / Civil / Architecture get their categories in later phases.
@@ -10,7 +11,7 @@ export const disciplineInfo:Record<Discipline,DisciplineInfo>={
  RC:{label:'RC Structure',short:'RC',deliverable:'แบบ BBS',categories:['Foundation','Beam','Column','Slab','Wall','Stair','Lift','Custom'],planned:[]},
  Steel:{label:'Steel Structure',short:'Steel',deliverable:'Shop drawing',categories:[],planned:['เสา / คาน / Bracing (เหล็กรูปพรรณ)','Purlin / Girt / Truss','Connection: Base plate · End plate · Splice','Bolt / Weld · รายการวัสดุ (BOM)']},
  Civil:{label:'Civil Work',short:'Civil',deliverable:'แบบ BBS + ปริมาณ',categories:civilCategories,planned:[]},
- Arch:{label:'Architecture Work',short:'Arch',deliverable:'ปริมาณ + ตาราง Door / Window',categories:[],planned:['Floor / Wall finishing','Ceiling','Door / Window','Hand rail / อื่น ๆ']},
+ Arch:{label:'Architecture Work',short:'Arch',deliverable:'ปริมาณ + ตาราง Door / Window',categories:archCategories,planned:['Hand rail / อื่น ๆ']},
 };
 export const disciplineOf=(c:Category):Discipline=>disciplines.find(d=>disciplineInfo[d].categories.includes(c))||'RC';
 /** Disciplines shown in the project: chosen in Settings (default RC) plus any that already have members. */
