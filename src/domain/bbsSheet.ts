@@ -6,7 +6,7 @@ import {pourStageQuantities} from './solids';
 import type {ElementInput} from './elementInput';
 import {barCouplerEnds,footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
-import {buildView,columnSectionCut,defaultCuts,markColors,renderView,type ViewRow} from './elementViews';
+import {buildView,columnSectionCut,defaultCuts,markColors,planLayerOf,renderView,type ViewRow} from './elementViews';
 import {textWidth,wrapText,type Prim} from './drawingPrims';
 import {composeDrawingNumber,sheetSetupOf,sheetSizes,standardScales,type ViewScale} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
@@ -16,7 +16,7 @@ import {concreteNote,memberConcrete} from './concreteMixes';
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
 export const SHEET={w:420,h:297,left:20,margin:10,strip:135,title:72,bbsRow:9,bbsHead:6,boqRow:4.4};
 /** Paper of a sheet (A3 / A2 landscape): same frame, text and tables; the views and the BBS table get the extra room. */
-export const sheetFormat=(s:Pick<SheetData,'project'|'member'>)=>{const {size,scale}=sheetSetupOf(s.project,s.member);return {...SHEET,...sheetSizes[size],size,scale};};
+export const sheetFormat=(s:Pick<SheetData,'project'|'member'>)=>{const setup=sheetSetupOf(s.project,s.member);return {...SHEET,...sheetSizes[setup.size],...setup};};
 /** Paper scale (sheet mm per model mm) for a view: fixed 1:N when it fits, else the largest standard 1:N that fits. */
 function pickScale(fit:number,want:ViewScale){
  if(want!=='auto'&&1/want<=fit*1.0001)return {s:1/want,n:want,fits:true};
@@ -106,8 +106,16 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  // footing pedestal / starter plan section: under the notes when they leave room, else beside section Y–Y
  const colCut=bg?undefined:columnSectionCut(input,s.rows),noteH=9+notes.reduce((h,n)=>h+wrapText(`• ${n}`,2.3,colW-4,3).length*2.9+.6,0)+5.6+Math.ceil(s.rows.length/2)*3.4+2;
  const under=!!colCut&&botH-noteH-2>=48,secW=colCut&&!under?colW*.58:colW;
- const colBox=colCut?under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH}:undefined;
- const views=bg?bg.views:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:{axes:[0,1] as [number,number]},cuts},{title:T.sectionX(Math.round(cuts.y)),box:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},{title:T.sectionY(Math.round(cuts.x)),box:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
+ // split plans (bottom / top bars) when the member has bars lying in both layers: three columns,
+ // top row plan bottom | plan top | section X–X, bottom row section Y–Y (| column section) | notes
+ const lying=(r:SheetRow)=>r.paths.some(p=>p.some((q,i)=>i>0&&Math.hypot(q[0]-p[i-1][0],q[1]-p[i-1][1])>=1));
+ const split=!bg&&S.split&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='bottom')&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='top');
+ const c3=(sx-S.left-8)/3,col3=(i:number)=>left+i*(c3+2);
+ const colBox=!colCut?undefined:split?{x:col3(1),y:botY,w:c3,h:botH}:under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH};
+ const rep=S.bars==='representative',planSpec=(layer?:'bottom'|'top')=>({axes:[0,1] as [number,number],rep,layer});
+ const views=bg?bg.views:[...(split?[{title:T.planBottom,box:{x:col3(0),y:topY,w:c3,h:topH},spec:planSpec('bottom'),cuts},{title:T.planTop,box:{x:col3(1),y:topY,w:c3,h:topH},spec:planSpec('top'),cuts}]:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:planSpec(),cuts}]),
+  {title:T.sectionX(Math.round(cuts.y)),box:split?{x:col3(2),y:topY,w:c3,h:topH}:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},
+  {title:T.sectionY(Math.round(cuts.x)),box:split?{x:left,y:botY,w:colCut?c3:2*c3+2,h:botH}:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
   ...(colCut&&colBox?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{axes:[0,1] as [number,number],normal:2,cut:colCut.z,columns:true}}]:[])];
  // beam-group marks are placed for the fitted views: those views stay not to scale
  const scales:SheetViewScale[]=[];
@@ -116,13 +124,13 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   let used={n:0,fits:true};
   const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,S.scale);used=r;return r.s;};
   // one view of a large member has more prims than a spread call takes as arguments
-  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z,scale}))out.push(p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p);
+  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z,scale,gutter:!bg&&S.gutter}))out.push(p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p);
   text(`${v.title} · ${used.n?`1:${used.n}`:'NTS'}`,v.box.x+2,v.box.y+4,2.8,{bold:true});
   scales.push({title:v.title,...used});
  }
  if(bg)out.push(...bg.marks);
  // Notes and Mark legend.
- const nb=bg?bg.notes:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
+ const nb=bg?bg.notes:split?{x:col3(2),y:botY,w:c3,h:botH}:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
  text(T.notes,nb.x+2,nb.y+4.5,3,{bold:true});
  let ny=nb.y+9;for(const n of notes){for(const l of wrapText(`• ${n}`,2.3,nb.w-4,3)){text(l,nb.x+2,ny,2.3);ny+=2.9;}ny+=.6;}
  ny+=2;text(T.legend,nb.x+2,ny,2.6,{bold:true});ny+=3.6;

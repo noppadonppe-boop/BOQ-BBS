@@ -7,19 +7,30 @@ export type SheetSize=keyof typeof sheetSizes;
 export const sheetSizeSchema=z.enum(['A3','A2']);
 export const viewScaleSchema=z.union([z.literal('auto'),z.number().int().min(1).max(1000)]);
 export type ViewScale=z.infer<typeof viewScaleSchema>;
+// plan drawing style: one representative bar per Mark + distribution line, or every bar; split = separate bottom / top
+// plans; gutter = Mark labels in a column beside each view (leader lines)
+export const barDisplaySchema=z.enum(['representative','all']);
+export type BarDisplay=z.infer<typeof barDisplaySchema>;
+const sheetStyle={sheetSize:sheetSizeSchema.optional(),viewScale:viewScaleSchema.optional(),barDisplay:barDisplaySchema.optional(),planSplit:z.boolean().optional(),markGutter:z.boolean().optional()};
 export const standardScales=[1,2,5,10,15,20,25,30,40,50,75,100,125,150,200,250,300,400,500,750,1000];
 export const viewScaleChoices=[20,25,50,75,100];
 // run / rev = automatic drawing number parts (…segments-Run 001–999-R0–9); number is kept composed for keys and registers
 // sheetSize / viewScale = this member's override of the project default (titleBlock.sheetSize / viewScale)
-export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional(),run:z.number().int().min(1).max(999).optional(),rev:z.number().int().min(0).max(9).optional(),sheetSize:sheetSizeSchema.optional(),viewScale:viewScaleSchema.optional()});
+export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional(),run:z.number().int().min(1).max(999).optional(),rev:z.number().int().min(0).max(9).optional(),...sheetStyle});
 export type DrawingSetup=z.infer<typeof drawingSetupSchema>;
 export const drawingProfileSchema=z.object({template:z.literal('owner-v1'),language:z.enum(['th','en']),projectName:text(80).min(1),company:text(80),owner:text(80),location:text(80),contract:text(50),discipline:text(50),preparedBy:text(60),checkedBy:text(60),indexNumber:text(80),indexRevision:text(16)});
 export type DrawingProfile=z.infer<typeof drawingProfileSchema>;
-export const titleBlockSchema=z.object({company:z.string().max(300),drawnBy:z.string().max(200),checkedBy:z.string().max(200),approvedBy:z.string().max(200).optional(),drawingPrefix:z.string().max(80),drawingSuffix:z.string().max(80).optional(),drawingParts:z.array(z.string().max(50)).max(8).optional(),sheetLanguage:z.enum(['th','en','zh']).optional(),sheetSize:sheetSizeSchema.optional(),viewScale:viewScaleSchema.optional()});
-type SheetOwner={titleBlock?:{sheetSize?:SheetSize;viewScale?:ViewScale}};
-type SheetMember={drawingSetup?:{sheetSize?:SheetSize;viewScale?:ViewScale}};
-/** Paper and view scale of a member's BBS sheet: member override, else project default, else A3 / auto. */
-export const sheetSetupOf=(p:SheetOwner,m?:SheetMember):{size:SheetSize;scale:ViewScale}=>({size:m?.drawingSetup?.sheetSize||p.titleBlock?.sheetSize||'A3',scale:m?.drawingSetup?.viewScale??p.titleBlock?.viewScale??'auto'});
+export const titleBlockSchema=z.object({company:z.string().max(300),drawnBy:z.string().max(200),checkedBy:z.string().max(200),approvedBy:z.string().max(200).optional(),drawingPrefix:z.string().max(80),drawingSuffix:z.string().max(80).optional(),drawingParts:z.array(z.string().max(50)).max(8).optional(),sheetLanguage:z.enum(['th','en','zh']).optional(),...sheetStyle});
+export const sheetStyleSchema=z.object(sheetStyle);
+export type SheetStyle=z.infer<typeof sheetStyleSchema>;
+export type SheetSetup={size:SheetSize;scale:ViewScale;bars:BarDisplay;split:boolean;gutter:boolean};
+/** BBS sheet setup of a member: member override, else project default, else A3 / auto / representative / one plan / gutter. */
+export function sheetSetupOf(p:{titleBlock?:SheetStyle},m?:{drawingSetup?:SheetStyle}):SheetSetup{
+ const o=m?.drawingSetup,d=p.titleBlock;
+ return {size:o?.sheetSize||d?.sheetSize||'A3',scale:o?.viewScale??d?.viewScale??'auto',bars:o?.barDisplay||d?.barDisplay||'representative',split:o?.planSplit??d?.planSplit??false,gutter:o?.markGutter??d?.markGutter??true};
+}
+/** Member drawingSetup fields that override the project sheet style. */
+export const sheetStyleKeys=['sheetSize','viewScale','barDisplay','planSplit','markGutter'] as const;
 export const viewScaleLabel=(v:ViewScale)=>v==='auto'?'Auto':`1:${v}`;
 export const drawingNumberKey=(s:string)=>s.normalize('NFC').trim().toLowerCase();
 export const MAX_DRAWING_PARTS=8;

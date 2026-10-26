@@ -8,13 +8,36 @@ import {textWidth,type Prim} from './drawingPrims';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
-export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean};
+/** layer = plan of the bottom or top bars only; rep = plan draws one representative bar per Mark plus its distribution line. */
+export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean;layer?:'bottom'|'top';rep?:boolean};
 type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'wall'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
 export const barPalette=['#167561','#c2410c','#2563eb','#9333ea','#b45309','#0e7490','#be123c','#4d7c0f','#7c3aed','#0369a1','#a16207','#15803d'];
 export const markColors=(rows:{id:string}[])=>new Map(rows.map((r,i)=>[r.id,barPalette[i%barPalette.length]]));
 const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
+const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
+/** Plan layer of a Mark: bars lying below / above mid-depth of the member; bars without a plan length (vertical) count as top. */
+export function planLayerOf(m:Member,input:ElementInput|undefined,r:ViewRow):'bottom'|'top'{
+ const flat=r.paths.some(p=>p.some((q,i)=>i>0&&Math.hypot(q[0]-p[i-1][0],q[1]-p[i-1][1])>=1));if(!flat)return 'top';
+ const pts=r.paths.flat(),zm=pts.reduce((t,q)=>t+q[2],0)/Math.max(1,pts.length);
+ return zm<(input?.category==='Foundation'?input.thickness:m.z)/2?'bottom':'top';
+}
+/** Bars of one Mark laid side by side at even spacing (translated copies in plan): the middle bar, the bar centres
+ * at both ends and the spacing. Undefined when the bars are not a straight row (radial, single, mixed shapes). */
+function distribution(paths:Vec3[][],a:number,b:number){
+ if(paths.length<3)return;
+ const c=paths.map((p,i)=>({i,u:p.reduce((t,q)=>t+q[a],0)/p.length,v:p.reduce((t,q)=>t+q[b],0)/p.length}));
+ const ru=Math.max(...c.map(q=>q.u))-Math.min(...c.map(q=>q.u)),rv=Math.max(...c.map(q=>q.v))-Math.min(...c.map(q=>q.v));
+ c.sort((p,q)=>ru>=rv?p.u-q.u:p.v-q.v);
+ const f=c[0],l=c.at(-1)!,du=l.u-f.u,dv=l.v-f.v,len=Math.hypot(du,dv);if(len<1)return;
+ // centres on one line (within 2 %) and every bar the same plan length
+ if(c.some(q=>Math.abs((q.u-f.u)*dv-(q.v-f.v)*du)/len>Math.max(20,len*.02)))return;
+ const plan=(p:Vec3[])=>p.slice(1).reduce((t,q,i)=>t+Math.hypot(q[a]-p[i][a],q[b]-p[i][b]),0),L0=plan(paths[0]);
+ if(paths.some(p=>Math.abs(plan(p)-L0)>Math.max(5,L0*.02)))return;
+ const mid=c[Math.floor(c.length/2)];
+ return {path:paths[mid.i],first:[f.u-mid.u,f.v-mid.v] as [number,number],last:[l.u-mid.u,l.v-mid.v] as [number,number],spacing:len/(c.length-1),n:c.length};
+}
 
 function circleIds(input?:ElementInput){
  const ids=new Set<string>();
@@ -41,7 +64,8 @@ const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
 // min / max of long coordinate lists (spreading them into Math.min overflows the call stack on large members)
 const low=(a:number[],start=Infinity)=>a.reduce((m,v)=>v<m?v:m,start),high=(a:number[],start=-Infinity)=>a.reduce((m,v)=>v>m?v:m,start);
-export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns}:ViewSpec){
+export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep}:ViewSpec){
+ if(layer&&normal===undefined)rows=rows.filter(r=>planLayerOf(m,input,r)===layer);
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
  // Footing concrete comes from the true plan outline (circle / polygons / L / U), not the bounding box.
  const only=!!columns&&input?.category==='Foundation'&&normal===2,foot=input?.category==='Foundation'&&!only?footingOutline(input):undefined,polys:Pt[][]=[],refs:Pt[][]=[],piles:Pile[]=[];
@@ -94,9 +118,16 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   else{const size=a===0?m.x:m.y,bw=a===0?e.bottomX:e.bottomY,tw=a===0?e.topX:e.topY,z0=-underside(m);guides.push({a:[(size-bw)/2,z0],b:[(size+bw)/2,z0]},{a:[(size-bw)/2,z0],b:[(size-tw)/2,ground]},{a:[(size+bw)/2,z0],b:[(size+tw)/2,ground]},{a:[(size-tw)/2-300,ground],b:[(size+tw)/2+300,ground]});}
  }
  // Bars: plan projects everything; sections show bars lying in the nearest plane and dots where bars cross it.
+ let rowIndex=0;
  const bars=rows.map(r=>{
   const lines:Line[]=[],dots:[number,number][]=[];
-  if(normal===undefined){for(const p of r.paths)for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i];if(Math.hypot(t[a]-s[a],t[b]-s[b])<1){if(Math.abs(t[2]-s[2])>1)dots.push([s[a],s[b]]);}else lines.push({a:[s[a],s[b]],b:[t[a],t[b]]});}}
+  // representative bar: the middle bar of the row, plus a line across all bar positions at a staggered point along it
+  let dist:{a:[number,number];b:[number,number];q:[number,number];spacing:number;n:number}|undefined;
+  const d=rep&&normal===undefined?distribution(r.paths,a,b):undefined;
+  if(d){const segs=d.path.slice(1).map((q,i)=>({s:d.path[i],t:q,l:Math.hypot(q[a]-d.path[i][a],q[b]-d.path[i][b])})),main=segs.reduce((x,y)=>y.l>x.l?y:x),f=.2+(rowIndex++*.13)%.6;
+   const q:[number,number]=[main.s[a]+(main.t[a]-main.s[a])*f,main.s[b]+(main.t[b]-main.s[b])*f];
+   dist={q,a:[q[0]+d.first[0],q[1]+d.first[1]],b:[q[0]+d.last[0],q[1]+d.last[1]],spacing:d.spacing,n:d.n};}
+  if(normal===undefined){for(const p of d?[d.path]:r.paths)for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i];if(Math.hypot(t[a]-s[a],t[b]-s[b])<1){if(Math.abs(t[2]-s[2])>1)dots.push([s[a],s[b]]);}else lines.push({a:[s[a],s[b]],b:[t[a],t[b]]});}}
   else{
    // A path lying (mostly) parallel to the view plane is drawn in elevation, snapped to the
    // nearest bar of its Mark; other paths show where they cross the cut (a horizontal loop such
@@ -122,7 +153,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   if(normal!==undefined&&normal!==2&&(ce.top||ce.bottom)){const zs=r.paths.flatMap(p=>p.map(q=>q[2])),zTop=high(zs),zBot=low(zs);
    for(const l of lines){if(Math.abs(l.a[0]-l.b[0])>=.5)continue;const hi=l.a[1]>l.b[1]?l.a:l.b,lo=hi===l.a?l.b:l.a;
     if(ce.top&&Math.abs(hi[1]-zTop)<1)couplers.push(hi);if(ce.bottom&&Math.abs(lo[1]-zBot)<1)couplers.push(lo);}}
-  return {row:r,lines,dots,couplers};
+  return {row:r,lines,dots,couplers,dist};
  });
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
  const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
@@ -167,8 +198,8 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   for(const r of rows){const t=r.id.match(/-ex-(?:mid-)?(top|bottom)/),p=r.paths[0];if(!t||!p)continue;const xs=p.map(q=>q[0]),xa=Math.min(...xs),xb=Math.max(...xs);
    exDims.push({id:r.id,mark:r.mark,top:t[1]==='top',stops:[xa,...faces.filter(x=>x>xa+1&&x<xb-1),xb]});}
  }
- const us=[...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
- const vs=[...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
+ const us=[...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0]),...(x.dist?[x.dist.a[0],x.dist.b[0]]:[])])];
+ const vs=[...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1]),...(x.dist?[x.dist.a[1],x.dist.b[1]]:[])])];
  return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:(only?[low(us),high(us)]:[low(us,0),high(us,1)]) as [number,number],v:(only?[low(vs),high(vs)]:[low(vs,0),high(vs,1)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
 }
 export type ViewData=ReturnType<typeof buildView>;
@@ -215,13 +246,33 @@ export function viewHeight(v:ViewData,width:number,maxHeight:number,k=1){
 }
 /** Draw a view into `box`. `k` converts the screen design sizes (px) to the target unit
  * (k = 1 for px, ≈ 0.26 for mm on an A3 sheet). */
-export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};zCut?:number;fontScale?:number;scale?:(fit:number)=>number}):Prim[]{
+export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},opts:{k?:number;colors:Map<string,string>;cuts?:{x:number;y:number};zCut?:number;fontScale?:number;scale?:(fit:number)=>number;gutter?:boolean}):Prim[]{
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  // level marks sit right of the concrete: keep room for their text inside the box
  const lvW=v.levels.length?Math.max(...v.levels.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
  // `scale` picks the drawing scale (target units per model mm) from the largest one that fits, e.g. a standard 1:N
- const fit=Math.min((box.w-2*M-lvW)/spanU,(box.h-2*M)/spanV),s=opts.scale?opts.scale(fit):fit,offU=(box.w-2*M-lvW-spanU*s)/2,offV=(box.h-2*M-spanV*s)/2;
- const X=(x:number)=>box.x+M+offU+(x-u[0])*s,Y=(y:number)=>box.y+box.h-M-offV-(y-vr[0])*s,out:Prim[]=[];
+ // Mark labels (one per Mark family; marks split by bar length, gen-bottom-x-1, -2 …, share "F01–F08");
+ // a representative bar adds count and spacing: "F01 36-DB32@250"
+ const size=10*k*fs,step=size*1.15,family=(id:string)=>id.replace(/^(gen-(?:bottom|top)-[xy])-\d+$/,'$1'),labelled=new Set<string>();
+ const labels:{id:string;text:string;at:[number,number];left:boolean}[]=[];
+ for(const {row,lines,dots,dist} of v.bars){const fam=family(row.id);if(labelled.has(fam))continue;
+  const p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p)continue;labelled.add(fam);
+  const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],name=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
+  labels.push({id:row.id,text:dist?`${name} ${dist.n}-${barName(row.diameter)}@${Math.round(dist.spacing/5)*5}`:name,at:p,left:p[0]<(u[0]+u[1])/2});}
+ // gutter: labels just outside the dimension lines, in columns left / right of the drawing ('side') or in rows
+ // above / below it ('rows'). Use the direction the drawing leaves spare (no shrinking); else shrink by at most a
+ // third of the view; else labels next to the bars ('near').
+ const tw=(l:{text:string})=>textWidth(l.text,size)*1.08,dimW=27*k+textWidth('88,888',10*k*fs)+4*k,GV=34*k;
+ const sideNeed=(t:typeof labels)=>t.length?Math.max(0,dimW+Math.max(...t.map(tw))+2*k-M):0;
+ const rowsNeed=(t:typeof labels)=>{if(!t.length)return 0;let rows=1,x=0;for(const l of t){const w=tw(l)+8*k;if(x&&x+w>box.w-8*k){rows++;x=0;}x+=w;}return Math.max(0,GV+rows*step-M);};
+ const up=labels.filter(l=>l.at[1]>=(vr[0]+vr[1])/2),down=labels.filter(l=>l.at[1]<(vr[0]+vr[1])/2);
+ const fit0=Math.min((box.w-2*M-lvW)/spanU,(box.h-2*M)/spanV),spareW=box.w-2*M-lvW-spanU*fit0,spareH=box.h-2*M-spanV*fit0;
+ const sL=sideNeed(labels.filter(l=>l.left)),sR=sideNeed(labels.filter(l=>!l.left)),rT=rowsNeed(up),rB=rowsNeed(down);
+ const mode:'side'|'rows'|'near'=!opts.gutter||!labels.length?'near':sL+sR<=spareW+1e-6?'side':rT+rB<=spareH+1e-6?'rows':
+  (sL+sR)/box.w<=(rT+rB)/box.h&&sL+sR<=box.w/3?'side':rT+rB<=box.h/3?'rows':'near';
+ const gL=mode==='side'?sL:0,gR=mode==='side'?sR:0,gT=mode==='rows'?rT:0,gB=mode==='rows'?rB:0;
+ const fit=Math.min((box.w-2*M-lvW-gL-gR)/spanU,(box.h-2*M-gT-gB)/spanV),s=opts.scale?opts.scale(fit):fit,offU=(box.w-2*M-lvW-gL-gR-spanU*s)/2,offV=(box.h-2*M-gT-gB-spanV*s)/2;
+ const X=(x:number)=>box.x+M+gL+offU+(x-u[0])*s,Y=(y:number)=>box.y+box.h-M-gB-offV-(y-vr[0])*s,out:Prim[]=[];
  const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},wall:{fill:'#b9c4c1',stroke:'#3d5054',width:1*k},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>out.push(r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
  v.rects.filter(r=>r.kind==='sand').forEach(rect);
@@ -245,23 +296,36 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // level of the pedestal / starter plan section (Z–Z) on the vertical sections
  if(opts.zCut!==undefined&&v.normal!==undefined&&v.normal!==2&&opts.zCut>vr[0]&&opts.zCut<vr[1]){const y=Y(opts.zCut),ts={size:11*k*fs,color:'#5b6b70',bold:true};
   out.push({t:'line',x1:X(u[0]),x2:X(u[1]),y1:y,y2:y,stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]},{t:'text',x:X(u[0])-6*k,y:y+4*k,text:'Z',anchor:'end',...ts},{t:'text',x:X(u[1])+6*k,y:y+4*k,text:'Z',...ts});}
- // Mark labels: start near the bar, then move down until they no longer overlap a placed label.
- // Marks split by bar length (gen-bottom-x-1, -2, …) share one label "F01–F08".
- const placed:{x:number;y:number;w:number}[]=[],family=(id:string)=>id.replace(/^(gen-(?:bottom|top)-[xy])-\d+$/,'$1'),labelled=new Set<string>();
- const size=10*k*fs,step=size*1.15;
- for(const {row,lines,dots,couplers} of v.bars){
+ for(const {row,lines,dots,couplers,dist} of v.bars){
   const color=opts.colors.get(row.id)||'#167561',w=Math.max(k,row.diameter*s);
   for(const l of lines)out.push({t:'line',x1:X(l.a[0]),y1:Y(l.a[1]),x2:X(l.b[0]),y2:Y(l.b[1]),stroke:color,width:w,cap:'round',group:row.id});
   for(const d of dots)out.push({t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max((v.columns?3:1.6)*k,row.diameter*s/2),fill:color,group:row.id});
   for(const c of couplers){const cw=Math.max(4.5*k,row.diameter*1.6*s),ch=Math.max(9*k,row.diameter*3*s);out.push({t:'rect',x:X(c[0])-cw/2,y:Y(c[1])-ch/2,w:cw,h:ch,fill:'#ffffff',stroke:color,width:.9*k,group:row.id},{t:'line',x1:X(c[0])-cw/2,x2:X(c[0])+cw/2,y1:Y(c[1]),y2:Y(c[1]),stroke:color,width:.6*k,group:row.id});}
-  const fam=family(row.id);if(labelled.has(fam))continue;
-  const p=lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2]:dots[0];if(!p)continue;labelled.add(fam);
-  const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],text=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
-  const ax=X(p[0]),ay=Y(p[1]),tw=textWidth(text,size);let x=ax+8*k,y=ay-8*k;
-  for(let n=0;n<30&&placed.some(q=>x<q.x+q.w+2*k&&q.x<x+tw+2*k&&Math.abs(q.y-y)<step);n++)y+=step;
-  placed.push({x,y,w:tw});
-  out.push({t:'line',x1:ax,y1:ay,x2:x,y2:y-3*k,stroke:color,width:.5*k,group:row.id},{t:'text',x:x+2*k,y,text,size,color,bold:true,halo:true,group:row.id});
+  // distribution line across all bar positions: end slashes, dot where it meets the drawn bar
+  if(dist){const ax=X(dist.a[0]),ay=Y(dist.a[1]),bx=X(dist.b[0]),by=Y(dist.b[1]),l=Math.hypot(bx-ax,by-ay)||1,ux=(bx-ax)/l,uy=(by-ay)/l,t=3*k;
+   const slash=(x:number,y:number)=>({t:'line' as const,x1:x-(ux-uy)*t,y1:y-(uy+ux)*t,x2:x+(ux-uy)*t,y2:y+(uy+ux)*t,stroke:color,width:.6*k,group:row.id});
+   out.push({t:'line',x1:ax,y1:ay,x2:bx,y2:by,stroke:color,width:.5*k,group:row.id},slash(ax,ay),slash(bx,by),{t:'circle',cx:X(dist.q[0]),cy:Y(dist.q[1]),r:1.8*k,fill:color,group:row.id});}
  }
+ // labels: gutter columns / rows (sorted so leaders do not cross), else next to the bar moving down to clear
+ const colorOf=(id:string)=>opts.colors.get(id)||'#167561';
+ const leader=(l:{id:string;at:[number,number]},pts:[number,number][])=>{const color=colorOf(l.id),ax=X(l.at[0]),ay=Y(l.at[1]);
+  out.push({t:'poly',pts:[[ax,ay],...pts],closed:false,stroke:color,width:.45*k,group:l.id},{t:'circle',cx:ax,cy:ay,r:1.1*k,fill:color,group:l.id});};
+ if(mode==='rows')for(const [list,above] of [[up,true],[down,false]] as const){
+  const sorted=[...list].sort((p,q)=>p.at[0]-q.at[0]),x0=box.x+4*k,x1=box.x+box.w-4*k;let y=above?Y(vr[1])-GV:Y(vr[0])+GV+size,cursor=x0;
+  for(const l of sorted){const w=tw(l);let x=Math.max(X(l.at[0])-w/2,cursor);if(x+w>x1){y+=above?-step:step;cursor=x0;x=Math.max(Math.min(X(l.at[0])-w/2,x1-w),x0);}
+   leader(l,[[x+w/2,above?y+1.5*k:y-size]]);out.push({t:'text',x,y,text:l.text,size,color:colorOf(l.id),bold:true,halo:true,group:l.id});cursor=x+w+8*k;}}
+ if(mode==='side'){for(const left of [true,false]){const side=labels.filter(l=>l.left===left).map(l=>({...l,ay:Y(l.at[1])})).sort((p,q)=>p.ay-q.ay);if(!side.length)continue;
+  const top=box.y+size+2*k,bottom=box.y+box.h-4*k,gap=step*1.1;let y=-Infinity;const ys=side.map(l=>(y=Math.max(l.ay+size*.35,y+gap)));
+  // past the bottom of the box: push the stack back up from the bottom
+  if(ys.at(-1)!>bottom)for(let i=ys.length-1;i>=0;i--)ys[i]=Math.max(top+i*gap,i===ys.length-1?bottom:Math.min(ys[i],ys[i+1]-gap));
+  const tx=left?X(u[0])-dimW:X(u[1])+lvW+dimW;
+  side.forEach((l,i)=>{const ly=ys[i]-size*.35,edge=left?tx+1.5*k:tx-1.5*k;
+   leader(l,[[edge+(left?6:-6)*k,ly],[edge,ly]]);out.push({t:'text',x:tx,y:ys[i],text:l.text,size,color:colorOf(l.id),bold:true,halo:true,anchor:left?'end':'start',group:l.id});});}}
+ if(mode==='near'){const placed:{x:number;y:number;w:number}[]=[];
+  for(const l of labels){const color=colorOf(l.id),ax=X(l.at[0]),ay=Y(l.at[1]),tw=textWidth(l.text,size);let x=ax+8*k,y=ay-8*k;
+   for(let n=0;n<30&&placed.some(q=>x<q.x+q.w+2*k&&q.x<x+tw+2*k&&Math.abs(q.y-y)<step);n++)y+=step;
+   placed.push({x,y,w:tw});
+   out.push({t:'line',x1:ax,y1:ay,x2:x,y2:y-3*k,stroke:color,width:.5*k,group:l.id},{t:'text',x:x+2*k,y,text:l.text,size,color,bold:true,halo:true,group:l.id});}}
  // one "COUPLER" label per view, left of the leftmost coupler
  const cp=v.bars.flatMap(b=>b.couplers).sort((p,q)=>p[0]-q[0])[0];
  if(cp){const x=X(cp[0])-10*k,y=Y(cp[1])-12*k;out.push({t:'line',x1:X(cp[0])-3*k,y1:Y(cp[1])-3*k,x2:x,y2:y,stroke:'#3f5459',width:.5*k},{t:'text',x:x-2*k,y:y+3*k,text:'COUPLER',size:8.5*k*fs,color:'#3f5459',bold:true,anchor:'end',halo:true});}
