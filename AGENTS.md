@@ -26,7 +26,9 @@
   `layerShapes` (00/11/12/13/21/22/99), `leg` (0 = standard), `radius` (R for 12); geometry by `shapedEnds()`;
   old `bend` / `endHook` inputs are migrated in `migrateShapes()`. Shape 41 (U legs full depth + 15d inward, footing only).
   Footing `slab` (cast with floor slab: reference slab regions `genslab-*`, top bars extend into slab) and
-  `rebar.side` (horizontal perimeter loops), `rebar.sideBars` (vertical face bars, outermost; one Mark via offsets +
+  `rebar.side` (horizontal perimeter loops, outermost at the side cover; lapped pieces by `loopPieces()`: `laps.pattern`
+  1 / 2 / 3 / custom, x = lap table | hook90·d | value, no piece over 10 m → more laps, roles `side-loop…-p<k>`; UI limits via
+  `footingLoopInfo()`; test `tmp/loopLaps.test.ts`), `rebar.sideBars` (vertical face bars inside the loops; one Mark via offsets +
   offsetTurns) — `footingSlabOn()`, `migrateFootingSlab()`. Ad-hoc test: `npx vitest run tmp/shapes.test.ts`.
 - Custom element shape model (Phase 1): `member.shapeModel` (`src/domain/shapeModelSchema.ts`) = vertical parts
   (box / polygon / circle-ring / shaft, solid or void, stage, z0+height) + piles + site. Geometry engine

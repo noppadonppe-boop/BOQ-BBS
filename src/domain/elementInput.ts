@@ -172,10 +172,14 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  lean:z.object({thickness:mm,projection:mm}).strict(),
  cover:z.object({bottom:mm,top:mm,side:mm}).strict(),
  /** side = horizontal closed loops around the footing perimeter (face reinforcement), spaced up the depth. */
- /** sideBars = vertical face bars around the perimeter (outermost layer); ends straight or turned inward 90° (leg 0 = 15d). */
+ /** sideBars = vertical face bars around the perimeter (inside the side loops, outermost when there are none); ends straight or turned inward 90° (leg 0 = 15d). */
  rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh,side:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,
   /** pour stages that get loops (1 = first pour); empty = every stage */
-  stages:z.array(z.number().int().min(1).max(6)).max(6)}).strict(),
+  stages:z.array(z.number().int().min(1).max(6)).max(6),
+  /** laps of each loop: pattern 1 / 2 / 3 = lap at the middle of the longest side / + the opposite side / every side;
+   * custom = lap centres `at` (mm along the loop from the lower-left corner, counter-clockwise); lap length x = lap table,
+   * standard hook (hook90·d) or `value`. No piece may be longer than 10 m (pattern 1 → 2 → 3). Absent = pattern 1. */
+  laps:z.object({pattern:z.enum(['1','2','3','custom']),length:z.enum(['lap','hook','custom']),value:mm,at:z.array(mm).max(10)}).strict().optional()}).strict(),
   sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm,
    /** stop under the first construction joint (first pour only) instead of the footing top */
    toJoint:z.boolean().optional()}).strict(),
@@ -723,6 +727,44 @@ function polyLink(poly:Pt[],ext:number,rad:number,d:number,angle:90|135=90):Pt[]
  const trim=rad*Math.tan(turn/2),k=Math.max(trim+1,Math.min(ext+trim,Math.min(len(p0,p1),len(p0,pl))-rad));
  return [[p0[0]+e0[0]*k+e0[1]*d,p0[1]+e0[1]*k-e0[0]*d],...poly,p0,[p0[0]+e1[0]*k-e1[1]*d,p0[1]+e1[1]*k+e1[0]*d]];
 }
+/** Longest loop piece (stock limit for side loops) */
+export const LOOP_MAX_LENGTH=10000;
+type LoopLaps=NonNullable<FoundationInput['rebar']['side']['laps']>;
+export const loopLapLength=(det:Detailing,d:number,laps?:LoopLaps)=>laps?.length==='hook'?det.hook90*d:laps?.length==='custom'&&laps.value>0?laps.value:lapLength(det,d);
+/** ring counter-clockwise, starting at the lower-left vertex (custom lap positions are measured from there) */
+function loopRing(ring:Pt[]){const r=signedArea(ring)<0?[...ring].reverse():ring,k=r.reduce((b,p,j)=>p[0]+p[1]<r[b][0]+r[b][1]-1e-6?j:b,0);return [...r.slice(k),...r.slice(0,k)];}
+/** Lapped pieces of one horizontal loop: lap centres by pattern (each lap kept inside one side, clear of the bends),
+ * piece k runs from lap k to lap k+1 plus half a lap at both ends. Pattern 1 / 2 pieces longer than the limit move on
+ * to the next pattern. */
+function loopPieces(ring0:Pt[],laps:LoopLaps|undefined,det:Detailing,d:number){
+ const ring=loopRing(ring0),x=loopLapLength(det,d,laps),m=radius(d,det)+d,max=Math.min(LOOP_MAX_LENGTH,det.stockLength||LOOP_MAX_LENGTH);
+ let s=0;const E=ring.map((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),e={a,b,len,s0:s};s+=len;return e;}),P=s;
+ const at=(t:number):Pt=>{const u=((t%P)+P)%P,e=E.find(q=>u>=q.s0&&u<=q.s0+q.len)||E[0],f=e.len?(u-e.s0)/e.len:0;return [e.a[0]+(e.b[0]-e.a[0])*f,e.a[1]+(e.b[1]-e.a[1])*f];};
+ const ok=E.filter(q=>q.len>=x+2*m),mid=(q:typeof E[number])=>q.s0+q.len/2,longest=E.reduce((a,b)=>b.len>a.len?b:a);
+ // nearest point to t where the whole lap lies on one side, clear of the bends
+ const fit=(t:number)=>{const u=((t%P)+P)%P;if(!ok.length){const e=E.find(q=>u>=q.s0&&u<q.s0+q.len)||E[0];return mid(e);}
+  let best=u,bd=Infinity;for(const q of ok)for(const w of [-P,0,P]){const v=Math.min(Math.max(u,q.s0+w+x/2+m),q.s0+w+q.len-x/2-m),dd=Math.abs(v-u);if(dd<bd){bd=dd;best=((v%P)+P)%P;}}return best;};
+ const centres=(p:LoopLaps['pattern'])=>{const c0=mid(longest),raw=p==='1'?[c0]:p==='2'?[c0,fit(c0+P/2)]:p==='3'?(ok.length?ok.map(mid):[c0]):(laps?.at.length?laps.at.map(fit):[c0]);
+  const out:number[]=[];for(const c of [...raw].sort((a,b)=>a-b))if(!out.length||c-out.at(-1)!>=x+2*m&&P+out[0]-c>=x+2*m)out.push(c);return out;};
+ const build=(p:LoopLaps['pattern'])=>piecesOf(centres(p));
+ function piecesOf(c:number[]){return c.map((a,k)=>{const lo=a-x/2,hi=(k+1<c.length?c[k+1]:c[0]+P)+x/2,pts:Pt[]=[at(lo)];
+  const vs=[0,1,2].flatMap(w=>E.map(e=>e.s0+w*P)).filter(v=>v>lo+1e-6&&v<hi-1e-6).sort((p,q)=>p-q);for(const v of vs)pts.push(at(v));pts.push(at(hi));return {pts,len:hi-lo};});}
+ let pattern=laps?.pattern||'1',pieces=build(pattern),upgraded=false;
+ while((pattern==='1'||pattern==='2')&&pieces.some(q=>q.len>max)){pattern=pattern==='1'?'2':'3';pieces=build(pattern);upgraded=true;}
+ // pattern 3 still too long (large footings): extra laps evenly between the laps of each long piece
+ if(pattern!=='custom'&&pieces.some(q=>q.len>max)){let c=centres(pattern);
+  for(let it=0;it<6&&pieces.some(q=>q.len>max);it++){const add:number[]=[];c.forEach((a,k)=>{const gap=(k+1<c.length?c[k+1]:c[0]+P)-a,n=Math.ceil((gap+x)/(max-2*m))-1;for(let j=1;j<=n;j++)add.push(fit(a+gap*j/(n+1)));});
+   const all=[...c,...add].sort((p,q)=>p-q),next:number[]=[];for(const v of all)if(!next.length||v-next.at(-1)!>=x+2*m&&P+next[0]-v>=x+2*m)next.push(v);
+   if(next.length===c.length)break;c=next;pieces=piecesOf(c);upgraded=true;}}
+ return {pieces,pattern,x,P,max,upgraded,tooLong:pieces.some(q=>q.len>max)};
+}
+/** Side loop of a footing: perimeter of the loop centreline, lap length and the longest piece allowed (UI: pattern 1 is
+ * not allowed when the perimeter + lap exceeds it). */
+export function footingLoopInfo(i:FoundationInput){
+ const d=i.rebar.side.diameter,ring=inset(footingOutline(i),i.cover.side+d/2),x=loopLapLength(i.detailing,d,i.rebar.side.laps),max=Math.min(LOOP_MAX_LENGTH,i.detailing.stockLength||LOOP_MAX_LENGTH);
+ let P=0;ring.forEach((a,k)=>{const b=ring[(k+1)%ring.length];P+=Math.hypot(b[0]-a[0],b[1]-a[1]);});
+ return {perimeter:P,lap:x,max,singleOk:P+x<=max};
+}
 /** Intermediate bars of one face that need lateral support (ACI 318 25.7.2.3): every bar
  * farther than 150 mm clear from a supported bar; corners (lo / hi) are supported. */
 function needSupport(list:number[],lo:number,hi:number,dm:number){
@@ -1065,7 +1107,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // vertical face bars are the outermost layer: meshes and loops move inside them
  // first pour with a mesh at its top (joint 1, lower stage): face bars set to the first pour stop under that mesh
  const J1=footingPour(i).levels[0],jm1=J1!==undefined?jointRebar(i,0).mesh:undefined,firstTop=J1!==undefined&&J1<T-c.top-topStack?J1-(jm1?.enabled&&jm1.at==='lower'?jm1.cover+jm1.x.diameter+jm1.y.diameter:50):undefined;
- const vb=r.sideBars,sideIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0;
+ // side loops are the outermost layer (bar face at the side cover), vertical face bars inside them
+ const vb=r.sideBars,loopIn=r.side.enabled&&i.shape!=='circle'?r.side.diameter:0,vIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0,sideIn=loopIn+vIn;
  // extra boxes (rect footings): blocks = raised parts / later-pour blocks, cuts = lowered top areas; each gets its own top mesh
  const blocks=i.shape==='rect'?i.blocks||[]:[],cuts=i.shape==='rect'?(i.cuts||[]).filter(b=>b.z1>=T-1&&b.z0>0):[];
  const merge=(iv:[number,number][])=>{const o:[number,number][]=[];for(const v of [...iv].sort((p,q)=>p[0]-q[0])){const l=o.at(-1);if(l&&v[0]<=l[1]+1e-6)l[1]=Math.max(l[1],v[1]);else o.push([v[0],v[1]]);}return o;};
@@ -1241,10 +1284,10 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    out.push({role:`joint${k+1}-dowel`,note:`เหล็กแนวตั้งทะลุรอยต่อการเท ${k+1} (V.D.B) @ ${dw.spacingX} × ${dw.spacingY} mm · ฝังลง Stage ล่าง ${Math.round(J-zb)} · ขึ้นถึง +${Math.round(zt)} · ${what}`,
     diameter:d,grade:g,count:pts.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,...(turns.some(t=>t)?{turns}:{})});}
  });
- // Side face loops: horizontal closed loops just inside the bottom-bar legs, spaced from the bottom mesh to the top mesh
+ // Side face loops: horizontal loops, outermost (bar face at the side cover), spaced from the bottom mesh to the top mesh;
+ // each loop = lapped pieces (`loopPieces`: lap pattern 1 / 2 / 3 / custom, no piece over 10 m)
  if(r.side.enabled){
-  const dl=r.side.diameter,legs=[r.bottomX,r.bottomY].some(l=>l.shape!=='00')?Math.max(r.bottomX.diameter,r.bottomY.diameter):0;
-  const ring=inset(plan,c.side+sideIn+legs+dl/2),rad=radius(dl,det),zLo=c.bottom+r.bottomX.diameter+r.bottomY.diameter+dl/2,zHi=T-c.top-topStack-dl/2;
+  const dl=r.side.diameter,ring=inset(plan,c.side+dl/2),rad=radius(dl,det),zLo=c.bottom+r.bottomX.diameter+r.bottomY.diameter+dl/2,zHi=T-c.top-topStack-dl/2;
   // only in the chosen pour stages (contiguous stages = one run); 50 mm clear of each construction joint
   const pr=footingPour(i),sel=pr.stages.length>1&&r.side.stages.length>0&&pr.stages.some(st=>!r.side.stages.includes(st.stage)),runs:{lo:number;hi:number;name:string}[]=[];
   if(!sel)runs.push({lo:zLo,hi:zHi,name:''});
@@ -1255,21 +1298,29 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   if(i.shape==='circle')warn('เหล็กรอบข้าง (LOOPS): ฐานกลมยังไม่รองรับ ให้เพิ่มเองในแท็บ “แบบ & BBS”');
   else{
    // above the lowest cut top the loops run around the plan without the lowered areas
-   const cutTop=cuts.length?Math.min(...cuts.map(b=>b.z0))-c.top-topStack:Infinity,cutRing=cuts.length?inset(outlineOf([{label:'',x0:0,y0:0,x1:X,y1:Y,z0:0,z1:T}],[...cuts,...footingOpenings(i)]),c.side+sideIn+legs+dl/2):ring;
+   const cutTop=cuts.length?Math.min(...cuts.map(b=>b.z0))-c.top-topStack:Infinity,cutRing=cuts.length?inset(outlineOf([{label:'',x0:0,y0:0,x1:X,y1:Y,z0:0,z1:T}],[...cuts,...footingOpenings(i)]),c.side+dl/2):ring;
+   const lapWarn=new Set<string>();
+   const pushLoop=(role:string,note:string,rg:Pt[],count:number,from:number,to:number,name:string)=>{const lp=loopPieces(rg,r.side.laps,det,dl),n=lp.pieces.length,mx=lp.max/1000;
+    if(lp.upgraded&&r.side.laps)lapWarn.add(`เหล็กรอบข้าง (LOOPS): ยาวเกิน ${mx} ม. เพิ่มจุดทาบอัตโนมัติ (ดูจำนวนจุดทาบใน BBS)`);
+    if(lp.tooLong)lapWarn.add(`เหล็กรอบข้าง (LOOPS)${name}: มีท่อนยาวเกิน ${mx} ม. เพิ่มจุดทาบ`);
+    lp.pieces.forEach((q,k)=>{const b=q.pts.length-2;out.push({role:n>1?`${role}-p${k+1}`:role,note:`${note} · ทาบ ${n} จุด (${lp.pattern==='custom'?'กำหนดเอง':`รูปแบบ ${lp.pattern}`}) ระยะทาบ ${Math.round(lp.x)} mm${n>1?` · ท่อน ${k+1}/${n}`:''}`,diameter:dl,grade:g,count,
+     points:q.pts.map(([x,y])=>[x,y,from] as V3),axis:'Z',face:'side',radius:b>0?rad:0,shapeCode:b<=0?'00':b===1?'11':b===2?'21':'99',distributionAxis:'Z',from,to});});};
    runs.forEach((run,n)=>{const sz=run.hi>run.lo?spread(run.lo,run.hi,r.side.spacing):undefined;
     if(!sz){warn(`เหล็กรอบข้าง (LOOPS)${sel?` Stage ${run.name}`:''}: ความสูงไม่พอ`);return;}
     const zs=Array.from({length:sz.count},(_,k)=>sz.count===1?sz.from:sz.from+(sz.to-sz.from)*k/(sz.count-1)),parts:[number[],Pt[],string][]=[[zs.filter(z=>z<=cutTop),ring,''],[zs.filter(z=>z>cutTop),cutRing,' · เหนือส่วนลดระดับ']];
     parts.forEach(([lv,rg,what],h)=>{if(!lv.length||rg.length<3)return;
-     out.push({role:`${n?`side-loop-${n+1}`:'side-loop'}${h?'-up':''}`,note:`เหล็กรอบข้าง (LOOPS)${sel?` · Stage ${run.name}`:''}${what} · ${lv.length} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:lv.length,points:polyLink(rg,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,lv[0]] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:lv[0],to:lv.at(-1)!});});});
+     pushLoop(`${n?`side-loop-${n+1}`:'side-loop'}${h?'-up':''}`,`เหล็กรอบข้าง (LOOPS)${sel?` · Stage ${run.name}`:''}${what} · ${lv.length} ชั้น @ ≤ ${r.side.spacing} mm`,rg,lv.length,lv[0],lv.at(-1)!,`${sel?` Stage ${run.name}`:''}${what}`);});});
    // blocks: loops around each block outline over its height
    // a block enclosed by concrete at least as high (e.g. a lower pit floor inside a raised ring) has no free face: no loops
    const enclosed=(gr:{z1:number;rects:FootingBox[]})=>{const ol=outlineOf(gr.rects),ccw=signedArea(ol)>0;
     return ol.every((a,k)=>{const b=ol[(k+1)%ol.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]);if(len<1)return true;const u=[(b[0]-a[0])/len,(b[1]-a[1])/len],n=ccw?[u[1],-u[0]]:[-u[1],u[0]];
      for(let t=Math.min(100,len/2);t<len;t+=200){const x=a[0]+u[0]*t+n[0]*50,y=a[1]+u[1]*t+n[1]*50;if(x<0||y<0||x>X||y>Y||footingTopAt(i,x,y)<gr.z1-1)return false;}return true;});};
    // (ribs: straight face bars instead, see above)
-   blockGroups.forEach((gr,k)=>{if(enclosed(gr)||gr.rects.some(b=>b.rib))return;const rg=inset(outlineOf(gr.rects),c.side+sideIn+dl/2),sz=spread(gr.z0+50+dl/2,gr.z1-c.top-topStack-dl/2,r.side.spacing);
+   blockGroups.forEach((gr,k)=>{if(enclosed(gr)||gr.rects.some(b=>b.rib))return;const rg=inset(outlineOf(gr.rects),c.side+dl/2),sz=spread(gr.z0+50+dl/2,gr.z1-c.top-topStack-dl/2,r.side.spacing);
     if(rg.length<3||!sz){warn(`เหล็กรอบข้าง (LOOPS) ส่วนเพิ่ม ${k+1}: ความสูงไม่พอ`);return;}
-    out.push({role:`side-loop-blk${k+1}`,note:`เหล็กรอบข้าง (LOOPS) ${gr.rects.map(b=>b.label).filter(Boolean).join(' + ')||`ส่วนเพิ่ม ${k+1}`} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,diameter:dl,grade:g,count:sz.count,points:polyLink(rg,det.hook90*dl,rad,dl).map(([x,y])=>[x,y,sz.from] as V3),axis:'Z',face:'side',radius:rad,shapeCode:'99',distributionAxis:'Z',from:sz.from,to:sz.to});});
+    const nm=gr.rects.map(b=>b.label).filter(Boolean).join(' + ')||`ส่วนเพิ่ม ${k+1}`;
+    pushLoop(`side-loop-blk${k+1}`,`เหล็กรอบข้าง (LOOPS) ${nm} · ${sz.count} ชั้น @ ≤ ${r.side.spacing} mm`,rg,sz.count,sz.from,sz.to,` ${nm}`);});
+   lapWarn.forEach(warn);
   }
  }
  // Stirrups (closed links) across a band centred on the footing, e.g. the beam strip over a pile row
@@ -1285,8 +1336,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  }
  // Vertical face bars on every face of the plan outline, ends straight or turned inward 90°.
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).
- if(sideIn){
-  const dv=vb.diameter,rad=radius(dv,det),ret=vb.leg>0?vb.leg:15*dv,ring=inset(plan,c.side+dv/2),ccw=signedArea(ring)>0;
+ if(vIn){
+  const dv=vb.diameter,rad=radius(dv,det),ret=vb.leg>0?vb.leg:15*dv,ring=inset(plan,c.side+loopIn+dv/2),ccw=signedArea(ring)>0;
   const zb=vb.bottom==='inward'?c.bottom+r.bottomX.diameter+r.bottomY.diameter+dv/2:c.bottom+dv/2,zt=vb.toJoint&&firstTop!==undefined?firstTop-dv/2:vb.top==='inward'?T-c.top-topStack-dv/2:T-c.top-dv/2;
   const pos:{p:Pt;n:Pt}[]=[];
   ring.forEach((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),s=spread(0,len,vb.spacing);if(!s||len<1)return;const u:Pt=[(b[0]-a[0])/len,(b[1]-a[1])/len],n:Pt=ccw?[-u[1],u[0]]:[u[1],-u[0]];
@@ -1300,7 +1351,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    // the top follows the concrete at each position (lowered areas / blocks on the edge): one Mark per height
    // lowest concrete top within cover of the bar along the face and where its top hook ends (a bar beside a step, or under a
    // part too narrow for the hook, stops under the lower top)
-   const topOf=(q:{p:Pt;n:Pt})=>{const k=c.side+dv,u:Pt=[-q.n[1],q.n[0]],r2=inT?ret+c.side:0,t=Math.min(topAt(q.p[0],q.p[1]),topAt(q.p[0]+u[0]*k,q.p[1]+u[1]*k),topAt(q.p[0]-u[0]*k,q.p[1]-u[1]*k),topAt(q.p[0]+q.n[0]*r2,q.p[1]+q.n[1]*r2));return Math.abs(t-T)<.5?zt:t-c.top-(inT?topStack:0)-dv/2;};
+   const topOf=(q:{p:Pt;n:Pt})=>{const k=c.side+loopIn+dv,u:Pt=[-q.n[1],q.n[0]],r2=inT?ret+c.side:0,t=Math.min(topAt(q.p[0],q.p[1]),topAt(q.p[0]+u[0]*k,q.p[1]+u[1]*k),topAt(q.p[0]-u[0]*k,q.p[1]-u[1]*k),topAt(q.p[0]+q.n[0]*r2,q.p[1]+q.n[1]*r2));return Math.abs(t-T)<.5?zt:t-c.top-(inT?topStack:0)-dv/2;};
    const heights=[...new Set(pos.map(q=>Math.round(topOf(q))))].sort((a,b)=>b-a);
    heights.forEach((h,hk)=>{const grp=pos.filter(q=>Math.round(topOf(q))===h),zt=topOf(grp[0]);if(zt-zb<=2*rad)return;
    const tpl=({p,n}:{p:Pt;n:Pt}):V3[]=>[...(inB?[[p[0]+n[0]*ret,p[1]+n[1]*ret,zb] as V3]:[]),[p[0],p[1],zb],[p[0],p[1],zt],...(inT?[[p[0]+n[0]*ret,p[1]+n[1]*ret,zt] as V3]:[])];
