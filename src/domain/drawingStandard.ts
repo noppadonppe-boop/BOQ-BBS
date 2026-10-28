@@ -11,7 +11,12 @@ export type ViewScale=z.infer<typeof viewScaleSchema>;
 // plans; gutter = Mark labels in a column beside each view (leader lines)
 export const barDisplaySchema=z.enum(['representative','all']);
 export type BarDisplay=z.infer<typeof barDisplaySchema>;
-const sheetStyle={sheetSize:sheetSizeSchema.optional(),viewScale:viewScaleSchema.optional(),barDisplay:barDisplaySchema.optional(),planSplit:z.boolean().optional(),markGutter:z.boolean().optional()};
+// page layout: 'one' = views + tables on each sheet; 'split' = tables first (BBS + BOQ + notes), then sheets of large views
+// (`viewsPerPage` 0 = auto: plans on one sheet, sections on the next)
+export const sheetLayoutSchema=z.enum(['one','split']);
+export type SheetLayout=z.infer<typeof sheetLayoutSchema>;
+const sheetStyle={sheetSize:sheetSizeSchema.optional(),viewScale:viewScaleSchema.optional(),barDisplay:barDisplaySchema.optional(),planSplit:z.boolean().optional(),markGutter:z.boolean().optional(),
+ sheetLayout:sheetLayoutSchema.optional(),viewsPerPage:z.number().int().min(0).max(4).optional()};
 export const standardScales=[1,2,5,10,15,20,25,30,40,50,75,100,125,150,200,250,300,400,500,750,1000];
 export const viewScaleChoices=[20,25,50,75,100];
 // run / rev = automatic drawing number parts (…segments-Run 001–999-R0–9); number is kept composed for keys and registers
@@ -23,14 +28,15 @@ export type DrawingProfile=z.infer<typeof drawingProfileSchema>;
 export const titleBlockSchema=z.object({company:z.string().max(300),drawnBy:z.string().max(200),checkedBy:z.string().max(200),approvedBy:z.string().max(200).optional(),drawingPrefix:z.string().max(80),drawingSuffix:z.string().max(80).optional(),drawingParts:z.array(z.string().max(50)).max(8).optional(),sheetLanguage:z.enum(['th','en','zh']).optional(),...sheetStyle});
 export const sheetStyleSchema=z.object(sheetStyle);
 export type SheetStyle=z.infer<typeof sheetStyleSchema>;
-export type SheetSetup={size:SheetSize;scale:ViewScale;bars:BarDisplay;split:boolean;gutter:boolean};
+export type SheetSetup={size:SheetSize;scale:ViewScale;bars:BarDisplay;split:boolean;gutter:boolean;layout:SheetLayout;perPage:number};
 /** BBS sheet setup of a member: member override, else project default, else A3 / auto / representative / one plan / gutter. */
 export function sheetSetupOf(p:{titleBlock?:SheetStyle},m?:{drawingSetup?:SheetStyle}):SheetSetup{
  const o=m?.drawingSetup,d=p.titleBlock;
- return {size:o?.sheetSize||d?.sheetSize||'A3',scale:o?.viewScale??d?.viewScale??'auto',bars:o?.barDisplay||d?.barDisplay||'representative',split:o?.planSplit??d?.planSplit??false,gutter:o?.markGutter??d?.markGutter??true};
+ return {size:o?.sheetSize||d?.sheetSize||'A3',scale:o?.viewScale??d?.viewScale??'auto',bars:o?.barDisplay||d?.barDisplay||'representative',split:o?.planSplit??d?.planSplit??false,gutter:o?.markGutter??d?.markGutter??true,
+  layout:o?.sheetLayout||d?.sheetLayout||'one',perPage:o?.viewsPerPage??d?.viewsPerPage??0};
 }
 /** Member drawingSetup fields that override the project sheet style. */
-export const sheetStyleKeys=['sheetSize','viewScale','barDisplay','planSplit','markGutter'] as const;
+export const sheetStyleKeys=['sheetSize','viewScale','barDisplay','planSplit','markGutter','sheetLayout','viewsPerPage'] as const;
 export const viewScaleLabel=(v:ViewScale)=>v==='auto'?'Auto':`1:${v}`;
 export const drawingNumberKey=(s:string)=>s.normalize('NFC').trim().toLowerCase();
 export const MAX_DRAWING_PARTS=8;
