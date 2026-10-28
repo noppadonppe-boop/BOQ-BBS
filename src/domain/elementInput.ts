@@ -182,7 +182,9 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
   laps:z.object({pattern:z.enum(['1','2','3','custom']),length:z.enum(['lap','hook','custom']),value:mm,at:z.array(mm).max(10)}).strict().optional()}).strict(),
   sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm,
    /** stop under the first construction joint (first pour only) instead of the footing top */
-   toJoint:z.boolean().optional()}).strict(),
+   toJoint:z.boolean().optional(),
+   /** faces parallel to Y get their own size / spacing (the main values then apply to the faces parallel to X); absent = same all round */
+   y:z.object({diameter:dia,spacing:mm}).strict().optional()}).strict(),
   /** closed links (STIRRUPS / HOOP) across a band of `width` (out-to-out, centred) running along `dir` (e.g. the strip over a pile row),
    * from the bottom cover up to under the top of the first pour stage */
   stirrups:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,width:mm,dir:z.enum(['x','y']),
@@ -595,7 +597,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    const ext2=footingExtent(input),rects=cols.map(c=>{const {w,d}=columnExtent(c),x0=(ext2.w-w)/2+c.offsetX,y0=(ext2.d-d)/2+c.offsetY;return columnBoxes(c).map(b=>({x0:x0+b.x0,x1:x0+b.x1,y0:y0+b.y0,y1:y0+b.y1}));});
    for(let a=0;a<rects.length;a++)for(let b=a+1;b<rects.length;b++)if(rects[a].some(r=>rects[b].some(q=>Math.min(r.x1,q.x1)-Math.max(r.x0,q.x0)>1&&Math.min(r.y1,q.y1)-Math.max(r.y0,q.y0)>1)))p.push(`${footingColumnName(cols[a],a,true)} และ ${footingColumnName(cols[b],b,true)} ซ้อนกัน · ปรับระยะเยื้อง`);
    if(input.rebar.side.enabled)layer(input.rebar.side,'เหล็กรอบข้าง (LOOPS)');
-   if(input.rebar.sideBars.enabled){layer(input.rebar.sideBars,'เหล็กแนวตั้งผิวข้าง');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
+   if(input.rebar.sideBars.enabled){const sb=input.rebar.sideBars;layer(sb,sb.y?'เหล็กแนวตั้งผิวข้าง ผิวด้าน X':'เหล็กแนวตั้งผิวข้าง');if(sb.y)layer(sb.y,'เหล็กแนวตั้งผิวข้าง ผิวด้าน Y');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
    for(const [list,kind] of [[input.blocks||[],'ส่วนเพิ่ม'],[input.cuts||[],'ส่วนลดระดับ']] as const)list.forEach((b,k)=>{const nm=`${kind} ${b.label||k+1}`;if(b.x1<=b.x0||b.y1<=b.y0||b.z1<=b.z0)p.push(`${nm}: ขนาดต้องมากกว่า 0 (x1 > x0, y1 > y0, z1 > z0)`);else if(b.x0<-.5||b.y0<-.5||b.x1>ext.w+.5||b.y1>ext.d+.5)p.push(`${nm}: อยู่นอกแปลนฐาน`);if(kind==='ส่วนลดระดับ'&&(b.z1<input.thickness-.5||b.z0<0))p.push(`${nm}: ต้องตัดจากผิวบนฐาน (z1 = ความหนาฐาน ${input.thickness}, z0 ≥ 0 · z0 = 0 = ไม่มีคอนกรีต เช่น มุมที่ตัดออกของแปลนรูปตัว L)`);});
    if(footingOpenings(input).length&&footingArea(input)<1)p.push('ส่วนที่ตัดออกทั้งความหนาคลุมแปลนฐานทั้งหมด');
    if(input.slab.enabled){need(input.slab.thickness,'ความหนาพื้นที่หล่อรวมกับฐาน');if(input.shape!=='rect')p.push('ฐานหล่อรวมพื้น: รองรับแปลนสี่เหลี่ยมเท่านั้น');if(input.slab.thickness>=input.thickness)p.push('ความหนาพื้นต้องน้อยกว่าความหนาฐาน');}
@@ -1108,7 +1110,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // first pour with a mesh at its top (joint 1, lower stage): face bars set to the first pour stop under that mesh
  const J1=footingPour(i).levels[0],jm1=J1!==undefined?jointRebar(i,0).mesh:undefined,firstTop=J1!==undefined&&J1<T-c.top-topStack?J1-(jm1?.enabled&&jm1.at==='lower'?jm1.cover+jm1.x.diameter+jm1.y.diameter:50):undefined;
  // side loops are the outermost layer (bar face at the side cover), vertical face bars inside them
- const vb=r.sideBars,loopIn=r.side.enabled&&i.shape!=='circle'?r.side.diameter:0,vIn=vb.enabled&&i.shape!=='circle'?vb.diameter:0,sideIn=loopIn+vIn;
+ const vb=r.sideBars,loopIn=r.side.enabled&&i.shape!=='circle'?r.side.diameter:0,vIn=vb.enabled&&i.shape!=='circle'?Math.max(vb.diameter,vb.y?.diameter||0):0,sideIn=loopIn+vIn;
  // extra boxes (rect footings): blocks = raised parts / later-pour blocks, cuts = lowered top areas; each gets its own top mesh
  const blocks=i.shape==='rect'?i.blocks||[]:[],cuts=i.shape==='rect'?(i.cuts||[]).filter(b=>b.z1>=T-1&&b.z0>0):[];
  const merge=(iv:[number,number][])=>{const o:[number,number][]=[];for(const v of [...iv].sort((p,q)=>p[0]-q[0])){const l=o.at(-1);if(l&&v[0]<=l[1]+1e-6)l[1]=Math.max(l[1],v[1]);else o.push([v[0],v[1]]);}return o;};
@@ -1336,17 +1338,25 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  }
  // Vertical face bars on every face of the plan outline, ends straight or turned inward 90°.
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).
+ // vb.y = own size / spacing on the faces parallel to Y (the main values then apply to the faces parallel to X).
  if(vIn){
-  const dv=vb.diameter,rad=radius(dv,det),ret=vb.leg>0?vb.leg:15*dv,ring=inset(plan,c.side+loopIn+dv/2),ccw=signedArea(ring)>0;
+  const dmax=Math.max(vb.diameter,vb.y?.diameter||0),ring=inset(plan,c.side+loopIn+dmax/2),ccw=signedArea(ring)>0;
+  const faces:{l:{diameter:number;spacing:number};on:(u:Pt)=>boolean;tag:string;name:string}[]=vb.y
+   ?[{l:vb,on:u=>Math.abs(u[0])>=Math.abs(u[1]),tag:'',name:' ผิวด้าน X'},{l:vb.y,on:u=>Math.abs(u[0])<Math.abs(u[1]),tag:'-y',name:' ผิวด้าน Y'}]
+   :[{l:vb,on:()=>true,tag:'',name:''}];
+  faces.forEach(({l,on,tag,name})=>{
+  const dv=l.diameter,rad=radius(dv,det),ret=vb.leg>0?vb.leg:15*dv,out0=(dmax-dv)/2;
   const zb=vb.bottom==='inward'?c.bottom+r.bottomX.diameter+r.bottomY.diameter+dv/2:c.bottom+dv/2,zt=vb.toJoint&&firstTop!==undefined?firstTop-dv/2:vb.top==='inward'?T-c.top-topStack-dv/2:T-c.top-dv/2;
   const pos:{p:Pt;n:Pt}[]=[];
-  ring.forEach((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),s=spread(0,len,vb.spacing);if(!s||len<1)return;const u:Pt=[(b[0]-a[0])/len,(b[1]-a[1])/len],n:Pt=ccw?[-u[1],u[0]]:[u[1],-u[0]];
-   for(let j=0;j<s.count-1;j++){const t=s.count===1?0:len*j/(s.count-1);pos.push({p:[a[0]+u[0]*t,a[1]+u[1]*t],n});}});
+  // a thinner bar keeps its face at the same distance from the concrete face (the ring is set by the larger bar)
+  ring.forEach((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),s=spread(0,len,l.spacing);if(!s||len<1)return;const u:Pt=[(b[0]-a[0])/len,(b[1]-a[1])/len],n:Pt=ccw?[-u[1],u[0]]:[u[1],-u[0]];
+   if(!on(u))return;
+   for(let j=0;j<s.count-1;j++){const t=s.count===1?0:len*j/(s.count-1);pos.push({p:[a[0]+u[0]*t-n[0]*out0,a[1]+u[1]*t-n[1]*out0],n});}});
   const tooLong=ret>=Math.min(X,Y)/2-c.side;
-  if(zt-zb<=2*rad)warn('เหล็กแนวตั้งผิวข้าง: ความหนาฐานไม่พอ');
-  else if(!pos.length)warn('เหล็กแนวตั้งผิวข้าง: วางเหล็กไม่ได้');
+  if(zt-zb<=2*rad)warn(`เหล็กแนวตั้งผิวข้าง${name}: ความหนาฐานไม่พอ`);
+  else if(!pos.length)warn(`เหล็กแนวตั้งผิวข้าง${name}: วางเหล็กไม่ได้`);
   else{
-   if(tooLong)warn('เหล็กแนวตั้งผิวข้าง: ระยะงอเข้าในยาวเกินครึ่งฐาน ใช้ปลายตรง');
+   if(tooLong)warn(`เหล็กแนวตั้งผิวข้าง${name}: ระยะงอเข้าในยาวเกินครึ่งฐาน ใช้ปลายตรง`);
    const inB=vb.bottom==='inward'&&!tooLong,inT=vb.top==='inward'&&!tooLong;
    // the top follows the concrete at each position (lowered areas / blocks on the edge): one Mark per height
    // lowest concrete top within cover of the bar along the face and where its top hook ends (a bar beside a step, or under a
@@ -1359,8 +1369,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    const turns=pos2.map(q=>Math.round((ang(q.n)-ang(first.n))*180/Math.PI*1000)/1000);
    const offsets=pos2.map(q=>{const last=tpl(q).at(-1)!;return [last[0]-pivot[0],last[1]-pivot[1],0] as V3;});
    const code=inB&&inT?'21':inB||inT?'11':'00',parts=[inB&&'ล่าง',inT&&'บน'].filter(Boolean).join('/');
-   out.push({role:hk?`side-vertical-${hk+1}`:'side-vertical',note:`เหล็กแนวตั้งผิวข้าง @ ≤ ${vb.spacing} mm · ${pos2.length} ตำแหน่ง${heights.length>1?` (สูงถึง +${Math.round(zt)})`:' รอบฐาน'}${parts?` · งอเข้าใน ${Math.round(ret)} mm ที่ปลาย${parts}`:''}`,diameter:dv,grade:g,count:pos2.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});});
-  }
+   out.push({role:`side-vertical${tag}${hk?`-${hk+1}`:''}`,note:`เหล็กแนวตั้งผิวข้าง${name} @ ≤ ${l.spacing} mm · ${pos2.length} ตำแหน่ง${heights.length>1?` (สูงถึง +${Math.round(zt)})`:name?'':' รอบฐาน'}${parts?` · งอเข้าใน ${Math.round(ret)} mm ที่ปลาย${parts}`:''}`,diameter:dv,grade:g,count:pos2.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});});
+  }});
  }
  const cols=footingColumns(i),many=cols.length>1;
  for(const [ci,col] of cols.entries()){const sfx=ci?`-c${ci+1}`:'';
