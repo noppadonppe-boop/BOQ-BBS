@@ -123,8 +123,9 @@ export const detailingSchema=z.object({
  lap:z.number().finite().min(0).max(120),
  stockLength:z.number().finite().positive().max(30000),
  /** Lap length per bar diameter from the project spec (Class B = FTL table: `length` tension, `top` top bars with
-  * more than 300 mm of concrete below); missing sizes use lap × d. */
- lapTable:z.array(z.object({bar:dia,length:mm,top:mm.optional()}).strict()).max(20).optional(),
+  * more than 300 mm of concrete below); missing sizes use lap × d. `ldh` = development length of a standard 90° hook
+  * (SHA column of the code table); absent = ACI 318 formula, see `hookDevLength()`. */
+ lapTable:z.array(z.object({bar:dia,length:mm,top:mm.optional(),ldh:mm.optional()}).strict()).max(20).optional(),
  /** Spec the defaults were taken from (display only). */
  specRef:z.string().max(200).optional(),
  /** Beam top-bar extensions (× clear span) from the spec's typical beam details: end (discontinuous) / continuous support. */
@@ -145,6 +146,13 @@ export function gradeFor(det:Detailing,d:number,fallback:string){
 export function lapLength(det:Detailing,d:number,top=false){
  const t=det.lapTable?.filter(r=>r.bar>=d-1e-6).sort((a,b)=>a.bar-b.bar)[0];
  return t&&top&&t.top&&t.top>0?t.top:t&&t.length>0?t.length:det.lap*d;
+}
+/** Ldh of a standard 90° hook in tension: spec table (SHA) if any, else ACI 318 0.24·fy/√f'c·db ≥ 8db, 150 mm
+ * (f'c from the member concrete, 280 ksc when unset; fy by the bar grade), rounded up to 25 mm. */
+export function hookDevLength(det:Detailing,d:number){
+ const t=det.lapTable?.find(r=>Math.abs(r.bar-d)<1e-6);if(t?.ldh)return t.ldh;
+ const g=gradeFor(det,d,det.mainGrade),fy=/SD50|500/.test(g)?5000:/SD30/.test(g)?3000:/SR24/.test(g)?2400:4000,fc=det.concrete?.fc||280;
+ return Math.ceil(Math.max(.24*fy*.0981/Math.sqrt(fc*.0981)*d,8*d,150)/25)*25;
 }
 export type Detailing=z.infer<typeof detailingSchema>;
 /** Preliminary detailing defaults: BS 8666:2000 Table 2 minimum former radius
@@ -1345,14 +1353,15 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    ?[{l:vb,on:u=>Math.abs(u[0])>=Math.abs(u[1]),tag:'',name:' ผิวด้าน X'},{l:vb.y,on:u=>Math.abs(u[0])<Math.abs(u[1]),tag:'-y',name:' ผิวด้าน Y'}]
    :[{l:vb,on:()=>true,tag:'',name:''}];
   faces.forEach(({l,on,tag,name})=>{
-  const dv=l.diameter,rad=radius(dv,det),ret=vb.leg>0?vb.leg:15*dv,out0=(dmax-dv)/2;
+  // leg 0: top return = Ldh (anchorage into the slab / top of the footing), bottom return = 15d
+  const dv=l.diameter,rad=radius(dv,det),retT=vb.leg>0?vb.leg:hookDevLength(det,dv),retB=vb.leg>0?vb.leg:15*dv,out0=(dmax-dv)/2;
   const zb=vb.bottom==='inward'?c.bottom+r.bottomX.diameter+r.bottomY.diameter+dv/2:c.bottom+dv/2,zt=vb.toJoint&&firstTop!==undefined?firstTop-dv/2:vb.top==='inward'?T-c.top-topStack-dv/2:T-c.top-dv/2;
   const pos:{p:Pt;n:Pt}[]=[];
   // a thinner bar keeps its face at the same distance from the concrete face (the ring is set by the larger bar)
   ring.forEach((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),s=spread(0,len,l.spacing);if(!s||len<1)return;const u:Pt=[(b[0]-a[0])/len,(b[1]-a[1])/len],n:Pt=ccw?[-u[1],u[0]]:[u[1],-u[0]];
    if(!on(u))return;
    for(let j=0;j<s.count-1;j++){const t=s.count===1?0:len*j/(s.count-1);pos.push({p:[a[0]+u[0]*t-n[0]*out0,a[1]+u[1]*t-n[1]*out0],n});}});
-  const tooLong=ret>=Math.min(X,Y)/2-c.side;
+  const tooLong=Math.max(vb.top==='inward'?retT:0,vb.bottom==='inward'?retB:0)>=Math.min(X,Y)/2-c.side;
   if(zt-zb<=2*rad)warn(`เหล็กแนวตั้งผิวข้าง${name}: ความหนาฐานไม่พอ`);
   else if(!pos.length)warn(`เหล็กแนวตั้งผิวข้าง${name}: วางเหล็กไม่ได้`);
   else{
@@ -1361,15 +1370,15 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
    // the top follows the concrete at each position (lowered areas / blocks on the edge): one Mark per height
    // lowest concrete top within cover of the bar along the face and where its top hook ends (a bar beside a step, or under a
    // part too narrow for the hook, stops under the lower top)
-   const topOf=(q:{p:Pt;n:Pt})=>{const k=c.side+loopIn+dv,u:Pt=[-q.n[1],q.n[0]],r2=inT?ret+c.side:0,t=Math.min(topAt(q.p[0],q.p[1]),topAt(q.p[0]+u[0]*k,q.p[1]+u[1]*k),topAt(q.p[0]-u[0]*k,q.p[1]-u[1]*k),topAt(q.p[0]+q.n[0]*r2,q.p[1]+q.n[1]*r2));return Math.abs(t-T)<.5?zt:t-c.top-(inT?topStack:0)-dv/2;};
+   const topOf=(q:{p:Pt;n:Pt})=>{const k=c.side+loopIn+dv,u:Pt=[-q.n[1],q.n[0]],r2=inT?retT+c.side:0,t=Math.min(topAt(q.p[0],q.p[1]),topAt(q.p[0]+u[0]*k,q.p[1]+u[1]*k),topAt(q.p[0]-u[0]*k,q.p[1]-u[1]*k),topAt(q.p[0]+q.n[0]*r2,q.p[1]+q.n[1]*r2));return Math.abs(t-T)<.5?zt:t-c.top-(inT?topStack:0)-dv/2;};
    const heights=[...new Set(pos.map(q=>Math.round(topOf(q))))].sort((a,b)=>b-a);
    heights.forEach((h,hk)=>{const grp=pos.filter(q=>Math.round(topOf(q))===h),zt=topOf(grp[0]);if(zt-zb<=2*rad)return;
-   const tpl=({p,n}:{p:Pt;n:Pt}):V3[]=>[...(inB?[[p[0]+n[0]*ret,p[1]+n[1]*ret,zb] as V3]:[]),[p[0],p[1],zb],[p[0],p[1],zt],...(inT?[[p[0]+n[0]*ret,p[1]+n[1]*ret,zt] as V3]:[])];
+   const tpl=({p,n}:{p:Pt;n:Pt}):V3[]=>[...(inB?[[p[0]+n[0]*retB,p[1]+n[1]*retB,zb] as V3]:[]),[p[0],p[1],zb],[p[0],p[1],zt],...(inT?[[p[0]+n[0]*retT,p[1]+n[1]*retT,zt] as V3]:[])];
    const pos2=grp,first=pos2[0],points=tpl(first),pivot=points.at(-1)!,ang=(n:Pt)=>Math.atan2(n[1],n[0]);
    const turns=pos2.map(q=>Math.round((ang(q.n)-ang(first.n))*180/Math.PI*1000)/1000);
    const offsets=pos2.map(q=>{const last=tpl(q).at(-1)!;return [last[0]-pivot[0],last[1]-pivot[1],0] as V3;});
    const code=inB&&inT?'21':inB||inT?'11':'00',parts=[inB&&'ล่าง',inT&&'บน'].filter(Boolean).join('/');
-   out.push({role:`side-vertical${tag}${hk?`-${hk+1}`:''}`,note:`เหล็กแนวตั้งผิวข้าง${name} @ ≤ ${l.spacing} mm · ${pos2.length} ตำแหน่ง${heights.length>1?` (สูงถึง +${Math.round(zt)})`:name?'':' รอบฐาน'}${parts?` · งอเข้าใน ${Math.round(ret)} mm ที่ปลาย${parts}`:''}`,diameter:dv,grade:g,count:pos2.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});});
+   out.push({role:`side-vertical${tag}${hk?`-${hk+1}`:''}`,note:`เหล็กแนวตั้งผิวข้าง${name} @ ≤ ${l.spacing} mm · ${pos2.length} ตำแหน่ง${heights.length>1?` (สูงถึง +${Math.round(zt)})`:name?'':' รอบฐาน'}${inT?` · ปลายบนงอเข้าใน Ldh ${Math.round(retT)} mm`:''}${inB?` · ปลายล่างงอเข้าใน ${Math.round(retB)} mm`:''}`,diameter:dv,grade:g,count:pos2.length,points,axis:'Z',face:'side',radius:code==='00'?0:rad,shapeCode:code,offsets,turns});});
   }});
  }
  const cols=footingColumns(i),many=cols.length>1;
