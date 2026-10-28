@@ -85,7 +85,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const shapeFields=(label:string,path:string)=>{
   const l=get(path),info=layerShapes.find(s=>s.code===l.shape)||layerShapes[0],std=shapeDefaults(l.diameter,input.detailing,l.shape==='12'?l.radius:0),ends:readonly BarEnd[]=info.ends,bends=ends.includes('bend'),hooks=ends.includes('hook'),returns=ends.includes('return');
   return <>{select(`${label} · Shape code (BS 8666)`,`${path}.shape`,shapesFor(input.category).map(s=>[s.code,`${s.code} · ${s.label}`]))}
-   {returns&&num(`${label} · งอเข้าในที่ปลายขา (0 = 15d ≈ ${Math.round(std.ret)})`,`${path}.leg`)}
+   {returns&&num(`${label} · งอเข้าในที่ปลายขา (0 = Ldh ${Math.round(std.ret)})`,`${path}.leg`)}
    {(bends||hooks)&&num(`${label} · ${bends&&hooks?'ขางอ / ส่วนตรงหลังขอ':bends?'ระยะขางอ':'ส่วนตรงหลังขอ 180°'} (0 = มาตรฐาน ${[bends&&`ขา ≈ ${Math.round(std.bend)}`,hooks&&`หลังขอ ${std.hookTail}`].filter(Boolean).join(' / ')})`,`${path}.leg`)}
    {l.shape==='12'&&num(`${label} · รัศมีดัดใน R (Shape 12)`,`${path}.radius`)}
    <div className="shape-preview" key={`${path}.preview`}><ShapeIcon code={info.code}/><small><b>Shape {info.code}</b> · L = {info.formula}{hooks?` · ขอ 180° กว้าง B ≈ ${Math.round(std.hookOutside)} mm`:''}</small></div></>;

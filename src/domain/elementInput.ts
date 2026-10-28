@@ -46,7 +46,7 @@ export const layerShapes=[
  {code:'21',label:'งอฉาก 90° สองปลาย (ตัว U)',formula:'A + B + (C) − r − 2d',ends:['bend','bend']},
  {code:'22',label:'งอฉาก 90° + ขอ 180° อีกปลาย',formula:'A + B + 0.57C + (D) − 0.5r − 2.6d',ends:['bend','hook']},
  {code:'99',label:'ขอ 180° สองปลาย (นอกมาตรฐาน · Shape 99)',formula:'คำนวณตามแนวแกนเหล็ก',ends:['hook','hook']},
- {code:'41',label:'ตัว U ขาขึ้นเต็มความลึก + งอเข้าใน 15d สองปลาย (ฐานลึก)',formula:'A + B + C + D + (E) − 2r − 4d',ends:['return','return'],foundationOnly:true},
+ {code:'41',label:'ตัว U ขาขึ้นเต็มความลึก + งอเข้าใน Ldh สองปลาย (ฐานลึก)',formula:'A + B + C + D + (E) − 2r − 4d',ends:['return','return'],foundationOnly:true},
 ] as const satisfies readonly {code:string;label:string;formula:string;ends:readonly [BarEnd,BarEnd];foundationOnly?:boolean}[];
 export const shapesFor=(category:string)=>layerShapes.filter(s=>!('foundationOnly' in s)||category==='Foundation');
 export type LayerShape=typeof layerShapes[number]['code'];
@@ -180,7 +180,7 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  lean:z.object({thickness:mm,projection:mm}).strict(),
  cover:z.object({bottom:mm,top:mm,side:mm}).strict(),
  /** side = horizontal closed loops around the footing perimeter (face reinforcement), spaced up the depth. */
- /** sideBars = vertical face bars around the perimeter (inside the side loops, outermost when there are none); ends straight or turned inward 90° (leg 0 = 15d). */
+ /** sideBars = vertical face bars around the perimeter (inside the side loops, outermost when there are none); ends straight or turned inward 90° (leg 0 = Ldh at the top, 15d at the bottom). */
  rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh,side:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,
   /** pour stages that get loops (1 = first pour); empty = every stage */
   stages:z.array(z.number().int().min(1).max(6)).max(6),
@@ -1068,7 +1068,7 @@ type Shaped={diameter:number;shape:LayerShape;leg:number;radius:number};
 type Pt2=[number,number];
 const codeOfEnds:Record<string,string>={'straight+straight':'00','bend+straight':'11','hook+straight':'13','bend+bend':'21','bend+hook':'22','hook+hook':'99','return+return':'41'};
 /** Standard leg of a 90° bend and standard straight extension after a 180° hook for bar size d. */
-export function shapeDefaults(d:number,det:Detailing,radiusR=0){const rad=radiusR>0?radiusR+d/2:radius(d,det);return {bend:det.hook90*d+rad,hookTail:Math.max(5*d,90),hookOutside:2*rad+d,ret:15*d};}
+export function shapeDefaults(d:number,det:Detailing,radiusR=0){const rad=radiusR>0?radiusR+d/2:radius(d,det);return {bend:det.hook90*d+rad,hookTail:Math.max(5*d,90),hookOutside:2*rad+d,ret:hookDevLength(det,d)};}
 /** BS 8666 end shapes for a straight run a→b (local axis u) at level w0. Bends/hooks turn toward `dir` in w and
  * must stay within `room` of w0 (centreline). Ends that do not fit fall back to straight and the shape code
  * follows the ends actually built (e.g. 21 → 11 / 00). */

@@ -24,7 +24,8 @@
   (sections, BBS sketch, `Shape` thumbnail, 3D via `coupler3d.ts`). Test: `tmp/columnCoupler.test.tsx`.
 - Bar layer shapes (footing/slab mesh, beam top/bottom, wall vertical/horizontal): `shape` = BS 8666:2020 code from
   `layerShapes` (00/11/12/13/21/22/99), `leg` (0 = standard), `radius` (R for 12); geometry by `shapedEnds()`;
-  old `bend` / `endHook` inputs are migrated in `migrateShapes()`. Shape 41 (U legs full depth + 15d inward, footing only).
+  old `bend` / `endHook` inputs are migrated in `migrateShapes()`. Shape 41 (U legs full depth + inward Ldh, footing only); leg 0 = `hookDevLength()` (spec S.H.A. column via
+  `lapTable[].ldh`, else ACI 318 0.24·fy/√f'c·db) — also the top return of `rebar.sideBars` (bottom return 15d).
   Footing `slab` (cast with floor slab: reference slab regions `genslab-*`, top bars extend into slab) and
   `rebar.side` (horizontal perimeter loops, outermost at the side cover; lapped pieces by `loopPieces()`: `laps.pattern`
   1 / 2 / 3 / custom, x = lap table | hook90·d | value, no piece over 10 m → more laps, roles `side-loop…-p<k>`; UI limits via
