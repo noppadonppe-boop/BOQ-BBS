@@ -209,7 +209,8 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
   * bars and height as C1. All columns share C1's type (pedestal / starter). */
  extraColumns:z.array(footingColumnSchema.extend({linked:z.boolean()}).strict()).max(9),
  /** Project Foundation Template the input came from (display) */
- template:z.object({id:z.string().max(40),name:z.string().max(40)}).strict().optional(),
+ /** linked Foundation Template; stage1 = only the first pour stage of a 2-stage type (`templateFields`) */
+ template:z.object({id:z.string().max(40),name:z.string().max(40),stage1:z.boolean().optional()}).strict().optional(),
  /** extra concrete boxes (raised parts, blocks of a later pour over part of the plan): own top mesh, loops and face bars */
  blocks:z.array(footingBoxSchema).max(80).optional(),
  /** lowered areas cut out of the footing top (z0 = top of that area, z1 = footing thickness): own top mesh */

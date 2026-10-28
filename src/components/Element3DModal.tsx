@@ -19,7 +19,9 @@ import {contextBoxes,couplerMeshes} from './coupler3d';
 type Row=ReturnType<typeof takeoff>['rows'][number];
 type Preview={member:Member;warnings:string[];errors:string[];q:ReturnType<typeof takeoff>};
 /** Dialog field: number (mm), integer, bar diameter, select, checkbox, text or a section heading. */
-type F={k:'num'|'int'|'dia'|'sel'|'chk'|'text'|'head';label:string;path?:string;opts?:[string|number,string][];min?:number;max?:number;signed?:boolean;after?:(draft:any)=>void};
+type F={k:'num'|'int'|'dia'|'sel'|'chk'|'text'|'head';label:string;path?:string;opts?:[string|number,string][];min?:number;max?:number;signed?:boolean;after?:(draft:any)=>void;
+ /** value not stored at `path` as is (path is then only the key): read / write it through these */
+ get?:(draft:any)=>unknown;set?:(draft:any,v:unknown)=>void};
 /** Rebar layer (or pile group) of the structured input that the 3D items map to. */
 type Def={key:string;label:string;present:boolean;match:(role:string)=>boolean;fields:(d:any)=>F[];remove?:(d:any)=>void;removeLabel?:string;adds?:[string,(d:any)=>void][]};
 type Item={key:string;label:string;sub:string;rows:Row[];color:number;editable:boolean;removable:boolean};
@@ -78,7 +80,8 @@ export function layerDefs(input:ElementInput):Def[]{
      {k:'head',label:'จุดทาบ (ไม่มีท่อนยาวเกิน 10 ม.)'},{k:'sel',label:'รูปแบบจุดทาบ',path:'rebar.side.laps.pattern',opts:[['1','รูปแบบ 1 · ทาบ 1 จุด'],['2','รูปแบบ 2 · ทาบ 2 จุด (ด้านตรงข้าม)'],['3','รูปแบบ 3 · ทาบทุกด้าน'],['custom','รูปแบบ 4 · กำหนดจุดทาบเอง (ในฟอร์ม)']]},
      {k:'sel',label:'ระยะทาบ x',path:'rebar.side.laps.length',opts:[['lap','ระยะทาบตามตาราง'],['hook',`ระยะขอมาตรฐาน ${d.detailing.hook90}d`],['custom','กำหนดระยะเอง']]},
      ...(s.laps.length==='custom'?[{k:'num',label:'ระยะทาบ x (mm)',path:'rebar.side.laps.value'} as F]:[])];}),
-    optional('sideBars','เหล็กแนวตั้งผิวข้าง','rebar.sideBars','side-vertical',(d:any)=>[...(d.rebar.sideBars.y?[{k:'head',label:'ผิวด้าน X'} as F,...spacingF('rebar.sideBars'),{k:'head',label:'ผิวด้าน Y'} as F,...spacingF('rebar.sideBars.y')]:spacingF('rebar.sideBars')),{k:'sel',label:'ปลายบน',path:'rebar.sideBars.top',opts:[['inward','งอฉากเข้าใน'],['straight','ปลายตรง']]},{k:'sel',label:'ปลายล่าง',path:'rebar.sideBars.bottom',opts:[['straight','ปลายตรง'],['inward','งอฉากเข้าใน']]},{k:'num',label:'ระยะงอเข้าใน (mm, 0 = บน Ldh · ล่าง 15d)',path:'rebar.sideBars.leg'},
+    optional('sideBars','เหล็กแนวตั้งผิวข้าง','rebar.sideBars','side-vertical',(d:any)=>[{k:'sel',label:'ขนาด / ระยะห่าง ผิวด้าน X และ Y',path:'rebar.sideBars#split',opts:[['same','เท่ากันทุกด้าน'],['split','แยกผิวด้าน X / ผิวด้าน Y']],get:x=>x.rebar.sideBars.y?'split':'same',
+     set:(x,v)=>{const sb=x.rebar.sideBars;if(v==='split')sb.y??={diameter:sb.diameter,spacing:sb.spacing};else delete sb.y;}},...(d.rebar.sideBars.y?[{k:'head',label:'ผิวด้าน X'} as F,...spacingF('rebar.sideBars'),{k:'head',label:'ผิวด้าน Y'} as F,...spacingF('rebar.sideBars.y')]:spacingF('rebar.sideBars')),{k:'sel',label:'ปลายบน',path:'rebar.sideBars.top',opts:[['inward','งอฉากเข้าใน'],['straight','ปลายตรง']]},{k:'sel',label:'ปลายล่าง',path:'rebar.sideBars.bottom',opts:[['straight','ปลายตรง'],['inward','งอฉากเข้าใน']]},{k:'num',label:'ระยะงอเข้าใน (mm, 0 = บน Ldh · ล่าง 15d)',path:'rebar.sideBars.leg'},
      ...(d.pour.count>1?[{k:'chk',label:'หยุดใต้รอยต่อการเท 1 (ใส่เฉพาะ Stage 1)',path:'rebar.sideBars.toJoint'} as F]:[])]),
     {key:'stirrup',label:input.rebar.stirrups?.replacesBottom?'เหล็กล่างแบบปลอก (HOOP)':'เหล็กปลอก (STIRRUPS) ในฐาน',present:!!input.rebar.stirrups?.enabled,match:roleIs('stirrup'),
      fields:()=>[...spacingF('rebar.stirrups'),{k:'num',label:'ความกว้างปลอก นอก-นอก (mm)',path:'rebar.stirrups.width'},{k:'sel',label:'แนวของแถบ',path:'rebar.stirrups.dir',opts:[['x','ตามแนว X'],['y','ตามแนว Y']]},
@@ -394,10 +397,10 @@ export function Custom3DModal({member,spec,readOnly,onChange,onClose}:{member:Me
 function EditDialog({editing,readOnly,onClose}:{editing:Editing;readOnly:boolean;onClose:()=>void}){
  const [draft,setDraft]=useState(editing.draft);
  const live=editing.check?.(draft)||[];
- const put=(f:F,value:unknown)=>{const next=structuredClone(draft);setP(next,f.path!,value);f.after?.(next);setDraft(next);};
+ const put=(f:F,value:unknown)=>{const next=structuredClone(draft);if(f.set)f.set(next,value);else setP(next,f.path!,value);f.after?.(next);setDraft(next);};
  const field=(f:F)=>{
   if(f.k==='head')return <h4 key={`h:${f.label}`} className="e3d-head">{f.label}</h4>;
-  const v=getP(draft,f.path!),key=f.path!;
+  const v=f.get?f.get(draft):getP(draft,f.path!),key=f.path!;
   switch(f.k){
    case 'chk':return <label key={key} className="check e3d-check"><input type="checkbox" checked={!!v} onChange={e=>put(f,e.target.checked)}/>{f.label}</label>;
    case 'dia':return <label key={key} className="field"><span>{f.label}</span><select value={v} onChange={e=>put(f,Number(e.target.value))}>{[...new Set([...DIAS,v])].sort((a,b)=>a-b).map(x=><option key={x} value={x}>{x<=9?'RB':'DB'}{x}</option>)}</select></label>;

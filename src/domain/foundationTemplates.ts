@@ -27,11 +27,29 @@ export const foundationTemplatesSchema=z.array(foundationTemplateSchema).max(300
  .superRefine((list,ctx)=>{const ids=new Set<string>(),names=new Set<string>();list.forEach((t,i)=>{if(ids.has(t.id))ctx.addIssue({code:'custom',path:[i,'id'],message:'รหัส Template ฐานรากซ้ำ'});
   if(names.has(t.name.toUpperCase()))ctx.addIssue({code:'custom',path:[i,'name'],message:`ชื่อฐานราก ${t.name} ซ้ำ`});ids.add(t.id);names.add(t.name.toUpperCase());});});
 
+/** The template has more than one pour stage, so it can also be used as the first stage only. */
+export const templateHasStage2=(t:FoundationTemplate)=>t.fields.pour.count>1&&(t.fields.pour.heights[0]||0)>0;
+/** Template fields as used: `stage1` = the first pour stage only (no slab / second stage): thickness = stage 1 height,
+ * the joint mesh becomes the top mesh (ends bent down when the joint mesh is bent), one pour, boxes above stage 1 left
+ * out, walls / top level lowered to the stage 1 top. */
+export function templateFields(t:FoundationTemplate,stage1=false):FoundationTemplateFields{
+ const f=structuredClone(t.fields);if(!stage1||!templateHasStage2(t))return f;
+ const T=f.thickness,h=f.pour.heights[0],dz=T-h,j=f.pour.joints[0]?.mesh;
+ f.thickness=h;f.pour={count:1,heights:[],joints:[]};f.slab={...f.slab,enabled:false};
+ if(j?.enabled){const end=j.end==='straight'?{shape:'00' as const,leg:0}:{shape:'21' as const,leg:j.end==='custom'?j.leg:0};
+  f.rebar.topX={...f.rebar.topX,enabled:true,diameter:j.x.diameter,spacing:j.x.spacing,...end,radius:0};f.rebar.topY={...f.rebar.topY,enabled:true,diameter:j.y.diameter,spacing:j.y.spacing,...end,radius:0};}
+ f.rebar.side={...f.rebar.side,stages:[]};f.rebar.sideBars={...f.rebar.sideBars,toJoint:undefined};
+ f.blocks=f.blocks?.filter(b=>b.z1<=h+1);f.cuts=f.cuts?.filter(b=>b.z0<h).map(b=>({...b,z1:Math.min(b.z1,h)}));
+ f.walls=f.walls?.map(b=>b.z0>=h?{...b,z0:b.z0-dz,z1:b.z1-dz}:b);
+ if(f.levels.enabled&&f.levels.ref==='top')f.levels={...f.levels,top:Math.round((f.levels.top-dz/1000)*1000)/1000};
+ return f;
+}
 /** Footing input from a template: geometry, piles (pile length / cut-off kept when the template has none), bars,
  * pour stages and levels; columns moved to the template positions (C1 + extra columns linked to C1), keeping the
- * element's column type, section and bars (a footing without columns gets starter bars at the reference size). */
-export function applyFoundationTemplate(i:FoundationInput,t:FoundationTemplate):FoundationInput{
- const f=structuredClone(t.fields),{blocks:_b,cuts:_c,walls:_w,items:_it,...base}=structuredClone(i),v:FoundationInput={...base,...f};
+ * element's column type, section and bars (a footing without columns gets starter bars at the reference size).
+ * `stage1` (default: the footing's own choice when it is linked to this template) = first pour stage only. */
+export function applyFoundationTemplate(i:FoundationInput,t:FoundationTemplate,stage1=i.template?.id===t.id&&!!i.template.stage1):FoundationInput{
+ const one=stage1&&templateHasStage2(t),f=templateFields(t,one),{blocks:_b,cuts:_c,walls:_w,items:_it,...base}=structuredClone(i),v:FoundationInput={...base,...f};
  if(!(f.pile.length>0))v.pile={...v.pile,length:i.pile.length,cutoff:i.pile.cutoff};
  const [c1,...rest]=t.columns;
  if(c1){
@@ -40,13 +58,13 @@ export function applyFoundationTemplate(i:FoundationInput,t:FoundationTemplate):
   v.extraColumns=rest.map((c,k)=>{const old=i.extraColumns[k];return old?{...structuredClone(old),offsetX:c.offsetX,offsetY:c.offsetY}:{...structuredClone(v.column),columnNo:'',linked:true,offsetX:c.offsetX,offsetY:c.offsetY,...(c.width&&c.depth&&(c.width!==c1.width||c.depth!==c1.depth)?{linked:false,width:c.width,depth:c.depth}:{})};});
  }
  else{v.column={...v.column,type:'none'};v.extraColumns=[];}
- v.template={id:t.id,name:t.name};
+ v.template={id:t.id,name:t.name,...(one?{stage1:true}:{})};
  return v;
 }
 /** The footing still matches its template (geometry, piles without length / cut-off, bars, pours, levels, column positions);
  * false = the template in the spec changed (or the footing was edited) since it was applied. */
 export function foundationTemplateCurrent(i:FoundationInput,t:FoundationTemplate){
- const f=t.fields,same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b),pile=(p:FoundationInput['pile'])=>({...p,length:0,cutoff:0});
+ const f=templateFields(t,!!i.template?.stage1&&i.template.id===t.id),same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b),pile=(p:FoundationInput['pile'])=>({...p,length:0,cutoff:0});
  if(!(Object.keys(f) as (keyof typeof f)[]).every(k=>k==='pile'?same(pile(f.pile),pile(i.pile)):same(f[k],i[k])))return false;
  const cols=[i.column,...i.extraColumns];return t.columns.every((c,k)=>cols[k]&&cols[k].offsetX===c.offsetX&&cols[k].offsetY===c.offsetY);
 }

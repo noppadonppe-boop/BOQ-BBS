@@ -98,6 +98,8 @@
 - Project Foundation Template (footing types of the foundation drawings): `spec.foundationTemplates` in
   `src/domain/foundationTemplates.ts` (`fields` = footing input subset: size, depth, piles, bars, pours, levels; `columns` =
   positions + reference section; J-078: 2 pours = FOOTING HEIGHT + 400 slab, joint mesh at the Stage 1 top, ADD top bars into the slab, U legs (Shape 41) and face bars rise into Stage 2 with an inward Ldh = S.H.A. of the lap table; `sideBars.toJoint` stops face bars under the joint); `applyFoundationTemplate()` keeps detailing, column bars and pile length (when 0).
+  2-stage types can be used as Stage 1 only (`template.stage1`, `templateFields()`: thickness = stage 1, joint mesh → top mesh,
+  no slab, top level lowered; picker radio + footing panel select). Test: `tmp/stage1Template.test.ts`.
   UI: footing section 1 button → `FoundationTemplatePicker.tsx`; General Spec list `FoundationTemplateList.tsx`; spec import
   key `foundationTemplates`. Footing stirrups `rebar.stirrups {width, dir, replacesBottom}` (closed links over a band, role `stirrup`; replacesBottom = HOOP that is the bottom layer across the band).
   Footing extra boxes (rect): `blocks` (raised parts / later-pour blocks over part of the plan) and `cuts` (lowered top areas,
