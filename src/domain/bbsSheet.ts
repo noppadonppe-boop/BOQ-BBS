@@ -62,17 +62,25 @@ const lying=(r:SheetRow)=>r.paths.some(p=>p.some((q,i)=>i>0&&Math.hypot(q[0]-p[i
 function sheetViews(s:SheetData):SheetView[]{
  const S=sheetFormat(s),m=s.member,input=s.input,T=sheetText[sheetLangOf(s.project)],cuts=defaultCuts(m,s.rows),colCut=columnSectionCut(input,s.rows),rep=S.bars==='representative';
  const split=S.split&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='bottom')&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='top');
- const plan=(title:string,layer?:'bottom'|'top'):SheetView=>({title,spec:{axes:[0,1],rep,layer},cuts,plan:true});
+ const plan=(title:string,layer?:'bottom'|'top'):SheetView=>({title,spec:{axes:[0,1],rep,layer,tight:true},cuts,plan:true});
  return [...(split?[plan(T.planBottom,'bottom'),plan(T.planTop,'top')]:[plan(T.plan)]),
-  {title:T.sectionX(Math.round(cuts.y)),spec:{axes:[0,2],normal:1,cut:cuts.y},plan:false},{title:T.sectionY(Math.round(cuts.x)),spec:{axes:[1,2],normal:0,cut:cuts.x},plan:false},
+  {title:T.sectionX(Math.round(cuts.y)),spec:{axes:[0,2],normal:1,cut:cuts.y,tight:true},plan:false},{title:T.sectionY(Math.round(cuts.x)),spec:{axes:[1,2],normal:0,cut:cuts.x,tight:true},plan:false},
   ...(colCut?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),spec:{axes:[0,1],normal:2,cut:colCut.z,columns:true},plan:false} as SheetView]:[])];
 }
-/** Boxes of n views on a drawing sheet: 1 = whole area, 2 = side by side, 3 = large left + two stacked right, 4 = 2 × 2. */
-function placeViews(n:number,a:{x:number;y:number;w:number;h:number},g=3){
- const half=(a.w-g)/2,hh=(a.h-g)/2;
- if(n<=1)return [a];if(n===2)return [{...a,w:half},{...a,x:a.x+half+g,w:half}];
- if(n===3){const lw=(a.w-g)*.56,rw=a.w-g-lw;return [{...a,w:lw},{x:a.x+lw+g,y:a.y,w:rw,h:hh},{x:a.x+lw+g,y:a.y+hh+g,w:rw,h:hh}];}
- return [0,1,2,3].map(i=>({x:a.x+(i%2)*(half+g),y:a.y+Math.floor(i/2)*(hh+g),w:half,h:hh}));
+type Box={x:number;y:number;w:number;h:number};
+/** Boxes of the views of a drawing sheet: the arrangement (side by side, stacked, large + two, top + two, rows, 2 × 2)
+ * whose views get the largest scales (geometric mean of each view's fit, `spans` = model width / height of each view;
+ * views are assigned to the boxes in order, the first one gets the large box). */
+function placeViews(spans:[number,number][],a:Box,margin:number,g=3):Box[]{
+ const n=spans.length,half=(a.w-g)/2,hh=(a.h-g)/2,cols=(k:number)=>Array.from({length:k},(_,i)=>({x:a.x+i*((a.w-(k-1)*g)/k+g),y:a.y,w:(a.w-(k-1)*g)/k,h:a.h})),rows=(k:number)=>Array.from({length:k},(_,i)=>({x:a.x,y:a.y+i*((a.h-(k-1)*g)/k+g),w:a.w,h:(a.h-(k-1)*g)/k}));
+ if(n<=1)return [a];
+ const cands:Box[][]=n===2?[cols(2),rows(2)]:n===3?[
+  (()=>{const lw=(a.w-g)*.56,rw=a.w-g-lw;return [{...a,w:lw},{x:a.x+lw+g,y:a.y,w:rw,h:hh},{x:a.x+lw+g,y:a.y+hh+g,w:rw,h:hh}];})(),
+  (()=>{const th=(a.h-g)*.5;return [{...a,h:th},{x:a.x,y:a.y+th+g,w:half,h:a.h-th-g},{x:a.x+half+g,y:a.y+th+g,w:half,h:a.h-th-g}];})(),
+  cols(3),rows(3)]:[[0,1,2,3].map(i=>({x:a.x+(i%2)*(half+g),y:a.y+Math.floor(i/2)*(hh+g),w:half,h:hh})),rows(4)];
+ // fit of a view in a box: room for the margins and about a fifth of the width for Mark labels / level marks
+ const score=(bs:Box[])=>spans.reduce((t,[w,h],i)=>t+Math.log(Math.max(1e-9,Math.min((bs[i].w*.8-2*margin)/Math.max(w,1),(bs[i].h-2*margin)/Math.max(h,1)))),0);
+ return cands.reduce((b,c)=>score(c)>score(b)?c:b);
 }
 function layout(s:SheetData){
  const S=sheetFormat(s),sx=S.w-S.margin-S.strip,titleTop=S.h-S.margin-S.title,boq=sheetBoq(s),boqH=7+5+boq.length*S.boqRow+(s.provisional?5:0),boqTop=titleTop-3-boqH,tableTop=S.margin+8;
@@ -141,7 +149,8 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  const colBox=!colCut?undefined:split?{x:col3(1),y:botY,w:c3,h:botH}:under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH};
  const rep=S.bars==='representative',planSpec=(layer?:'bottom'|'top')=>({axes:[0,1] as [number,number],rep,layer});
  const sheetBox={x:left,y:topY,w:right-2-left,h:S.h-S.margin-14-topY},group=kind==='views'?L.groups[page-L.tablePages]:[],all=kind==='views'?sheetViews(s):[];
- const views=kind==='tables'?[]:kind==='views'?placeViews(group.length,sheetBox).map((box,j)=>({...all[group[j]],box})):bg?bg.views:[...(split?[{title:T.planBottom,box:{x:col3(0),y:topY,w:c3,h:topH},spec:planSpec('bottom'),cuts},{title:T.planTop,box:{x:col3(1),y:topY,w:c3,h:topH},spec:planSpec('top'),cuts}]:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:planSpec(),cuts}]),
+ const built=group.map(i=>buildView(m,s.rows,input,all[i].spec));
+ const views=kind==='tables'?[]:kind==='views'?placeViews(built.map(v=>[v.u[1]-v.u[0],v.v[1]-v.v[0]]),sheetBox,48*k).map((box,j)=>({...all[group[j]],box})):bg?bg.views:[...(split?[{title:T.planBottom,box:{x:col3(0),y:topY,w:c3,h:topH},spec:planSpec('bottom'),cuts},{title:T.planTop,box:{x:col3(1),y:topY,w:c3,h:topH},spec:planSpec('top'),cuts}]:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:planSpec(),cuts}]),
   {title:T.sectionX(Math.round(cuts.y)),box:split?{x:col3(2),y:topY,w:c3,h:topH}:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},
   {title:T.sectionY(Math.round(cuts.x)),box:split?{x:left,y:botY,w:colCut?c3:2*c3+2,h:botH}:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
   ...(colCut&&colBox?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{axes:[0,1] as [number,number],normal:2,cut:colCut.z,columns:true}}]:[])];

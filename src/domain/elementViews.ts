@@ -9,7 +9,9 @@ import {textWidth,type Prim} from './drawingPrims';
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
 /** layer = plan of the bottom or top bars only; rep = plan draws one representative bar per Mark plus its distribution line. */
-export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean;layer?:'bottom'|'top';rep?:boolean};
+/** tight = extents of the member itself (concrete, piles, bars) + a small margin: reference context (excavation, slab
+ * around a footing) is clipped to it, so large drawing sheets show the member big */
+export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean;layer?:'bottom'|'top';rep?:boolean;tight?:boolean};
 type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'wall'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
@@ -64,7 +66,7 @@ const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
 // min / max of long coordinate lists (spreading them into Math.min overflows the call stack on large members)
 const low=(a:number[],start=Infinity)=>a.reduce((m,v)=>v<m?v:m,start),high=(a:number[],start=-Infinity)=>a.reduce((m,v)=>v>m?v:m,start);
-export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep}:ViewSpec){
+export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep,tight}:ViewSpec){
  if(layer&&normal===undefined)rows=rows.filter(r=>planLayerOf(m,input,r)===layer);
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
  // Footing concrete comes from the true plan outline (circle / polygons / L / U), not the bounding box.
@@ -200,7 +202,16 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  }
  const us=[...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0]),...(x.dist?[x.dist.a[0],x.dist.b[0]]:[])])];
  const vs=[...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1]),...(x.dist?[x.dist.a[1],x.dist.b[1]]:[])])];
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:(only?[low(us),high(us)]:[low(us,0),high(us,1)]) as [number,number],v:(only?[low(vs),high(vs)]:[low(vs,0),high(vs,1)]) as [number,number],ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
+ let U:[number,number]=only?[low(us),high(us)]:[low(us,0),high(us,1)],V:[number,number]=only?[low(vs),high(vs)]:[low(vs,0),high(vs,1)];
+ if(tight&&!beamCols.length){
+  const core=rects.filter(r=>r.kind!=='context'),cu=[...core.flatMap(r=>[r.u0,r.u1]),...polys.flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
+  const cv=[...core.flatMap(r=>[r.v0,r.v1]),...polys.flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
+  if(cu.length&&cv.length){const pu=Math.max(300,.06*(high(cu)-low(cu))),pv=Math.max(300,.06*(high(cv)-low(cv))),cl=(x:number,r:[number,number])=>Math.min(r[1],Math.max(r[0],x));
+   U=[Math.max(U[0],low(cu)-pu),Math.min(U[1],high(cu)+pu)];V=[Math.max(V[0],low(cv)-pv),Math.min(V[1],high(cv)+pv)];
+   for(let j=rects.length-1;j>=0;j--){const r=rects[j];if(r.kind!=='context')continue;r.u0=cl(r.u0,U);r.u1=cl(r.u1,U);r.v0=cl(r.v0,V);r.v1=cl(r.v1,V);if(r.u1-r.u0<1||r.v1-r.v0<1)rects.splice(j,1);}
+   for(const q of refs)for(const pt of q){pt[0]=cl(pt[0],U);pt[1]=cl(pt[1],V);}
+   for(const g of guides){g.a=[cl(g.a[0],U),cl(g.a[1],V)];g.b=[cl(g.b[0],U),cl(g.b[1],V)];}}}
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
