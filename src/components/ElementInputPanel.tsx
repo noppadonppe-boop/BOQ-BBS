@@ -2,12 +2,13 @@ import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
 import {Box,Columns3,FileUp,Link2Off,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
 import {OccurrenceTable} from './LocationPicker';
-import {hookDevLength,DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,footingLoopInfo,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,type FootingBox,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {hookDevLength,DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,footingLoopInfo,footingFaceBars,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,type FootingBox,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number,NumInput} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
 import {ColumnTieEditor} from './ColumnTieEditor';
 import {FootingEarthworkSketch} from './FootingEarthworkSketch';
+import {FootingRebarGuide} from './FootingRebarGuide';
 import {FootingPourEditor} from './FootingPourEditor';
 import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
@@ -205,7 +206,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    {input.category==='Wall'&&<>{num('ผิวผนัง','cover.face')}{num('ขอบ/บน-ล่าง','cover.edge')}</>}</div>
 
   <h4>4. เหล็กเสริม</h4>
-  {input.category==='Foundation'&&<><div className="footing-slab">{check('ฐานหล่อเป็นเนื้อเดียวกับพื้น (ผิวบนฐาน = ผิวบนพื้น · ไม่แสดงเหล็กพื้น)','slab.enabled')}
+  {input.category==='Foundation'&&<><div className="rebar-guide-layout"><div className="rebar-guide-inputs"><div className="footing-slab">{check('ฐานหล่อเป็นเนื้อเดียวกับพื้น (ผิวบนฐาน = ผิวบนพื้น · ไม่แสดงเหล็กพื้น)','slab.enabled')}
     {input.slab.enabled&&<><div className="form-grid">{num('ความหนาพื้น (อ้างอิง)','slab.thickness')}{num('เหล็กบนยื่นเข้าพื้น จากขอบฐาน','slab.extend')}</div>
      <p className="muted">พื้นแสดงเป็นพื้นที่อ้างอิงรอบฐาน (ไม่คิดคอนกรีต/เหล็กพื้น) · เหล็กบนทั้งสองทิศยื่นเข้าพื้นตามระยะที่กำหนด · หักแบบหล่อผิวข้างฐานช่วงความหนาพื้น · รองรับแปลนสี่เหลี่ยม</p></>}</div>
    {mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}
@@ -228,16 +229,27 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      return <div className="field loop-stages"><span>ใส่เหล็กรอบข้างใน Stage</span><div className="joint-end-row">{st.map(s=><label key={s.stage} className="check"><input type="checkbox" disabled={readOnly||on(s.stage)&&st.filter(x=>on(x.stage)).length===1} checked={on(s.stage)} onChange={e=>toggle(s.stage,e.target.checked)}/>Stage {s.stage} <small className="muted">({Math.round(s.z0)}–{Math.round(Math.min(s.z1,input.thickness))})</small></label>)}
       <button type="button" disabled={readOnly} onClick={()=>setInput(prev=>prev?.category!=='Foundation'?prev:{...prev,rebar:{...prev.rebar,side:{...prev.rebar.side,stages:[1]}}})}>Stage 1 อย่างเดียว</button></div>
 </div>;})()}</div>
-   <div className="mesh-layer">{check('มีเหล็กแนวตั้งผิวข้าง (รอบฐาน · ถัดจาก LOOPS เข้าใน)','rebar.sideBars.enabled')}{input.rebar.sideBars.enabled&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!input.rebar.sideBars.y} onChange={e=>{const on=e.target.checked;setInput(prev=>{if(prev?.category!=='Foundation')return prev;const {y:_,...sb}=prev.rebar.sideBars;return {...prev,rebar:{...prev.rebar,sideBars:on?{...sb,y:{diameter:sb.diameter,spacing:sb.spacing}}:sb}};});}}/>ผิวด้าน X และด้าน Y ใช้ขนาด / ระยะห่างไม่เท่ากัน</label>}
-    {input.rebar.sideBars.enabled&&<div className="form-grid">{dia(input.rebar.sideBars.y?'ผิวด้าน X (ขนานแนว X) · ขนาด':'เหล็กแนวตั้งผิวข้าง · ขนาด','rebar.sideBars.diameter')}{num(input.rebar.sideBars.y?'ผิวด้าน X · ระยะห่าง @':'เหล็กแนวตั้งผิวข้าง · ระยะห่าง @','rebar.sideBars.spacing')}
-    {input.rebar.sideBars.y&&<>{dia('ผิวด้าน Y (ขนานแนว Y) · ขนาด','rebar.sideBars.y.diameter')}{num('ผิวด้าน Y · ระยะห่าง @','rebar.sideBars.y.spacing')}</>}
-    {select('ปลายบน','rebar.sideBars.top',[['inward','งอฉากเข้าใน (ใต้เหล็กบน)'],['straight','ปลายตรง']])}{select('ปลายล่าง','rebar.sideBars.bottom',[['straight','ปลายตรง (ที่ cover ล่าง)'],['inward','งอฉากเข้าใน (เหนือเหล็กล่าง)']])}
-    {(input.rebar.sideBars.top==='inward'||input.rebar.sideBars.bottom==='inward')&&num(`ระยะงอเข้าใน (0 = บน Ldh ${[...new Set([input.rebar.sideBars.diameter,input.rebar.sideBars.y?.diameter||input.rebar.sideBars.diameter])].map(d=>hookDevLength(input.detailing,d)).join(' / ')} · ล่าง 15d)`,'rebar.sideBars.leg')}
-    {input.pour.count>1&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!input.rebar.sideBars.toJoint} onChange={e=>set('rebar.sideBars.toJoint',e.target.checked)}/>หยุดใต้รอยต่อการเท 1 (ใส่เฉพาะ Stage 1)</label>}</div>}</div>
+   <div className="mesh-layer">{check('มีเหล็กแนวตั้งผิวข้าง (รอบฐาน · ถัดจาก LOOPS เข้าใน)','rebar.sideBars.enabled')}
+    {input.rebar.sideBars.enabled&&(()=>{const sb=input.rebar.sideBars,fb=footingFaceBars(input),both=fb.x&&fb.y,mode=sb.faces??'both';
+     // X faces = main size / spacing; Y faces = own values (sb.y) or the main ones
+     const yPath=sb.y?'rebar.sideBars.y':'rebar.sideBars',faceRow=(f:'x'|'y')=>{const on=fb[f],closed=fb.closed[f],bar=f==='x'?fb.xBar:fb.yBar,other=f==='x'?'Y':'X';
+      return <li key={f} className={on?closed?'warn':'on':'off'}><b>ผิวด้าน {f.toUpperCase()}</b> <small>(ขนานแนว {f.toUpperCase()} · ที่ปลายเหล็กล่าง {other})</small> — {on?`ใส่ DB${bar.diameter} @ ${bar.spacing}${closed?` · ซ้ำกับขา U ของเหล็กล่าง ${other} (Shape 41)`:''}`:closed?`ไม่ใส่ · ขา U ของเหล็กล่าง ${other} (Shape 41) อยู่ที่ผิวนี้แล้ว`:'ไม่ใส่'}</li>;};
+     return <>
+      <div className="field face-mode"><span>ผิวที่ใส่เหล็กแนวตั้ง (เลือกอิสระจากเหล็กล่าง)</span><div className="segmented" role="group" aria-label="ผิวที่ใส่เหล็กแนวตั้งผิวข้าง">{([['auto','อัตโนมัติ (ตาม Shape 41)'],['both','ทั้ง X และ Y'],['x','เฉพาะผิว X'],['y','เฉพาะผิว Y']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly||input.shape==='circle'} className={mode===v?'active':''} onClick={()=>set('rebar.sideBars.faces',v)}>{t}</button>)}</div></div>
+      <ul className="face-status">{faceRow('x')}{faceRow('y')}</ul>
+      {!fb.x&&!fb.y&&<p className="muted">ไม่มีผิวที่ต้องใส่เหล็กแนวตั้ง · ขา U ของเหล็กล่างทั้งสองทิศ (Shape 41) ทำหน้าที่แทน · เลือก “ทั้ง X และ Y” ถ้ายังต้องการใส่</p>}
+      {both&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!sb.y} onChange={e=>{const on=e.target.checked;setInput(prev=>{if(prev?.category!=='Foundation')return prev;const {y:_,...rest}=prev.rebar.sideBars;return {...prev,rebar:{...prev.rebar,sideBars:on?{...rest,y:{diameter:rest.diameter,spacing:rest.spacing}}:rest}};});}}/>ผิวด้าน X และด้าน Y ใช้ขนาด / ระยะห่างไม่เท่ากัน</label>}
+      {(fb.x||fb.y)&&<div className="form-grid">
+       {fb.x&&<>{dia(both&&!sb.y?'เหล็กแนวตั้งผิวข้าง · ขนาด':'ผิวด้าน X · ขนาด','rebar.sideBars.diameter')}{num(both&&!sb.y?'เหล็กแนวตั้งผิวข้าง · ระยะห่าง @':'ผิวด้าน X · ระยะห่าง @','rebar.sideBars.spacing')}</>}
+       {fb.y&&(sb.y||!fb.x)&&<>{dia('ผิวด้าน Y · ขนาด',`${yPath}.diameter`)}{num('ผิวด้าน Y · ระยะห่าง @',`${yPath}.spacing`)}</>}
+       {select('ปลายบน','rebar.sideBars.top',[['inward','งอฉากเข้าใน (ใต้เหล็กบน)'],['straight','ปลายตรง']])}{select('ปลายล่าง','rebar.sideBars.bottom',[['straight','ปลายตรง (ที่ cover ล่าง)'],['inward','งอฉากเข้าใน (เหนือเหล็กล่าง)']])}
+       {(sb.top==='inward'||sb.bottom==='inward')&&num(`ระยะงอเข้าใน (0 = บน Ldh ${[...new Set([fb.x&&fb.xBar.diameter,fb.y&&fb.yBar.diameter].filter((d):d is number=>!!d))].map(d=>hookDevLength(input.detailing,d)).join(' / ')} · ล่าง 15d)`,'rebar.sideBars.leg')}
+       {input.pour.count>1&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!sb.toJoint} onChange={e=>set('rebar.sideBars.toJoint',e.target.checked)}/>หยุดใต้รอยต่อการเท 1 (ใส่เฉพาะ Stage 1)</label>}</div>}</>;})()}</div>
    <div className="mesh-layer"><label className="check"><input type="checkbox" disabled={readOnly} checked={!!input.rebar.stirrups?.enabled} onChange={e=>set('rebar.stirrups',{...(input.rebar.stirrups||{diameter:20,spacing:200,width:1000,dir:input.width>=input.length?'x':'y'}),enabled:e.target.checked})}/>มีเหล็กปลอก (STIRRUPS / HOOP) ในฐาน · แถบกลางฐาน เช่น แนวเสาเข็ม</label>
     {input.rebar.stirrups?.enabled&&<div className="form-grid">{dia('เหล็กปลอก · ขนาด','rebar.stirrups.diameter')}{num('เหล็กปลอก · ระยะห่าง @','rebar.stirrups.spacing')}{num('ความกว้างปลอก (นอก-นอก)','rebar.stirrups.width')}{select('แนวของแถบ','rebar.stirrups.dir',[['x','ตามแนว X'],['y','ตามแนว Y']])}</div>}
     {input.rebar.stirrups?.enabled&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!input.rebar.stirrups.replacesBottom} onChange={e=>set('rebar.stirrups.replacesBottom',e.target.checked)}/>ปลอกนี้คือเหล็กล่างทิศขวางแถบ (HOOP) · ไม่ใส่เหล็กล่างทิศ {input.rebar.stirrups.dir==='x'?'Y':'X'} ซ้ำ</label>}</div>
-   <p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · ขางอถูกจำกัดไม่ให้เกินความหนาฐาน − cover · ถ้าขอ 180° ไม่พอดีความหนา ปลายนั้นจะเป็นปลายตรง</p>
+   <p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · ขางอถูกจำกัดไม่ให้เกินความหนาฐาน − cover · ถ้าขอ 180° ไม่พอดีความหนา ปลายนั้นจะเป็นปลายตรง</p></div>
+   <FootingRebarGuide input={input}/></div>
    <h4>5. เสาตอม่อ / Starter bar</h4>
    <ColumnTemplateBar spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} note={input.column.type==='none'?'เลือกเสาตอม่อ หรือ Starter bar จากตารางเสาของโครงการ':`เติมให้${footingColumns(input).length>1?` ${footingColumnName(footingColumns(input)[Math.min(colSel,footingColumns(input).length-1)],Math.min(colSel,footingColumns(input).length-1),true)} (ที่เลือกอยู่)`:''}`}/>
    {select('มีเสาร่วมกับฐานรากหรือไม่','column.type',[['none','ไม่มี'],['pedestal','มีเสาตอม่อ (คอนกรีต + เหล็กเสา)'],['starter','Starter bar (เหล็กรอเสา ไม่มีคอนกรีตตอม่อ)']])}

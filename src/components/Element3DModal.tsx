@@ -33,6 +33,7 @@ const PALETTE=[0x168674,0x2f6fb5,0x8e5bb5,0xc0563f,0x3f9a3a,0xb58a1f,0x1f9bb5,0x
 const hex=(n:number)=>`#${n.toString(16).padStart(6,'0')}`;
 const getP=(o:any,p:string):any=>p.split('.').reduce((a,k)=>a?.[k],o);
 const setP=(o:any,p:string,v:unknown)=>{const ks=p.split('.');let t=o;for(const k of ks.slice(0,-1))t=t[k];t[ks.at(-1)!]=v;};
+const FACE_OPTS:[string,string][]=[['auto','อัตโนมัติ · ปิดผิวที่มีขา U (Shape 41)'],['both','ทั้งผิวด้าน X และ Y'],['x','เฉพาะผิวด้าน X'],['y','เฉพาะผิวด้าน Y']];
 const roleIs=(r:string)=>(role:string)=>role===r||role.startsWith(r+'-');
 const bendOpts=(d:any):[string,string][]=>[['none','ไม่งอ (ปลายตรง)'],['standard',`ฉาก 90° มาตรฐาน (${d.detailing.hook90}d + r)`],['custom','กำหนดระยะขางอเอง']];
 const spacingF=(p:string):F[]=>[{k:'dia',label:'ขนาดเหล็ก',path:`${p}.diameter`},{k:'num',label:'ระยะห่าง @ (mm)',path:`${p}.spacing`}];
@@ -80,7 +81,7 @@ export function layerDefs(input:ElementInput):Def[]{
      {k:'head',label:'จุดทาบ (ไม่มีท่อนยาวเกิน 10 ม.)'},{k:'sel',label:'รูปแบบจุดทาบ',path:'rebar.side.laps.pattern',opts:[['1','รูปแบบ 1 · ทาบ 1 จุด'],['2','รูปแบบ 2 · ทาบ 2 จุด (ด้านตรงข้าม)'],['3','รูปแบบ 3 · ทาบทุกด้าน'],['custom','รูปแบบ 4 · กำหนดจุดทาบเอง (ในฟอร์ม)']]},
      {k:'sel',label:'ระยะทาบ x',path:'rebar.side.laps.length',opts:[['lap','ระยะทาบตามตาราง'],['hook',`ระยะขอมาตรฐาน ${d.detailing.hook90}d`],['custom','กำหนดระยะเอง']]},
      ...(s.laps.length==='custom'?[{k:'num',label:'ระยะทาบ x (mm)',path:'rebar.side.laps.value'} as F]:[])];}),
-    optional('sideBars','เหล็กแนวตั้งผิวข้าง','rebar.sideBars','side-vertical',(d:any)=>[{k:'sel',label:'ขนาด / ระยะห่าง ผิวด้าน X และ Y',path:'rebar.sideBars#split',opts:[['same','เท่ากันทุกด้าน'],['split','แยกผิวด้าน X / ผิวด้าน Y']],get:x=>x.rebar.sideBars.y?'split':'same',
+    optional('sideBars','เหล็กแนวตั้งผิวข้าง','rebar.sideBars','side-vertical',(d:any)=>[{k:'sel',label:'ผิวที่ใส่',path:'rebar.sideBars#faces',opts:FACE_OPTS,get:x=>x.rebar.sideBars.faces??'both',set:(x,v)=>{x.rebar.sideBars.faces=v;}},{k:'sel',label:'ขนาด / ระยะห่าง ผิวด้าน X และ Y',path:'rebar.sideBars#split',opts:[['same','เท่ากันทุกด้าน'],['split','แยกผิวด้าน X / ผิวด้าน Y']],get:x=>x.rebar.sideBars.y?'split':'same',
      set:(x,v)=>{const sb=x.rebar.sideBars;if(v==='split')sb.y??={diameter:sb.diameter,spacing:sb.spacing};else delete sb.y;}},...(d.rebar.sideBars.y?[{k:'head',label:'ผิวด้าน X'} as F,...spacingF('rebar.sideBars'),{k:'head',label:'ผิวด้าน Y'} as F,...spacingF('rebar.sideBars.y')]:spacingF('rebar.sideBars')),{k:'sel',label:'ปลายบน',path:'rebar.sideBars.top',opts:[['inward','งอฉากเข้าใน'],['straight','ปลายตรง']]},{k:'sel',label:'ปลายล่าง',path:'rebar.sideBars.bottom',opts:[['straight','ปลายตรง'],['inward','งอฉากเข้าใน']]},{k:'num',label:'ระยะงอเข้าใน (mm, 0 = บน Ldh · ล่าง 15d)',path:'rebar.sideBars.leg'},
      ...(d.pour.count>1?[{k:'chk',label:'หยุดใต้รอยต่อการเท 1 (ใส่เฉพาะ Stage 1)',path:'rebar.sideBars.toJoint'} as F]:[])]),
     {key:'stirrup',label:input.rebar.stirrups?.replacesBottom?'เหล็กล่างแบบปลอก (HOOP)':'เหล็กปลอก (STIRRUPS) ในฐาน',present:!!input.rebar.stirrups?.enabled,match:roleIs('stirrup'),

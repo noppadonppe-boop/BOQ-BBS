@@ -30,7 +30,8 @@
   `rebar.side` (horizontal perimeter loops, outermost at the side cover; lapped pieces by `loopPieces()`: `laps.pattern`
   1 / 2 / 3 / custom, x = lap table | hook90·d | value, no piece over 10 m → more laps, roles `side-loop…-p<k>`; UI limits via
   `footingLoopInfo()`; test `tmp/loopLaps.test.ts`), `rebar.sideBars` (vertical face bars inside the loops; one Mark via offsets +
-  offsetTurns) — `footingSlabOn()`, `migrateFootingSlab()`. Ad-hoc test: `npx vitest run tmp/shapes.test.ts`.
+  offsetTurns; `faces` auto | both | x | y via `footingFaceBars()`: auto closes the faces where Shape 41 U legs stand, absent = both;
+  test `tmp/faceBars.test.ts`; live guide beside the footing bar inputs `FootingRebarGuide.tsx`) — `footingSlabOn()`, `migrateFootingSlab()`. Ad-hoc test: `npx vitest run tmp/shapes.test.ts`.
 - Custom element shape model (Phase 1): `member.shapeModel` (`src/domain/shapeModelSchema.ts`) = vertical parts
   (box / polygon / circle-ring / shaft, solid or void, stage, z0+height) + piles + site. Geometry engine
   `src/domain/shapeGeometry.ts` (level slabs, polygon-clipping union/difference, equal-area circles, surfaces, contains,

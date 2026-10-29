@@ -395,3 +395,29 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .arch-table code{white-space:nowrap}
 .steel-parts input{min-width:0;width:100%}.steel-parts td:nth-child(3) input{min-width:130px}.warn-row td{background:var(--warning-50,#fff7e6)}
 .sheet-toolbar .sheet-scale{display:inline-flex;align-items:center;gap:6px;font-size:12px}.sheet-toolbar .sheet-scale select{min-height:30px}
+
+/* footing bar inputs + live guide (plan / sections X–X, Y–Y) */
+.rebar-guide-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:18px;align-items:start}
+.rebar-guide-inputs{min-width:0}
+@media(max-width:1100px){.rebar-guide-layout{grid-template-columns:minmax(0,1fr)}.rebar-guide{position:static}}
+.rebar-guide{position:sticky;top:8px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface-2);padding:10px 12px;max-height:calc(100vh - 24px);overflow:auto}
+.rebar-guide h5{margin:0 0 6px}.rebar-guide svg{width:100%;height:auto;display:block;background:#fff;border:1px solid var(--border);border-radius:6px;margin-bottom:8px}
+.rebar-guide text{font-family:inherit;font-size:10px;fill:var(--text-2)}.rebar-guide .rg-small{font-size:9.5px;fill:var(--text-3)}
+.rg-concrete{fill:#eef3f0;stroke:#51706a;stroke-width:1.2}
+.rg-edge{stroke-width:3;stroke-linecap:round}.rg-edge.on{stroke:#e0702c}.rg-edge.closed{stroke:#9db3cf;stroke-dasharray:5 3}.rg-edge.off{stroke:#c3ccd3;stroke-dasharray:2 4}
+.rg-face-t{font-weight:600}.rg-face-t.on{fill:#c2560f}.rg-face-t.warn{fill:var(--warn)}.rg-face-t.closed{fill:#5a7aa6}.rg-face-t.off{fill:var(--text-3)}
+.rg-bx{stroke:#1d4ed8;stroke-width:2;fill:none;stroke-linejoin:round}.rg-by{stroke:#15803d;stroke-width:2;fill:none;stroke-linejoin:round}.rg-bx.thin,.rg-by.thin{stroke-width:1;opacity:.55}
+.rg-bx-dot{fill:#1d4ed8}.rg-by-dot{fill:#15803d}
+.rg-top{stroke:#475569;stroke-width:1.8;fill:none;stroke-linejoin:round}.rg-top-dot{fill:#475569}
+.rg-face{stroke:#e0702c;stroke-width:2;fill:none;stroke-linejoin:round}.rg-face-dot{fill:#e0702c}
+.rg-loop{fill:#7c3aed}.rg-loop-line{fill:none;stroke:#7c3aed;stroke-width:1.2}
+.rg-cut{stroke:#94a3b8;stroke-width:1;stroke-dasharray:8 3 2 3}.rebar-guide .rg-cut-t{font-weight:700;fill:#64748b}
+.rg-axis{stroke:var(--text-2);stroke-width:1.2}.rg-axis-h{fill:var(--text-2)}
+.rg-legend{list-style:none;margin:2px 0 8px;padding:0;font-size:12px;display:grid;gap:3px}.rg-legend .sw{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.rg-legend .sw.bx{background:#1d4ed8}.rg-legend .sw.by{background:#15803d}.rg-legend .sw.top{background:#475569}.rg-legend .sw.loop{background:#7c3aed}.rg-legend .sw.face{background:#e0702c}
+.rg-rec{width:100%;font-size:11.5px;border-collapse:collapse;margin-bottom:6px}.rg-rec caption{text-align:left;font-weight:600;font-size:12px;padding-bottom:4px;color:var(--text-2)}
+.rg-rec td{padding:3px 6px;border-top:1px solid var(--border)}.rg-rec tr.current td{background:#fff3e8;color:#9a3f07;font-weight:600}
+.rg-note{font-size:11.5px;margin:0}
+.face-mode .segmented{flex-wrap:wrap}
+.face-status{list-style:none;margin:6px 0;padding:0;font-size:12.5px;display:grid;gap:2px}.face-status li::before{content:'●';margin-right:6px}
+.face-status li.on::before{color:#e0702c}.face-status li.warn{color:var(--warn)}.face-status li.warn::before{color:var(--warn)}.face-status li.off{color:var(--text-3)}.face-status li.off::before{color:#c3ccd3}

@@ -191,6 +191,9 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
   sideBars:z.object({enabled:z.boolean(),diameter:dia,spacing:mm,top:z.enum(['straight','inward']),bottom:z.enum(['straight','inward']),leg:mm,
    /** stop under the first construction joint (first pour only) instead of the footing top */
    toJoint:z.boolean().optional(),
+   /** which faces get bars: x = faces parallel to X (ends of the bottom Y bars), y = faces parallel to Y (ends of the bottom X
+    * bars), auto = faces not closed by the Shape 41 U legs of the bottom bars; absent = both (saved before the option) */
+   faces:z.enum(['auto','both','x','y']).optional(),
    /** faces parallel to Y get their own size / spacing (the main values then apply to the faces parallel to X); absent = same all round */
    y:z.object({diameter:dia,spacing:mm}).strict().optional()}).strict(),
   /** closed links (STIRRUPS / HOOP) across a band of `width` (out-to-out, centred) running along `dir` (e.g. the strip over a pile row),
@@ -292,7 +295,15 @@ export function footingEarth(i:FoundationInput){
 }
 export const DEFAULT_FOOTING_SLAB={enabled:false,thickness:150,extend:1000};
 export const DEFAULT_FOOTING_SIDE={enabled:false,diameter:16,spacing:200,stages:[] as number[]};
-export const DEFAULT_FOOTING_SIDE_BARS={enabled:false,diameter:16,spacing:200,top:'inward' as const,bottom:'straight' as const,leg:0};
+export const DEFAULT_FOOTING_SIDE_BARS={enabled:false,diameter:16,spacing:200,top:'inward' as const,bottom:'straight' as const,leg:0,faces:'auto' as const};
+/** Faces that get vertical face bars. x = faces parallel to X (closed by Shape 41 legs of the bottom Y bars),
+ * y = faces parallel to Y (closed by Shape 41 legs of the bottom X bars); `closed` = the U legs already stand at that face.
+ * Size / spacing: X faces = main values, Y faces = `y` when given. */
+export function footingFaceBars(i:FoundationInput){
+ const sb=i.rebar.sideBars,mode=sb.faces??'both',closed={x:i.rebar.bottomY.shape==='41',y:i.rebar.bottomX.shape==='41'};
+ const want=(f:'x'|'y')=>mode==='both'||mode===f||mode==='auto'&&!closed[f],on=sb.enabled&&i.shape!=='circle';
+ return {mode,closed,x:on&&want('x'),y:on&&want('y'),xBar:{diameter:sb.diameter,spacing:sb.spacing},yBar:sb.y??{diameter:sb.diameter,spacing:sb.spacing}};
+}
 /** Main-bar end condition at the column bottom / top joint.
  * none = stops at cover; lap = straight extension of `lap` beyond the joint;
  * crank = 1:6 crank inward by one bar diameter starting at the joint level (top of column
@@ -606,7 +617,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    const ext2=footingExtent(input),rects=cols.map(c=>{const {w,d}=columnExtent(c),x0=(ext2.w-w)/2+c.offsetX,y0=(ext2.d-d)/2+c.offsetY;return columnBoxes(c).map(b=>({x0:x0+b.x0,x1:x0+b.x1,y0:y0+b.y0,y1:y0+b.y1}));});
    for(let a=0;a<rects.length;a++)for(let b=a+1;b<rects.length;b++)if(rects[a].some(r=>rects[b].some(q=>Math.min(r.x1,q.x1)-Math.max(r.x0,q.x0)>1&&Math.min(r.y1,q.y1)-Math.max(r.y0,q.y0)>1)))p.push(`${footingColumnName(cols[a],a,true)} และ ${footingColumnName(cols[b],b,true)} ซ้อนกัน · ปรับระยะเยื้อง`);
    if(input.rebar.side.enabled)layer(input.rebar.side,'เหล็กรอบข้าง (LOOPS)');
-   if(input.rebar.sideBars.enabled){const sb=input.rebar.sideBars;layer(sb,sb.y?'เหล็กแนวตั้งผิวข้าง ผิวด้าน X':'เหล็กแนวตั้งผิวข้าง');if(sb.y)layer(sb.y,'เหล็กแนวตั้งผิวข้าง ผิวด้าน Y');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
+   if(input.rebar.sideBars.enabled){const fb=footingFaceBars(input);if(fb.x)layer(fb.xBar,'เหล็กแนวตั้งผิวข้าง ผิวด้าน X');if(fb.y)layer(fb.yBar,'เหล็กแนวตั้งผิวข้าง ผิวด้าน Y');if(input.shape==='circle')p.push('เหล็กแนวตั้งผิวข้าง: ฐานกลมยังไม่รองรับ');}
    for(const [list,kind] of [[input.blocks||[],'ส่วนเพิ่ม'],[input.cuts||[],'ส่วนลดระดับ']] as const)list.forEach((b,k)=>{const nm=`${kind} ${b.label||k+1}`;if(b.x1<=b.x0||b.y1<=b.y0||b.z1<=b.z0)p.push(`${nm}: ขนาดต้องมากกว่า 0 (x1 > x0, y1 > y0, z1 > z0)`);else if(b.x0<-.5||b.y0<-.5||b.x1>ext.w+.5||b.y1>ext.d+.5)p.push(`${nm}: อยู่นอกแปลนฐาน`);if(kind==='ส่วนลดระดับ'&&(b.z1<input.thickness-.5||b.z0<0))p.push(`${nm}: ต้องตัดจากผิวบนฐาน (z1 = ความหนาฐาน ${input.thickness}, z0 ≥ 0 · z0 = 0 = ไม่มีคอนกรีต เช่น มุมที่ตัดออกของแปลนรูปตัว L)`);});
    if(footingOpenings(input).length&&footingArea(input)<1)p.push('ส่วนที่ตัดออกทั้งความหนาคลุมแปลนฐานทั้งหมด');
    if(input.slab.enabled){need(input.slab.thickness,'ความหนาพื้นที่หล่อรวมกับฐาน');if(input.shape!=='rect')p.push('ฐานหล่อรวมพื้น: รองรับแปลนสี่เหลี่ยมเท่านั้น');if(input.slab.thickness>=input.thickness)p.push('ความหนาพื้นต้องน้อยกว่าความหนาฐาน');}
@@ -1119,7 +1130,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // first pour with a mesh at its top (joint 1, lower stage): face bars set to the first pour stop under that mesh
  const J1=footingPour(i).levels[0],jm1=J1!==undefined?jointRebar(i,0).mesh:undefined,firstTop=J1!==undefined&&J1<T-c.top-topStack?J1-(jm1?.enabled&&jm1.at==='lower'?jm1.cover+jm1.x.diameter+jm1.y.diameter:50):undefined;
  // side loops are the outermost layer (bar face at the side cover), vertical face bars inside them
- const vb=r.sideBars,loopIn=r.side.enabled&&i.shape!=='circle'?r.side.diameter:0,vIn=vb.enabled&&i.shape!=='circle'?Math.max(vb.diameter,vb.y?.diameter||0):0,sideIn=loopIn+vIn;
+ // face bars only on the chosen faces (fb); the meshes move in by the larger active face bar on every face
+ const vb=r.sideBars,fb=footingFaceBars(i),loopIn=r.side.enabled&&i.shape!=='circle'?r.side.diameter:0,vIn=Math.max(0,...[fb.x&&fb.xBar.diameter,fb.y&&fb.yBar.diameter].filter((d):d is number=>!!d)),sideIn=loopIn+vIn;
  // extra boxes (rect footings): blocks = raised parts / later-pour blocks, cuts = lowered top areas; each gets its own top mesh
  const blocks=i.shape==='rect'?i.blocks||[]:[],cuts=i.shape==='rect'?(i.cuts||[]).filter(b=>b.z1>=T-1&&b.z0>0):[];
  const merge=(iv:[number,number][])=>{const o:[number,number][]=[];for(const v of [...iv].sort((p,q)=>p[0]-q[0])){const l=o.at(-1);if(l&&v[0]<=l[1]+1e-6)l[1]=Math.max(l[1],v[1]);else o.push([v[0],v[1]]);}return o;};
@@ -1349,10 +1361,10 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // One Mark: the template is copied to each position and turned to face inward (offsets + offsetTurns).
  // vb.y = own size / spacing on the faces parallel to Y (the main values then apply to the faces parallel to X).
  if(vIn){
-  const dmax=Math.max(vb.diameter,vb.y?.diameter||0),ring=inset(plan,c.side+loopIn+dmax/2),ccw=signedArea(ring)>0;
-  const faces:{l:{diameter:number;spacing:number};on:(u:Pt)=>boolean;tag:string;name:string}[]=vb.y
-   ?[{l:vb,on:u=>Math.abs(u[0])>=Math.abs(u[1]),tag:'',name:' ผิวด้าน X'},{l:vb.y,on:u=>Math.abs(u[0])<Math.abs(u[1]),tag:'-y',name:' ผิวด้าน Y'}]
-   :[{l:vb,on:()=>true,tag:'',name:''}];
+  const dmax=vIn,ring=inset(plan,c.side+loopIn+dmax/2),ccw=signedArea(ring)>0;
+  const faces:{l:{diameter:number;spacing:number};on:(u:Pt)=>boolean;tag:string;name:string}[]=fb.x&&fb.y&&!vb.y
+   ?[{l:vb,on:()=>true,tag:'',name:''}]
+   :[...(fb.x?[{l:fb.xBar,on:(u:Pt)=>Math.abs(u[0])>=Math.abs(u[1]),tag:'',name:' ผิวด้าน X'}]:[]),...(fb.y?[{l:fb.yBar,on:(u:Pt)=>Math.abs(u[0])<Math.abs(u[1]),tag:'-y',name:' ผิวด้าน Y'}]:[])];
   faces.forEach(({l,on,tag,name})=>{
   // leg 0: top return = Ldh (anchorage into the slab / top of the footing), bottom return = 15d
   const dv=l.diameter,rad=radius(dv,det),retT=vb.leg>0?vb.leg:hookDevLength(det,dv),retB=vb.leg>0?vb.leg:15*dv,out0=(dmax-dv)/2;
