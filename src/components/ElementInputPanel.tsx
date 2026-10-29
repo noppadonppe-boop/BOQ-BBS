@@ -18,6 +18,7 @@ import {FoundationTemplatePicker} from './FoundationTemplatePicker';
 import {applyFoundationTemplate,foundationTemplateCurrent,templateHasStage2} from '../domain/foundationTemplates';
 import {syncColumnTemplate} from '../domain/columnTemplates';
 import {applyBeamTemplate,beamTemplateSummary,type BeamTemplate} from '../domain/beamTemplates';
+import {DEFAULT_BEAM_BAR_END,type BeamBarEnd} from '../domain/elementInput';
 import {useSpecProfiles} from '../data/specProfiles';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
@@ -290,7 +291,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <h4>เหล็กปลอก · 2 ชุด × 3 โซน</h4>
    <ColumnTieEditor input={input} readOnly={readOnly} set={set} num={num} dia={dia}/></>}
   {input.category==='Beam'&&input.layout==='group'&&<p className="muted">กลุ่มคาน: เหล็กบน / ล่าง / ปลอก กำหนดต่อช่วงในตารางด้านบน · เหล็กเสริมบนกำหนดที่กริด</p>}
-  {input.category==='Beam'&&input.layout!=='group'&&<>{shapedCount('เหล็กบน','rebar.top')}{shapedCount('เหล็กล่าง','rebar.bottom')}{spacing('เหล็กปลอก','rebar.stirrup')}<p className="muted">เหล็กบนงอ/ขอลง · เหล็กล่างงอ/ขอขึ้น · ปลายอยู่ที่ cover ปลายคาน</p></>}
+  {input.category==='Beam'&&input.layout!=='group'&&<>{shapedCount('เหล็กบน','rebar.top')}{input.rebar.top.count>0&&<BeamBarEnds label="เหล็กบน" layer={input.rebar.top} readOnly={readOnly} onChange={v=>set('rebar.top.ends',v)}/>}{shapedCount('เหล็กล่าง','rebar.bottom')}{input.rebar.bottom.count>0&&<BeamBarEnds label="เหล็กล่าง" layer={input.rebar.bottom} readOnly={readOnly} onChange={v=>set('rebar.bottom.ends',v)}/>}{spacing('เหล็กปลอก','rebar.stirrup')}<p className="muted">เหล็กบนงอ/ขอลง · เหล็กล่างงอ/ขอขึ้น · ปลายอยู่ที่ cover ปลายคาน</p></>}
   {input.category==='Slab'&&<>{mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}<p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · จำกัดตามความหนาพื้น − cover</p></>}
   {input.category==='Wall'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p></>}
 
@@ -533,3 +534,17 @@ function BeamTemplateStatus({spec}:{spec:Project['spec']}){
  if(!n)return <p className="notice warning">General Spec “{profile.name}” ยังไม่มี Beam Template · ที่หน้า General Spec เปิด “{profile.name}” นำเข้าไฟล์ Spec (มี beamTemplates) แล้วกด “บันทึก Spec” จากนั้นอัปเดตโครงการตาม Spec ล่าสุด</p>;
  return null;
 }
+
+/** Single beam top / bottom bars: per end the run past (+) or short of (−) the beam end at the cover and the end type. */
+function BeamBarEnds({label,layer,readOnly,onChange}:{label:string;layer:{ends?:{start:BeamBarEnd;end:BeamBarEnd}};readOnly:boolean;onChange:(v:{start:BeamBarEnd;end:BeamBarEnd}|undefined)=>void}){
+ const e=layer.ends||{start:DEFAULT_BEAM_BAR_END,end:DEFAULT_BEAM_BAR_END};
+ const put=(k:'start'|'end',v:Partial<BeamBarEnd>)=>{const next={...e,[k]:{...e[k],...v}};onChange(next.start.ext||next.end.ext||next.start.type!=='shape'||next.end.type!=='shape'?next:undefined);};
+ const one=(k:'start'|'end',name:string)=><div className="form-grid" key={k}>
+  <label className="field"><span>{label} · ปลาย{name} · ระยะจากปลายคาน (+ ยื่นออก / − หดเข้า) (mm)</span><NumInput type="number" step={25} disabled={readOnly} value={e[k].ext} onChange={ev=>put(k,{ext:Math.max(-3000,Math.min(3000,Number(ev.target.value)||0))})}/></label>
+  <label className="field"><span>{label} · ปลาย{name} · รูปปลายเหล็ก</span><select disabled={readOnly} value={e[k].type} onChange={ev=>put(k,{type:ev.target.value as BeamBarEnd['type']})}>
+   <option value="shape">ตาม Shape code</option><option value="straight">ตรง</option><option value="standard">งอฉาก 90° มาตรฐาน</option><option value="leg">งอฉาก 90° ใส่ระยะงอเอง</option></select></label>
+  {e[k].type==='leg'&&<label className="field"><span>{label} · ปลาย{name} · ระยะขางอ (mm)</span><NumInput type="number" step={25} min={0} disabled={readOnly} value={e[k].leg} onChange={ev=>put(k,{leg:Math.max(0,Number(ev.target.value)||0)})}/></label>}</div>;
+ return <div className="mesh-layer beam-bar-ends">{one('start','ต้น')}{one('end','ปลาย')}
+  <p className="muted">ระยะวัดจากปลายคานที่ cover · ยื่นออกเกินคาน = เข้าไปในที่รองรับ (แสดงเป็นพื้นที่อ้างอิง ไม่คิดปริมาณคอนกรีต) · รูปปลายเหล็กแทน Shape code เฉพาะปลายนั้น (Shape code ใน BBS คำนวณจากปลายทั้งสอง)</p></div>;
+}
+

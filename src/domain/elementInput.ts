@@ -56,6 +56,12 @@ const shaped={shape:layerShape,leg:mm,radius:mm};
 const meshLayer=z.object({diameter:dia,spacing:mm,...shaped}).strict();
 const optionalMesh=z.object({enabled:z.boolean(),diameter:dia,spacing:mm,...shaped}).strict();
 const shapedCount=z.object({count:z.number().int().min(0).max(200),diameter:dia,...shaped}).strict();
+/** Single-beam bar end: `ext` = run past the beam end at the cover (+, into the support) or short of it (−);
+ * `type` = shape (as the Shape code) | straight | standard (90° bend, standard leg) | leg (90° bend of `leg` mm). */
+const beamBarEnd=z.object({ext:z.number().finite().min(-3000).max(3000),type:z.enum(['shape','straight','standard','leg']),leg:mm}).strict();
+export type BeamBarEnd=z.infer<typeof beamBarEnd>;
+export const DEFAULT_BEAM_BAR_END:BeamBarEnd={ext:0,type:'shape',leg:0};
+const beamLayer=shapedCount.extend({ends:z.object({start:beamBarEnd,end:beamBarEnd}).strict().optional()}).strict();
 export const columnShapes=['rect','circle','L','U'] as const;
 export type ColumnShape=typeof columnShapes[number];
 /** Pedestal column (with concrete) or starter bars (bars only) on a footing.
@@ -422,7 +428,7 @@ export type BeamSpan=z.infer<typeof beamSpanSchema>;export type BeamGrid=z.infer
 const beamSchema=z.object({...base,category:z.literal('Beam'),
  width:mm,depth:mm,length:mm,
  cover:z.object({top:mm,bottom:mm,side:mm}).strict(),
- rebar:z.object({top:shapedCount,bottom:shapedCount,stirrup:spacingLayer}).strict(),
+ rebar:z.object({top:beamLayer,bottom:beamLayer,stirrup:spacingLayer}).strict(),
  /** single = one span (fields above); group = beam group along grid lines (`grids` = spans + 1), BBS for the whole group */
  layout:z.enum(['single','group']),
  grids:z.array(beamGridSchema).max(13),
@@ -1090,7 +1096,8 @@ export function shapeDefaults(d:number,det:Detailing,radiusR=0){const rad=radius
 /** BS 8666 end shapes for a straight run a→b (local axis u) at level w0. Bends/hooks turn toward `dir` in w and
  * must stay within `room` of w0 (centreline). Ends that do not fit fall back to straight and the shape code
  * follows the ends actually built (e.g. 21 → 11 / 00). */
-function shapedEnds(l:Shaped,det:Detailing,dir:1|-1,room:number,note:string,warn:(s:string)=>void){
+/** `over` = per-end override (start, end) of the Shape code's ends: straight, or a 90° bend (leg 0 = standard). */
+function shapedEnds(l:Shaped,det:Detailing,dir:1|-1,room:number,note:string,warn:(s:string)=>void,over?:({kind:'straight'}|{kind:'bend';leg:number}|undefined)[]){
  const d=l.diameter,info=layerShapes.find(s=>s.code===l.shape)||layerShapes[0],special=l.shape==='12'&&l.radius>0;
  const rad=special?l.radius+d/2:radius(d,det),std=shapeDefaults(d,det,special?l.radius:0),hookH=2*rad;
  const bendWant=l.leg>0?l.leg:std.bend,hookTail=l.leg>0?l.leg:std.hookTail,ret=l.leg>0?l.leg:std.ret;
@@ -1100,7 +1107,8 @@ function shapedEnds(l:Shaped,det:Detailing,dir:1|-1,room:number,note:string,warn
  const straight:End={kind:'straight',h:0,t:0};
  const bend=(want:number):End=>{const leg=Math.min(want,room);if(leg<=rad*1.5){once(`${note}: ความหนาไม่พอสำหรับขางอ ใช้ปลายตรง`);return straight;}
   if(leg+.5<want)once(`${note}: ขางอถูกจำกัดเป็น ${Math.round(leg)} mm ตามความหนา − cover`);return {kind:'bend',h:leg,t:0};};
- const ends=info.ends.map((kind:BarEnd):End=>{
+ const ends=info.ends.map((kind:BarEnd,k:number):End=>{
+  const o=over?.[k];if(o)return o.kind==='straight'?straight:bend(o.leg>0?o.leg:std.bend);
   if(kind==='bend')return bend(bendWant);
   if(kind==='hook'){if(hookH>room+1e-6){once(`${note}: ความหนาไม่พอสำหรับขอ 180° (ต้องการ ${Math.round(hookH+d)} mm) ใช้ปลายตรง`);return straight;}return {kind:'hook',h:hookH,t:rad+hookTail};}
   if(kind==='return'){if(room<2*rad+d||ret<=rad*1.5){once(`${note}: ความลึกไม่พอสำหรับตัว U งอเข้าใน ใช้ขางอ`);return bend(room);}return {kind:'return',h:room,t:ret};}
@@ -1911,18 +1919,21 @@ export function beamSpliceReport(i:BeamInput):SpliceReportRow[]{
 function beamBars(i:BeamInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
  if(i.layout==='group')return beamGroupBars(i,det,warn);
  const out:GenBar[]=[],{width:W,depth:Dp,length:L,cover:c,rebar:r}=i,dt=r.stirrup.diameter;
- const main=(role:string,note:string,l:Shaped&{count:number},top:boolean)=>{
+ const main=(role:string,note:string,l:Shaped&{count:number;ends?:{start:BeamBarEnd;end:BeamBarEnd}},top:boolean)=>{
   if(l.count<1)return;const d=l.diameter,z=top?Dp-c.top-dt-d/2:c.bottom+dt+d/2,lo=c.side+dt+d/2,hi=W-c.side-dt-d/2;
   if(hi<lo){warn(`${note}: ความกว้างคานไม่พอ`);return;}
-  const from=l.count===1?(lo+hi)/2:lo,to=l.count===1?from:hi,a=c.side+d/2,b=L-c.side-d/2;
-  let sh=shapedEnds(l,det,top?-1:1,top?z-(c.bottom+dt+d/2):Dp-c.top-dt-d/2-z,note,warn);
-  if(b-a<=sh.minRun){warn(`${note}: คานสั้นเกินไปสำหรับ Shape ${sh.code} ใช้เหล็กตรง`);sh=shapedEnds({...l,shape:'00'},det,1,0,note,warn);}
+  // bar ends: run past (+) / short of (−) the end cover, end type per end (as Shape code / straight / standard bend / own leg)
+  const e=l.ends,ext0=e?.start.ext||0,ext1=e?.end.ext||0,from=l.count===1?(lo+hi)/2:lo,to=l.count===1?from:hi,a=c.side+d/2-ext0,b=L-c.side-d/2+ext1;
+  const over=e?[e.start,e.end].map(x=>x.type==='shape'?undefined:x.type==='straight'?{kind:'straight' as const}:{kind:'bend' as const,leg:x.type==='leg'?x.leg:0}):undefined;
+  let sh=shapedEnds(l,det,top?-1:1,top?z-(c.bottom+dt+d/2):Dp-c.top-dt-d/2-z,note,warn,over);
+  if(ext0||ext1)note+=` · ${[ext0&&`ต้น ${ext0>0?'ยื่น':'หด'} ${Math.abs(ext0)}`,ext1&&`ปลาย ${ext1>0?'ยื่น':'หด'} ${Math.abs(ext1)}`].filter(Boolean).join(' / ')} mm`;
+  if(b-a<=sh.minRun){warn(`${note}: คานสั้นเกินไปสำหรับ Shape ${sh.code} ใช้เหล็กตรง`);sh=shapedEnds({...l,shape:'00'},det,1,0,note,warn,[{kind:'straight'},{kind:'straight'}]);}
   out.push({role,note:note+sh.suffix,diameter:d,grade:det.mainGrade,count:l.count,points:sh.points(a,b,z).map(([u,w])=>[u,from,w] as V3),axis:'X',face:top?'top':'bottom',radius:sh.radius,shapeCode:sh.code,distributionAxis:'Y',from,to});
  };
  main('top','เหล็กบน',r.top,true);
  main('bottom','เหล็กล่าง',r.bottom,false);
  const sx=spread(Math.max(50,c.side+dt/2),L-Math.max(50,c.side+dt/2),r.stirrup.spacing),tc=c.side+dt/2;
- if(sx)out.push({role:'stirrup',note:'เหล็กปลอก',diameter:dt,grade:det.tieGrade,count:sx.count,points:link(1,2,0,tc,W-tc,c.bottom+dt/2,Dp-c.top-dt/2,sx.from,det,radius(dt,det,true),dt),axis:'X',face:'side',radius:radius(dt,det,true),shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});
+ if(sx)out.push({role:'stirrup',note:`เหล็กปลอก @${r.stirrup.spacing} · ${tieHookLabel(dt,det)}`,diameter:dt,grade:det.tieGrade,count:sx.count,points:link(1,2,0,tc,W-tc,c.bottom+dt/2,Dp-c.top-dt/2,sx.from,det,radius(dt,det,true),dt),axis:'X',face:'side',radius:radius(dt,det,true),shapeCode:'99',distributionAxis:'X',from:sx.from,to:sx.to});
  else warn('เหล็กปลอก: วางไม่ได้ ตรวจความยาวและระยะห่าง');
  return out;
 }
@@ -2075,7 +2086,15 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
     if(keep.length+cols.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ · ตัดพื้นที่กำหนดเองบางส่วนออก`);
     const {placementContext:_c,...rest}=next;
     next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:Math.max(...lay.spans.map(sp=>sp.b)),y:lay.W,z:lay.H,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions,geometry:{solids,voids:[]}} as Member;
-   }else next={...next,x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions};
+   }else{
+    // single beam: bars running past a beam end sit in a reference region there (support / next member, not in BOQ)
+    const run=(k:'start'|'end')=>Math.max(0,...[input.rebar.top,input.rebar.bottom].filter(l=>l.count>0).map(l=>l.ends?.[k].ext||0));
+    const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('genbend')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
+    const ends=([['start',-1],['end',1]] as const).flatMap(([k,dir])=>{const e=run(k);if(!(e>0))return [];const w=e+input.cover.side+300;
+     return [{id:`genbend-${k}`,label:`ที่รองรับ${k==='start'?'ต้น':'ปลาย'}คาน (อ้างอิง)`,origin:[dir<0?-w:input.length,0,0] as V3,size:[w,input.width,input.depth] as V3,reference:'เหล็กคานยื่นเลยปลายคาน · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:0,openings:[]}];});
+    const context=[...keep.slice(0,Math.max(0,REGION_LIMIT-ends.length)),...ends];
+    const {placementContext:_c,...rest}=next;
+    next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions} as Member;}
    gen=beamBars(input,det,warn);break;}
   case 'Slab':next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
   case 'Wall':next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions};gen=wallBars(input,det,rounding,warn);break;

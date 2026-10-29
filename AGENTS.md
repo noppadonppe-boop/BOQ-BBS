@@ -9,6 +9,9 @@
 ## Structure notes
 - Element input (manual / from drawing) → `src/domain/elementInput.ts`; UI `src/components/ElementInputPanel.tsx`.
   It converts the per-category input into the existing member fields and generated bars (ids prefixed `gen-`).
+  Single beam top / bottom bars: optional `ends {start, end}` = `ext` (+ past the beam end at the cover / − short of it) +
+  `type` shape | straight | standard | leg (per-end override of the Shape code via `shapedEnds(…, over)`); bars past an end
+  sit in reference regions `genbend-start|end`. Stirrup / tie hooks by size: `tieHook()` (Ø < 10 → 135°, else 90°). Test: `tmp/beamBarEnds.test.ts`.
 - Footing pour stages: input `pour {count, heights}` (last stage = rest, `footingPour()`), UI `FootingPourEditor.tsx`;
   apply writes `member.pourStages.levels`; `pourStageQuantities()` (`solids.ts`) gives concrete / formwork / joint area per
   stage from the box cells; deductions carry `zRange` so they split by height. Test: `tmp/pourStages.test.ts`.
