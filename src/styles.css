@@ -397,11 +397,13 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .sheet-toolbar .sheet-scale{display:inline-flex;align-items:center;gap:6px;font-size:12px}.sheet-toolbar .sheet-scale select{min-height:30px}
 
 /* footing bar inputs + live guide (plan / sections X–X, Y–Y) */
-.rebar-guide-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:18px;align-items:start}
-.rebar-guide-inputs{min-width:0}
-@media(max-width:1100px){.rebar-guide-layout{grid-template-columns:minmax(0,1fr)}.rebar-guide{position:static}}
-.rebar-guide{position:sticky;top:8px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface-2);padding:10px 12px;max-height:calc(100vh - 24px);overflow:auto}
-.rebar-guide h5{margin:0 0 6px}.rebar-guide svg{width:100%;height:auto;display:block;background:#fff;border:1px solid var(--border);border-radius:6px;margin-bottom:8px}
+.rebar-guide-wrap{container-type:inline-size}.rebar-guide-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+.rebar-guide-inputs{min-width:0}.rebar-guide{order:-1;border:1px solid var(--border);border-radius:var(--r);background:var(--surface-2);padding:8px 12px}
+.rebar-guide summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--brand-600)}.rebar-guide[open] summary{margin-bottom:6px}
+.rg-views{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;align-items:start}.rg-views svg{max-height:230px}
+.rg-info{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:4px 14px;align-items:start}.rg-info .rg-note{grid-column:1/-1}
+@container (min-width:1080px){.rebar-guide-layout{grid-template-columns:minmax(0,1fr) 340px;gap:18px}.rebar-guide{order:0;position:sticky;top:8px;max-height:calc(100vh - 24px);overflow:auto}.rg-views svg{max-height:none}}
+.rebar-guide h5{margin:0 0 6px}.rebar-guide svg{width:100%;height:auto;display:block;background:#fff;border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
 .rebar-guide text{font-family:inherit;font-size:10px;fill:var(--text-2)}.rebar-guide .rg-small{font-size:9.5px;fill:var(--text-3)}
 .rg-concrete{fill:#eef3f0;stroke:#51706a;stroke-width:1.2}
 .rg-edge{stroke-width:3;stroke-linecap:round}.rg-edge.on{stroke:#e0702c}.rg-edge.closed{stroke:#9db3cf;stroke-dasharray:5 3}.rg-edge.off{stroke:#c3ccd3;stroke-dasharray:2 4}

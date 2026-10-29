@@ -74,19 +74,21 @@ export function FootingRebarGuide({input}:{input:FoundationInput}){
  // recommended face choice for the bottom shapes
  const cx=fb.closed.x,cy=fb.closed.y,rec=cx&&cy?'none':cy?'x':cx?'y':'both';
  const recs:[string,string,string][]=[['none','เหล็กล่าง X และ Y = Shape 41','ไม่ต้องใส่ (ขา U ปิดทุกผิว)'],['x','เหล็กล่าง X = 41 อย่างเดียว','ปิดผิว Y · ใส่เฉพาะผิวด้าน X'],['y','เหล็กล่าง Y = 41 อย่างเดียว','ปิดผิว X · ใส่เฉพาะผิวด้าน Y'],['both','ไม่มี Shape 41','ใส่ทั้งสองผิว (ถ้าแบบกำหนด)']];
- return <aside className="rebar-guide" aria-label="คู่มือการกรอกเหล็กเสริมฐานราก">
-  <h5>ภาพประกอบการกรอกข้อมูล</h5>
-  {plan}{section('x')}{section('y')}
-  <ul className="rg-legend">
+ // narrow panel: above the inputs, views side by side; wide panel: sticky column beside them (styles.css container query)
+ return <details className="rebar-guide" open aria-label="คู่มือการกรอกเหล็กเสริมฐานราก">
+  <summary>ภาพประกอบการกรอกข้อมูล <small className="muted">(คลิกเพื่อย่อ / ขยาย)</small></summary>
+  <div className="rg-views">{plan}{section('x')}{section('y')}</div>
+  <div className="rg-info"><div><ul className="rg-legend">
    <li><i className="sw bx"/>เหล็กล่างทิศ X · {db(r.bottomX)} · Shape {r.bottomX.shape}</li>
    <li><i className="sw by"/>เหล็กล่างทิศ Y · {db(r.bottomY)} · Shape {r.bottomY.shape}</li>
    {(r.topX.enabled||r.topY.enabled)&&<li><i className="sw top"/>เหล็กบน · {[r.topX.enabled&&`X ${db(r.topX)}`,r.topY.enabled&&`Y ${db(r.topY)}`].filter(Boolean).join(' · ')}</li>}
    {loops&&<li><i className="sw loop"/>LOOPS (ชั้นนอกสุด) · {db(r.side)}</li>}
    {r.sideBars.enabled&&<li><i className="sw face"/>เหล็กแนวตั้งผิวข้าง · {anyFace?[fb.x&&`ผิว X ${db(fb.xBar)}`,fb.y&&`ผิว Y ${db(fb.yBar)}`].filter(Boolean).join(' · '):'ไม่มีผิวที่ใส่'}</li>}
-  </ul>
-  <table className="rg-rec"><caption>เหล็กแนวตั้งผิวข้าง · แนะนำตาม Shape เหล็กล่าง</caption><tbody>
+  </ul></div>
+  <div><table className="rg-rec"><caption>เหล็กแนวตั้งผิวข้าง · แนะนำตาม Shape เหล็กล่าง</caption><tbody>
    {recs.map(([k,a,b])=><tr key={k} className={k===rec?'current':''}><td>{a}</td><td>{b}</td></tr>)}
-  </tbody></table>
+  </tbody></table></div>
   <p className="muted rg-note">ลำดับชั้นจากผิวเข้าใน: LOOPS → เหล็กแนวตั้งผิวข้าง → ตะแกรง / ขา U · ขา U ของ Shape 41 ขึ้นที่ปลายเหล็ก (ผิวที่ตั้งฉากกับแนวเหล็ก) · เลือก “อัตโนมัติ” ให้ระบบปิดผิวนั้นเอง</p>
- </aside>;
+</div>
+ </details>;
 }

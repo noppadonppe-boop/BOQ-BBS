@@ -206,7 +206,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    {input.category==='Wall'&&<>{num('ผิวผนัง','cover.face')}{num('ขอบ/บน-ล่าง','cover.edge')}</>}</div>
 
   <h4>4. เหล็กเสริม</h4>
-  {input.category==='Foundation'&&<><div className="rebar-guide-layout"><div className="rebar-guide-inputs"><div className="footing-slab">{check('ฐานหล่อเป็นเนื้อเดียวกับพื้น (ผิวบนฐาน = ผิวบนพื้น · ไม่แสดงเหล็กพื้น)','slab.enabled')}
+  {input.category==='Foundation'&&<><div className="rebar-guide-wrap"><div className="rebar-guide-layout"><div className="rebar-guide-inputs"><div className="footing-slab">{check('ฐานหล่อเป็นเนื้อเดียวกับพื้น (ผิวบนฐาน = ผิวบนพื้น · ไม่แสดงเหล็กพื้น)','slab.enabled')}
     {input.slab.enabled&&<><div className="form-grid">{num('ความหนาพื้น (อ้างอิง)','slab.thickness')}{num('เหล็กบนยื่นเข้าพื้น จากขอบฐาน','slab.extend')}</div>
      <p className="muted">พื้นแสดงเป็นพื้นที่อ้างอิงรอบฐาน (ไม่คิดคอนกรีต/เหล็กพื้น) · เหล็กบนทั้งสองทิศยื่นเข้าพื้นตามระยะที่กำหนด · หักแบบหล่อผิวข้างฐานช่วงความหนาพื้น · รองรับแปลนสี่เหลี่ยม</p></>}</div>
    {mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}
@@ -249,7 +249,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     {input.rebar.stirrups?.enabled&&<div className="form-grid">{dia('เหล็กปลอก · ขนาด','rebar.stirrups.diameter')}{num('เหล็กปลอก · ระยะห่าง @','rebar.stirrups.spacing')}{num('ความกว้างปลอก (นอก-นอก)','rebar.stirrups.width')}{select('แนวของแถบ','rebar.stirrups.dir',[['x','ตามแนว X'],['y','ตามแนว Y']])}</div>}
     {input.rebar.stirrups?.enabled&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!input.rebar.stirrups.replacesBottom} onChange={e=>set('rebar.stirrups.replacesBottom',e.target.checked)}/>ปลอกนี้คือเหล็กล่างทิศขวางแถบ (HOOP) · ไม่ใส่เหล็กล่างทิศ {input.rebar.stirrups.dir==='x'?'Y':'X'} ซ้ำ</label>}</div>
    <p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · ขางอถูกจำกัดไม่ให้เกินความหนาฐาน − cover · ถ้าขอ 180° ไม่พอดีความหนา ปลายนั้นจะเป็นปลายตรง</p></div>
-   <FootingRebarGuide input={input}/></div>
+   <FootingRebarGuide input={input}/></div></div>
    <h4>5. เสาตอม่อ / Starter bar</h4>
    <ColumnTemplateBar spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} note={input.column.type==='none'?'เลือกเสาตอม่อ หรือ Starter bar จากตารางเสาของโครงการ':`เติมให้${footingColumns(input).length>1?` ${footingColumnName(footingColumns(input)[Math.min(colSel,footingColumns(input).length-1)],Math.min(colSel,footingColumns(input).length-1),true)} (ที่เลือกอยู่)`:''}`}/>
    {select('มีเสาร่วมกับฐานรากหรือไม่','column.type',[['none','ไม่มี'],['pedestal','มีเสาตอม่อ (คอนกรีต + เหล็กเสา)'],['starter','Starter bar (เหล็กรอเสา ไม่มีคอนกรีตตอม่อ)']])}
