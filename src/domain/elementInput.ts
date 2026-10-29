@@ -719,22 +719,24 @@ export const tieHook=(d:number,det:Detailing)=>d<10?{angle:135 as const,ext:Math
 export const tieHookLabel=(d:number,det:Detailing)=>{const h=tieHook(d,det);return h.angle===135?`ขอ 135° (${Math.round(h.ext)} mm)`:`งอฉาก 90° (${Math.round(h.ext)} mm)`;};
 /** Closed rectangular link in the plane of axes u/v at `at` on axis w, closed at the
  * first corner with the standard hooks of `tieHook` wrapped around the corner bar: 90° hook
- * legs run along the adjacent sides, one bar diameter `d` inside them; 135° hook tails run
- * diagonally into the core, `d` apart so the ends do not coincide. */
+ * legs run along the adjacent sides, one bar diameter `d` inside them; 135° hooks bend about
+ * the same centre as the other corners (around the corner bar) and their tails run diagonally into the core. */
 function link(u:number,v:number,w:number,u0:number,u1:number,v0:number,v1:number,at:number,det:Detailing,rad:number,d:number):V3[]{
  const p=(a:number,b:number):V3=>{const r:V3=[0,0,0];r[u]=a;r[v]=b;r[w]=at;return r;};
  const {angle,ext}=tieHook(d,det);
  if(angle===135){
-  // straight extension + tangent of the 135° bend (r·tan 67.5°), along the 45° diagonal
-  const t=Math.min((ext+rad*(1+Math.SQRT2))/Math.SQRT2,(u1-u0)/2,(v1-v0)/2),q=d/(2*Math.SQRT2);
-  return [p(u0+t+q,v0+t-q),p(u0,v0),p(u1,v0),p(u1,v1),p(u0,v1),p(u0,v0),p(u0+t-q,v0+t+q)];
+  // Each 135° bend is filleted at its tangent-line intersection, √2·r outside the corner, so the arc is centred
+  // on (u0+r, v0+r) like the other corners; tail = bend tangent (r·tan 67.5°) + straight extension, along the 45° diagonal.
+  const o=rad*Math.SQRT2,t=Math.min((ext+rad*(1+Math.SQRT2))/Math.SQRT2,(u1-u0)/2+o,(v1-v0)/2+o);
+  return [p(u0-o+t,v0+t),p(u0-o,v0),p(u1,v0),p(u1,v1),p(u0,v1),p(u0,v0-o),p(u0+t,v0-o+t)];
  }
  // `ext` is the straight extension after the 90° bend; add the bend tangent length.
  const k=Math.min(ext+rad,u1-u0,v1-v0);
  return [p(u0+d,v0+k),p(u0,v0),p(u1,v0),p(u1,v1),p(u0,v1),p(u0,v0),p(u0+k,v0+d)];
 }
 /** Closed polygonal link (plan) closed at vertex 0 with two hooks: 90° hooks bent along the
- * adjacent edges, one bar diameter `d` inside them; 135° hooks turned into the core, `d` apart. */
+ * adjacent edges, one bar diameter `d` inside them; 135° hooks bend about the corner's own bend centre
+ * (around the corner bar) and turn into the core. */
 function polyLink(poly:Pt[],ext:number,rad:number,d:number,angle:90|135=90):Pt[]{
  const p0=poly[0],p1=poly[1],pl=poly.at(-1)!,len=(a:Pt,b:Pt)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
  const dir=(a:Pt,b:Pt):Pt=>{const l=len(a,b)||1;return [(b[0]-a[0])/l,(b[1]-a[1])/l];};
@@ -742,8 +744,12 @@ function polyLink(poly:Pt[],ext:number,rad:number,d:number,angle:90|135=90):Pt[]
  if(angle===135){
   // turn 135° toward the inside (left of travel for CCW, right for CW)
   const s=signedArea(poly)>=0?1:-1,c=Math.cos(3*Math.PI/4),sn=s*Math.sin(3*Math.PI/4),rot=(a:Pt,k:number):Pt=>[a[0]*c-k*a[1]*sn,k*a[0]*sn+a[1]*c];
-  const L=Math.min(ext+rad*(1+Math.SQRT2),len(p0,p1),len(p0,pl)),te=rot([-e0[0],-e0[1]],1),ts=rot(e1,-1),n:Pt=[-te[1]*d/2,te[0]*d/2];
-  return [[p0[0]-ts[0]*L+n[0],p0[1]-ts[1]*L+n[1]],...poly,p0,[p0[0]+te[0]*L-n[0],p0[1]+te[1]*L-n[1]]];
+  // 135° bend vertex on each edge line, past p0, so its fillet shares the centre of the corner fillet:
+  // tangent point of that centre (r/tan(φ/2) from p0) moved back by the 135° bend tangent r·tan 67.5°
+  const L=Math.min(ext+rad*(1+Math.SQRT2),len(p0,p1),len(p0,pl)),te=rot([-e0[0],-e0[1]],1),ts=rot(e1,-1);
+  const half=Math.acos(Math.max(-1,Math.min(1,e0[0]*e1[0]+e0[1]*e1[1])))/2,back=rad/Math.tan(half)-rad*(1+Math.SQRT2);
+  const v1:Pt=[p0[0]+e1[0]*back,p0[1]+e1[1]*back],v0:Pt=[p0[0]+e0[0]*back,p0[1]+e0[1]*back];
+  return [[v1[0]-ts[0]*L,v1[1]-ts[1]*L],v1,...poly.slice(1),v0,[v0[0]+te[0]*L,v0[1]+te[1]*L]];
  }
  const turn=Math.PI-Math.acos(Math.max(-1,Math.min(1,e0[0]*e1[0]+e0[1]*e1[1])));
  const trim=rad*Math.tan(turn/2),k=Math.max(trim+1,Math.min(ext+trim,Math.min(len(p0,p1),len(p0,pl))-rad));
