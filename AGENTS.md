@@ -44,6 +44,23 @@
   CAD / BIM sources (`src/domain/fileTypes.ts`): DWG / DXF / IFC upload as reference attachments (no Mark review);
   DXF (`dxf-parser`) and IFC (`web-ifc`, lazy WASM) are read in the browser by `src/data/cadDrawings.ts` into views
   + an exact text summary (`context.cadText`); the gateway never sends the raw CAD file. DWG: user saves as DXF.
+- IFC import without AI (project menu “นำเข้าโมเดล BIM (IFC)”, `components/IfcImportPage.tsx`): `src/data/ifcModel.ts` reads
+  several .ifc files in the browser (web-ifc raw lines, one file at a time) into `IfcModelData` (`src/domain/ifcTypes.ts`):
+  concrete elements (footing = IfcFooting or Revit pile-cap IfcSlab; pile / column / beam / wall / slab) with a vertical
+  frame + extents (+ plan outline, mesh volume when clipped) and every IfcReinforcingBar as centreline polylines (corners =
+  intersections of straight legs; Tekla mapped items; size from Pset Size / NominalDiameter / name; Tekla Rebar Mark / Grade).
+  `src/domain/ifcImport.ts` `planIfcImport()`: bars → host by Tekla cast unit (assembly) else by position; short columns in /
+  on a footing = pedestals and piles below = shape-model piles; cast-unit parts merge; equal bars (moved / turned about Z)
+  → one Mark (offsets + offsetTurns, always offsets: a polyline without them moves along its distribution axis); bar parts
+  outside the concrete → placement-context regions `ifcref*` (cover 0); cover measured from the model. Footings = shape
+  model (+ site: dig to top, 300 working space), columns / beams = box or geometry solids; equal instances → one member,
+  occurrences per storey (storey → WBS map in localStorage). `member.ifcSource` (guids, files, model weight, `converted`):
+  re-import matches GlobalIds (add / update / same + `missing`). `checkIfcCandidate()` = validateMember with cover fallback
+  (≈ 0.4 s on big mats, run one by one by the page). Revit BarLength of varying sets can be in feet: model length is used
+  only when within 20 % of the centreline. Step 3 `src/domain/ifcConvert.ts` (`IfcSourceBanner` in the member editor):
+  rectangular footing (+1 pedestal, piles) → footing input rows (meshes, loops, face bars, pedestal bars / ties); converted
+  copies leave their Marks, the rest stay IFC bars. Tests (real files on Z:): `tmp/ifcRead.test.ts`, `tmp/ifcImport.test.ts`,
+  `tmp/ifcConvert.test.ts`, `tmp/ifcSheet.test.tsx`; dev harness `tmp/preview/ifc.html`.
 - Rebar sketch (Phase 2): `src/domain/rebarSketch.ts` (view regions, cover snap lines, snapping, shape-code detection,
   layout rules, `sketchBar`, `meshBars`, `loopBars`; sketched bars have ids `sk-`, polyline + distributionAxis so the
   view is recovered from the bar) + UI `RebarSketch.tsx` (tab “ใส่เหล็ก (วาดบนรูปตัด)” for shape-model members).

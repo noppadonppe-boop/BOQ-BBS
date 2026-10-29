@@ -423,3 +423,29 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .face-mode .segmented{flex-wrap:wrap}
 .face-status{list-style:none;margin:6px 0;padding:0;font-size:12.5px;display:grid;gap:2px}.face-status li::before{content:'●';margin-right:6px}
 .face-status li.on::before{color:#e0702c}.face-status li.warn{color:var(--warn)}.face-status li.warn::before{color:var(--warn)}.face-status li.off{color:var(--text-3)}.face-status li.off::before{color:#c3ccd3}
+/* IFC import */
+.ifc-steps{list-style:none;display:flex;gap:8px;margin:0 0 14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);flex-wrap:wrap}
+.ifc-steps li{display:flex;align-items:center;gap:8px;flex:1;min-width:120px;color:var(--text-3);font-weight:500}
+.ifc-steps li span{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border);font-size:13px}
+.ifc-steps li.on{color:var(--text);font-weight:700}.ifc-steps li.on span{background:var(--brand);color:#fff;border-color:transparent}
+.ifc-steps li.done span{background:var(--ok);color:#fff;border-color:transparent}
+.ifc-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(260px,1fr);gap:16px;align-items:start}
+.ifc-grid.wide{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr)}
+@media (max-width:1100px){.ifc-grid,.ifc-grid.wide{grid-template-columns:minmax(0,1fr)}}
+.ifc-side{display:grid;gap:16px}.ifc-side table td.num{text-align:right}
+.ifc-drop{display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px 16px;margin:10px 0 14px;border:2px dashed var(--brand);border-radius:var(--r);background:var(--info-50);color:var(--brand);cursor:pointer;text-align:center}
+.ifc-drop small{color:var(--text-3)}.ifc-drop.disabled{opacity:.55;cursor:not-allowed}
+.ifc-howto b{display:block;margin-top:8px}.ifc-howto p{margin:2px 0 0;color:var(--text-2);font-size:13px}
+.ifc-options{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:8px 0}.ifc-options label{display:inline-flex;gap:6px;align-items:center}
+.ifc-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.ifc-chips button.badge{cursor:pointer;min-height:0}.ifc-chips button.badge.active{outline:2px solid var(--brand)}
+.ifc-list{max-height:520px;overflow:auto}.ifc-list tr{cursor:pointer}.ifc-list tr.selected td{background:var(--info-50)}
+.ifc-storeys{margin-top:14px}.ifc-storeys select{max-width:260px}
+.ifc-missing{display:flex;gap:8px;align-items:center;margin-top:4px}
+.ifc-detail h3{margin-top:0}.ifc-detail-top{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start;margin-bottom:10px}
+@media (max-width:700px){.ifc-detail-top{grid-template-columns:minmax(0,1fr)}}
+.ifc-facts td:first-child{color:var(--text-3);padding-right:10px;white-space:nowrap}
+.ifc-sketch{margin:0;border:1px solid var(--border);border-radius:var(--r);background:#fafbfc;padding:6px}.ifc-sketch svg{width:100%;height:240px;display:block}
+.ifc-sketch figcaption{display:flex;justify-content:center;margin-top:4px}
+.ifc-notes{margin:6px 0 10px;padding-left:18px;color:var(--text-2);font-size:13px}
+.ifc-banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:0 0 12px}
+.ifc-banner .actions{display:flex;gap:8px;flex-wrap:wrap}

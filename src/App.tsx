@@ -19,7 +19,7 @@ import {ScopeControls,QuantityReport} from './components/QuantityReport';
 import {useEffect,useRef,useState,useMemo,lazy,Suspense} from 'react';
 import type {User} from 'firebase/auth';
 import {collection,query,where,onSnapshot} from 'firebase/firestore';
-import {Layers3,FolderOpen,Plus,Grid3X3,BookOpen,ClipboardList,Scissors,Settings,LogOut,Download,ArrowUpRight,FileText,CheckCircle2,Trash2,Users,KeyRound,Pencil,Network} from 'lucide-react';
+import {Layers3,FolderOpen,Plus,Grid3X3,BookOpen,ClipboardList,Scissors,Settings,LogOut,Download,ArrowUpRight,FileText,CheckCircle2,Trash2,Users,KeyRound,Pencil,Network,Boxes} from 'lucide-react';
 import {db,emulator,command} from './data/firebase';
 import {Attachment,Category,Member,Project,Stock,categories,labels,blankMember} from './domain/model';
 import {takeoff,sum,issueBlockers} from './domain/engine';
@@ -53,11 +53,12 @@ const MemberCopyDialog=lazy(()=>import('./components/MemberCopyDialog').then(m=>
 const EngineeringFixtures=lazy(()=>import('./components/EngineeringFixtures'));
 const MemberRegister=lazy(()=>import('./components/MemberRegister').then(m=>({default:m.MemberRegister})));
 const LocationsPage=lazy(()=>import('./components/LocationsPage').then(m=>({default:m.LocationsPage})));
+const IfcImportPage=lazy(()=>import('./components/IfcImportPage').then(m=>({default:m.IfcImportPage})));
 type NavItem=[string,string,typeof Grid3X3];
 const navGroups:[string,NavItem[]][]=[
  ['โครงการ',[['overview','ภาพรวม',Grid3X3],['wbs','โครงสร้าง WBS / ตำแหน่ง',Network]]],
  // element categories come from DisciplineNav (discipline → category); these follow them
- ['ข้อมูลองค์อาคาร',[['register','ทะเบียนสมาชิก',ClipboardList],['sources','รับแบบสมาชิก',FileText]]],
+ ['ข้อมูลองค์อาคาร',[['register','ทะเบียนสมาชิก',ClipboardList],['ifc','นำเข้าโมเดล BIM (IFC)',Boxes],['sources','รับแบบสมาชิก',FileText]]],
  ['ปริมาณ & แบบ',[['boq','BOQ Summary',ClipboardList],['drawings','แบบ BBS / ส่งงาน',FileText],['packages','ชุดส่งตรวจ',FileText],['cutting','ตัดเหล็ก & สต็อก',Scissors]]],
  ['ขั้นสูง & ตั้งค่า',[['engineering','กรณีตรวจคำนวณ',CheckCircle2],['settings','โครงการ & สำรองข้อมูล',Settings]]],
 ];
@@ -108,6 +109,7 @@ export default function App(){
     {category&&<><Heading eyebrow="ELEMENT WORKSPACE" title={labels[category]} text={`จัดการ ${category} · รายการตารางและปริมาณจากมิติจริง / BBS`} action={<button className="primary" disabled={!can(['admin','qs'])} onClick={()=>setNewMember(true)}><Plus size={16}/>เพิ่มสมาชิก</button>}/><MemberList key={`${pid}/${category}`} members={list} selected={member?.id||''} onSelect={setMid} onEdit={can(['admin','qs'])?setQuickEdit:undefined} onDelete={can(['admin','qs'])?m=>{if(confirm(`ลบสมาชิก ${m.code}? (ลบรายการเหล็กและข้อมูลของสมาชิกนี้ทั้งหมด)`))run(async()=>{await command('deleteMember',pid,{memberId:m.id,version:m.version});if(mid===m.id)setMid('');},`ลบสมาชิก ${m.code} แล้ว`);}:undefined}/>{quickEdit&&<MemberQuickEdit member={list.find(m=>m.id===quickEdit.id)||quickEdit} projectId={pid} locations={project.locations} run={run} onClose={()=>setQuickEdit(null)}/>}{!list.length&&<div className="panel empty">ยังไม่มี {labels[category]} กดเพิ่มสมาชิกเพื่อเริ่มถอดปริมาณ</div>}{member&&<MemberDetailModal member={member} project={project} attachments={attachments} run={run} readOnly={!can(['admin','qs'])} initialSourceId={sourceFocus?.memberId===member.id?sourceFocus.attachmentId:undefined} busy={busy} onClose={()=>{setMid('');setSourceFocus(null);}} onCopy={()=>setCopySource({project,member,actorUid:user.uid})} onPricing={()=>setPricingSource({project,member,actorUid:user.uid})} onReview={(status,note)=>run(()=>command('reviewMember',pid,{memberId:member.id,version:member.version,status,note}),`สถานะ ${statusLabel(status)}`)} reviewEnabled={status=>status==='ApprovedForIssue'?can(['approver']):status==='Checked'?can(['checker','approver']):can(['admin','qs','checker','approver'])} canDelete={can(['admin','qs'])} onDelete={()=>{if(confirm(`ลบสมาชิก ${member.code}?`))run(async()=>{await command('deleteMember',pid,{memberId:member.id,version:member.version});setMid('');},'ลบสมาชิกแล้ว');}}/>}</>}
     {pageDiscipline(page)&&<DisciplinePage key={page} discipline={pageDiscipline(page)!} project={project} members={members} totals={totals} canEdit={can(['admin'])} canEditMembers={can(['admin','qs'])} busy={busy} run={run} go={id=>{setPage(id);setMid('');}}/>}
     {page==='wbs'&&<Suspense fallback={<p role="status">กำลังเปิดโครงสร้าง WBS…</p>}><LocationsPage key={pid} project={project} members={members} totals={totals} canEdit={can(['admin','qs'])} busy={busy} run={run}/></Suspense>}
+    {page==='ifc'&&<Suspense fallback={<p role="status">กำลังเปิดหน้านำเข้า IFC…</p>}><IfcImportPage key={pid} project={project} members={members} canEdit={can(['admin','qs'])} busy={busy} run={run}/></Suspense>}
     {page==='wbs'&&<><SpecChangeHistory jobs={specPages.records} scope="Wbs"/><LoadMore label="ประวัติย้ายข้อมูลเข้า WBS" data={specPages}/></>}
     {page==='engineering'&&<Suspense fallback={<p role="status">กำลังเปิดกรณีตรวจคำนวณ…</p>}><EngineeringFixtures key={pid} project={project} members={members} attachments={attachments} roles={roles} run={run}/></Suspense>}
     {page==='register'&&<Suspense fallback={<p role="status">กำลังเปิดทะเบียนสมาชิก…</p>}><MemberRegister key={`${user.uid}:${pid}`} project={project} members={members} attachments={attachments} run={run} refresh={()=>refreshProject(pid)} readOnly={busy||!can(['admin','qs'])} onOpen={m=>{setPage(m.category);setMid(m.id);setSourceFocus(null);}}/></Suspense>}
