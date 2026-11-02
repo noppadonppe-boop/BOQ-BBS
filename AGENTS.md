@@ -141,7 +141,10 @@
   bottom mesh to `footingTopAt()` + lap (0 = lap table), role `wall<k>-dowel`; views kind 'wall', outline redrawn over the bars; 3D boxes in `Element3DModal`). Sections lower the
   footing top over cuts (`buildView`). UI `FootingBoxes` / `PilePositions` in `ElementInputPanel.tsx`.
   J-078 Phase 1 (F10 / F12) and Phase 2 (F-01 … F-17: stepped mats, tank mats F-10/11, ribbed water-tank bases F-12…17) from MPK01B-IFC-S-PLIE FD Review: `tmp/j078Foundations.test.ts` →
-  `tmp/Spec-Project-J-078.json`.
+  `tmp/Spec-Project-J-078.json`. Group “Shop Drawing Zone C” (GEDC01-B-HS-RSD-STR-0004.0, `shop` list in the same file) replaces
+  F10-01 / F10-02 / F12-02 / F12-03 / F12-04 / F12-05 / F12-08 and adds F12-06: one pour of the cap depth (slab separate; level ▽ = top, △ = underside:
+  cap = top ▽ to bottom ▽, the outer dim runs to the lean bottom △ → 2325 / 2525 / 1925 / 1350 + lean 75 / 150, cover 50, pile embed 0), bottom
+  U legs 650, top legs 275, STIRRUPS over the whole length for F10-02 / F12-02; F-01 / F-02 mats 75 thinner (`shopFix`), F-10 / F-11 checked. Sheets: `tmp/shopSheet.test.tsx`.
 - Project Beam Template (beam schedule of the beam details): `spec.beamTemplates` in `src/domain/beamTemplates.ts` (per mark:
   size, `sections` = labels as drawn per END / MID / CON / CANT / ALL SPAN, `rebar` = beam-group span bars derived by
   `beamRebarFromSections()`: main = bars every section has, EX = the rest, ALL SPAN = no EX, "10Y25" side = 5 per face).
@@ -159,6 +162,14 @@
   `spliceSheet`): splice diagram (rows per run / set, no-lap zones shaded, pieces Mark · cut length) + bar-run table.
   Test: `tmp/beamSpliceSheet.test.tsx` (PNG check via `tmp/_prims2png.ts`, env `PNG=`). J-078 (BPL&BD, Beam Configuration L1/3 · La/3 · L/8 · L/10):
   `tmp/j078Beams.test.ts` → `tmp/Spec-Project-J-078.json`. Test: `tmp/beamTemplates.test.ts`.
+- J-074 (GULF MTP LNG Terminal) General Spec import: `tmp/j074Spec.test.ts` → `tmp/Spec-Project-J-074.json` (copy beside the source
+  drawing `Referrence/J-074 Standard/`) from GMTP-1200-CV-DWG-101 T0: lap rows = ACI 318-19 tables case *2 + Class B, DB10 / DB32
+  by the same formulas, Idc recomputed, beam 0.25 / 0.3 / 0.125, grades SR24 / SD40 (DB10–28) / SD50 (DB32+), mixes 28 / 35 / 8 MPa.
+  Buildings ISB / GIS / LNG (GMTP Building ISB-J074) in `buildings`; per-building templates use the code as `group`.
+- Spec buildings: `spec.buildings` [{code, name, note}] (`src/domain/specBuildings.ts`, UI `SpecBuildingList.tsx` in General Spec,
+  spec import key `buildings` merged by code). Template groups equal to a code are headed / ordered by `groupLabel()` /
+  `orderGroups()`; WBS page button “เพิ่มอาคารจาก General Spec” adds missing roots (same code). Template names stay unique
+  across buildings (prefix e.g. `ISB-F1`). Test: `tmp/specBuildings.test.tsx`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
   key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of
