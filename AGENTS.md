@@ -183,6 +183,17 @@
   `footingOutline()` keeps only the outer ring, so mesh bars stop at interior `footingOpenings()` inside `mesh()` and
   `buildView` draws them as plan holes / section gaps), MF1-1…6 cable pits (spread
   base 300 + footing walls with dowels; wall template GIS-PW1), SF1 stair base (bars assumed, detail in DWG-001-016).
+  J-074 LNG data (GMTP-1200-AR-DWG-031 T0, one storey FL ±0 → +5.600; □400 piles embed 75, bottom cover 100): `tmp/j074Lng.ts`
+  (PF2 / PF3-C2 / PF3-C3 / PF4 / MF1, C1–C3, 11 beam marks, 1S1 / RS1, W1), check `tmp/j074Lng.test.ts`, PNGs `tmp/lngSheet.test.tsx`.
+  MF1 dowels = footing `edgeDowels` (X+ face DB12@200 L 400); W1 = template edge / corner 4-DB12 + opening 2x2-DB16 + diagonals.
+- Footing `edgeDowels` [{side x0|x1|y0|y1, Ø, @, length, embed (0 = half), z (0 = mid)}] (rect only): straight bars across a side
+  face (role `dowel<k>`, `edgeDowelSpan()`), outer part in reference regions `gendowel<k>`; UI `FootingEdgeDowels`.
+  Wall input: `rebar.ends {start, end: none|edge|corner, edge, corner {count, Ø}}` (extra verticals at the ends, roles
+  `edge|corner-start|end-<face>`; regular verticals start one spacing past them), `openings[] {x, z, width, height}` (geometry
+  void, `wallOpenings()`; vertical / horizontal bars cut at the cover, equal pieces share one Mark via offsets) and
+  `rebar.opening {count per face per side, Ø, ext (0 = lap), diagonal}` (trim bars `open<k>-top|bot|l|r-<face>` inside the
+  horizontal layer, diagonals `open<k>-diag<n>` one Mark per direction). Wall templates carry `edge` / `corner` / `opening`
+  (`applyWallTemplate`). UI `WallExtras` in `ElementInputPanel.tsx`. Test: `tmp/wallExtras.test.ts`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
   key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of

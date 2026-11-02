@@ -54,6 +54,7 @@ const layerShape=z.enum(layerShapes.map(s=>s.code) as [LayerShape,...LayerShape[
 /** shape = BS 8666 shape code; leg = bend leg / hook straight extension (0 = standard); radius = inner R for code 12. */
 const shaped={shape:layerShape,leg:mm,radius:mm};
 const meshLayer=z.object({diameter:dia,spacing:mm,...shaped}).strict();
+const countBar=z.object({count:z.number().int().min(0).max(20),diameter:dia}).strict();
 const optionalMesh=z.object({enabled:z.boolean(),diameter:dia,spacing:mm,...shaped}).strict();
 const shapedCount=z.object({count:z.number().int().min(0).max(200),diameter:dia,...shaped}).strict();
 /** Single-beam bar end: `ext` = run past the beam end at the cover (+, into the support) or short of it (−);
@@ -228,6 +229,10 @@ export const foundationSchema=z.object({...base,category:z.literal('Foundation')
  walls:z.array(footingBoxSchema).max(30).optional(),
  /** embedded / extra BOQ items of the footing (e.g. anchor bolts): site-work items `gen-item-<k>`, rebuilt on apply */
  items:z.array(z.object({label:z.string().trim().min(1).max(120),unit:z.string().trim().min(1).max(12),quantity:z.number().finite().nonnegative().max(1e9),note:z.string().max(200).optional()}).strict()).max(10).optional(),
+ /** horizontal dowel bars across a footing side face (e.g. into the slab at an isolation joint): side x0 | x1 | y0 | y1,
+  * Ø @ along the face from side cover to side cover, total length, `embed` inside the footing (0 = half), `z` from the
+  * footing bottom (0 = mid thickness); the part outside sits in a reference region `gendowel<k>` (rect footings) */
+ edgeDowels:z.array(z.object({side:z.enum(['x0','x1','y0','y1']),diameter:dia,spacing:mm,length:mm,embed:mm,z:mm}).strict()).max(8).optional(),
  /** ref = which face carries the given level: top of footing (`top`) or bottom of footing (`bottom`); the other follows
   * from the thickness. Levels in m, + above / − below the project datum. */
  levels:z.object({enabled:z.boolean(),ground:level,ref:z.enum(['top','bottom']),top:level,bottom:level}).strict(),
@@ -445,7 +450,15 @@ const slabSchema=z.object({...base,category:z.literal('Slab'),
 const wallSchema=z.object({...base,category:z.literal('Wall'),
  length:mm,thickness:mm,height:mm,
  cover:z.object({face:mm,edge:mm}).strict(),
- rebar:z.object({layers:z.union([z.literal(1),z.literal(2)]),vertical:meshLayer,horizontal:meshLayer,lap:z.boolean()}).strict(),
+ rebar:z.object({layers:z.union([z.literal(1),z.literal(2)]),vertical:meshLayer,horizontal:meshLayer,lap:z.boolean(),
+  /** extra vertical bars at the wall ends: EDGE BAR at a free end, CORNER BAR where the end meets another wall (count = total,
+   * split over the faces); regular verticals start one spacing past them */
+  ends:z.object({start:z.enum(['none','edge','corner']),end:z.enum(['none','edge','corner']),edge:countBar,corner:countBar}).strict().optional(),
+  /** trimming bars around openings: `count` per face per side (2x2-DB16 = count 2), extending `ext` past the corners
+   * (0 = lap length), diagonal bars at the corners (same count, 2 × ext long) */
+  opening:z.object({count:z.number().int().min(0).max(6),diameter:dia,ext:mm,diagonal:z.boolean()}).strict().optional()}).strict(),
+ /** openings through the wall (x from the wall start, z from the wall bottom): concrete void, bars cut at the cover */
+ openings:z.array(z.object({label:z.string().max(40),x:mm,z:mm,width:mm,height:mm}).strict()).max(20).optional(),
 }).strict();
 export const elementInputUnion=z.discriminatedUnion('category',[foundationSchema,columnSchema,beamSchema,slabSchema,wallSchema]);
 export const elementInputSchema=z.preprocess(migrateElementInput,elementInputUnion);
@@ -713,6 +726,15 @@ function spread(lo:number,hi:number,spacing:number){
  const len=hi-lo;if(len<0||!(spacing>0))return null;
  const n=len<1e-6?1:Math.ceil(len/spacing-1e-9)+1;
  return {count:n,from:lo,to:n===1?lo:hi};
+}
+export const edgeSideLabels={x0:'X−',x1:'X+',y0:'Y−',y1:'Y+'} as const;
+type EdgeDowel=NonNullable<Extract<ElementInput,{category:'Foundation'}>['edgeDowels']>[number];
+/** Footing edge dowel across its face: bar ends a..b on the axis across the face (footing-local), level z, embed length. */
+export function edgeDowelSpan(i:Extract<ElementInput,{category:'Foundation'}>,e:EdgeDowel){
+ const {w:X,d:Y}=footingExtent(i),T=i.thickness,c=i.cover,d=e.diameter;if(!(e.length>0)||!(d>0))return null;
+ const embed=Math.min(e.embed>0?e.embed:e.length/2,(e.side[0]==='x'?X:Y)-c.side-d/2),out=e.length-embed;if(out<=0||embed<=0)return null;
+ const z=Math.min(Math.max(e.z>0?e.z:T/2,c.bottom+d/2),T-c.top-d/2),face=e.side==='x0'||e.side==='y0'?0:e.side==='x1'?X:Y,dir=face===0?-1:1;
+ return {a:face-dir*embed,b:face+dir*out,z,embed,out,face,dir};
 }
 type GenBar={role:string;note:string;diameter:number;grade:string;count:number;points:V3[];axis:Bar['axis'];face:Bar['face'];radius:number;shapeCode:string;distributionAxis?:Bar['axis'];from?:number;to?:number;offsets?:V3[];turns?:number[];cut?:number};
 const GEN_PREFIX='gen-';
@@ -1275,6 +1297,15 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const offs=[f0,f1].flatMap(v=>at.map(t=>{const [u,w]=runX?[t-at[0],v-f0]:[v-f0,t-at[0]];return [u,w,0] as V3;}));
   out.push({role:`wall${k+1}-dowel`,note:`เหล็กผนังฝังในฐาน ${name} · 2 ผิว Y${d}@${dw.spacing} · จากตะแกรงล่างถึงผิวฐาน + ระยะทาบ ${Math.round(lap)} mm`,diameter:d,grade:g,count:offs.length,
    points:[pt(at[0],f0,zBot),pt(at[0],f0,zTop)],axis:'Z',face:'side',radius:0,shapeCode:'00',offsets:offs});
+ });
+ // dowel bars across a side face (straight, part inside / part outside the footing)
+ (i.shape==='rect'?i.edgeDowels||[]:[]).forEach((e,k)=>{const d=e.diameter,{w:X,d:Y}=footingExtent(i),g2=edgeDowelSpan(i,e);
+  if(!g2){warn(`เหล็กเดือยขอบฐาน ${k+1}: วางไม่ได้ ตรวจความยาว / ระยะห่าง`);return;}
+  const runX=e.side==='y0'||e.side==='y1',len=runX?X:Y,sp=spread(c.side+d/2,len-c.side-d/2,e.spacing);
+  if(!sp){warn(`เหล็กเดือยขอบฐาน ${k+1}: วางไม่ได้ ตรวจขนาดฐาน`);return;}
+  const {a,b,z}=g2,pt=(along:number,across:number):V3=>runX?[along,across,z]:[across,along,z];
+  out.push({role:`dowel${k+1}`,note:`เหล็กเดือย (Dowel) ขอบฐานด้าน ${edgeSideLabels[e.side]} ${d<=9?'RB':'DB'}${d}@${e.spacing} ยาว ${e.length} mm · ฝังในฐาน ${Math.round(g2.embed)} mm`,diameter:d,grade:g,count:sp.count,
+   points:[pt(sp.from,a),pt(sp.from,b)],axis:runX?'Y':'X',face:'side',radius:0,shapeCode:'00',distributionAxis:runX?'X':'Y',from:sp.from,to:sp.to});
  });
  // ---- construction joints between pour stages (inside the footing thickness): joint mesh and vertical bars through the joint
  const pour=footingPour(i);
@@ -1956,22 +1987,84 @@ function slabBars(i:SlabInput,det:Detailing,warn:(s:string)=>void):GenBar[]{
  return out;
 }
 
+/** Wall openings clamped to the wall (x / z from the wall start / bottom). */
+export function wallOpenings(i:WallInput){return (i.openings||[]).map(o=>{const x0=Math.max(0,o.x),z0=Math.max(0,o.z),x1=Math.min(i.length,o.x+o.width),z1=Math.min(i.height,o.z+o.height);return {...o,x0,z0,x1,z1};}).filter(o=>o.x1-o.x0>1&&o.z1-o.z0>1);}
+/** [lo, hi] minus the given intervals; pieces shorter than `min` dropped. */
+function cutSpan(lo:number,hi:number,holes:[number,number][],min:number){let parts:[number,number][]=[[lo,hi]];
+ for(const [h0,h1] of holes)parts=parts.flatMap(([p,q])=>h1<=p||h0>=q?[[p,q] as [number,number]]:[...(h0>p?[[p,h0] as [number,number]]:[]),...(h1<q?[[h1,q] as [number,number]]:[])]);
+ return parts.filter(([p,q])=>q-p>=min);}
 function wallBars(i:WallInput,det:Detailing,rounding:number,warn:(s:string)=>void):GenBar[]{
  const out:GenBar[]=[],{length:L,thickness:t,height:H,cover:c,rebar:r}=i,dv=r.vertical.diameter,dh=r.horizontal.diameter;
  const faces=r.layers===2?[{tag:'ผิว 1',yv:c.face+dv/2,yh:c.face+dv+dh/2},{tag:'ผิว 2',yv:t-c.face-dv/2,yh:t-c.face-dv-dh/2}]:[{tag:'กึ่งกลาง',yv:t/2,yh:t/2+(dv+dh)/2}];
  if(r.layers===1&&t/2+(dv+dh)/2+dh/2>t-c.face)warn('ผนังชั้นเดียว: ความหนาไม่พอสำหรับเหล็กสองทิศ');
- const lapLen=r.lap?lapLength(det,dv):0;
- const sx=spread(c.edge+dv/2,L-c.edge-dv/2,r.vertical.spacing),sz=spread(c.edge+dh/2,H-c.edge-dh/2,r.horizontal.spacing);
+ const lapLen=r.lap?lapLength(det,dv):0,opens=wallOpenings(i),bar=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
+ // end bars (EDGE / CORNER): per face along the end, regular verticals start one spacing past the last of them
+ const ends=r.ends,endSet=(k:'start'|'end')=>{const kind=ends?.[k];if(!ends||!kind||kind==='none')return null;const b=ends[kind];if(!(b.count>0&&b.diameter>0))return null;
+  const per=Math.ceil(b.count/faces.length),gap=Math.max(b.diameter+25,Math.min(100,r.vertical.spacing/2)),x=Array.from({length:per},(_,j)=>c.edge+b.diameter/2+j*gap);
+  return {kind,b,per,x:k==='start'?x:x.map(v=>L-v)};};
+ const es=endSet('start'),ee=endSet('end');
+ const vx0=es?Math.max(...es.x)+r.vertical.spacing:c.edge+dv/2,vx1=ee?Math.min(...ee.x)-r.vertical.spacing:L-c.edge-dv/2;
+ const sx=vx1>=vx0?spread(vx0,vx1,r.vertical.spacing):null,sz=spread(c.edge+dh/2,H-c.edge-dh/2,r.horizontal.spacing);
  // bends/hooks turn across the wall toward the opposite face (single layer: toward face 2)
- const ends=(l:Shaped,note:string,y:number,span:number,second:boolean)=>{const d=l.diameter,dir=second?-1:1,room=second?y-c.face-d/2:t-c.face-d/2-y;let sh=shapedEnds(l,det,dir,room,note,warn);if(span<=sh.minRun){warn(`${note}: ช่วงสั้นเกินไปสำหรับ Shape ${sh.code} ใช้เหล็กตรง`);sh=shapedEnds({...l,shape:'00'},det,1,0,note,warn);}return sh;};
+ const shaped=(l:Shaped,note:string,y:number,span:number,second:boolean)=>{const d=l.diameter,dir=second?-1:1,room=second?y-c.face-d/2:t-c.face-d/2-y;let sh=shapedEnds(l,det,dir,room,note,warn);if(span<=sh.minRun){warn(`${note}: ช่วงสั้นเกินไปสำหรับ Shape ${sh.code} ใช้เหล็กตรง`);sh=shapedEnds({...l,shape:'00'},det,1,0,note,warn);}return sh;};
+ // bars of one layer over evenly spaced positions, cut where they cross an opening (+ cover): groups of equal pieces
+ const layer=(pos:{count:number;from:number;to:number},d:number,a:number,b:number,holes:(p:number)=>[number,number][])=>{
+  const at=Array.from({length:pos.count},(_,j)=>pos.count===1?pos.from:pos.from+(pos.to-pos.from)*j/(pos.count-1)),groups:{at:number[];parts:[number,number][];idx:number[]}[]=[];
+  // equal pieces share one Mark even when the opening splits them into runs (then placed by offsets)
+  const byKey=new Map<string,{at:number[];parts:[number,number][];idx:number[]}>();
+  at.forEach((p,j)=>{const parts=cutSpan(a,b,holes(p),Math.max(12*d,150)),key=JSON.stringify(parts),g=byKey.get(key);if(g){g.at.push(p);g.idx.push(j);}else byKey.set(key,{at:[p],parts,idx:[j]});});
+  for(const g of byKey.values())groups.push(g);
+  return groups;};
+ const place=(g:{at:number[];idx?:number[]},axis:'X'|'Z')=>g.idx&&g.idx.some((v,j)=>j>0&&v!==g.idx![j-1]+1)?{offsets:g.at.map(v=>(axis==='X'?[v-g.at[0],0,0]:[0,0,v-g.at[0]]) as V3)}:{distributionAxis:axis,from:g.at[0],to:g.at[g.at.length-1]};
+ const vHoles=(d:number)=>(x:number)=>opens.filter(o=>x>o.x0-c.edge-d/2&&x<o.x1+c.edge+d/2).map(o=>[o.z0-c.edge-d/2,o.z1+c.edge+d/2] as [number,number]);
+ const hHoles=(d:number)=>(z:number)=>opens.filter(o=>z>o.z0-c.edge-d/2&&z<o.z1+c.edge+d/2).map(o=>[o.x0-c.edge-d/2,o.x1+c.edge+d/2] as [number,number]);
  faces.forEach((f,k)=>{
   const second=r.layers===2&&k===1;
-  if(sx){const a=c.edge+dv/2,b=H-c.edge-dv/2,note=`เหล็กแนวตั้ง · ${f.tag}`,sh=ends(r.vertical,note,f.yv,b-a,second),pts=sh.points(a,b,f.yv);
-   out.push({role:`vertical-${k+1}`,note:`${note}${sh.suffix}${r.lap?` (ยาว H + ทาบ ${Math.round(lapLen)} mm)`:''}`,diameter:dv,grade:det.mainGrade,count:sx.count,points:pts.map(([u,w])=>[sx.from,w,u] as V3),axis:'Z',face:'side',radius:sh.radius,shapeCode:sh.code,distributionAxis:'X',from:sx.from,to:sx.to,cut:r.lap?roundUp(sh.length(pts)+(H-(b-a))+lapLen,rounding):undefined});}
-  if(sz){const a=c.edge+dh/2,b=L-c.edge-dh/2,note=`เหล็กแนวนอน · ${f.tag}`,sh=ends(r.horizontal,note,f.yh,b-a,second);
-   out.push({role:`horizontal-${k+1}`,note:note+sh.suffix,diameter:dh,grade:det.mainGrade,count:sz.count,points:sh.points(a,b,f.yh).map(([u,w])=>[u,w,sz.from] as V3),axis:'X',face:'side',radius:sh.radius,shapeCode:sh.code,distributionAxis:'Z',from:sz.from,to:sz.to});}
+  if(sx){const a=c.edge+dv/2,b=H-c.edge-dv/2,note=`เหล็กแนวตั้ง · ${f.tag}`,gs=layer(sx,dv,a,b,vHoles(dv));
+   gs.forEach((g,gi)=>g.parts.forEach(([p,q],pi)=>{const whole=p===a&&q===b,sh=whole?shaped(r.vertical,note,f.yv,b-a,second):shapedEnds({...r.vertical,shape:'00'},det,1,0,note,warn),pts=sh.points(p,q,f.yv);
+    const extra=(p===a?a+lapLen:0)+(q===b?H-b:0),role=gs.length===1&&g.parts.length===1?`vertical-${k+1}`:`vertical-${k+1}-${gi+1}${g.parts.length>1?`-${pi+1}`:''}`;
+    out.push({role,note:`${note}${whole?sh.suffix:` (ตัดที่ช่องเปิด${p===a?' · ช่วงล่าง':q===b?' · ช่วงบน':''})`}${r.lap&&p===a?` (ยาว + ทาบ ${Math.round(lapLen)} mm)`:''}`,diameter:dv,grade:det.mainGrade,count:g.at.length,points:pts.map(([u,w])=>[g.at[0],w,u] as V3),axis:'Z',face:'side',radius:sh.radius,shapeCode:sh.code,...place(g,'X'),cut:r.lap&&p===a?roundUp(sh.length(pts)+extra,rounding):undefined});}));}
+  if(sz){const a=c.edge+dh/2,b=L-c.edge-dh/2,note=`เหล็กแนวนอน · ${f.tag}`,gs=layer(sz,dh,a,b,hHoles(dh));
+   gs.forEach((g,gi)=>g.parts.forEach(([p,q],pi)=>{const whole=p===a&&q===b,sh=whole?shaped(r.horizontal,note,f.yh,b-a,second):shapedEnds({...r.horizontal,shape:'00'},det,1,0,note,warn);
+    const role=gs.length===1&&g.parts.length===1?`horizontal-${k+1}`:`horizontal-${k+1}-${gi+1}${g.parts.length>1?`-${pi+1}`:''}`;
+    out.push({role,note:note+(whole?sh.suffix:' (ตัดที่ช่องเปิด)'),diameter:dh,grade:det.mainGrade,count:g.at.length,points:sh.points(p,q,f.yh).map(([u,w])=>[u,w,g.at[0]] as V3),axis:'X',face:'side',radius:sh.radius,shapeCode:sh.code,...place(g,'Z')});}));}
+  // EDGE / CORNER bars of this face (straight, full height like the verticals)
+  for(const [tag,e] of [['start',es],['end',ee]] as const){if(!e)continue;const d=e.b.diameter,a=c.edge+d/2,b=H-c.edge-d/2,n=Math.min(e.per,e.b.count-k*e.per);if(n<=0)continue;
+   const xs=e.x.slice(0,n),name=e.kind==='edge'?'EDGE BAR':'CORNER BAR',extra=r.lap?a+lapLength(det,d):0;
+   out.push({role:`${e.kind}-${tag}-${k+1}`,note:`${name} ${tag==='start'?'ต้น':'ปลาย'}ผนัง · ${f.tag} ${n}-${bar(d)}${r.lap?` (ยาว + ทาบ ${Math.round(lapLength(det,d))} mm)`:''}`,diameter:d,grade:det.mainGrade,count:n,points:[[Math.min(...xs),f.yv,a],[Math.min(...xs),f.yv,b]],axis:'Z',face:'side',radius:0,shapeCode:'00',
+    distributionAxis:'X',from:Math.min(...xs),to:Math.max(...xs),cut:r.lap?roundUp(b-a+extra+(H-b),rounding):undefined});}
  });
  if(!sx||!sz)warn('เหล็กผนัง: วางไม่ได้ ตรวจมิติและระยะห่าง');
+ // trimming bars around openings: inside the horizontal layer of each face (verticals one bar further in), past the corners by ext
+ const ob=r.opening;
+ if(ob&&ob.count>0&&ob.diameter>0&&opens.length){const d=ob.diameter,ext=ob.ext>0?ob.ext:lapLength(det,d),gap=Math.max(2*d,d+25),xl=c.edge+d/2,xr=L-c.edge-d/2,zl=c.edge+d/2,zr=H-c.edge-d/2;
+  const planes=(r.layers===2?[{tag:'ผิว 1',y:c.face+dv+dh+d/2,s:1},{tag:'ผิว 2',y:t-c.face-dv-dh-d/2,s:-1}]:[{tag:'กึ่งกลาง',y:t/2-(dv+d)/2,s:-1}]);
+  if(planes.some(p=>p.s>0?p.y+d*1.5>t-c.face:p.y-d*1.5<c.face))warn(`เหล็กเสริมรอบช่องเปิด ${bar(d)}: ความหนาผนังไม่พอ ตรวจระยะหุ้ม`);
+  const clip=(v:number,lo:number,hi:number)=>Math.min(hi,Math.max(lo,v));
+  const diags:V3[]=[];
+  opens.forEach((o,oi)=>{const name=o.label||`ช่องเปิด ${oi+1}`;
+   planes.forEach((pl,k)=>{const yv=pl.y+pl.s*d,tag=`${name} · ${pl.tag}`,push=(role:string,note:string,pts:V3[],axis:Bar['axis'],dist?:{axis:Bar['axis'];from:number;to:number;count:number})=>
+    out.push({role:`open${oi+1}-${role}-${k+1}`,note:`เหล็กเสริมรอบช่องเปิด ${tag} · ${note}`,diameter:d,grade:det.mainGrade,count:dist?.count??1,points:pts,axis,face:'side',radius:0,shapeCode:'00',...(dist?{distributionAxis:dist.axis,from:dist.from,to:dist.to}:{distributionAxis:'Y' as const,from:pts[0][1],to:pts[0][1]})});
+    const x0=clip(o.x0-ext,xl,xr),x1=clip(o.x1+ext,xl,xr),z0=clip(o.z0-ext,zl,zr),z1=clip(o.z1+ext,zl,zr);
+    const rows=(start:number,dir:number,lo:number,hi:number)=>Array.from({length:ob.count},(_,j)=>start+dir*j*gap).filter(v=>v>=lo&&v<=hi);
+    for(const [side,zs] of [['top',rows(o.z1+c.edge+d/2,1,zl,zr)],['bottom',rows(o.z0-c.edge-d/2,-1,zl,zr)]] as const)
+     if(zs.length&&x1-x0>2*d)push(side==='top'?'top':'bot',`${side==='top'?'บน':'ล่าง'} ${zs.length}-${bar(d)} ยาวเลยมุม ${Math.round(ext)} mm`,[[x0,pl.y,Math.min(...zs)],[x1,pl.y,Math.min(...zs)]],'X',{axis:'Z',from:Math.min(...zs),to:Math.max(...zs),count:zs.length});
+    for(const [side,xs] of [['left',rows(o.x0-c.edge-d/2,-1,xl,xr)],['right',rows(o.x1+c.edge+d/2,1,xl,xr)]] as const)
+     if(xs.length&&z1-z0>2*d)push(side==='left'?'l':'r',`${side==='left'?'ซ้าย':'ขวา'} ${xs.length}-${bar(d)} ยาวเลยมุม ${Math.round(ext)} mm`,[[Math.min(...xs),yv,z0],[Math.min(...xs),yv,z1]],'Z',{axis:'X',from:Math.min(...xs),to:Math.max(...xs),count:xs.length});
+    // diagonal bars across each corner that lies inside the wall (outward of the corner, perpendicular to its bisector)
+    if(ob.diagonal)([[o.x0,o.z0,-1,-1],[o.x1,o.z0,1,-1],[o.x0,o.z1,-1,1],[o.x1,o.z1,1,1]] as const).forEach(([cx,cz,sxn,szn],ci)=>{
+     if(cx<=xl||cx>=xr||cz<=zl||cz>=zr)return;
+     for(let j=0;j<ob.count;j++){const off=(c.edge+d+j*gap)/Math.SQRT2,mx=cx+sxn*off,mz=cz+szn*off,ux=sxn/Math.SQRT2,uz=-szn/Math.SQRT2;
+      // half lengths limited by the wall cover box
+      const lim=(sgn:number)=>{let h=ext;for(const [p,u,lo,hi] of [[mx,ux*sgn,xl,xr],[mz,uz*sgn,zl,zr]] as const){if(u>1e-9)h=Math.min(h,(hi-p)/u);else if(u<-1e-9)h=Math.min(h,(lo-p)/u);}return Math.max(0,h);};
+      const h1=lim(1),h0=lim(-1);if(h0+h1<Math.max(12*d,300))continue;
+      diags.push([mx-ux*h0,yv,mz-uz*h0],[mx+ux*h1,yv,mz+uz*h1]);}});
+   });
+   // diagonal bars of equal direction and length (both faces, every corner) share one Mark: placed by offsets
+   const groups=new Map<string,V3[][]>();for(let n=0;n<diags.length;n+=2){const [p,q]=diags[n][0]<=diags[n+1][0]?[diags[n],diags[n+1]]:[diags[n+1],diags[n]],key=`${Math.sign(q[0]-p[0])*Math.sign(q[2]-p[2])}|${Math.round(Math.hypot(q[0]-p[0],q[2]-p[2]))}`;groups.set(key,[...(groups.get(key)||[]),[p,q]]);}
+   [...groups.values()].forEach((list,gi)=>{const [p,q]=list[0],len=Math.round(Math.hypot(q[0]-p[0],q[2]-p[2]));
+    out.push({role:`open${oi+1}-diag${gi+1}`,note:`เหล็กเสริมรอบช่องเปิด ${name} · เหล็กทแยงมุม ${bar(d)} ยาว ${len} mm (${list.length} เส้น ทุกมุม / ทุกผิว)`,diameter:d,grade:det.mainGrade,count:list.length,points:[p,q],axis:'X',face:'side',radius:0,shapeCode:'00',offsets:list.map(([a])=>[a[0]-p[0],a[1]-p[1],a[2]-p[2]] as V3)});});
+   diags.length=0;});}
  return out;
 }
 
@@ -2023,12 +2116,14 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    else if(ped&&(Math.abs(col.offsetX)>.5||Math.abs(col.offsetY)>.5))shape={z:T+H,pedestal:{x:0,y:0,z:0},geometry:{solids:[{id:'footing1',label:'ฐานราก',origin:[0,0,0],size:[X,Y,T],faces:footingFaces},{id:'pedestal',label:'เสาตอม่อ',origin:[ox,oy,T],size:[w,d,H],faces:sideFaces}],voids:[]}};
    shape={...shape,deductions:[...deductions,...auto]};
    // Bars projecting above the concrete sit in placement-only reference regions (not in BOQ).
-   const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('gencol')&&!r.id.startsWith('genslab')&&!r.id.startsWith('genwall')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
+   const keep=(m.placementContext?.regions||[]).filter(r=>!r.id.startsWith('gencol')&&!r.id.startsWith('genslab')&&!r.id.startsWith('genwall')&&!r.id.startsWith('gendowel')).map(r=>({...r,openings:'openings' in r?r.openings:[]}));
+   const dowelRegions=(input.shape==='rect'?input.edgeDowels||[]:[]).flatMap((e,k)=>{const s=edgeDowelSpan(input,e);if(!s)return [];const o=s.out+e.diameter,x=e.side[0]==='x',lo=s.dir<0?s.face-o:s.face;
+    return [{id:`gendowel${k+1}`,label:`ปลายเหล็กเดือยขอบฐาน ${edgeSideLabels[e.side]} (อ้างอิง)`,origin:(x?[lo,0,0]:[0,lo,0]) as V3,size:(x?[o,Y,T]:[X,o,T]) as V3,reference:'เหล็กเดือยยื่นออกนอกฐาน (ฝังในพื้น / โครงสร้างข้างเคียง) · พื้นที่อ้างอิง ไม่คิดปริมาณ',cover:0,openings:[]}];});
    const regions=cols.filter(c=>c.projection>0).flatMap(c=>{const ci=cols.indexOf(c),cb=colBox(c);return (c.shape==='circle'?[{x0:0,y0:0,x1:cb.w,y1:cb.d}]:columnBoxes(c)).map((b,k)=>({id:ci?`gencol-c${ci+1}-${k+1}`:`gencol${k+1}`,label:`${c.columnNo||(many?`C${ci+1}`:'เสา')} (อ้างอิง)`.slice(0,80),origin:[cb.ox+b.x0,cb.oy+b.y0,footingTopAt(input,cb.ox+cb.w/2,cb.oy+cb.d/2)+cb.h] as V3,size:[b.x1-b.x0,b.y1-b.y0,c.projection+c.cover+maxMainDiameter(c)] as V3,reference:`เหล็กเสาโผล่${ped?'เหนือตอม่อ':'จากฐาน'} ${c.projection} mm · พื้นที่อ้างอิง ไม่คิดปริมาณ`,cover:c.cover,openings:[]}));});
    const wallRegions=(input.walls||[]).filter(b=>b.x1>b.x0&&b.y1>b.y0&&b.z1>b.z0).map((b,k)=>({id:`genwall${k+1}`,label:`${b.label||`ผนัง ${k+1}`} (อ้างอิง)`.slice(0,80),origin:[b.x0,b.y0,b.z0] as V3,size:[b.x1-b.x0,b.y1-b.y0,b.z1-b.z0] as V3,reference:'ผนัง RC บนฐาน · พื้นที่อ้างอิง ไม่คิดปริมาณ (เหล็กผนังตามแบบผนัง)',cover:input.cover.side,openings:[]}));
-   const slabRegions=slabOn?footingSlabRegions(input,X,Y):[],all=[...keep,...regions,...wallRegions,...slabRegions];
+   const slabRegions=slabOn?footingSlabRegions(input,X,Y):[],all=[...keep,...regions,...wallRegions,...slabRegions,...dowelRegions];
    if(all.length>REGION_LIMIT)warn(`พื้นที่อ้างอิงเกิน ${REGION_LIMIT} รายการ (พื้น ${slabRegions.length} + เสา ${regions.length} + กำหนดเอง ${keep.length}) · ตัดพื้นที่กำหนดเองบางส่วนออก`);
-   const context=all.length>REGION_LIMIT?[...keep.slice(0,Math.max(0,REGION_LIMIT-regions.length-wallRegions.length-slabRegions.length)),...regions,...wallRegions,...slabRegions].slice(0,REGION_LIMIT):all,firstBar=col.type!=='none'?columnSectionPreview(col).bars[0]:undefined;
+   const context=all.length>REGION_LIMIT?[...keep.slice(0,Math.max(0,REGION_LIMIT-regions.length-wallRegions.length-slabRegions.length-dowelRegions.length)),...regions,...wallRegions,...slabRegions,...dowelRegions].slice(0,REGION_LIMIT):all,firstBar=col.type!=='none'?columnSectionPreview(col).bars[0]:undefined;
    // Default section A-A passes through the first row of column bars so they appear in the section view.
    if(!m.drawingViews)shape={...shape,sectionY:firstBar?Number((oy+firstBar.y).toFixed(1)):Y/2};
    const {placementContext:_c,...rest}=next;
@@ -2099,7 +2194,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
     next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions} as Member;}
    gen=beamBars(input,det,warn);break;}
   case 'Slab':next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
-  case 'Wall':next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions};gen=wallBars(input,det,rounding,warn);break;
+  case 'Wall':{const opens=wallOpenings(input);next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions,...(opens.length?{geometry:{solids:[{id:'wall',label:'ผนัง',origin:[0,0,0] as V3,size:[input.length,input.thickness,input.height] as V3,faces:[true,true,true,true,false,false]}],voids:opens.map((o,k)=>({id:`opening${k+1}`,label:(o.label||`ช่องเปิด ${k+1}`).slice(0,80),origin:[o.x0,0,o.z0] as V3,size:[o.x1-o.x0,input.thickness,o.z1-o.z0] as V3,faces:[true,true,false,false,false,o.z1<input.height-1]}))}}:{})};}gen=wallBars(input,det,rounding,warn);break;
  }
  if(m.category!=='Foundation')next={...next,excavation:{bottomX:0,bottomY:0,topX:0,topY:0,depth:0,buriedConcrete:0},lean:{x:0,y:0,thickness:0}};
  if(m.category!=='Foundation')next=withSiteWork(next,next.siteWork&&{...emptySiteWork(),items:next.siteWork.items});

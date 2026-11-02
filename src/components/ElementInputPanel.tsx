@@ -2,7 +2,7 @@ import {lazy,Suspense,useEffect,useMemo,useState,type ReactNode} from 'react';
 import {Box,Columns3,FileUp,Link2Off,Wand2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
 import {OccurrenceTable} from './LocationPicker';
-import {hookDevLength,DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,footingLoopInfo,footingFaceBars,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,type FootingBox,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
+import {hookDevLength,edgeSideLabels,DEFAULT_COLUMN_POUR,columnPour,beamGroupFrom,columnStackFrom,type GroundInput,columnExtent,columnLayout,columnLayouts,footingColumnName,footingColumns,footingExtent,footingEarth,footingLevels,footingPour,footingLoopInfo,footingFaceBars,slopePresets,lapLength,applyElementInput,columnInputBars,columnMainMax,columnPresets,applyColumnPreset,type ColumnInput,columnSectionPreview,maxMainDiameter,tiePatterns,tiePatternInfo,type FootingBox,pileQuantities,pileTypeLabels,type FoundationInput,defaultElementInput,elementInputProblems,layerShapes,shapesFor,shapeDefaults,type BarEnd,elementInputSchema,inputFromExtraction,isGeneratedBar,supportsElementInput,type ElementInput,type FootingColumn,type InputCategory} from '../domain/elementInput';
 import {takeoff,validateMember} from '../domain/engine';
 import {Field,number,NumInput} from './EditorControls';
 import {ElementGraphic} from './ElementGraphic';
@@ -154,6 +154,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     <p className="muted">{pileSummary(input)}</p></>}
    {input.shape==='rect'&&<FootingBoxes input={input} readOnly={readOnly} onChange={(key,v)=>setInput(prev=>prev?.category!=='Foundation'?prev:v.length?{...prev,[key]:v}:(()=>{const {[key]:_,...rest}=prev;return rest as typeof prev;})())}/>}
    <FootingItems value={input.items||[]} readOnly={readOnly} onChange={v=>setInput(prev=>prev?.category!=='Foundation'?prev:v.length?{...prev,items:v}:(()=>{const {items:_,...rest}=prev;return rest as typeof prev;})())}/>
+   {input.shape==='rect'&&<FootingEdgeDowels value={input.edgeDowels||[]} readOnly={readOnly} onChange={v=>setInput(prev=>prev?.category!=='Foundation'?prev:v.length?{...prev,edgeDowels:v}:(()=>{const {edgeDowels:_,...rest}=prev;return rest as typeof prev;})())}/>}
    <h4>งานดินและชั้นรองพื้น</h4>{(()=>{const earth=footingEarth(input),q=preview&&!('error' in preview)?preview.q:undefined,cell=(path:string,neg=false)=><NumInput aria-label={path} type="number" step="any" disabled={readOnly} value={get(path)} onChange={e=>set(path,neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
     return <div className="earthwork-input"><div>
      {check('กำหนดระดับอ้างอิง (คำนวณความลึกขุดให้)','levels.enabled')}
@@ -297,7 +298,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Beam'&&input.layout==='group'&&<p className="muted">กลุ่มคาน: เหล็กบน / ล่าง / ปลอก กำหนดต่อช่วงในตารางด้านบน · เหล็กเสริมบนกำหนดที่กริด</p>}
   {input.category==='Beam'&&input.layout!=='group'&&<>{shapedCount('เหล็กบน','rebar.top')}{input.rebar.top.count>0&&<BeamBarEnds label="เหล็กบน" layer={input.rebar.top} readOnly={readOnly} onChange={v=>set('rebar.top.ends',v)}/>}{shapedCount('เหล็กล่าง','rebar.bottom')}{input.rebar.bottom.count>0&&<BeamBarEnds label="เหล็กล่าง" layer={input.rebar.bottom} readOnly={readOnly} onChange={v=>set('rebar.bottom.ends',v)}/>}{spacing('เหล็กปลอก','rebar.stirrup')}<p className="muted">เหล็กบนงอ/ขอลง · เหล็กล่างงอ/ขอขึ้น · ปลายอยู่ที่ cover ปลายคาน</p></>}
   {input.category==='Slab'&&<>{mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}<p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · จำกัดตามความหนาพื้น − cover</p></>}
-  {input.category==='Wall'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p></>}
+  {input.category==='Wall'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p><WallExtras input={input} readOnly={readOnly} onChange={f=>setInput(prev=>prev?.category==='Wall'?f(prev):prev)}/></>}
 
   <ConcreteMixField spec={project.spec} input={input} readOnly={readOnly} onChange={mix=>setInput(prev=>prev&&{...prev,concreteMix:mix,detailing:detailingFromSpec(project.spec,prev.detailing,{category:prev.category,mix})})}/>
   <details className="detailing-defaults"><summary>มาตรฐานงอขอ / ระยะทาบ (กำหนดไว้เบื้องต้น)</summary>
@@ -446,6 +447,43 @@ function PilePositions({value,readOnly,onChange}:{value:[number,number][];readOn
 }
 /** Raised blocks (e.g. the second pour over part of the plan) and lowered top areas of a rect footing, as boxes in
  * footing-local mm (x/y from the plan corner, z from the footing bottom). */
+/** Wall EDGE / CORNER bars at the ends, openings (concrete void + cut bars) and the trimming bars around them. */
+function WallExtras({input,readOnly,onChange}:{input:Extract<ElementInput,{category:'Wall'}>;readOnly:boolean;onChange:(f:(w:Extract<ElementInput,{category:'Wall'}>)=>Extract<ElementInput,{category:'Wall'}>)=>void}){
+ type W=Extract<ElementInput,{category:'Wall'}>;type Ends=NonNullable<W['rebar']['ends']>;type Op=NonNullable<W['openings']>[number];
+ const r=input.rebar,ends=r.ends,ob=r.opening,opens=input.openings||[];
+ const putEnds=(patch:Partial<Ends>|null)=>onChange(w=>{const {ends:_,...rest}=w.rebar;return {...w,rebar:patch===null?rest:{...rest,ends:{start:'edge',end:'edge',edge:{count:4,diameter:12},corner:{count:4,diameter:12},...w.rebar.ends,...patch}}};});
+ const putOb=(patch:Partial<NonNullable<W['rebar']['opening']>>|null)=>onChange(w=>{const {opening:_,...rest}=w.rebar;return {...w,rebar:patch===null?rest:{...rest,opening:{count:2,diameter:16,ext:0,diagonal:true,...w.rebar.opening,...patch}}};});
+ const putOpens=(list:Op[])=>onChange(w=>{const {openings:_,...rest}=w;return list.length?{...rest,openings:list}:rest;});
+ const n=(v:number,on:(x:number)=>void,title:string,int=false)=><NumInput aria-label={title} title={title} type="number" step="any" style={{width:70}} disabled={readOnly} value={v} onChange={e=>{const x=Math.max(0,Number(e.target.value)||0);on(int?Math.trunc(x):x);}}/>;
+ const endSel=(k:'start'|'end')=><select aria-label={k} disabled={readOnly||!ends} value={ends?.[k]??'none'} onChange={e=>putEnds({[k]:e.target.value as Ends['start']})}><option value="none">ไม่มี</option><option value="edge">EDGE BAR (ปลายอิสระ)</option><option value="corner">CORNER BAR (มุมผนัง)</option></select>;
+ return <div className="footing-boxes">
+  <label className="check"><input type="checkbox" disabled={readOnly} checked={!!ends} onChange={e=>putEnds(e.target.checked?{}:null)}/><b>เหล็กปลายผนัง EDGE BAR / CORNER BAR</b></label> <small className="muted">เหล็กแนวตั้งเพิ่มที่ปลายผนัง (จำนวนรวมทุกผิว) · เหล็กแนวตั้งปกติเริ่มถัดไป 1 ระยะห่าง</small>
+  {ends&&<div className="form-grid"><label className="field"><span>ต้นผนัง (x = 0)</span>{endSel('start')}</label><label className="field"><span>ปลายผนัง (x = L)</span>{endSel('end')}</label>
+   <label className="field"><span>EDGE BAR จำนวน-Ø</span><span>{n(ends.edge.count,v=>putEnds({edge:{...ends.edge,count:Math.min(20,v)}}),'EDGE จำนวน',true)} − {n(ends.edge.diameter,v=>putEnds({edge:{...ends.edge,diameter:v}}),'EDGE Ø')}</span></label>
+   <label className="field"><span>CORNER BAR จำนวน-Ø</span><span>{n(ends.corner.count,v=>putEnds({corner:{...ends.corner,count:Math.min(20,v)}}),'CORNER จำนวน',true)} − {n(ends.corner.diameter,v=>putEnds({corner:{...ends.corner,diameter:v}}),'CORNER Ø')}</span></label></div>}
+  <div><b>ช่องเปิดในผนัง</b> <small className="muted">x จากต้นผนัง · z จากท้องผนัง (mm) · หักคอนกรีต ตัดเหล็กที่ระยะหุ้ม · ประตู = z 0</small></div>
+  {opens.length>0&&<div className="table-scroll"><table><thead><tr><th>ชื่อ</th><th>x</th><th>z</th><th>กว้าง</th><th>สูง</th><th/></tr></thead>
+   <tbody>{opens.map((o,k)=>{const put=(p:Partial<Op>)=>putOpens(opens.map((v,j)=>j===k?{...v,...p}:v));return <tr key={k}><td><input aria-label="ชื่อ" maxLength={40} style={{width:90}} disabled={readOnly} value={o.label} onChange={e=>put({label:e.target.value})}/></td>
+    <td>{n(o.x,v=>put({x:v}),'x')}</td><td>{n(o.z,v=>put({z:v}),'z')}</td><td>{n(o.width,v=>put({width:v}),'กว้าง')}</td><td>{n(o.height,v=>put({height:v}),'สูง')}</td>
+    <td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>putOpens(opens.filter((_,j)=>j!==k))}>×</button></td></tr>;})}</tbody></table></div>}
+  <button type="button" disabled={readOnly||opens.length>=20} onClick={()=>putOpens([...opens,{label:`ช่องเปิด ${opens.length+1}`,x:Math.max(0,Math.round((input.length-1000)/2)),z:900,width:1000,height:1000}])}>+ เพิ่มช่องเปิด</button>
+  <label className="check"><input type="checkbox" disabled={readOnly} checked={!!ob} onChange={e=>putOb(e.target.checked?{}:null)}/><b>เหล็กเสริมรอบช่องเปิด</b></label> <small className="muted">จำนวนต่อผิวต่อด้าน (2x2-DB16 = 2 เส้น Ø16) · ยาวเลยมุม 0 = ระยะทาบตามตาราง · เหล็กทแยงที่มุมยาว 2 × ระยะนั้น</small>
+  {ob&&<div className="form-grid"><label className="field"><span>จำนวน / ผิว / ด้าน</span>{n(ob.count,v=>putOb({count:Math.min(6,v)}),'จำนวน',true)}</label><label className="field"><span>Ø</span>{n(ob.diameter,v=>putOb({diameter:v}),'Ø')}</label>
+   <label className="field"><span>ยาวเลยมุม (mm)</span>{n(ob.ext,v=>putOb({ext:v}),'ยาวเลยมุม')}</label><label className="check"><input type="checkbox" disabled={readOnly} checked={ob.diagonal} onChange={e=>putOb({diagonal:e.target.checked})}/>เหล็กทแยงที่มุม</label></div>}
+ </div>;
+}
+/** Horizontal dowel bars across a footing side face (into the slab / next structure). */
+function FootingEdgeDowels({value,readOnly,onChange}:{value:NonNullable<FoundationInput['edgeDowels']>;readOnly:boolean;onChange:(v:NonNullable<FoundationInput['edgeDowels']>)=>void}){
+ type Row=NonNullable<FoundationInput['edgeDowels']>[number];
+ const put=(k:number,patch:Partial<Row>)=>onChange(value.map((it,n)=>n===k?{...it,...patch}:it));
+ const cell=(k:number,f:'diameter'|'spacing'|'length'|'embed'|'z',title:string)=><td><NumInput aria-label={title} title={title} type="number" step="any" style={{width:70}} disabled={readOnly} value={value[k][f]} onChange={e=>put(k,{[f]:Math.max(0,Number(e.target.value)||0)})}/></td>;
+ return <div className="footing-boxes"><b>เหล็กเดือย (Dowel) ที่ขอบฐาน</b> <small className="muted">เหล็กนอนทะลุผิวข้างฐาน (เช่น เข้าพื้นที่รอยต่อ Isolation joint) · วางตลอดด้านจาก cover ข้างถึง cover ข้าง · ฝังในฐาน 0 = ครึ่งความยาว · ระดับ 0 = กึ่งกลางความหนา</small>
+  {value.length>0&&<div className="table-scroll"><table><thead><tr><th>ด้าน</th><th>Ø</th><th>@</th><th>ยาว</th><th>ฝังในฐาน</th><th>ระดับจากท้องฐาน</th><th/></tr></thead>
+   <tbody>{value.map((it,k)=><tr key={k}><td><select aria-label="ด้าน" disabled={readOnly} value={it.side} onChange={e=>put(k,{side:e.target.value as Row['side']})}>{(Object.entries(edgeSideLabels) as [Row['side'],string][]).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></td>
+    {cell(k,'diameter','Ø')}{cell(k,'spacing','ระยะห่าง')}{cell(k,'length','ความยาวเหล็ก')}{cell(k,'embed','ฝังในฐาน')}{cell(k,'z','ระดับจากท้องฐาน')}
+    <td><button type="button" className="icon-button" disabled={readOnly} title="ลบ" onClick={()=>onChange(value.filter((_,n)=>n!==k))}>×</button></td></tr>)}</tbody></table></div>}
+  <button type="button" disabled={readOnly||value.length>=8} onClick={()=>onChange([...value,{side:'x1',diameter:12,spacing:200,length:400,embed:0,z:0}])}>+ เพิ่ม</button></div>;
+}
 /** Embedded / extra BOQ items of a footing (e.g. anchor bolts): site-work items rebuilt on apply. */
 function FootingItems({value,readOnly,onChange}:{value:NonNullable<FoundationInput['items']>;readOnly:boolean;onChange:(v:NonNullable<FoundationInput['items']>)=>void}){
  const put=(k:number,patch:Partial<NonNullable<FoundationInput['items']>[number]>)=>onChange(value.map((it,n)=>n===k?{...it,...patch}:it));

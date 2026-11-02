@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {DEFAULT_FOOTING_COLUMN,foundationSchema,type FoundationInput} from './elementInput';
+import {DEFAULT_FOOTING_COLUMN,edgeSideLabels,foundationSchema,type FoundationInput} from './elementInput';
 
 // Project Foundation Template: the footing types of a project's foundation drawings (plan size, depth, piles, bars,
 // pour stages, column positions), kept in the spec (spec.foundationTemplates) so a footing element picks a type and
@@ -8,7 +8,7 @@ const mm=z.number().finite().min(0).max(200000);
 const off=z.number().finite().min(-100000).max(100000);
 /** footing input taken from a template (the rest — detailing, columns' bars, pile length — stays the element's) */
 export const foundationTemplateFieldsSchema=foundationSchema.pick({foundationType:true,shape:true,diameter:true,chamfer:true,armX:true,armY:true,
- width:true,length:true,thickness:true,pile:true,lean:true,cover:true,rebar:true,slab:true,pour:true,subbase:true,levels:true,excavation:true,blocks:true,cuts:true,walls:true,items:true});
+ width:true,length:true,thickness:true,pile:true,lean:true,cover:true,rebar:true,slab:true,pour:true,subbase:true,levels:true,excavation:true,blocks:true,cuts:true,walls:true,items:true,edgeDowels:true});
 export type FoundationTemplateFields=z.infer<typeof foundationTemplateFieldsSchema>;
 export const foundationTemplateSchema=z.object({
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),
@@ -49,7 +49,7 @@ export function templateFields(t:FoundationTemplate,stage1=false):FoundationTemp
  * element's column type, section and bars (a footing without columns gets starter bars at the reference size).
  * `stage1` (default: the footing's own choice when it is linked to this template) = first pour stage only. */
 export function applyFoundationTemplate(i:FoundationInput,t:FoundationTemplate,stage1=i.template?.id===t.id&&!!i.template.stage1):FoundationInput{
- const one=stage1&&templateHasStage2(t),f=templateFields(t,one),{blocks:_b,cuts:_c,walls:_w,items:_it,...base}=structuredClone(i),v:FoundationInput={...base,...f};
+ const one=stage1&&templateHasStage2(t),f=templateFields(t,one),{blocks:_b,cuts:_c,walls:_w,items:_it,edgeDowels:_ed,...base}=structuredClone(i),v:FoundationInput={...base,...f};
  if(!(f.pile.length>0))v.pile={...v.pile,length:i.pile.length,cutoff:i.pile.cutoff};
  const [c1,...rest]=t.columns;
  if(c1){
@@ -77,5 +77,5 @@ export function foundationTemplateSummary(t:FoundationTemplate){
   r.topX.enabled?`บน${f.blocks?.length||lowered.length?(f.blocks?.some(b=>b.bars||b.rib)?' Stage 1':' (ทุกระดับ)'):f.pour.count>1?` Stage ${f.pour.count}`:''} ${barText(r.topX)}${r.topY.enabled?` / ${barText(r.topY)}`:''}${f.slab.enabled?` (ยื่นเข้าพื้น ${f.slab.extend})`:''}`:'',f.pour.count>1?`เท ${f.pour.count} ครั้ง (${[...f.pour.heights.slice(0,f.pour.count-1),Math.max(f.thickness,...(f.blocks||[]).map(b=>b.z1))-f.pour.heights.slice(0,f.pour.count-1).reduce((a,b)=>a+b,0)].join(' + ')})`:'',
   r.side.enabled?`LOOPS ${barText(r.side)}`:'',r.sideBars.enabled?`ข้าง${r.sideBars.faces==='x'||r.sideBars.faces==='y'?` (เฉพาะผิว ${r.sideBars.faces.toUpperCase()})`:''} ${r.sideBars.y?`X ${barText(r.sideBars)} Y ${barText(r.sideBars.y)}`:barText(r.sideBars)}${f.pour.count>1?(r.sideBars.toJoint?' (ถึง Stage 1)':` (ขึ้น Stage ${f.pour.count}${r.sideBars.top==='inward'?` + Ldh${r.sideBars.leg?` ${r.sideBars.leg}`:''}`:''})`):''}`:'',r.stirrups?.enabled?`${r.stirrups.replacesBottom?'HOOP':'ปลอก'} ${barText(r.stirrups)} กว้าง ${r.stirrups.width}`:'',t.columns.length>1?`เสา ${t.columns.length} ต้น`:'',f.blocks?.some(b=>!b.rib)?`ส่วนเพิ่ม ${f.blocks.filter(b=>!b.rib).length} (${[...new Set(f.blocks.filter(b=>!b.rib).map(b=>`+${b.z1-b.z0}`))].join('/')})${[...new Set(f.blocks.filter(b=>b.bars&&!b.rib).map(b=>`Y${b.bars!.diameter}-${b.bars!.spacing}`))].map(v=>` บน ${v}`).join('')}`:'',
   ...[...new Set((f.blocks||[]).filter(b=>b.rib).map(b=>{const r=b.rib!;return `บน ${r.top.count}Y${r.top.diameter}${r.links?` · U Y${r.links.diameter}-${r.links.spacing}`:''}`;}))].map(v=>`ครีบ ${(f.blocks||[]).filter(b=>b.rib).length} แนว (${v})`),
-  f.items?.length?f.items.map(it=>`${it.label} ${it.quantity} ${it.unit}`).join(' · '):'',open.length?`ตัดมุมแปลน ${open.length}`:'',lowered.length?`ส่วนลดระดับ ${lowered.length}`:'',f.walls?.length?`ผนัง ${f.walls.length} ช่วง${f.walls.some(w=>w.dowels)?` (เหล็กในฐาน ${[...new Set(f.walls.filter(w=>w.dowels).map(w=>`Y${w.dowels!.diameter}-${w.dowels!.spacing}`))].join(' / ')})`:''}`:''].filter(Boolean).join(' · ');
+  f.items?.length?f.items.map(it=>`${it.label} ${it.quantity} ${it.unit}`).join(' · '):'',f.edgeDowels?.length?`เดือยขอบฐาน ${f.edgeDowels.map(e=>`${edgeSideLabels[e.side]} Y${e.diameter}-${e.spacing} L=${e.length}`).join(' / ')}`:'',open.length?`ตัดมุมแปลน ${open.length}`:'',lowered.length?`ส่วนลดระดับ ${lowered.length}`:'',f.walls?.length?`ผนัง ${f.walls.length} ช่วง${f.walls.some(w=>w.dowels)?` (เหล็กในฐาน ${[...new Set(f.walls.filter(w=>w.dowels).map(w=>`Y${w.dowels!.diameter}-${w.dowels!.spacing}`))].join(' / ')})`:''}`:''].filter(Boolean).join(' · ');
 }
