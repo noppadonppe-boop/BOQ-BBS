@@ -170,6 +170,13 @@
   spec import key `buildings` merged by code). Template groups equal to a code are headed / ordered by `groupLabel()` /
   `orderGroups()`; WBS page button “เพิ่มอาคารจาก General Spec” adds missing roots (same code). Template names stay unique
   across buildings (prefix e.g. `ISB-F1`). Test: `tmp/specBuildings.test.tsx`.
+- Slab / wall templates (Slab List / RC Wall List marks): `spec.slabTemplates` (thickness, support, bars 1 / 2 = short span
+  top / bottom, 3 / 4 = long span top / bottom) and `spec.wallTemplates` (thickness, layers, V / H) in
+  `src/domain/slabWallTemplates.ts` (`applySlabTemplate` puts short-span bars along the shorter side, `applyWallTemplate`);
+  General Spec list `SlabWallTemplateList.tsx`, picker `MarkTemplateField` in `ElementInputPanel.tsx`. Spec import keys
+  `slabTemplates` / `wallTemplates` / `columnTemplates` (merged by name, `mergeByName`).
+  J-074 ISB data (GMTP-1200-AR-DWG-011 T2 foundation, -013 T1 structure): `tmp/j074Isb.ts` (pile caps PF2…PF9, CF1 L-shape,
+  EF1; columns C1…C11; 64 beam marks; 14 slab marks; BW1 / W1 / W2), check `tmp/j074Isb.test.ts`, A3 PNGs `tmp/isbSheet.test.tsx`.
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
   key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of

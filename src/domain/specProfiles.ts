@@ -7,6 +7,8 @@ import {concreteSpecSchema} from './concreteMixes';
 import {foundationTemplatesSchema} from './foundationTemplates';
 import {finishesSchema} from './archInputSchema';
 import {mergeBuildings,specBuildingsSchema} from './specBuildings';
+import {mergeByName,slabTemplatesSchema,wallTemplatesSchema} from './slabWallTemplates';
+import {columnTemplatesSchema} from './columnTemplates';
 import {beamTemplatesSchema} from './beamTemplates';
 export {DEFAULT_DESIGN,designOf,detailingFromSpec,specLabel,type ProjectDesign} from './specDetailing';
 
@@ -46,7 +48,9 @@ export const specImportSchema=z.object({format:z.literal('form-spec-import'),sou
  /** finish library (replace those of the same kind + code, others kept) */
  finishes:finishesSchema.optional(),
  /** buildings (replace those of the same code, others kept) */
- buildings:specBuildingsSchema.optional()}).strict();
+ buildings:specBuildingsSchema.optional(),
+ /** column schedule types / slab list / RC wall list marks (replace those of the same name, others kept) */
+ columnTemplates:columnTemplatesSchema.optional(),slabTemplates:slabTemplatesSchema.optional(),wallTemplates:wallTemplatesSchema.optional()}).strict();
 export type SpecImport=z.infer<typeof specImportSchema>;
 /** Apply an import file to a spec; returns the new spec and a short list of what changed. */
 export function applySpecImport(spec:Spec,input:SpecImport){
@@ -66,6 +70,7 @@ export function applySpecImport(spec:Spec,input:SpecImport){
  let finishes=spec.finishes;
  if(input.finishes){const keys=new Set(input.finishes.map(f=>`${f.kind}|${f.code.toUpperCase()}`));finishes=[...(spec.finishes||[]).filter(f=>!keys.has(`${f.kind}|${f.code.toUpperCase()}`)),...input.finishes];notes.push(`วัสดุผิว ${input.finishes.length} รายการ`);}
  const buildings=input.buildings?mergeBuildings(spec.buildings,input.buildings):spec.buildings;if(input.buildings)notes.push(`อาคาร ${input.buildings.map(b=>b.code).join(' · ')}`);
+ const merged=(['columnTemplates','slabTemplates','wallTemplates'] as const).reduce<Partial<Pick<Spec,'columnTemplates'|'slabTemplates'|'wallTemplates'>>>((o,k)=>{const v=input[k];if(!v)return o;notes.push(`${{columnTemplates:'Column Template',slabTemplates:'Slab Template',wallTemplates:'Wall Template'}[k]} ${v.length} แบบ`);return {...o,[k]:mergeByName(spec[k] as {name:string}[]|undefined,v)};},{});
  if(input.concrete)notes.push(`คอนกรีต ${input.concrete.mixes.length} Mix · ${input.concrete.uses.length} ประเภทชิ้นส่วน`);
- return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{}),...(buildings?{buildings}:{})},notes};
+ return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{}),...(buildings?{buildings}:{}),...merged},notes};
 }

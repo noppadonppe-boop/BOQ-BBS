@@ -23,6 +23,8 @@ import {useSpecProfiles} from '../data/specProfiles';
 import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 import {SiteItemsEditor} from './SiteItemsEditor';
+import {applySlabTemplate,applyWallTemplate,slabTemplateSummary,wallTemplateSummary} from '../domain/slabWallTemplates';
+import {groupLabel,orderGroups} from '../domain/specBuildings';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
 import {detailingFromSpec,specLabel,specOutdated} from '../domain/specProfiles';
 import {concreteMixFor,kscToMpa,mixText} from '../domain/concreteMixes';
@@ -190,6 +192,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     :<><BeamTemplateField templates={spec.beamTemplates||[]} readOnly={readOnly} onPick={t=>setInput(prev=>{if(prev?.category!=='Beam')return prev;const g=beamGroupFrom({...prev,spans:[],grids:[]});g.spans=[applyBeamTemplate({...g.spans[0],length:prev.length||g.spans[0].length},t)];return g;})}/>
      <div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div></>}
    {groundFields('คาน')}</>}
+  {input.category==='Slab'&&<MarkTemplateField what="พื้น" list={spec.slabTemplates||[]} buildings={spec.buildings} summary={slabTemplateSummary} readOnly={readOnly} onPick={t=>setInput(prev=>prev?.category==='Slab'?applySlabTemplate(prev,t):prev)}/>}
+  {input.category==='Wall'&&<MarkTemplateField what="ผนัง" list={spec.wallTemplates||[]} buildings={spec.buildings} summary={wallTemplateSummary} readOnly={readOnly} onPick={t=>setInput(prev=>prev?.category==='Wall'?applyWallTemplate(prev,t):prev)}/>}
   {input.category==='Slab'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
   {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
   {input.category==='Wall'&&<HeightFromLevels what="ผนัง" readOnly={readOnly} onUse={h=>set('height',h)}/>}
@@ -490,6 +494,14 @@ function ConcreteMixField({spec,input,readOnly,onChange}:{spec:Project['spec'];i
   <p className="muted">{cur?`ใช้ ${mixText(cur)} (${Math.round(kscToMpa(cur.fc)*10)/10} MPa) · ระยะทาบตามตาราง f'c ของ Mix นี้ · แสดงในแบบ A3`:'ยังไม่ได้ดึงค่า Mix · เลือก Mix หรือกด “ดึงค่าจาก Spec โครงการอีกครั้ง”'}</p></div>;
 }
 /** Project Column Template entry point of a column: pick button + the template / row the section came from. */
+/** Slab / wall mark from the spec's Slab List / RC Wall List: picking one fills thickness and bars (sizes kept). */
+function MarkTemplateField<T extends {id:string;name:string;group:string}>({what,list,buildings,summary,readOnly,onPick}:{what:string;list:T[];buildings:Project['spec']['buildings'];summary:(t:T)=>string;readOnly:boolean;onPick:(t:T)=>void}){
+ const [sel,setSel]=useState(''),t=list.find(x=>x.id===sel),groups=orderGroups(buildings,[...new Set(list.map(x=>x.group||''))]);
+ return <div className="ct-bar"><label className="field"><span>Template {what} (ตามแบบ)</span><select disabled={readOnly||!list.length} value={sel} onChange={e=>setSel(e.target.value)}>
+  <option value="">{list.length?`เลือกเบอร์${what}…`:`ยังไม่มีเบอร์${what} · นำเข้าที่ General Spec`}</option>
+  {groups.map(g=><optgroup key={g||'-'} label={groupLabel(buildings,g)}>{list.filter(x=>(x.group||'')===g).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>)}</select></label>
+  {t&&<><span className="muted">{summary(t)}</span><button type="button" disabled={readOnly} onClick={()=>onPick(t)}>ใช้ {t.name}</button></>}</div>;
+}
 function ColumnTemplateBar({input,spec,readOnly,onPick,onUnlink,onSync,note}:{input?:ColumnInput;spec:Project['spec'];readOnly:boolean;onPick:()=>void;onUnlink?:()=>void;onSync?:(next:ColumnInput)=>void;note?:string}){
  const n=spec.columnTemplates?.length||0,ref=input?.template,t=ref&&spec.columnTemplates?.find(x=>x.id===ref.id);
  // linked column behind its template (template edited / re-imported since): offer the re-apply here

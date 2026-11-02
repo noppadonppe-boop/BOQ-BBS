@@ -8,7 +8,7 @@ export function SpecBuildingList({spec,disabled,onChange}:{spec:Spec;disabled:bo
  const list=spec.buildings||[],check=specBuildingsSchema.safeParse(list);
  const store=(next:SpecBuilding[])=>{const {buildings:_,...rest}=spec;onChange(next.length?{...rest,buildings:next}:rest);};
  const put=(i:number,patch:Partial<SpecBuilding>)=>store(list.map((b,k)=>k===i?{...b,...patch}:b));
- const count=(code:string)=>[...(spec.foundationTemplates||[]),...(spec.beamTemplates||[])].filter(t=>(t.group||'').trim().toUpperCase()===code).length;
+ const count=(code:string)=>[...(spec.foundationTemplates||[]),...(spec.beamTemplates||[]),...(spec.slabTemplates||[]),...(spec.wallTemplates||[])].filter(t=>(t.group||'').trim().toUpperCase()===code).length;
  const add=()=>{const used=new Set(list.map(b=>b.code));let n=list.length+1;while(used.has(`B${n}`))n++;store([...list,{code:`B${n}`,name:`อาคาร ${n}`,note:''}]);};
  return <section className="foundation-templates spec-buildings" aria-label="อาคารของโครงการ"><h3>อาคารของโครงการ</h3>
   <p>รหัส + ชื่ออาคาร · ข้อมูลแบบที่นำเข้าทีละอาคาร (Foundation / Beam Template) ใช้รหัสอาคารเป็น “กลุ่ม” แล้วจะแสดงใต้อาคารนั้น · หน้า WBS ของโครงการกด “เพิ่มอาคารจาก General Spec” เพื่อสร้างอาคารรหัสเดียวกัน</p>
