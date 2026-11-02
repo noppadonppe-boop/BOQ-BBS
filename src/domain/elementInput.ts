@@ -1147,6 +1147,8 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  // face bars only on the chosen faces (fb); the meshes move in by the larger active face bar on every face
  const vb=r.sideBars,fb=footingFaceBars(i),loopIn=r.side.enabled&&i.shape!=='circle'?r.side.diameter:0,vIn=Math.max(0,...[fb.x&&fb.xBar.diameter,fb.y&&fb.yBar.diameter].filter((d):d is number=>!!d)),sideIn=loopIn+vIn;
  // extra boxes (rect footings): blocks = raised parts / later-pour blocks, cuts = lowered top areas; each gets its own top mesh
+ // full-depth openings: the outline keeps only the outer ring, so bars stop at the cover of interior openings here
+ const holes=footingOpenings(i);
  const blocks=i.shape==='rect'?i.blocks||[]:[],cuts=i.shape==='rect'?(i.cuts||[]).filter(b=>b.z1>=T-1&&b.z0>0):[];
  const merge=(iv:[number,number][])=>{const o:[number,number][]=[];for(const v of [...iv].sort((p,q)=>p[0]-q[0])){const l=o.at(-1);if(l&&v[0]<=l[1]+1e-6)l[1]=Math.max(l[1],v[1]);else o.push([v[0],v[1]]);}return o;};
  const rectSpan=(rs:FootingBox[],runX:boolean,pos:number)=>merge(rs.filter(b=>runX?b.y0<pos&&pos<b.y1:b.x0<pos&&pos<b.x1).map(b=>(runX?[b.x0,b.x1]:[b.y0,b.y1]) as [number,number]));
@@ -1189,7 +1191,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   // footing top turn down at the step face past the lower top bars (12d below them)
   const L=lapLength(det,d),floorZ=c.bottom+r.bottomX.diameter+r.bottomY.diameter,steps=!up&&!!area&&i.shape==='rect'&&cuts.length>0;
   const segs:{a:number;b:number;at:number;la:number;lb:number}[]=[];let into=false;
-  for(const at of ats){const pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at)),full=lineIntervals(inner,runX?0:1,pos);let iv=full;if(area?.minus){const cut=area.minus,at=(v:number)=>rectSpan(cut,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.only){const only=area.only,at=(v:number)=>rectSpan(only,runX,v).map(([p,q])=>[p+covA,q-covA] as [number,number]);iv=within(within(within(iv,at(pos)),at(pos-covA+.5)),at(pos+covA-.5));}
+  for(const at of ats){const pos=Math.min(hi-1e-3,Math.max(lo+1e-3,at)),full=lineIntervals(inner,runX?0:1,pos);let iv=full;if(holes.length){const at=(v:number)=>rectSpan(holes,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.minus){const cut=area.minus,at=(v:number)=>rectSpan(cut,runX,v).map(([p,q])=>[p-covA,q+covA] as [number,number]);iv=minus(iv,merge([...at(pos),...at(pos-covA+.5),...at(pos+covA-.5)]));}if(area?.only){const only=area.only,at=(v:number)=>rectSpan(only,runX,v).map(([p,q])=>[p+covA,q-covA] as [number,number]);iv=within(within(within(iv,at(pos)),at(pos-covA+.5)),at(pos+covA-.5));}
    const topAt=(u:number)=>footingTopAt(i,runX?u:pos,runX?pos:u),leg=(t:number)=>Math.max(0,Math.min(z-(t-c.top-d/2)+12*d,z-floorZ-d));
    for(let [a,b] of iv){let la=0,lb=0;
     if(steps){const [A,B]=full.find(([p,q])=>p<=(a+b)/2&&(a+b)/2<=q)||[a,b];

@@ -177,6 +177,12 @@
   `slabTemplates` / `wallTemplates` / `columnTemplates` (merged by name, `mergeByName`).
   J-074 ISB data (GMTP-1200-AR-DWG-011 T2 foundation, -013 T1 structure): `tmp/j074Isb.ts` (pile caps PF2…PF9, CF1 L-shape,
   EF1; columns C1…C11; 64 beam marks; 14 slab marks; BW1 / W1 / W2), check `tmp/j074Isb.test.ts`, A3 PNGs `tmp/isbSheet.test.tsx`.
+  J-074 GIS data (GMTP-1200-AR-DWG-041 T1 foundation, -043 T0 structure; □350 piles embed 150, bottom cover 175): `tmp/j074Gis.ts`
+  (PF1 / PF2 / PF2A / PF3 / CF1, C1 + C1-E, 27 beam marks, 4 slab marks, W1 / BW1), check `tmp/j074Gis.test.ts`, PNGs `tmp/gisSheet.test.tsx`.
+  `gisExtraFoundations`: EF1-GE / EF1-EC transformer mats (20 piles, plinth blocks, oil pit = interior full-depth cut:
+  `footingOutline()` keeps only the outer ring, so mesh bars stop at interior `footingOpenings()` inside `mesh()` and
+  `buildView` draws them as plan holes / section gaps), MF1-1…6 cable pits (spread
+  base 300 + footing walls with dowels; wall template GIS-PW1), SF1 stair base (bars assumed, detail in DWG-001-016).
 - Concrete mixes (General Notes strength schedule): `spec.concrete {mixes (f'c 28 / 14 / 7 d in ksc, W/C, shrinkage), uses
   (member type → mix, categories)}` in `src/domain/concreteMixes.ts`, UI `ConcreteMixEditor.tsx` (General Spec), spec import
   key `concrete` (J-078: `tmp/Spec-Project-J-078.json`). Member mix = element input `concreteMix` or the first use row of

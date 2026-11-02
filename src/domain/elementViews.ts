@@ -1,5 +1,5 @@
 import type {Member,Vec3} from './model';
-import {barCouplerEnds,beamGroupLayout,columnPour,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
+import {barCouplerEnds,beamGroupLayout,columnPour,columnExtent,columnOutline,footingColumns,footingExtent,footingLevels,footingOpenings,footingOutline,footingPour,footingSlabOn,lineIntervals,pilePositions,type ElementInput,type Pt} from './elementInput';
 import {solidsOf} from './solids';
 import {prismAxis,prismBounds,prismPoint,prismSection} from './prismGeometry';
 import {contextSolids} from './placementContext';
@@ -96,7 +96,11 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  if(foot&&input?.category==='Foundation'){
   // lowered areas (cuts from the footing top) lower the top of the section where the cut line crosses them
   const cuts=(input.cuts||[]).filter(c=>normal!==undefined&&(normal===1?c.y0<cut!&&cut!<c.y1:c.x0<cut!&&cut!<c.x1)).map(c=>({u0:normal===1?c.x0:c.y0,u1:normal===1?c.x1:c.y1,top:c.z0}));
-  if(normal===undefined)polys.push(foot);else for(const [u0,u1] of lineIntervals(foot,a as 0|1,Math.min(Math.max(cut!,1e-3),(a===0?m.y:m.x)-1e-3))){
+  // full-depth openings inside the plan (the outline keeps only the outer ring): white holes in plan, gaps in sections
+  const open=footingOpenings(input).filter(o=>normal===undefined||(normal===1?o.y0<cut!&&cut!<o.y1:o.x0<cut!&&cut!<o.x1));
+  if(normal===undefined)holes.push(...open.map(o=>[[o.x0,o.y0],[o.x1,o.y0],[o.x1,o.y1],[o.x0,o.y1]] as Pt[]));
+  const gaps=(u0:number,u1:number)=>open.map(o=>normal===1?[o.x0,o.x1]:[o.y0,o.y1]).reduce<[number,number][]>((iv,[p,q])=>iv.flatMap(([x,y]):[number,number][]=>q<=x||p>=y?[[x,y]]:[...(p>x?[[x,p] as [number,number]]:[]),...(q<y?[[q,y] as [number,number]]:[])]),[[u0,u1]]);
+  if(normal===undefined)polys.push(foot);else for(const [u0,u1] of lineIntervals(foot,a as 0|1,Math.min(Math.max(cut!,1e-3),(a===0?m.y:m.x)-1e-3)).flatMap(([p,q])=>gaps(p,q))){
    const ks=[...new Set([u0,u1,...cuts.flatMap(c=>[c.u0,c.u1]).filter(k=>k>u0&&k<u1)])].sort((p,q)=>p-q);
    for(let k=1;k<ks.length;k++){const mid=(ks[k-1]+ks[k])/2,top=Math.min(input.thickness,...cuts.filter(c=>c.u0<mid&&mid<c.u1).map(c=>c.top));rects.push({u0:ks[k-1],u1:ks[k],v0:0,v1:top,kind:'concrete'});}}
   const p=input.pile,square=p.type==='square'||p.type==='I',h=p.size/2,bottom=-m.lean.thickness-700;
