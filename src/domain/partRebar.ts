@@ -6,7 +6,7 @@ import {type PartPurpose,type PartRebar,type ShapeModel,type ShapePart} from './
 import {coverRings,layoutOf,loopBars,meshBars,sketchRadius,verticalFaceBars,type P2} from './rebarSketch';
 import {editablePlacementContext,REGION_LIMIT} from './placementContext';
 import {schedule} from './engine';
-import {markFor,tagMarks} from './partTags';
+import {barOwner,markFor,tagMarks} from './partTags';
 
 // Reinforcement per shape-model part (custom elements): a part's purpose (column / beam / slab / wall / footing)
 // picks preset bar sets built from the part geometry. Preset bars have ids `pp-<part id>-<key>` and are rebuilt
@@ -333,12 +333,15 @@ export function coordinateBars(m:Member,spec:Spec):Member{
   return moved?withPositions(b,2,zs,to.sort((x,y)=>x-y),`ขยับ ${moved} ชั้นหลบตะแกรง`):b;});
  return {...m,bars};
 }
-/** Moves bars drawn on a part (`sk-<part>-…`) by the part's move between two shape models (both normalised). */
+/** Moves bars drawn on a part (`sk-<part>-…`) by the part's move between two shape models (both normalised); bars of a
+ * bar group move when every part of the group moved by the same amount. */
 export function moveOwnedSketchBars(m:Member,before:ShapeModel|undefined):Member{
  const sm=m.shapeModel;if(!sm||!before)return m;
  const shift=new Map<string,Vec3>();for(const p of sm.parts){const q=before.parts.find(x=>x.id===p.id);if(!q)continue;const a=partBox(q),b=partBox(p),d:Vec3=[b.x0-a.x0,b.y0-a.y0,b.z0-a.z0];if(d.some(v=>Math.abs(v)>1e-6))shift.set(p.id,d);}
  if(!shift.size)return m;
- return {...m,bars:m.bars.map(b=>{if(isPresetBar(b))return b;const id=barPart(sm,b),d=id&&shift.get(id);if(!d)return b;const k=b.distributionAxis?'XYZ'.indexOf(b.distributionAxis):-1;
+ const same=(a:Vec3|undefined,b:Vec3|undefined)=>[0,1,2].every(k=>Math.abs((a?.[k]||0)-(b?.[k]||0))<1e-6);
+ for(const g of sm.groups||[]){const first=shift.get(g.parts[0]);if(first&&g.parts.every(id=>same(shift.get(id),first)))shift.set(g.id,first);}
+ return {...m,bars:m.bars.map(b=>{if(isPresetBar(b))return b;const id=barOwner(sm,b),d=id&&shift.get(id);if(!d)return b;const k=b.distributionAxis?'XYZ'.indexOf(b.distributionAxis):-1;
   return {...b,points:b.points.map(p=>r3([p[0]+d[0],p[1]+d[1],p[2]+d[2]])),...(k>=0?{distributionStart:Math.max(0,b.distributionStart+d[k]),distributionEnd:Math.max(0,b.distributionEnd+d[k])}:{}),placementConfirmed:false};})};
 }
 

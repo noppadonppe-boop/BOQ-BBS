@@ -102,7 +102,9 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  const det=useMemo(()=>detailingFor(project.spec),[project.spec]);
  // preset bars of every part are rebuilt and bars drawn on a part follow its move
  const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;
-  const shaped=moveOwnedSketchBars({...applyShapeModel(member,draft),cover:Math.max(0,cover),boqCategory},member.shapeModel),{member:done,notes}=applyPartPresets(shaped,project.spec);
+  // a member without bars yet gets Tag no. for every part (existing Marks are only renamed from the rebar tab)
+  const model=!member.bars.length&&!draft.parts.some(p=>p.tag)?withAutoTags(draft,p=>guessPurpose(p,draft)):draft;if(model!==draft)setDraft(model);
+  const shaped=moveOwnedSketchBars({...applyShapeModel(member,model),cover:Math.max(0,cover),boqCategory},member.shapeModel),{member:done,notes}=applyPartPresets(shaped,project.spec);
   if(notes.length)setNote(notes.join(' · '));onApply(done);};
  return <section className="panel padded shape-editor">
   <div className="section-heading"><div><h3>รูปทรงหลายชิ้นส่วน · {member.code}</h3><p className="muted">ประกอบจากชิ้นส่วน (กล่อง · หลายเหลี่ยม · ทรงกระบอก/ผนังกลม · ปล่อง) และช่องเปิด · ชิ้นส่วนซ้อนกันนับครั้งเดียว · แก้ได้ทั้งในแปลนและช่องคุณสมบัติ · มิติ mm</p></div>

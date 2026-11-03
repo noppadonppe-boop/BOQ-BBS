@@ -100,10 +100,12 @@
   parts reinforced as one, drawn bars `sk-<group id>-…`); owner of a bar = `barOwner()` (parts + groups; `barPart()` = parts only).
   Auto tags `withAutoTags()` (F / C / B / S / W / X by purpose, R reference, P pit walls, V voids; G-nn groups); Marks `<tag>/nn`
   via `markFor()`, `tagMarks()` renumbers on tag change (keeps the number after the slash), run by `applyPartPresets`.
+  New members (no bars) are tagged on shape apply; untagged members show a one-click banner in the rebar tab (renames Marks).
+  Group bars move with their parts when every part of the group moved alike (`moveOwnedSketchBars`).
   Rebar tab = part table (Tag, purpose, sets, kg; tick ≥ 2 → group) → full-screen rebar window (`.rebar-window`: views framed on
-  the part / group, tools create bars owned by it via `commitNew`). Drawn bar ends `bar.ends {start,end: ext | null, hook
-  none|std90|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
-  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped); UI `EndsEditor`.
+  the part / group, tools create bars owned by it via `commitNew`; mesh / loop tools stay inside its plan: `within` → `regionWithin()`). Drawn bar ends `bar.ends {start,end: ext | null, hook
+  none|std90|std135|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
+  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; 135° = turned back in, 6d ≥ 75 `hook135Tail`); UI `EndsEditor`.
   Loop tool laps 1 / 2 / 3 points (`loopBars(…, split)` + exported `loopPieces`). BBS per Tag: sheet style `partSheets`
   model | tag + `drawingSetup.partTags` → `tagSheetSets()` (`tagSheets.ts`): one set per tag (own bars, own concrete, other
   solids as context boxes, piles under it), groups rebar only, untagged bars `GEN`, then a summary set (`scope.kind 'summary'`:

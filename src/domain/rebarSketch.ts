@@ -1,7 +1,7 @@
 import polygonClipping from 'polygon-clipping';
 import type {MultiPolygon,Polygon} from 'polygon-clipping';
 import {blankBar,type Bar,type Member,type Vec3} from './model';
-import {inMulti,multiIntervals,shapeGeometry,shapeSectionRects} from './shapeGeometry';
+import {inMulti,multiIntervals,partPolygon,shapeGeometry,shapeSectionRects} from './shapeGeometry';
 
 // Rebar sketching on a 2D view of a shape-model member (Revit-like “Sketch Rebar”).
 // A view is a plane: section X–X (plane Y = at, draws X/Z), section Y–Y (plane X = at, draws Y/Z) or plan
@@ -64,7 +64,9 @@ export function traceCover(rings:P2[][],from:CoverHit,to:CoverHit):P2[]{
 const inRing=(p:P2,r:P2[])=>{let c=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;};
 /** Inside the cover outline (outer rings minus hole rings). */
 export function insideCover(p:P2,rings:P2[][]){let inside=false;for(const r of rings){if(ringArea(r)>0){if(inRing(p,r))inside=true;}else if(inRing(p,r))return false;}return inside;}
-export type HookEnd={kind:'none'|'std90'|'std180'|'custom';leg:number};
+export type HookEnd={kind:'none'|'std90'|'std135'|'std180'|'custom';leg:number};
+/** 135° hook: turned back into the concrete, straight extension 6d ≥ 75 mm (ACI 318 seismic hook) after the bend. */
+export const hook135Tail=(d:number)=>Math.max(6*d,75);
 /** Standard hook data per bar size (from the spec's hook table): A/G of 90° hooks and the 180° extension. */
 export type HookTable={bar:number;a90:number}[];
 /** Adds end hooks: 90° (standard = table A/G, or a user leg) or 180° (standard), turned into the concrete and clipped
@@ -84,6 +86,10 @@ export function addHooks(points:P2[],ends:{start:HookEnd;end:HookEnd},d:number,r
   if(e.kind==='std180'){const h=2*r,tail=Math.max(4*d,65),avail=room(tip,side);
    if(avail+1e-6<h){notes.push(`${label}: ที่ไม่พอสำหรับขอ 180° ใช้ขอ 90° แทน`);return hook(tip,next,{kind:'std90',leg:0},label);}
    const c:P2=[tip[0]+side[0]*h,tip[1]+side[1]*h];return [c,[c[0]-u[0]*(r+tail),c[1]-u[1]*(r+tail)]];}
+  if(e.kind==='std135'){const s2=Math.SQRT1_2,dir:P2=[(side[0]-u[0])*s2,(side[1]-u[1])*s2],want=hook135Tail(d)+r,avail=room(tip,dir),leg=Math.min(want,avail);
+   if(leg<want-.5)notes.push(`${label}: ขอ 135° ยาว ${Math.round(want)} ถูกจำกัดเป็น ${Math.round(leg)} mm ตามแนว cover`);
+   if(leg<=r*1.5){notes.push(`${label}: ที่ไม่พอสำหรับขอ 135° ใช้ขอ 90° แทน`);return hook(tip,next,{kind:'std90',leg:0},label);}
+   return [[tip[0]+dir[0]*leg,tip[1]+dir[1]*leg]];}
   const want=e.kind==='custom'?e.leg:row?row.a90-d/2:12*d+r,avail=room(tip,side),leg=Math.min(want,avail);
   if(leg<want-.5)notes.push(`${label}: ขอยาว ${Math.round(want)} ถูกจำกัดเป็น ${Math.round(leg)} mm ตามแนว cover`);
   if(leg<=r*1.5){notes.push(`${label}: ที่ไม่พอสำหรับขอ ใช้ปลายตรง`);return [];}
@@ -114,6 +120,7 @@ export function withEnds(points:P2[],prev:SketchEndSet|undefined,next:SketchEndS
  // hook on a tip past the concrete: not clipped, turned toward the concrete centre
  const free=(tip:P2,nb:P2,e:{hook:string;leg:number}):P2[]=>{const dx=tip[0]-nb[0],dy=tip[1]-nb[1],l=Math.hypot(dx,dy)||1,u:P2=[dx/l,dy/l],n0:P2=[-u[1],u[0]],side:P2=(centre[0]-tip[0])*n0[0]+(centre[1]-tip[1])*n0[1]>=0?n0:[u[1],-u[0]];
   if(e.hook==='std180'){const h=2*r,tail=Math.max(4*d,65),q:P2=[tip[0]+side[0]*h,tip[1]+side[1]*h];return [q,[q[0]-u[0]*(r+tail),q[1]-u[1]*(r+tail)]];}
+  if(e.hook==='std135'){const s2=Math.SQRT1_2,L=hook135Tail(d)+r;return [[tip[0]+(side[0]-u[0])*s2*L,tip[1]+(side[1]-u[1])*s2*L]];}
   const leg=e.hook==='custom'?e.leg:row?row.a90-d/2:12*d+r;return leg>r*1.5?[[tip[0]+side[0]*leg,tip[1]+side[1]*leg]]:[];};
  const inside=(p:P2)=>insideCover(p,rings)||onCover(p,rings);
  const end=(k:'start'|'end'):P2[]=>{const e=next[k];if(e.hook==='none')return [];const tip=k==='start'?c[0]:c.at(-1)!,nb=k==='start'?c[1]:c.at(-2)!;
@@ -196,8 +203,15 @@ function bandIntervals(region:Parameters<typeof multiIntervals>[0],along:0|1,at:
   for(const [a,b] of cur)for(const [c,d] of next){const lo=Math.max(a,c),hi=Math.min(b,d);if(hi>lo)out.push([lo,hi]);}cur=out;}
  return cur;
 }
-export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spacing:number;cover:number;dirs:('X'|'Y')[];leg:number;note:string}):Bar[]{
- const sm=m.shapeModel;if(!sm)return [];const s=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!s)return [];
+/** Plan region at z limited to some parts (the part / group in focus): slab region ∩ the parts' plans (solids spanning z). */
+export function regionWithin(m:Member,z:number,ids:string[]):MultiPolygon{
+ const sm=m.shapeModel;if(!sm)return [];const s=shapeGeometry(sm).slabs.find(s=>z>=s.z0-1e-6&&z<=s.z1+1e-6);if(!s)return [];
+ const polys=sm.parts.filter(p=>ids.includes(p.id)&&p.role==='solid'&&z>=p.z0-1e-6&&z<=p.z0+p.height+1e-6).map(p=>partPolygon(p) as Polygon);
+ return polys.length?polygonClipping.intersection(s.region,polygonClipping.union(polys[0],...polys.slice(1))):[];
+}
+export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spacing:number;cover:number;dirs:('X'|'Y')[];leg:number;note:string;within?:string[]}):Bar[]{
+ const sm=m.shapeModel;if(!sm)return [];const slab=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!slab)return [];
+ const s={region:o.within?.length?regionWithin(m,o.z,o.within):slab.region};if(!s.region.length)return [];
  const out:Bar[]=[],c=o.cover+o.diameter/2;let work=m;const mark=()=>{const k=nextMark(work);work={...work,bars:[...work.bars,{...blankBar(k)}]};return k;};
  for(const dir of o.dirs){
   const along=(dir==='X'?0:1) as 0|1,across=1-along,vals=s.region.flatMap(p=>(p[0] as P2[]).map(q=>q[across])),lo=Math.min(...vals)+c,hi=Math.max(...vals)-c;if(!(hi>lo))continue;
@@ -220,8 +234,9 @@ export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spaci
  return out;
 }
 /** Horizontal closed loops just inside the outer edge of the plan region at `z`, stacked from z to zTop at ≤ spacing; lap overlap on the first side. */
-export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:string;spacing:number;cover:number;lap:number;mark:string;note:string;split?:(ring:P2[])=>P2[][]}):Bar[]{
- const sm=m.shapeModel;if(!sm)return [];const s=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!s||!s.region.length)return [];
+export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:string;spacing:number;cover:number;lap:number;mark:string;note:string;split?:(ring:P2[])=>P2[][];within?:string[]}):Bar[]{
+ const sm=m.shapeModel;if(!sm)return [];const slab=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!slab)return [];
+ const s={region:o.within?.length?regionWithin(m,o.z,o.within):slab.region};if(!s.region.length)return [];
  const outer=open(s.region.reduce((a,b)=>Math.abs(area(a[0] as P2[]))>=Math.abs(area(b[0] as P2[]))?a:b)[0] as P2[]),off=o.cover+o.diameter/2;
  const segs=outer.map((a,i)=>{const b=outer[(i+1)%outer.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy);return {a:[a[0]-dy/l*off,a[1]+dx/l*off] as P2,b:[b[0]-dy/l*off,b[1]+dx/l*off] as P2};});
  const ring=segs.map((sg,i)=>lineHit(segs[(i+segs.length-1)%segs.length],sg)||sg.a);

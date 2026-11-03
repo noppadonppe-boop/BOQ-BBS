@@ -10,7 +10,7 @@ import {partPurposeLabels,partPurposes,type PartPurpose,type PartRebar,type Shap
 import {addHooks,boxFaces,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
  type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
 import {applyPartPresets,defaultPartRebar,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
-import {barOwner,markFor,modelTags,newGroupId,nextTag,ownerParts,tagMarks} from '../domain/partTags';
+import {barOwner,markFor,modelTags,newGroupId,nextTag,ownerParts,tagMarks,withAutoTags} from '../domain/partTags';
 import {Field,number} from './EditorControls';
 import {ModelView} from './Geometry';
 import {DIAS,HookFields,LayoutFields,LoopTool,MeshTool,NotesTool,viewOfBar,type Tool} from './RebarSketch';
@@ -106,6 +106,9 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
   {view3d&&<Suspense fallback={<div className="e3d-shade"><div className="notice">กำลังเปิดมุมมอง 3D…</div></div>}><Custom3DModal member={m} spec={spec} readOnly={readOnly} onChange={onChange} onClose={()=>setView3d(false)}/></Suspense>}
   <div className="section-heading"><div><h3>ใส่เหล็ก · ชิ้นส่วน (Tag no.)</h3><p className="muted">คลิก “ใส่เหล็ก” ของชิ้นส่วนเพื่อเปิดหน้าต่างใส่เหล็ก (แปลน Z · รูปตัด X–X · Y–Y · 3D เฉพาะชิ้นนั้น) · ติ๊กหลายชิ้นแล้ว “ใส่เหล็กเป็นกลุ่ม” เพื่อวางเหล็กก้อนเดียวต่อเนื่องข้ามชิ้นส่วน · Mark ของเหล็กขึ้นต้นด้วย Tag (เช่น F-01/01)</p></div>
    <div className="actions"><button className="view3d-button" onClick={()=>setView3d(true)} title="มุมมอง 3D แบบเต็ม · คลิกขวาเพื่อแก้ไขชิ้นส่วนและเหล็กเสริม"><Box size={15}/>3D Modal</button></div></div>
+  {!readOnly&&!sm.parts.some(p=>p.tag)&&<div className="notice tag-notice"><span>ชิ้นส่วนยังไม่มี Tag no. · ตั้ง Tag ตามหน้าที่ (F-01, C-01, W-01 …) เพื่อแยกแบบ BBS ตามชิ้นส่วน · Mark ของเหล็กจะเปลี่ยนเป็น Tag/เลข (เช่น F-01/01)</span>
+   <button type="button" className="primary" onClick={()=>{const n=m.bars.filter(b=>barOwner(sm,b)).length;if(n&&!confirm(`ตั้ง Tag no. ให้ทุกชิ้น และเปลี่ยน Mark ของเหล็ก ${n} ชุดที่เป็นของชิ้นส่วนเป็น Tag/เลข?
+แบบ BBS ที่ส่งออกไปแล้วจะไม่ตรงกับ Mark ใหม่`))return;onChange(tagMarks({...m,shapeModel:withAutoTags(sm,p=>guessPurpose(p,sm))}));}}>ตั้ง Tag no. อัตโนมัติ</button></div>}
   <table className="part-table"><thead><tr><th/><th>Tag no.</th><th>ชิ้นส่วน / กลุ่ม</th><th>หน้าที่</th><th className="num">ชุดเหล็ก</th><th className="num">kg</th><th/></tr></thead><tbody>
    {sm.parts.map(p=>{const n=m.bars.filter(b=>owned(b)===p.id).length;return <tr key={p.id} className={`${p.role}${picks.includes(p.id)?' picked':''}`}>
     <td><input type="checkbox" aria-label={`เลือก ${p.label}`} checked={picks.includes(p.id)} onChange={e=>setPicks(x=>e.target.checked?[...x,p.id]:x.filter(y=>y!==p.id))}/></td>
@@ -159,9 +162,9 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
     <HookFields label="ปลายต้น" value={hooks.start} d={dia} table={hookTable} onChange={v=>setHooks(h=>({...h,start:v}))}/>
     <HookFields label="ปลายท้าย" value={hooks.end} d={dia} table={hookTable} onChange={v=>setHooks(h=>({...h,end:v}))}/>
     {tool==='draw'&&<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตั้งฉาก{viewTitles[active]}{focusTag?` · ใน ${focusTag}`:''}</h4><LayoutFields layout={layout} onChange={setLayout}/></>}
-    {tool==='mesh'&&<MeshTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} readOnly={readOnly} onCreate={commitNew}/>}
+    {tool==='mesh'&&<MeshTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} within={focusParts.map(p=>p.id)} readOnly={readOnly} onCreate={commitNew}/>}
     {tool==='notes'&&<NotesTool m={m} readOnly={readOnly} gradeOf={gradeOf} onNotes={rebarNotes=>onChange({...m,shapeModel:{...sm,...(rebarNotes.length?{rebarNotes}:{rebarNotes:undefined})}})} onCreate={commitNew}/>}
-    {tool==='loop'&&<LoopTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} det={det} readOnly={readOnly} onCreate={commitNew}/>}
+    {tool==='loop'&&<LoopTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} det={det} within={focusParts.map(p=>p.id)} readOnly={readOnly} onCreate={commitNew}/>}
    </aside>
    <div className="sketch-views">
     <SketchCanvas kind="plan" ctx={ctx}/>
@@ -194,7 +197,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  </section>;
 }
 
-const hookNames:Record<SketchEndSet['start']['hook'],string>={none:'ปลายตรง',std90:'ขอมาตรฐาน 90°',std180:'ขอมาตรฐาน 180°',custom:'ฉาก 90° กำหนดความยาว'};
+const hookNames:Record<SketchEndSet['start']['hook'],string>={none:'ปลายตรง',std90:'ขอมาตรฐาน 90°',std135:'ขอมาตรฐาน 135° (6d ≥ 75)',std180:'ขอมาตรฐาน 180°',custom:'ฉาก 90° กำหนดความยาว'};
 /** Both ends of a drawn bar: distance past (+) / short of (−) the part face along the end run (blank = as drawn), and
  * the end hook (standard 90° / 180° from the spec hook table, or a custom leg). Faces = the part in focus, else the concrete. */
 function EndsEditor({bar,view,m,cover,focusBox,det,table,readOnly,onApply}:{bar:Bar;view:SketchView;m:Member;cover:number;focusBox?:Box3;det:ReturnType<typeof detailingFor>;table:HookTable;readOnly:boolean;onApply:(points:P2[],ends:SketchEndSet,notes:string[])=>void}){

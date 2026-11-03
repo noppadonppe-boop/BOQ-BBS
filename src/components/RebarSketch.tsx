@@ -59,7 +59,7 @@ export function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOn
 export function HookFields({label,value,d,table,onChange}:{label:string;value:HookEnd;d:number;table:HookTable;onChange:(v:HookEnd)=>void}){
  const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],std=row?row.a90:12*d;
  return <div className="form-grid sketch-hook"><label className="field"><span>{label}</span><select value={value.kind} onChange={e=>onChange({...value,kind:e.target.value as HookEnd['kind'],leg:value.leg||std})}>
-  <option value="none">ไม่มีขอ (ปลายตรง)</option><option value="std90">ขอมาตรฐาน 90° (A/G {fmt(std)})</option><option value="std180">ขอมาตรฐาน 180°</option><option value="custom">ฉาก 90° กำหนดความยาวเอง</option></select></label>
+  <option value="none">ไม่มีขอ (ปลายตรง)</option><option value="std90">ขอมาตรฐาน 90° (A/G {fmt(std)})</option><option value="std135">ขอมาตรฐาน 135° (6d ≥ 75)</option><option value="std180">ขอมาตรฐาน 180°</option><option value="custom">ฉาก 90° กำหนดความยาวเอง</option></select></label>
   {value.kind==='custom'?<Field label="ความยาวฉาก (mm)" type="number" value={value.leg} onChange={v=>onChange({...value,leg:Math.max(0,Number(v)||0)})}/>:<span/>}</div>;
 }
 export function LayoutFields({layout:l,onChange,disabled=false}:{layout:LayoutRule;onChange:(l:LayoutRule)=>void;disabled?:boolean}){
@@ -72,22 +72,22 @@ export function LayoutFields({layout:l,onChange,disabled=false}:{layout:LayoutRu
   {l.rule!=='single'&&(()=>{const n=layoutOf(l),gap=n.count>1?(n.to-n.from)/(n.count-1):0;return <p className="layout-count"><b>= {n.count} เส้น</b>{n.count>1?` · @ จริง ${fmt(gap)} mm · ช่วง ${fmt(n.to-n.from)} mm`:''}</p>;})()}
  </div>;
 }
-export function MeshTool({m,z,dia,cover,grade,readOnly,onCreate}:{m:Member;z:number;dia:number;cover:number;grade:string;readOnly:boolean;onCreate:(b:Bar[])=>void}){
+export function MeshTool({m,z,dia,cover,grade,within,readOnly,onCreate}:{m:Member;z:number;dia:number;cover:number;grade:string;within?:string[];readOnly:boolean;onCreate:(b:Bar[])=>void}){
  const [o,setO]=useState({spacing:200,x:true,y:true,leg:0});
- return <div className="sketch-sub"><h4>ตะแกรงตามแปลน (Area)</h4><p className="muted">วางเหล็กตรงทั้งพื้นที่คอนกรีตที่ระดับ Z = {fmt(z)} (ระยะ cover ทุกขอบ · แบ่ง Mark ตามความยาว)</p>
+ return <div className="sketch-sub"><h4>ตะแกรงตามแปลน (Area)</h4><p className="muted">วางเหล็กตรง{within?.length?'เฉพาะในแปลนของชิ้นที่เลือก':'ทั้งพื้นที่คอนกรีต'}ที่ระดับ Z = {fmt(z)} (ระยะ cover ทุกขอบ · แบ่ง Mark ตามความยาว)</p>
   <div className="form-grid"><Field label="ระยะ @ (mm)" type="number" value={o.spacing} onChange={v=>setO({...o,spacing:Math.max(50,Number(v)||50)})}/><Field label="ขางอปลาย (+ขึ้น / −ลง, 0 = ตรง)" type="number" value={o.leg} onChange={v=>setO({...o,leg:Number(v)||0})}/>
    <label className="check"><input type="checkbox" checked={o.x} onChange={e=>setO({...o,x:e.target.checked})}/>ทิศ X</label><label className="check"><input type="checkbox" checked={o.y} onChange={e=>setO({...o,y:e.target.checked})}/>ทิศ Y</label></div>
-  <button type="button" className="primary" disabled={readOnly||(!o.x&&!o.y)} onClick={()=>onCreate(meshBars(m,{z,diameter:dia,grade,spacing:o.spacing,cover,dirs:[...(o.x?['X' as const]:[]),...(o.y?['Y' as const]:[])],leg:o.leg,note:`ตะแกรง Z ${fmt(z)}`}))}>สร้างตะแกรง</button>
+  <button type="button" className="primary" disabled={readOnly||(!o.x&&!o.y)} onClick={()=>onCreate(meshBars(m,{z,diameter:dia,grade,spacing:o.spacing,cover,dirs:[...(o.x?['X' as const]:[]),...(o.y?['Y' as const]:[])],leg:o.leg,note:`ตะแกรง Z ${fmt(z)}`,within}))}>สร้างตะแกรง</button>
   <p className="muted">ตั้ง Z ให้เป็นศูนย์กลางเหล็ก เช่น ตะแกรงล่าง = cover + d/2 · ชั้นที่ 2 บวกขนาดเหล็กชั้นแรก</p></div>;
 }
 /** Horizontal loops / hoops round the plan at Z: closed with one lap (1 จุด), or lapped pieces at 2 / 3 points (`loopPieces`,
  * the footing loop rule: laps inside one side, clear of the bends, no piece over the stock length). */
-export function LoopTool({m,z,dia,cover,grade,det,readOnly,onCreate}:{m:Member;z:number;dia:number;cover:number;grade:string;det:Detailing;readOnly:boolean;onCreate:(b:Bar[])=>void}){
+export function LoopTool({m,z,dia,cover,grade,det,within,readOnly,onCreate}:{m:Member;z:number;dia:number;cover:number;grade:string;det:Detailing;within?:string[];readOnly:boolean;onCreate:(b:Bar[])=>void}){
  const [o,setO]=useState({zTop:Math.round(m.z-cover-dia),spacing:200,lap:Math.round(40*dia),pattern:'1' as '1'|'2'|'3'});
  const split=o.pattern==='1'?undefined:(ring:P2[])=>loopPieces(ring,{pattern:o.pattern,length:'custom',value:o.lap,at:[]},det,dia).pieces.map(p=>p.pts as P2[]);
- return <div className="sketch-sub"><h4>ลูปรอบผิวข้าง (LOOPS)</h4><p className="muted">ปลอกแนวนอนรอบขอบนอกของแปลนที่ระดับ Z = {fmt(z)} เรียงขึ้นถึง Z บน</p>
+ return <div className="sketch-sub"><h4>ลูปรอบผิวข้าง (LOOPS)</h4><p className="muted">ปลอกแนวนอนรอบขอบนอกของแปลน{within?.length?'ของชิ้นที่เลือก':''}ที่ระดับ Z = {fmt(z)} เรียงขึ้นถึง Z บน</p>
   <div className="form-grid"><Field label="Z บนสุด (mm)" type="number" value={o.zTop} onChange={v=>setO({...o,zTop:Number(v)||0})}/><Field label="ระยะ @ (mm)" type="number" value={o.spacing} onChange={v=>setO({...o,spacing:Math.max(50,Number(v)||50)})}/><Field label="ระยะทาบ (mm)" type="number" value={o.lap} onChange={v=>setO({...o,lap:Math.max(0,Number(v)||0)})}/></div>
   <div className="segmented loop-laps" role="group" aria-label="จุดต่อทาบ">{(['1','2','3'] as const).map(p=><button key={p} type="button" className={o.pattern===p?'active':''} onClick={()=>setO({...o,pattern:p})}>ต่อ {p} จุด</button>)}</div>
   <p className="muted">{o.pattern==='1'?'ปลอกปิดรอบ ทาบ 1 จุด (Hoop)':`แบ่ง ${o.pattern==='2'?'2':'ทุกด้าน (3+)'} ท่อน ทาบกลางด้าน ห่างมุมดัด · ท่อนยาวเกินเหล็กสต็อกจะเพิ่มจุดทาบเอง`}</p>
-  <button type="button" className="primary" disabled={readOnly} onClick={()=>onCreate(loopBars(m,{z,zTop:o.zTop,diameter:dia,grade,spacing:o.spacing,cover,lap:o.lap,mark:nextMark(m),note:'ลูปรอบผิว',split}))}>สร้างลูป</button></div>;
+  <button type="button" className="primary" disabled={readOnly} onClick={()=>onCreate(loopBars(m,{z,zTop:o.zTop,diameter:dia,grade,spacing:o.spacing,cover,lap:o.lap,mark:nextMark(m),note:'ลูปรอบผิว',split,within}))}>สร้างลูป</button></div>;
 }
