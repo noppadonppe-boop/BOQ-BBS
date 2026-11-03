@@ -63,14 +63,24 @@ export function HookFields({label,value,d,table,onChange}:{label:string;value:Ho
   {value.kind==='none'?<span/>:<label className="field"><span>{value.kind==='custom'?'ความยาวฉาก (mm)':'ความยาวขอ (ว่าง = มาตรฐาน)'}</span><input type="number" min={0} value={value.leg||''} placeholder={fmt(stdHookLength(value.kind,d,table))} onChange={e=>onChange({...value,leg:Math.max(0,Number(e.target.value)||0)})}/></label>}
   {value.kind!=='none'&&<label className="check"><input type="checkbox" checked={!!value.flip} onChange={e=>onChange({...value,flip:e.target.checked||undefined})}/>กลับทิศขอ</label>}</div>;
 }
-export function LayoutFields({layout:l,onChange,disabled=false}:{layout:LayoutRule;onChange:(l:LayoutRule)=>void;disabled?:boolean}){
+/** Group (at most @ spacing → count from the range / fixed count) or a single bar along the distribution axis. Switching a
+ * single bar to a group restores `range` (part / member extent) when its range has collapsed; switching between the two
+ * group rules keeps the bar count. */
+export function LayoutFields({layout:l,onChange,disabled=false,range}:{layout:LayoutRule;onChange:(l:LayoutRule)=>void;disabled?:boolean;range?:[number,number]}){
+ const n=layoutOf(l),gap=n.count>1?(n.to-n.from)/(n.count-1):0;
+ const setRule=(rule:LayoutRule['rule'])=>{let next:LayoutRule={...l,rule};
+  if(rule!=='single'&&Math.abs(l.to-l.from)<1&&range&&range[1]-range[0]>=1)next={...next,from:range[0],to:range[1]};
+  if(rule==='count')next.count=l.rule==='single'?Math.max(2,layoutOf({...next,rule:'spacing'}).count):n.count;
+  if(rule==='spacing'&&l.rule==='count'&&n.count>1)next.spacing=Math.max(1,Math.ceil(gap-1e-6));
+  onChange(next);};
  return <div className="form-grid">
-  <label className="field"><span>กฎการกระจาย</span><select disabled={disabled} value={l.rule} onChange={e=>onChange({...l,rule:e.target.value as LayoutRule['rule']})}><option value="spacing">กลุ่ม · ระยะ @ สูงสุด</option><option value="count">กลุ่ม · จำนวนเส้น</option><option value="single">เส้นเดี่ยว</option></select></label>
-  {l.rule==='spacing'&&<Field label="ระยะ @ (mm)" type="number" disabled={disabled} value={l.spacing} onChange={v=>onChange({...l,spacing:Math.max(10,Number(v)||10)})}/>}
+  <label className="field"><span>กฎการกระจาย</span><select disabled={disabled} value={l.rule} onChange={e=>setRule(e.target.value as LayoutRule['rule'])}><option value="spacing">กลุ่ม · ระยะ @ ไม่เกิน</option><option value="count">กลุ่ม · จำนวนเส้น</option><option value="single">เส้นเดี่ยว</option></select></label>
+  {l.rule==='spacing'&&<Field label="ระยะ @ ไม่เกิน (mm)" type="number" disabled={disabled} value={l.spacing} onChange={v=>onChange({...l,spacing:Math.max(25,Number(v)||25)})}/>}
   {l.rule==='count'&&<Field label="จำนวน (เส้น)" type="number" disabled={disabled} value={l.count} onChange={v=>onChange({...l,count:Math.max(1,Math.min(2000,Math.trunc(Number(v)||1)))})}/>}
+  {l.rule==='single'&&<span/>}
   <Field label="เริ่ม (mm)" type="number" disabled={disabled} value={Number(l.from.toFixed(1))} onChange={v=>onChange({...l,from:Number(v)||0})}/>
   {l.rule!=='single'&&<Field label="สิ้นสุด (mm)" type="number" disabled={disabled} value={Number(l.to.toFixed(1))} onChange={v=>onChange({...l,to:Number(v)||0})}/>}
-  {l.rule!=='single'&&(()=>{const n=layoutOf(l),gap=n.count>1?(n.to-n.from)/(n.count-1):0;return <p className="layout-count"><b>= {n.count} เส้น</b>{n.count>1?` · @ จริง ${fmt(gap)} mm · ช่วง ${fmt(n.to-n.from)} mm`:''}</p>;})()}
+  {l.rule!=='single'&&<p className="layout-count"><b>= {n.count} เส้น</b>{n.count>1?` · @ จริง ${fmt(gap)} mm${l.rule==='spacing'?` (ไม่เกิน ${fmt(l.spacing)})`:''} · ช่วง ${fmt(n.to-n.from)} mm`:' · ช่วงยาว 0 = 1 เส้น'}</p>}
  </div>;
 }
 export function MeshTool({m,z,dia,cover,grade,within,readOnly,onCreate}:{m:Member;z:number;dia:number;cover:number;grade:string;within?:string[];readOnly:boolean;onCreate:(b:Bar[])=>void}){

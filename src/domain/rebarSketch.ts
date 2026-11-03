@@ -176,11 +176,19 @@ export const polyLength=(pts:P2[])=>pts.slice(1).reduce((n,p,i)=>n+Math.hypot(p[
 
 export type LayoutRule={rule:'spacing'|'count'|'single';spacing:number;count:number;from:number;to:number};
 /** Number of bars and their range along the distribution axis (spacing = maximum spacing, like Revit). */
+/** Layout rule of a bar: the stored rule (`layoutRule`) over its range, else from its count — groups read as
+ * 'at most the actual spacing' (whole mm, so the count stays the same). */
+export function barLayout(b:Pick<Bar,'count'|'distributionStart'|'distributionEnd'|'layoutRule'>):LayoutRule{
+ const from=b.distributionStart,to=b.distributionEnd,n=Math.max(1,b.count);
+ if(b.layoutRule)return {rule:b.layoutRule.rule,spacing:b.layoutRule.spacing,count:n,from,to};
+ if(n===1)return {rule:'single',spacing:200,count:1,from,to:from};
+ return {rule:'spacing',spacing:Math.max(1,Math.ceil((to-from)/(n-1)-1e-6)),count:n,from,to};
+}
 export function layoutOf(l:LayoutRule){
  if(l.rule==='single')return {count:1,from:l.from,to:l.from};
  const len=Math.max(0,l.to-l.from);
- if(l.rule==='count'){const n=Math.max(1,Math.trunc(l.count));return {count:n,from:l.from,to:n===1?l.from:l.to};}
- const n=len<1e-6?1:Math.ceil(len/Math.max(1,l.spacing)-1e-9)+1;return {count:n,from:l.from,to:n===1?l.from:l.to};
+ if(l.rule==='count'){const n=Math.max(1,Math.min(2000,Math.trunc(l.count)));return {count:n,from:l.from,to:n===1?l.from:l.to};}
+ const n=len<1e-6?1:Math.min(2000,Math.ceil(len/Math.max(1,l.spacing)-1e-9)+1);return {count:n,from:l.from,to:n===1?l.from:l.to};
 }
 /** Default distribution range: concrete extent along the view normal, minus cover + d/2 at both ends. */
 export function defaultRange(m:Member,view:SketchView,cover:number,d:number):[number,number]{
@@ -198,7 +206,7 @@ export function sketchBar(o:{mark:string;view:SketchView;points:P2[];diameter:nu
  const d=[0,1,2].map(k=>Math.abs(pts[longest+1][k]-pts[longest][k])),axis=axisName[d.indexOf(Math.max(...d))];
  const radius=o.points.length>2?sketchRadius(o.diameter):0;
  return {...blankBar(o.mark),id:o.id||`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:l.count,shape:'polyline',shapeCode:code,axis,face:'side',radius:Number(radius.toFixed(3)),
-  points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as Vec3),distributionAxis:axisName[a.n],distributionStart:l.from,distributionEnd:l.to,
+  points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as Vec3),distributionAxis:axisName[a.n],distributionStart:l.from,distributionEnd:l.to,layoutRule:{rule:o.layout.rule,spacing:Math.max(1,o.layout.spacing||200)},
   ...(['00','11','21'].includes(code)?{lengthMethod:'bs8666' as const}:{}),note:(o.note||`วาดบน${o.view.kind==='plan'?`แปลน Z ${Math.round(o.view.at)}`:`รูปตัด ${o.view.kind==='sx'?'X–X':'Y–Y'} @${Math.round(o.view.at)}`} · ${o.layout.rule==='spacing'?`@${o.layout.spacing}`:o.layout.rule==='count'?`${l.count} เส้น`:'เดี่ยว'}`).slice(0,500)};
 }
 
@@ -236,7 +244,7 @@ export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spaci
    const uniform=list.every((sg,k)=>Math.abs(sg.a-f.a)<.5&&(k<2||Math.abs(sg.at-list[k-1].at-(list[1].at-list[0].at))<.5));
    out.push({...blankBar(mark()),id:`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:list.length,shape:'polyline',shapeCode:o.leg?'21':'00',axis:dir,face:o.leg>0?'bottom':o.leg<0?'top':'side',
     radius:o.leg?Number(sketchRadius(o.diameter).toFixed(3)):0,points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as Vec3),lengthMethod:'bs8666',
-    ...(uniform?{distributionAxis:(dir==='X'?'Y':'X') as Bar['axis'],distributionStart:f.at,distributionEnd:list.at(-1)!.at}:{offsets}),note:`${o.note} · ทิศ ${dir} @${o.spacing} · ช่วง ${len} mm`.slice(0,500)});
+    ...(uniform?{distributionAxis:(dir==='X'?'Y':'X') as Bar['axis'],distributionStart:f.at,distributionEnd:list.at(-1)!.at,layoutRule:{rule:'spacing' as const,spacing:o.spacing}}:{offsets}),note:`${o.note} · ทิศ ${dir} @${o.spacing} · ช่วง ${len} mm`.slice(0,500)});
   }
  }
  return out;
@@ -256,9 +264,9 @@ export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:
  // lapped pieces (2 / 3 laps): one bar per piece, Marks are given by the caller
  if(o.split){const pieces=o.split(ring);return pieces.map((pp,k)=>{const pts=pp.map(p=>[Number(p[0].toFixed(3)),Number(p[1].toFixed(3)),o.z] as Vec3);
   return {...blankBar(o.mark),id:`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:lay.count,shape:'polyline' as const,shapeCode:detectShapeCode(pp),axis:'X' as const,face:'side' as const,radius:Number(sketchRadius(o.diameter).toFixed(3)),
-   points:pts,distributionAxis:'Z' as const,distributionStart:lay.from,distributionEnd:lay.to,note:`${o.note} ท่อน ${k+1}/${pieces.length} · ${lay.count} ชั้น @ ≤ ${o.spacing} · ทาบ ${o.lap} mm${clipped?` · จำกัดถึง Z ${Math.round(zTop)}`:''}`.slice(0,500)};});}
+   points:pts,distributionAxis:'Z' as const,distributionStart:lay.from,distributionEnd:lay.to,layoutRule:{rule:'spacing' as const,spacing:o.spacing},note:`${o.note} ท่อน ${k+1}/${pieces.length} · ${lay.count} ชั้น @ ≤ ${o.spacing} · ทาบ ${o.lap} mm${clipped?` · จำกัดถึง Z ${Math.round(zTop)}`:''}`.slice(0,500)};});}
  return [{...blankBar(o.mark),id:`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:lay.count,shape:'polyline',shapeCode:'99',axis:'X',face:'side',radius:Number(sketchRadius(o.diameter).toFixed(3)),
-  points:pts,distributionAxis:'Z',distributionStart:lay.from,distributionEnd:lay.to,note:`${o.note} · ${lay.count} ชั้น @ ≤ ${o.spacing} · ทาบ ${o.lap} mm${clipped?` · จำกัดถึง Z ${Math.round(zTop)} (เหนือนั้นแปลนเปลี่ยน)`:''}`.slice(0,500)}];
+  points:pts,distributionAxis:'Z',distributionStart:lay.from,distributionEnd:lay.to,layoutRule:{rule:'spacing',spacing:o.spacing},note:`${o.note} · ${lay.count} ชั้น @ ≤ ${o.spacing} · ทาบ ${o.lap} mm${clipped?` · จำกัดถึง Z ${Math.round(zTop)} (เหนือนั้นแปลนเปลี่ยน)`:''}`.slice(0,500)}];
 }
 /** Vertical face bars round the outer edge of the plan region at z0 (cover + d/2 inside), from z0 to z1 at ≤ spacing
  * along every side; optional inward legs at both ends. One Mark: template copied by offsets and turned per side. */

@@ -111,6 +111,9 @@
   none|std90|std135|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
   its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; 135° = turned back in, 6d ≥ 75 `hook135Tail`; `leg` > 0 = own hook length from the tip for 90 / 135 / 180,
   standard = `stdHookLength()`; `flip` = turn to the other side); UI `EndsEditor` (+ “A ต้น / ท้าย” markers in views and `BarShapeSvg`).
+  Layout rule per bar `bar.layoutRule {rule spacing|count|single, spacing}` (set by `sketchBar`, mesh / loop tools); read with
+  `barLayout()` (bars without it: spacing = actual rounded up, same count) in the panel, range drags and `BarEditModal`;
+  `LayoutFields` keeps the count when switching group rules and restores `range` when a single bar becomes a group; ≤ 2,000 bars.
   Loop tool laps 1 / 2 / 3 points (`loopBars(…, split)` + exported `loopPieces`). BBS per Tag: sheet style `partSheets`
   model | tag + `drawingSetup.partTags` → `tagSheetSets()` (`tagSheets.ts`): one set per tag (own bars, own concrete, other
   solids as context boxes, piles under it), groups rebar only, untagged bars `GEN`, then a summary set (`scope.kind 'summary'`:

@@ -7,7 +7,7 @@ import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
 import {hookDevLength,lapLength} from '../domain/elementInput';
 import {partPurposeLabels,partPurposes,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
-import {addHooks,boxFaces,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
+import {addHooks,barLayout,boxFaces,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
  type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
 import {BarEditModal} from './BarEditModal';
 import {applyPartPresets,defaultPartRebar,detachPreset,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
@@ -77,7 +77,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
   const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,...(hooks.start.flip?{flip:true}:{}),n:Math.max(0,i0)},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,...(hooks.end.flip?{flip:true}:{}),n:Math.max(0,h.points.length-Math.max(0,i0)-points.length)}};
   const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});setNotes(h.notes);commitBars([...m.bars,{...bar,ends}],bar.id);reset();setTool('select');};
  const updateSel=(patch:{points?:P2[];diameter?:number;layout?:LayoutRule;grade?:string;mark?:string;ends?:SketchEndSet},final=true)=>{if(!selBar||!selView)return;
-  const old=selBar.points.map(p=>toView(selView,p as [number,number,number]));const l=patch.layout||{rule:selBar.count===1?'single':'count',spacing:layout.spacing,count:selBar.count,from:selBar.distributionStart,to:selBar.distributionEnd} as LayoutRule;
+  const old=selBar.points.map(p=>toView(selView,p as [number,number,number]));const l=patch.layout||barLayout(selBar);
   const next=sketchBar({id:selBar.id,mark:patch.mark||selBar.mark,view:selView,points:patch.points||old,diameter:patch.diameter||selBar.diameter,grade:patch.grade||selBar.grade,layout:l,note:selBar.note});
   const ends=patch.ends||selBar.ends;
   commitBars(m.bars.map(b=>b.id===selBar.id?{...next,...(ends?{ends}:{}),placementConfirmed:false}:b),undefined,final);};
@@ -163,7 +163,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
     <h4>ขอที่ปลายเหล็ก (เส้นใหม่)</h4>
     <HookFields label="ปลายต้น" value={hooks.start} d={dia} table={hookTable} onChange={v=>setHooks(h=>({...h,start:v}))}/>
     <HookFields label="ปลายท้าย" value={hooks.end} d={dia} table={hookTable} onChange={v=>setHooks(h=>({...h,end:v}))}/>
-    {tool==='draw'&&<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตั้งฉาก{viewTitles[active]}{focusTag?` · ใน ${focusTag}`:''}</h4><LayoutFields layout={layout} onChange={setLayout}/></>}
+    {tool==='draw'&&<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตั้งฉาก{viewTitles[active]}{focusTag?` · ใน ${focusTag}`:''}</h4><LayoutFields layout={layout} range={rangeFor(active)} onChange={setLayout}/></>}
     {tool==='mesh'&&<MeshTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} within={focusParts.map(p=>p.id)} readOnly={readOnly} onCreate={commitNew}/>}
     {tool==='notes'&&<NotesTool m={m} readOnly={readOnly} gradeOf={gradeOf} onNotes={rebarNotes=>onChange({...m,shapeModel:{...sm,...(rebarNotes.length?{rebarNotes}:{rebarNotes:undefined})}})} onCreate={commitNew}/>}
     {tool==='loop'&&<LoopTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} det={det} within={focusParts.map(p=>p.id)} readOnly={readOnly} onCreate={commitNew}/>}
@@ -183,7 +183,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
      {isSketchBar(selBar)&&selView?<>
       <div className="form-grid"><Field label="Mark" value={selBar.mark} disabled={readOnly} onChange={v=>updateSel({mark:String(v).slice(0,32)||selBar.mark})}/>
        <label className="field"><span>ขนาด</span><select disabled={readOnly} value={selBar.diameter} onChange={e=>{const d=Number(e.target.value);updateSel({diameter:d,grade:gradeOf(d)});}}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label></div>
-      <LayoutFields layout={{rule:selBar.count===1?'single':'count',spacing:layout.spacing,count:selBar.count,from:selBar.distributionStart,to:selBar.distributionEnd}} onChange={l=>updateSel({layout:l})} disabled={readOnly}/>
+      <LayoutFields layout={barLayout(selBar)} range={rangeFor(selView.kind)} onChange={l=>updateSel({layout:l})} disabled={readOnly}/>
       <EndsEditor key={selBar.id} bar={selBar} view={selView} m={m} cover={cover} focusBox={focusPart?fbox:undefined} det={det} table={hookTable} readOnly={readOnly} onApply={(points,ends,n)=>{setNotes(n);updateSel({points,ends});}}/>
       <p className="muted">Shape {selBar.shapeCode} · {selBar.points.length} จุด · ลากจุด (□) ใน{viewTitles[selView.kind]} · ลากช่วงกระจาย (◆) ในมุมมองอื่น</p></>
       :isPresetBar(selBar)?<p className="muted">ชุด Preset ของชิ้นส่วน · แก้ขนาด / ระยะในแผง “หน้าที่ของชิ้น” ด้านซ้าย (สร้างใหม่ทุกครั้งที่รูปทรงเปลี่ยน)</p>
@@ -199,7 +199,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
    {big==='3d'?<div className="sketch-canvas sketch-3d"><div className="sketch-status"><b>3D · {focusTag||''} {focusLabel}</b><span className="actions"><button type="button" onClick={()=>setBig('')}><Close size={13}/>ปิด</button></span></div><ModelView member={m} spec={spec} selected={sel} onSelect={setSel} part={focusParts.map(p=>p.id).join(',')} onPart={id=>{if(!focusGroup)setFocus(id);}} height={Math.round(window.innerHeight*.78)} keepView/></div>
     :<SketchCanvas kind={big} ctx={ctx} large/>}</div></div>}
   </div>}
-  {edit&&(()=>{const b=m.bars.find(x=>x.id===edit);if(!b)return null;return <BarEditModal key={b.id} bar={b} m={m} spec={spec} readOnly={readOnly} gradeOf={gradeOf} onClose={()=>setEdit('')}
+  {edit&&(()=>{const b=m.bars.find(x=>x.id===edit);if(!b)return null;return <BarEditModal key={b.id} bar={b} m={m} spec={spec} range={(()=>{const v=viewOfBar(b);return v?rangeFor(v.kind):undefined;})()} readOnly={readOnly} gradeOf={gradeOf} onClose={()=>setEdit('')}
    onSave={d=>{commitBars(m.bars.map(x=>x.id===d.id?d:x),d.id);setEdit('');}}
    onDetach={isPresetBar(b)?()=>{const res=detachPreset(m,b.id);if(!res)return;onChange(withOutsideRegions(res.member,spec));setSel(res.id);setEdit(res.id);}:undefined}
    onDuplicate={()=>{const o=barOwner(sm,b),c:Bar={...structuredClone(b),id:o?partSketchId(o):`sk-${crypto.randomUUID().slice(0,12)}`,mark:markFor(m,o),placementConfirmed:false};commitBars([...m.bars,c],c.id);setEdit(c.id);}}
@@ -304,7 +304,7 @@ function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean})
   const b=ctx.selBar,sv=ctx.selView;if(!b||!sv)return;
   if(drag.kind==='pt'&&editable){const old=b.points.map(p=>toView(sv,p as [number,number,number])),sp=ctx.force?coverAt(e)?.p:snapAt(e,old[drag.index-1]??old[drag.index+1]).p;if(sp)ctx.updateSel({points:old.map((p,i)=>i===drag.index?sp:p)},false);}
   if(drag.kind==='range'&&inPlane){const v=sn(dAxis===a.u?w[0]:w[1]),from=drag.end==='from'?v:b.distributionStart,to=drag.end==='to'?v:b.distributionEnd;
-   ctx.updateSel({layout:{rule:b.count===1?'single':'count',spacing:0,count:b.count,from:Math.max(0,Math.min(from,to)),to:Math.max(0,Math.max(from,to))}},false);}
+   ctx.updateSel({layout:{...barLayout(b),from:Math.max(0,Math.min(from,to)),to:Math.max(0,Math.max(from,to))}},false);}
  };
  const up=()=>{if(drag&&drag.kind!=='cut')ctx.settle();setDrag(null);};
  const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();ctx.reset();}if(e.key==='Enter'&&mine)finish();if(e.key==='Backspace'&&mine&&pts.length){e.preventDefault();ctx.setPts(p=>p.slice(0,-1));ctx.setHits(x=>x.slice(0,-1));}if(e.key==='Delete')ctx.deleteSel();};

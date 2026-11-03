@@ -2,7 +2,7 @@ import {useMemo,useState,type ReactNode} from 'react';
 import {Copy,Scissors,Trash2,X as Close} from 'lucide-react';
 import type {Bar,Member,Spec,Vec3} from '../domain/model';
 import {takeoff} from '../domain/engine';
-import {detectShapeCode,isSketchBar,layoutOf,toView,type LayoutRule,type P2,type SketchEndSet} from '../domain/rebarSketch';
+import {barLayout,detectShapeCode,isSketchBar,layoutOf,toView,type LayoutRule,type P2,type SketchEndSet} from '../domain/rebarSketch';
 import {isPresetBar} from '../domain/partRebar';
 import {Field,number} from './EditorControls';
 import {DIAS,LayoutFields,viewOfBar} from './RebarSketch';
@@ -37,15 +37,15 @@ export function BarShapeSvg({points,color='#0f766e',width=420,height=240,ends}:{
 
 /** Window to edit one bar set: Mark, size, segment lengths (shape), layout (group / single) and ends, with the shape
  * and cut length / weight updated live. Preset bars are read only until taken over (“แยกจาก Preset”). */
-export function BarEditModal({bar,m,spec,readOnly,gradeOf,onSave,onDetach,onDuplicate,onDelete,onClose,ends}:{bar:Bar;m:Member;spec:Spec;readOnly:boolean;gradeOf:(d:number)=>string;
+export function BarEditModal({bar,m,spec,readOnly,gradeOf,onSave,onDetach,onDuplicate,onDelete,onClose,ends,range}:{bar:Bar;m:Member;spec:Spec;readOnly:boolean;gradeOf:(d:number)=>string;range?:[number,number];
  onSave:(b:Bar)=>void;onDetach?:()=>void;onDuplicate:()=>void;onDelete:()=>void;onClose:()=>void;
  ends?:(b:Bar,apply:(points:P2[],e:SketchEndSet,notes:string[])=>void)=>ReactNode}){
  const [d,setD]=useState<Bar>(()=>structuredClone(bar)),[notes,setNotes]=useState<string[]>([]);
  const preset=isPresetBar(bar),locked=readOnly||preset,view=viewOfBar(d),poly=d.shape==='polyline'&&d.points.length>=2;
  const row=useMemo(()=>{try{return takeoff({...m,bars:[d],placementContext:undefined},spec).rows[0];}catch{return undefined;}},[d,m,spec]);
  const k=d.distributionAxis?'XYZ'.indexOf(d.distributionAxis):-1;
- const layout:LayoutRule={rule:d.count===1?'single':'count',spacing:200,count:d.count,from:d.distributionStart,to:d.distributionEnd};
- const setLayout=(l:LayoutRule)=>{const n=layoutOf(l),shift=n.from-d.distributionStart;setD({...d,count:n.count,distributionStart:n.from,distributionEnd:n.to,points:k>=0?d.points.map(p=>{const q=[...p] as Vec3;q[k]=Number((q[k]+shift).toFixed(3));return q;}):d.points});};
+ const layout=barLayout(d);
+ const setLayout=(l:LayoutRule)=>{const n=layoutOf(l),shift=n.from-d.distributionStart;setD({...d,count:n.count,distributionStart:n.from,distributionEnd:n.to,layoutRule:{rule:l.rule,spacing:Math.max(1,l.spacing||200)},points:k>=0?d.points.map(p=>{const q=[...p] as Vec3;q[k]=Number((q[k]+shift).toFixed(3));return q;}):d.points});};
  const code=(pts:Vec3[])=>view?detectShapeCode(pts.map(p=>toView(view,p))):d.shapeCode;
  const setPoints=(pts:Vec3[])=>setD({...d,points:pts,shapeCode:code(pts)});
  const dirty=JSON.stringify(d)!==JSON.stringify(bar);
@@ -65,7 +65,7 @@ export function BarEditModal({bar,m,spec,readOnly,gradeOf,onSave,onDetach,onDupl
      {poly&&<><h4>ขนาดแต่ละช่วง (ระยะศูนย์กลาง mm)</h4>
       <div className="bar-segs">{d.points.slice(1).map((p,i)=><label key={i} className="field"><span>{letter(i)}</span><input type="number" min={1} disabled={locked} value={Math.round(len(d.points[i],p))} onChange={e=>{const L=Number(e.target.value);if(L>0)setPoints(withSegment(d.points,i,L));}}/></label>)}</div>
       <p className="muted">แก้ความยาวช่วงใดแล้ว ช่วงถัดไปเลื่อนตาม (ทิศเดิม) · ลากจุดในมุมมองเพื่อเปลี่ยนทิศ</p></>}
-     {d.distributionAxis?<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตามแกน {d.distributionAxis}</h4><LayoutFields layout={layout} onChange={setLayout} disabled={locked}/></>
+     {d.distributionAxis?<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตามแกน {d.distributionAxis}</h4><LayoutFields layout={layout} range={range} onChange={setLayout} disabled={locked}/></>
       :d.offsets?<p className="muted">วางตามตำแหน่งรายแท่ง {d.count} ตำแหน่ง (offsets)</p>:null}
      {!locked&&isSketchBar(d)&&view&&ends?.(d,(points,e,n)=>{setNotes(n);setD(x=>({...x,points:points.map(p=>{const w=[...x.points[0]] as Vec3,a=view.kind==='sx'?[0,2]:view.kind==='sy'?[1,2]:[0,1];w[a[0]]=p[0];w[a[1]]=p[1];return w.map(v=>Number(v.toFixed(3))) as Vec3;}),ends:e,shapeCode:detectShapeCode(points)}));})}
     </div>
