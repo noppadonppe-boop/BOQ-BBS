@@ -21,18 +21,22 @@ export function viewRegion(m:Member,view:SketchView):MultiPolygon{
 }
 export type Seg={a:P2;b:P2};
 /** Region edges moved inward by `off` (cover + bar radius): the lines a bar centre snaps to. */
-export function offsetSegments(mp:MultiPolygon,off:number):Seg[]{
+/** Inward offset per edge (a → b, concrete on the left): a number, or per edge (face covers). */
+export type EdgeOffset=number|((a:P2,b:P2)=>number);
+const offOf=(off:EdgeOffset,a:P2,b:P2)=>typeof off==='number'?off:off(a,b);
+export function offsetSegments(mp:MultiPolygon,off:EdgeOffset):Seg[]{
  const out:Seg[]=[];
- for(const poly of mp)for(const raw of poly){const r=open(raw as P2[]);r.forEach((a,i)=>{const b=r[(i+1)%r.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy);if(l<1e-6)return;const n:P2=[-dy/l*off,dx/l*off];out.push({a:[a[0]+n[0],a[1]+n[1]],b:[b[0]+n[0],b[1]+n[1]]});});}
+ for(const poly of mp)for(const raw of poly){const r=open(raw as P2[]);r.forEach((a,i)=>{const b=r[(i+1)%r.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy);if(l<1e-6)return;const o=offOf(off,a,b),n:P2=[-dy/l*o,dx/l*o];out.push({a:[a[0]+n[0],a[1]+n[1]],b:[b[0]+n[0],b[1]+n[1]]});});}
  return out;
 }
 export const edgeSegments=(mp:MultiPolygon)=>offsetSegments(mp,0);
-/** Cover outline: every ring of the region offset inward by `off` with mitred corners (the line bar centres must follow). */
-export function coverRings(mp:MultiPolygon,off:number):P2[][]{
+/** Cover outline: every ring of the region offset inward by `off` (per edge when a function) with mitred corners (the line
+ * bar centres must follow); collinear edges with different offsets meet in a step. */
+export function coverRings(mp:MultiPolygon,off:EdgeOffset):P2[][]{
  const out:P2[][]=[];
  for(const poly of mp)for(const raw of poly){const r=open(raw as P2[]).filter((p,i,a)=>{const q=a[(i+1)%a.length];return Math.hypot(q[0]-p[0],q[1]-p[1])>1e-6;});if(r.length<3)continue;
-  const segs=r.map((a,i)=>{const b=r[(i+1)%r.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy),n:P2=[-dy/l*off,dx/l*off];return {a:[a[0]+n[0],a[1]+n[1]] as P2,b:[b[0]+n[0],b[1]+n[1]] as P2};});
-  const ring=segs.map((sg,i)=>lineHit(segs[(i+segs.length-1)%segs.length],sg)||sg.a);
+  const segs=r.map((a,i)=>{const b=r[(i+1)%r.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy),o=offOf(off,a,b),n:P2=[-dy/l*o,dx/l*o];return {a:[a[0]+n[0],a[1]+n[1]] as P2,b:[b[0]+n[0],b[1]+n[1]] as P2};});
+  const ring=segs.flatMap((sg,i)=>{const pv=segs[(i+segs.length-1)%segs.length],h=lineHit(pv,sg);return h?[h]:Math.hypot(pv.b[0]-sg.a[0],pv.b[1]-sg.a[1])>1e-6?[pv.b,sg.a]:[sg.a];});
   // drop rings that collapsed (offset larger than the feature)
   if(Math.abs(ringArea(ring))>1&&Math.sign(ringArea(ring))===Math.sign(ringArea(r)))out.push(ring);}
  return out;
@@ -110,6 +114,8 @@ export function addHooks(points:P2[],ends:{start:HookEnd;end:HookEnd},d:number,r
 export function rayHit(o:P2,u:P2,s:Seg){const e=[s.b[0]-s.a[0],s.b[1]-s.a[1]],den=u[0]*e[1]-u[1]*e[0];if(Math.abs(den)<1e-9)return;const w=[s.a[0]-o[0],s.a[1]-o[1]],t=(w[0]*e[1]-w[1]*e[0])/den,k=(w[0]*u[1]-w[1]*u[0])/den;return k>=-1e-9&&k<=1+1e-9?t:undefined;}
 /** Box faces of parts in a view (plan: plan rectangle; sections: u-extent × height), as segments. */
 export function boxFaces(boxes:{lo:P2;hi:P2}[]):Seg[]{return boxes.flatMap(({lo,hi})=>[{a:lo,b:[hi[0],lo[1]] as P2},{a:[hi[0],lo[1]] as P2,b:hi},{a:hi,b:[lo[0],hi[1]] as P2},{a:[lo[0],hi[1]] as P2,b:lo}]);}
+/** Cover per plan side (box faces) for mesh / loop tools; unset sides use `cover`. */
+export type SideCovers={x0?:number;x1?:number;y0?:number;y1?:number};
 export type SketchEndSet=NonNullable<Bar['ends']>;
 /** Re-applies the end settings of a drawn bar: strips the hook points added before (`prev.n`), moves each end with an
  * `ext` to the first face crossed from its neighbour + ext (+ past the face / − short of it), then adds the hooks
@@ -225,16 +231,16 @@ export function regionWithin(m:Member,z:number,ids:string[]):MultiPolygon{
  const polys=sm.parts.filter(p=>ids.includes(p.id)&&p.role==='solid'&&z>=p.z0-1e-6&&z<=p.z0+p.height+1e-6).map(p=>partPolygon(p) as Polygon);
  return polys.length?polygonClipping.intersection(s.region,polygonClipping.union(polys[0],...polys.slice(1))):[];
 }
-export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spacing:number;cover:number;dirs:('X'|'Y')[];leg:number;note:string;within?:string[]}):Bar[]{
+export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spacing:number;cover:number;dirs:('X'|'Y')[];leg:number;note:string;within?:string[];sides?:SideCovers}):Bar[]{
  const sm=m.shapeModel;if(!sm)return [];const slab=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!slab)return [];
  const s={region:o.within?.length?regionWithin(m,o.z,o.within):slab.region};if(!s.region.length)return [];
- const out:Bar[]=[],c=o.cover+o.diameter/2;let work=m;const mark=()=>{const k=nextMark(work);work={...work,bars:[...work.bars,{...blankBar(k)}]};return k;};
+ const out:Bar[]=[],c=o.cover+o.diameter/2,cs=(k:keyof SideCovers)=>(o.sides?.[k]??o.cover)+o.diameter/2;let work=m;const mark=()=>{const k=nextMark(work);work={...work,bars:[...work.bars,{...blankBar(k)}]};return k;};
  for(const dir of o.dirs){
-  const along=(dir==='X'?0:1) as 0|1,across=1-along,vals=s.region.flatMap(p=>(p[0] as P2[]).map(q=>q[across])),lo=Math.min(...vals)+c,hi=Math.max(...vals)-c;if(!(hi>lo))continue;
+  const along=(dir==='X'?0:1) as 0|1,across=1-along,vals=s.region.flatMap(p=>(p[0] as P2[]).map(q=>q[across])),lo=Math.min(...vals)+cs(across?'y0':'x0'),hi=Math.max(...vals)-cs(across?'y1':'x1'),ca=cs(along?'y0':'x0'),cb=cs(along?'y1':'x1');if(!(hi>lo))continue;
   const n=Math.ceil((hi-lo)/o.spacing-1e-9)+1,segs:{a:number;b:number;at:number}[]=[];
   // positions on the 0.001 mm grid the stored points use, rounded inward so the outer bars keep full cover
   const lo3=Math.ceil(lo*1000)/1000,hi3=Math.floor(hi*1000)/1000;
-  for(let k=0;k<n;k++){const at=n===1?lo3:Math.min(hi3,Math.max(lo3,Math.round((lo3+(hi3-lo3)*k/(n-1))*1000)/1000));for(const [a,b] of bandIntervals(s.region,along,at,c-.5))if(b-a>2*c+2*o.diameter)segs.push({a:a+c,b:b-c,at});}
+  for(let k=0;k<n;k++){const at=n===1?lo3:Math.min(hi3,Math.max(lo3,Math.round((lo3+(hi3-lo3)*k/(n-1))*1000)/1000));for(const [a,b] of bandIntervals(s.region,along,at,c-.5))if(b-a>ca+cb+2*o.diameter)segs.push({a:a+ca,b:b-cb,at});}
   const groups=new Map<number,typeof segs>();for(const sg of segs){const key=Math.round(sg.b-sg.a);groups.set(key,[...(groups.get(key)||[]),sg]);}
   for(const [len,list] of [...groups.entries()].sort((x,y)=>y[0]-x[0])){
    const f=list[0],pt=(u:number,w:number,z:number):Vec3=>along===0?[u,w,z]:[w,u,z],z=o.z;
@@ -250,11 +256,12 @@ export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spaci
  return out;
 }
 /** Horizontal closed loops just inside the outer edge of the plan region at `z`, stacked from z to zTop at ≤ spacing; lap overlap on the first side. */
-export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:string;spacing:number;cover:number;lap:number;mark:string;note:string;split?:(ring:P2[])=>P2[][];within?:string[]}):Bar[]{
+export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:string;spacing:number;cover:number;lap:number;mark:string;note:string;split?:(ring:P2[])=>P2[][];within?:string[];sides?:SideCovers}):Bar[]{
  const sm=m.shapeModel;if(!sm)return [];const slab=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!slab)return [];
  const s={region:o.within?.length?regionWithin(m,o.z,o.within):slab.region};if(!s.region.length)return [];
  const outer=open(s.region.reduce((a,b)=>Math.abs(area(a[0] as P2[]))>=Math.abs(area(b[0] as P2[]))?a:b)[0] as P2[]),off=o.cover+o.diameter/2;
- const segs=outer.map((a,i)=>{const b=outer[(i+1)%outer.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy);return {a:[a[0]-dy/l*off,a[1]+dx/l*off] as P2,b:[b[0]-dy/l*off,b[1]+dx/l*off] as P2};});
+ // per side cover by the edge's outward normal (dy, −dx)
+ const segs=outer.map((a,i)=>{const b=outer[(i+1)%outer.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy),k:keyof SideCovers=Math.abs(dy)>=Math.abs(dx)?(dy>0?'x1':'x0'):(dx<0?'y1':'y0'),of=o.sides?(o.sides[k]??o.cover)+o.diameter/2:off;return {a:[a[0]-dy/l*of,a[1]+dx/l*of] as P2,b:[b[0]-dy/l*of,b[1]+dx/l*of] as P2};});
  const ring=segs.map((sg,i)=>lineHit(segs[(i+segs.length-1)%segs.length],sg)||sg.a);
  if(ring.length+2>100)return [];
  const first=ring[0],second=ring[1],l=Math.hypot(second[0]-first[0],second[1]-first[1]),k=Math.min(1,o.lap/(l||1)),lapEnd:P2=[first[0]+(second[0]-first[0])*k,first[1]+(second[1]-first[1])*k];

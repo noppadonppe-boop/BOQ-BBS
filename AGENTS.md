@@ -111,6 +111,12 @@
   none|std90|std135|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
   its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; 135° = turned back in, 6d ≥ 75 `hook135Tail`; `leg` > 0 = own hook length from the tip for 90 / 135 / 180,
   standard = `stdHookLength()`; `flip` = turn to the other side); UI `EndsEditor` (+ “A ต้น / ท้าย” markers in views and `BarShapeSvg`).
+  Cover per face `part.covers {x0,x1,y0,y1,bottom,top,side}` (≤ 1,000, never below the member cover — checks use it): `faceCovers()`
+  for presets (meshes / loops take `sides`, columns / beams / walls per face), `edgeFaces()` / `edgeCover()` map a view edge (at the cut)
+  to part faces; sketch cover lines offset per edge (`coverRings` / `offsetSegments` take an `EdgeOffset` function; collinear
+  faces with different covers step). Tool “Cover รายด้าน” (`CoverTool`): click an edge in plan / sections or a surface in 3D
+  (`ModelView` `onFace`). Drawing snaps (free mode): cover, concrete faces, beside other bars in the plane (offset d₁/2 + d₂/2;
+  a cover snap on top of a bar gives way to it); finishing a bar warns about overlaps in the plane; “+ ชั้นถัดไป” shifts a layer.
   Layout rule per bar `bar.layoutRule {rule spacing|count|single, spacing}` (set by `sketchBar`, mesh / loop tools); read with
   `barLayout()` (bars without it: spacing = actual rounded up, same count) in the panel, range drags and `BarEditModal`;
   `LayoutFields` keeps the count when switching group rules and restores `range` when a single bar becomes a group; ≤ 2,000 bars.

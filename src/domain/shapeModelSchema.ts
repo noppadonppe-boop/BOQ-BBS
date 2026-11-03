@@ -16,7 +16,7 @@ export type RebarNoteFace=typeof rebarNoteFaces[number];
 export const partPurposes=['column','beam','slab','wall','footing','other'] as const;
 export type PartPurpose=typeof partPurposes[number];
 export const partPurposeLabels:Record<PartPurpose,string>={column:'เสา / ตอม่อ',beam:'คาน',slab:'พื้น',wall:'ผนัง',footing:'ฐานราก',other:'อื่นๆ (วาดเอง)'};
-const dia=z.number().finite().positive().max(60);
+const dia=z.number().finite().positive().max(60),cov=z.number().finite().min(0).max(1000);
 /** bar size + spacing (0 = layer not used) / bar size + count */
 const barAt=z.object({d:dia,s:mm}).strict(),barN=z.object({d:dia,n:z.number().int().min(0).max(40)}).strict();
 /** Preset reinforcement of one part; bars `pp-<part id>-…` are rebuilt from it whenever the part changes.
@@ -54,6 +54,9 @@ const base={
  source:z.string().max(200).default(''),
  /** purpose + preset bars of this part */
  rebar:partRebarSchema.optional(),
+ /** concrete cover per face (mm, ≥ the member cover): box faces x0 / x1 / y0 / y1, bottom / top; side = every vertical face
+  * not set on its own (round / polygon parts); unset = the part cover (`rebar.cover`) or the member cover */
+ covers:z.object({x0:cov,x1:cov,y0:cov,y1:cov,bottom:cov,top:cov,side:cov}).partial().strict().optional(),
 };
 export const shapePartSchema=z.discriminatedUnion('shape',[
  z.object({...base,shape:z.literal('box'),x:coord,y:coord,w:len,d:len}).strict(),
@@ -103,4 +106,7 @@ export const shapeModelSchema=z.object({
  });
 });
 export type ShapeModel=z.infer<typeof shapeModelSchema>;
+export const faceKeys=['x0','x1','y0','y1','bottom','top'] as const;
+export type FaceKey=typeof faceKeys[number];
+export const faceLabels:Record<FaceKey|'side',string>={x0:'ด้าน X−',x1:'ด้าน X+',y0:'ด้าน Y−',y1:'ด้าน Y+',bottom:'ด้านล่าง',top:'ด้านบน',side:'ด้านข้าง (ทุกด้าน)'};
 export const shapeKindLabels:Record<ShapePart['shape'],string>={box:'กล่อง',polygon:'ยกหลายเหลี่ยม',circle:'ทรงกระบอก / ผนังกลม',shaft:'ปล่อง (สี่เหลี่ยม)'};

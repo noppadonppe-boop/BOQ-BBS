@@ -10,7 +10,7 @@ import {Field} from './EditorControls';
 // Sub-tools of the rebar workspace (`RebarWorkspace.tsx`): notes → bar sets, end hooks, layout rule, plan mesh, loops.
 export const DIAS=[6,9,10,12,16,20,25,28,32,36,40];
 const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
-export type Tool='draw'|'select'|'mesh'|'loop'|'notes';
+export type Tool='draw'|'select'|'mesh'|'loop'|'notes'|'cover';
 export const viewOfBar=(b:Bar):SketchView|undefined=>b.shape==='polyline'&&b.distributionAxis&&b.points.length>=2?{kind:b.distributionAxis==='Y'?'sx':b.distributionAxis==='X'?'sy':'plan',at:b.distributionStart}:undefined;
 
 const actionLabels:Record<NoteAction,string>={bottom:'ตะแกรงล่าง',top:'ตะแกรงบน',loops:'ลูปรอบผิว',vertical:'แนวตั้งรอบผิว',skip:'ข้าม'};

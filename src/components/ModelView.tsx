@@ -9,6 +9,7 @@ import {contextBoxes,couplerMeshes} from './coupler3d';
 import {boundsOf,solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
 import {partPolygon} from '../domain/shapeGeometry';
+import type {FaceKey} from '../domain/shapeModelSchema';
 /** Shape-model part as a prism (plan rings extruded over z0..z0+height), model axes Y up, -plan Y. */
 function partGeometry(p:NonNullable<Member['shapeModel']>['parts'][number]){
  const [outer,...holes]=partPolygon(p),ring=(r:[number,number][])=>r.map(([x,y])=>new THREE.Vector2(x/1000,y/1000));
@@ -17,8 +18,9 @@ function partGeometry(p:NonNullable<Member['shapeModel']>['parts'][number]){
  g.rotateX(-Math.PI/2);g.translate(0,p.z0/1000,0);return g;
 }
 /** `part` / `onPart`: shape-model members — highlight the selected part(s) (comma-separated ids), click a part to select it.
+ * `onFace`: pick a part face instead (cover per face): box faces by the hit normal, round / polygon sides = side.
  * `keepView`: keep the camera when the member changes (live editors). */
-export default function ModelView({member:m,spec,selected,onSelect,part,onPart,height=420,keepView}:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void;part?:string;onPart?:(id:string)=>void;height?:number;keepView?:boolean}){
+export default function ModelView({member:m,spec,selected,onSelect,part,onPart,onFace,height=420,keepView}:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void;part?:string;onPart?:(id:string)=>void;onFace?:(part:string,face:FaceKey|'side')=>void;height?:number;keepView?:boolean}){
  const el=useRef<HTMLDivElement>(null),view=useRef<(axis:string)=>void>(()=>{}),[error,setError]=useState('');
  const kept=useRef<{position:THREE.Vector3;target:THREE.Vector3}|null>(null);
  useEffect(()=>{
@@ -49,17 +51,20 @@ export default function ModelView({member:m,spec,selected,onSelect,part,onPart,h
   const partMeshes:THREE.Object3D[]=[];
   // reference parts (cast later): dashed outline always
   for(const p of m.shapeModel?.parts||[])if(p.role==='reference'){const g=partGeometry(p),e=new THREE.LineSegments(new THREE.EdgesGeometry(g,20),new THREE.LineDashedMaterial({color:0x8a6d3b,dashSize:.1,gapSize:.06}));e.computeLineDistances();scene.add(e);g.dispose();}
-  if(onPart&&m.shapeModel)for(const p of m.shapeModel.parts){const g=partGeometry(p),on=!!part&&part.split(',').includes(p.id),void_=p.role==='void';
-   const mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:void_?0xb4553a:0xe69432,transparent:true,opacity:on?.32:0,depthWrite:false,side:THREE.DoubleSide}));mesh.userData.part=p.id;scene.add(mesh);partMeshes.push(mesh);
+  if((onPart||onFace)&&m.shapeModel)for(const p of m.shapeModel.parts){const g=partGeometry(p),on=!!part&&part.split(',').includes(p.id),void_=p.role==='void';
+   const mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:void_?0xb4553a:0xe69432,transparent:true,opacity:on?.32:0,depthWrite:false,side:THREE.DoubleSide}));mesh.userData.part=p.id;mesh.userData.box=p.shape==='box';scene.add(mesh);partMeshes.push(mesh);
    if(on){const e=new THREE.LineSegments(new THREE.EdgesGeometry(g,20),new THREE.LineBasicMaterial({color:void_?0xb4553a:0xd4802a}));e.renderOrder=2;scene.add(e);}}
   const ray=new THREE.Raycaster();let down=[0,0];
   const press=(ev:PointerEvent)=>{down=[ev.clientX,ev.clientY];};
-  const click=(ev:MouseEvent)=>{if(Math.hypot(ev.clientX-down[0],ev.clientY-down[1])>4)return;const r=renderer.domElement.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((ev.clientX-r.left)/r.width*2-1,-(ev.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObjects(meshes)[0];if(hit){onSelect(hit.object.userData.id);return;}
-   const ph=ray.intersectObjects(partMeshes)[0];if(ph&&onPart)onPart(ph.object.userData.part);};
+  const click=(ev:MouseEvent)=>{if(Math.hypot(ev.clientX-down[0],ev.clientY-down[1])>4)return;const r=renderer.domElement.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((ev.clientX-r.left)/r.width*2-1,-(ev.clientY-r.top)/r.height*2+1),camera);const ph=onFace?ray.intersectObjects(partMeshes)[0]:undefined;
+   // faces: model normal (x, y up, −plan y) → plan face
+   if(ph&&onFace&&ph.face){const n=ph.face.normal,face:FaceKey|'side'=Math.abs(n.y)>.7?(n.y>0?'top':'bottom'):!ph.object.userData.box?'side':Math.abs(n.x)>=Math.abs(n.z)?(n.x>0?'x1':'x0'):(n.z<0?'y1':'y0');onFace(ph.object.userData.part,face);return;}
+   const hit=ray.intersectObjects(meshes)[0];if(hit){onSelect(hit.object.userData.id);return;}
+   const pp=ray.intersectObjects(partMeshes)[0];if(pp&&onPart)onPart(pp.object.userData.part);};
   renderer.domElement.addEventListener('pointerdown',press);renderer.domElement.addEventListener('click',click);
   const resize=()=>{renderer.setSize(host.clientWidth,height);camera.aspect=host.clientWidth/height;camera.updateProjectionMatrix();};const ro=new ResizeObserver(resize);ro.observe(host);resize();
   let frame:number;const render=()=>{controls.update();renderer.render(scene,camera);frame=requestAnimationFrame(render);};render();
   return ()=>{cancelAnimationFrame(frame);kept.current={position:camera.position.clone(),target:controls.target.clone()};ro.disconnect();controls.dispose();scene.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.LineSegments){o.geometry.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material.dispose();}});renderer.dispose();renderer.domElement.remove();};
- },[m,spec,selected,part,height]);
+ },[m,spec,selected,part,height,!!onFace]);
  return <div><div className="view-tools">{['ISO','X','Y','Z'].map(a=><button key={a} onClick={()=>view.current(a)}>{a}</button>)}<span>ลากเพื่อหมุน · ล้อเมาส์เพื่อซูม · คลิกเหล็กเลือก Mark{onPart?' · คลิกเนื้อคอนกรีตเลือกชิ้นส่วน':''}</span></div>{hasPlacementContext(m)&&<p className="muted model-context-legend">เส้นประทอง = พื้นที่รอยต่อ · ประแดง = ช่องเปิดอ้างอิง · ไม่คิดคอนกรีต/แบบหล่อ BOQ</p>}{error&&<p className="notice">{error}</p>}<div ref={el} className="model-canvas"/></div>;
 }

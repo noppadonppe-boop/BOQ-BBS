@@ -2,7 +2,7 @@ import {blankBar,type Bar,type Member,type Spec,type Vec3} from './model';
 import {DEFAULT_DETAILING,bendRadius,closedLink,gradeFor,lapLength,hookDevLength,type Detailing} from './elementInput';
 import {detailingFromSpec} from './specDetailing';
 import {inMulti,partPolygon,shapeGeometry} from './shapeGeometry';
-import {type PartPurpose,type PartRebar,type ShapeModel,type ShapePart} from './shapeModelSchema';
+import {faceKeys,type FaceKey,type PartPurpose,type PartRebar,type ShapeModel,type ShapePart} from './shapeModelSchema';
 import {coverRings,layoutOf,loopBars,meshBars,sketchRadius,verticalFaceBars,type P2} from './rebarSketch';
 import {editablePlacementContext,REGION_LIMIT} from './placementContext';
 import {schedule} from './engine';
@@ -22,6 +22,33 @@ export function barPart(sm:ShapeModel|undefined,b:Bar):string|undefined{
  return best;
 }
 export const isPresetBar=(b:Bar)=>b.id.startsWith(PRESET_PREFIX);
+/** Cover set for one face of a part (face value, else side for vertical faces, else the part cover); undefined = not set. */
+export function setCover(p:ShapePart,face:FaceKey):number|undefined{const c=p.covers;return c?.[face]??(face!=='top'&&face!=='bottom'?c?.side:undefined)??p.rebar?.cover;}
+/** Cover of every face of a part, never below the member cover (placement checks use the member cover). */
+export function faceCovers(m:Member,p:ShapePart):Record<FaceKey,number>{
+ return Object.fromEntries(faceKeys.map(k=>[k,Math.max(m.cover,setCover(p,k)??m.cover)])) as Record<FaceKey,number>;
+}
+const viewAx={plan:[0,1],sx:[0,2],sy:[1,2]} as const;
+const faceOf=(axis:number,positive:boolean):FaceKey=>axis===0?(positive?'x1':'x0'):axis===1?(positive?'y1':'y0'):(positive?'top':'bottom');
+/** Part face a view edge lies on (a → b with the concrete on its left, as region rings run): box faces of solid parts by their
+ * extents, round / polygon outlines in plan = side; only parts the view plane cuts (`at` along its normal). Several parts on one
+ * edge: all of them. */
+export function edgeFaces(m:Member,kind:'plan'|'sx'|'sy',a:P2,b:P2,at?:number):{part:ShapePart;face:FaceKey|'side'}[]{
+ const sm=m.shapeModel,dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy);if(!sm||l<1e-6)return [];
+ const out:P2=[dy/l,-dx/l],mid:P2=[(a[0]+b[0])/2,(a[1]+b[1])/2],[au,av]=viewAx[kind],t=1,hits:{part:ShapePart;face:FaceKey|'side'}[]=[];
+ const an=kind==='plan'?2:kind==='sx'?1:0;
+ for(const p of sm.parts){if(p.role!=='solid')continue;const bx=partBox(p),lo=[bx.x0,bx.y0,bx.z0],hi=[bx.x1,bx.y1,bx.z1];if(at!==undefined&&(at<lo[an]-t||at>hi[an]+t))continue;const inU=mid[0]>=lo[au]-t&&mid[0]<=hi[au]+t,inV=mid[1]>=lo[av]-t&&mid[1]<=hi[av]+t;
+  if(Math.abs(out[0])>.99&&inV){const pos=out[0]>0,u=pos?hi[au]:lo[au];if(Math.abs(mid[0]-u)<t){hits.push({part:p,face:p.shape==='box'?faceOf(au,pos):'side'});continue;}}
+  if(Math.abs(out[1])>.99&&inU){const pos=out[1]>0,v=pos?hi[av]:lo[av];if(Math.abs(mid[1]-v)<t){hits.push({part:p,face:p.shape==='box'||av===2?faceOf(av,pos):'side'});continue;}}
+  // round / polygon outlines in plan
+  if(kind==='plan'&&p.shape!=='box'&&mid[0]>=bx.x0-t&&mid[0]<=bx.x1+t&&mid[1]>=bx.y0-t&&mid[1]<=bx.y1+t&&partPolygon(p).some(ring=>ring.some((q,i)=>{const w=ring[(i+1)%ring.length],ex=w[0]-q[0],ey=w[1]-q[1],L=ex*ex+ey*ey;if(L<1e-9)return false;const k=Math.max(0,Math.min(1,((mid[0]-q[0])*ex+(mid[1]-q[1])*ey)/L));return Math.hypot(mid[0]-q[0]-k*ex,mid[1]-q[1]-k*ey)<t;})))hits.push({part:p,face:'side'});
+ }
+ return hits;
+}
+/** Cover set on the faces under a view edge (largest), undefined when none is set there. */
+export function edgeCover(m:Member,kind:'plan'|'sx'|'sy',a:P2,b:P2,at?:number):number|undefined{
+ let c:number|undefined;for(const h of edgeFaces(m,kind,a,b,at)){const v=h.face==='side'?h.part.covers?.side??h.part.rebar?.cover:setCover(h.part,h.face);if(v!==undefined)c=Math.max(c??0,v);}return c;
+}
 export const partSketchId=(partId:string)=>`sk-${partId}-${crypto.randomUUID().replace(/-/g,'').slice(0,10)}`;
 
 /** Purpose guessed from the part's proportions (thin & wide = slab / wall, tall & small = column, long = beam);
@@ -133,7 +160,7 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
  const ref=p.role==='reference';
  if(ref&&r.purpose!=='column'&&r.purpose!=='wall')return {bars:[],notes:[`${p.label}: ชิ้นอ้างอิงใช้ Preset ได้เฉพาะเสา (เหล็กเริ่ม) / ผนัง (เหล็กเดือย)`]};
  // part cover can only add to the member cover (placement checks use the member cover)
- const det=detailingFor(spec),c=Math.max(m.cover,r.cover??m.cover),b=partBox(p),notes:string[]=[],out:Bar[]=[];
+ const det=detailingFor(spec),c=Math.max(m.cover,r.cover??m.cover),fc=faceCovers(m,p),b=partBox(p),notes:string[]=[],out:Bar[]=[];
  const grade=(d:number,tie=false)=>gradeFor(det,d,tie?det.tieGrade:d<=9?'SR24':det.mainGrade);
  const bar=(key:string,o:{d:number;tie?:boolean;points:Vec3[];code:string;axis:Bar['axis'];face?:Bar['face'];dist?:{axis:number;from:number;to:number;spacing?:number;count?:number};offsets?:Vec3[];turns?:number[];radius?:number;note:string}):Bar=>{
   const lay=o.dist?layoutOf(o.dist.count?{rule:'count',count:o.dist.count,spacing:0,from:o.dist.from,to:o.dist.to}:{rule:'spacing',spacing:o.dist.spacing||200,count:0,from:o.dist.from,to:o.dist.to}):undefined;
@@ -147,32 +174,32 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
  const pm=partMember(m,p),boxy=p.shape==='box',geo=shapeGeometry(sm);
  const inConcrete=(w:Vec3)=>geo.slabs.some(s=>w[2]>=s.z0-.5&&w[2]<=s.z1+.5&&inMulti([w[0],w[1]],s.region,.5));
  if(r.purpose==='slab'||r.purpose==='footing'){
-  const B=r.meshB,T=r.meshT;const zt=b.z1-c;
-  const legUp=r.purpose==='footing'&&r.legs&&B?Math.max(0,zt-(T&&T.s>0?2*T.d:0)-(b.z0+c+B.d/2)-B.d):0;
-  if(B&&B.s>0){take('bx',meshBars(pm,{z:b.z0+c+B.d/2,diameter:B.d,grade:grade(B.d),spacing:B.s,cover:c,dirs:['X'],leg:legUp,note:'ตะแกรงล่าง'}));
-   take('by',meshBars(pm,{z:b.z0+c+1.5*B.d,diameter:B.d,grade:grade(B.d),spacing:B.s,cover:c,dirs:['Y'],leg:legUp?legUp-B.d:0,note:'ตะแกรงล่าง ชั้น 2'}));}
-  if(T&&T.s>0){take('tx',meshBars(pm,{z:zt-T.d/2,diameter:T.d,grade:grade(T.d),spacing:T.s,cover:c,dirs:['X'],leg:0,note:'ตะแกรงบน'}));
-   take('ty',meshBars(pm,{z:zt-1.5*T.d,diameter:T.d,grade:grade(T.d),spacing:T.s,cover:c,dirs:['Y'],leg:0,note:'ตะแกรงบน ชั้น 2'}));}
+  const B=r.meshB,T=r.meshT;const zt=b.z1-fc.top,zb0=b.z0+fc.bottom;
+  const legUp=r.purpose==='footing'&&r.legs&&B?Math.max(0,zt-(T&&T.s>0?2*T.d:0)-(zb0+B.d/2)-B.d):0;
+  if(B&&B.s>0){take('bx',meshBars(pm,{z:zb0+B.d/2,diameter:B.d,grade:grade(B.d),spacing:B.s,cover:c,sides:fc,dirs:['X'],leg:legUp,note:'ตะแกรงล่าง'}));
+   take('by',meshBars(pm,{z:zb0+1.5*B.d,diameter:B.d,grade:grade(B.d),spacing:B.s,cover:c,sides:fc,dirs:['Y'],leg:legUp?legUp-B.d:0,note:'ตะแกรงล่าง ชั้น 2'}));}
+  if(T&&T.s>0){take('tx',meshBars(pm,{z:zt-T.d/2,diameter:T.d,grade:grade(T.d),spacing:T.s,cover:c,sides:fc,dirs:['X'],leg:0,note:'ตะแกรงบน'}));
+   take('ty',meshBars(pm,{z:zt-1.5*T.d,diameter:T.d,grade:grade(T.d),spacing:T.s,cover:c,sides:fc,dirs:['Y'],leg:0,note:'ตะแกรงบน ชั้น 2'}));}
   const L=r.loops,group=r.purpose==='footing'&&r.loopsJoined?joinedGroup(sm,p):[p];
   // joined: the first part of the group builds loops round the group's outline, the others none
   if(r.purpose==='footing'&&L&&L.s>0&&group.length>1){if(group[0].id===p.id)take('gloop',joinedLoops(m,group,L,c,det,grade(L.d)));}
-  else if(r.purpose==='footing'&&L&&L.s>0){const z0=b.z0+c+2*(B?.d||16)+L.s/2,z1=zt-2*(T&&T.s>0?T.d:0)-L.d;
-   if(z1>z0)take('loop',loopBars(pm,{z:z0,zTop:z1,diameter:L.d,grade:grade(L.d),spacing:L.s,cover:c,lap:lapLength(det,L.d),mark:'P',note:'ลูปรอบผิวข้าง'}));}
+  else if(r.purpose==='footing'&&L&&L.s>0){const z0=zb0+2*(B?.d||16)+L.s/2,z1=zt-2*(T&&T.s>0?T.d:0)-L.d;
+   if(z1>z0)take('loop',loopBars(pm,{z:z0,zTop:z1,diameter:L.d,grade:grade(L.d),spacing:L.s,cover:c,sides:fc,lap:lapLength(det,L.d),mark:'P',note:'ลูปรอบผิวข้าง'}));}
   if(!out.length)notes.push(`${p.label}: ไม่มีชั้นเหล็กที่ใช้ (ระยะ @ = 0)`);
  }
  if(r.purpose==='column'&&r.main){
   // reference column (cast later): starter bars only, from the host up to its base + lap, ties in the host
-  const M=r.main,T=r.tie,dt=T?.d||0,a=c+dt+M.d/2,top=ref?b.z0+(r.ext||lapLength(det,M.d)):r.ext?b.z1+r.ext:b.z1-c-M.d/2,tieTop=b.z1-Math.max(50,c+dt/2);
+  const M=r.main,T=r.tie,dt=T?.d||0,a=c+dt+M.d/2,A=(k:'x0'|'x1'|'y0'|'y1')=>fc[k]+dt+M.d/2,top=ref?b.z0+(r.ext||lapLength(det,M.d)):r.ext?b.z1+r.ext:b.z1-fc.top-M.d/2,tieTop=b.z1-Math.max(50,fc.top+dt/2);
   const sup=r.anchor?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover,base=sup?Math.max(b.z0,sup.c.z1):b.z0;
-  const zb=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+c+M.d/2;
+  const zb=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+fc.bottom+M.d/2;
   const foot=sup?Math.min(hookDevLength(det,M.d),det.hook90*M.d+sketchRadius(M.d)):0;
   const pos:{p:P2;n:P2}[]=[];
   if(p.shape==='circle'&&p.inner===0){const R=p.diameter/2-a,n=Math.max(4,M.nx);for(let k=0;k<n;k++){const t=2*Math.PI*k/n,u:P2=[Math.cos(t),Math.sin(t)];pos.push({p:[p.cx+u[0]*R,p.cy+u[1]*R],n:u});}}
-  else if(boxy){const xs=Array.from({length:M.nx},(_,k)=>b.x0+a+(b.x1-b.x0-2*a)*k/(M.nx-1)),ys=Array.from({length:M.ny},(_,k)=>b.y0+a+(b.y1-b.y0-2*a)*k/(M.ny-1));
+  else if(boxy){const xs=Array.from({length:M.nx},(_,k)=>b.x0+A('x0')+(b.x1-A('x1')-b.x0-A('x0'))*k/(M.nx-1)),ys=Array.from({length:M.ny},(_,k)=>b.y0+A('y0')+(b.y1-A('y1')-b.y0-A('y0'))*k/(M.ny-1));
    // corner bars sit in the tie bend (its inner radius exceeds the bar radius): moved in along the diagonal
    const k=T&&T.s>0?cornerInset(bendRadius(dt,det,true),dt,M.d):0;
-   xs.forEach((x,i)=>{const e=i===0?k:i===xs.length-1?-k:0,f=e?k:0;pos.push({p:[x+e,b.y0+a+f],n:[0,-1]});pos.push({p:[x+e,b.y1-a-f],n:[0,1]});});
-   ys.slice(1,-1).forEach(y=>{pos.push({p:[b.x0+a,y],n:[-1,0]});pos.push({p:[b.x1-a,y],n:[1,0]});});}
+   xs.forEach((x,i)=>{const e=i===0?k:i===xs.length-1?-k:0,f=e?k:0;pos.push({p:[x+e,b.y0+A('y0')+f],n:[0,-1]});pos.push({p:[x+e,b.y1-A('y1')-f],n:[0,1]});});
+   ys.slice(1,-1).forEach(y=>{pos.push({p:[b.x0+A('x0'),y],n:[-1,0]});pos.push({p:[b.x1-A('x1'),y],n:[1,0]});});}
   else notes.push(`${p.label}: Preset เสาใช้กับกล่องหรือทรงกระบอกตัน · รูปทรงนี้ให้วาดเหล็กเอง`);
   if(pos.length){
    // one Mark: template at the first bar, turned about its top point to each position (outward feet into the support)
@@ -182,10 +209,10 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    const turns=pos.map(q=>{let t=(ang(q.n)-ang(first.n))*180/Math.PI;if(t>180)t-=360;if(t<-180)t+=360;return Math.round(t*1000)/1000;});
    out.push(bar('main',{d:M.d,points:pts,code:pts.length>2?'11':'00',axis:'Z',offsets:pos.map(q=>[q.p[0]-pivot[0],q.p[1]-pivot[1],0] as Vec3),turns,
     note:`เหล็กยืน ${pos.length}-DB${M.d}${room>2*M.d?` · ขา 90° ${Math.round(room)} ในฐาน`:''}${r.ext?` · ยื่นพ้นหัว ${Math.round(r.ext)} (ต่อทาบ)`:''}`}));
-   if(T&&T.s>0&&boxy){const rad=bendRadius(dt,det,true),z0=base+(sup?50:Math.max(50,c+dt/2)),z1=tieTop;
-    if(!ref)out.push(bar('tie',{d:dt,tie:true,points:closedLink(0,1,2,b.x0+c+dt/2,b.x1-c-dt/2,b.y0+c+dt/2,b.y1-c-dt/2,z0,det,rad,dt),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:z0,to:z1,spacing:T.s},note:`ปลอก RB/DB${dt} @${T.s}`}));
+   if(T&&T.s>0&&boxy){const rad=bendRadius(dt,det,true),z0=base+(sup?50:Math.max(50,fc.bottom+dt/2)),z1=tieTop,lk=(z:number)=>closedLink(0,1,2,b.x0+fc.x0+dt/2,b.x1-fc.x1-dt/2,b.y0+fc.y0+dt/2,b.y1-fc.y1-dt/2,z,det,rad,dt);
+    if(!ref)out.push(bar('tie',{d:dt,tie:true,points:lk(z0),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:z0,to:z1,spacing:T.s},note:`ปลอก RB/DB${dt} @${T.s}`}));
     // ties in the support stay under its top mesh
-    if(sup){const T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(base-75,sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-dt-10);if(zs1>zs0)out.push(bar('tie-in',{d:dt,tie:true,points:closedLink(0,1,2,b.x0+c+dt/2,b.x1-c-dt/2,b.y0+c+dt/2,b.y1-c-dt/2,zs0,det,rad,dt),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:zs0,to:zs1,spacing:300},note:'ปลอกยึดเหล็กยืนในฐาน @300'}));}}
+    if(sup){const T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(base-75,sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-dt-10);if(zs1>zs0)out.push(bar('tie-in',{d:dt,tie:true,points:lk(zs0),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:zs0,to:zs1,spacing:300},note:'ปลอกยึดเหล็กยืนในฐาน @300'}));}}
    if(T&&T.s>0&&p.shape==='circle'&&!ref){const R=p.diameter/2-c-dt/2,n=24,lap=lapLength(det,dt),ring:Vec3[]=Array.from({length:n+1},(_,k)=>{const t=2*Math.PI*k/n;return [p.cx+R*Math.cos(t),p.cy+R*Math.sin(t),b.z0+50] as Vec3;});
     const t1=lap/R;ring.push([p.cx+R*Math.cos(t1),p.cy+R*Math.sin(t1),b.z0+50]);
     out.push(bar('tie',{d:dt,tie:true,points:ring,code:'99',axis:'Z',radius:0,dist:{axis:2,from:b.z0+50,to:tieTop,spacing:T.s},note:`ปลอกวงกลม DB${dt} @${T.s} ทาบ ${Math.round(lap)}`}));}
@@ -194,14 +221,14 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
  if(r.purpose==='beam'){
   if(!boxy)notes.push(`${p.label}: Preset คานใช้กับกล่องเท่านั้น`);
   else{const alongX=b.x1-b.x0>=b.y1-b.y0,s=alongX?0:1,t=1-s,S=r.stirrup,ds=S?.d||0,ext=r.ext||0;
-   const t0=(t?b.y0:b.x0),t1=(t?b.y1:b.x1);
+   const t0=(t?b.y0:b.x0),t1=(t?b.y1:b.x1),ct0=t?fc.y0:fc.x0,ct1=t?fc.y1:fc.x1,cs0=s?fc.y0:fc.x0,cs1=s?fc.y1:fc.x1;
    const pt=(u:number,w:number,z:number):Vec3=>s===0?[u,w,z]:[w,u,z];
-   for(const [key,L,z,label] of [['top',r.top,b.z1-c-ds,'บน'],['bot',r.bottom,b.z0+c+ds,'ล่าง']] as const){if(!L||L.n<1)continue;
-    const s0=(s?b.y0:b.x0)+(ext?-ext:c+L.d/2),s1=(s?b.y1:b.x1)+(ext?ext:-c-L.d/2);
-    const k=S&&S.s>0?cornerInset(bendRadius(ds,det,true),ds,L.d):0,zz=key==='top'?z-L.d/2-k:z+L.d/2+k,w0=t0+c+ds+L.d/2+k,w1=t1-c-ds-L.d/2-k;
+   for(const [key,L,z,label] of [['top',r.top,b.z1-fc.top-ds,'บน'],['bot',r.bottom,b.z0+fc.bottom+ds,'ล่าง']] as const){if(!L||L.n<1)continue;
+    const s0=(s?b.y0:b.x0)+(ext?-ext:cs0+L.d/2),s1=(s?b.y1:b.x1)+(ext?ext:-cs1-L.d/2);
+    const k=S&&S.s>0?cornerInset(bendRadius(ds,det,true),ds,L.d):0,zz=key==='top'?z-L.d/2-k:z+L.d/2+k,w0=t0+ct0+ds+L.d/2+k,w1=t1-ct1-ds-L.d/2-k;
     out.push(bar(key,{d:L.d,points:[pt(s0,w0,zz),pt(s1,w0,zz)],code:'00',axis:axisOf(s),face:key==='top'?'top':'bottom',dist:{axis:t,from:w0,to:L.n>1?w1:w0,count:L.n},note:`เหล็ก${label} ${L.n}-DB${L.d}${ext?` · ยื่นพ้นปลาย ${Math.round(ext)}`:''}`}));}
-   if(S&&S.s>0){const rad=bendRadius(ds,det,true),e=Math.max(50,c+ds/2),a0=(s?b.y0:b.x0)+e,a1=(s?b.y1:b.x1)-e;
-    out.push(bar('stirrup',{d:ds,tie:true,points:closedLink(t,2,s,t0+c+ds/2,t1-c-ds/2,b.z0+c+ds/2,b.z1-c-ds/2,a0,det,rad,ds),code:'99',axis:'Z',radius:rad,dist:{axis:s,from:a0,to:a1,spacing:S.s},note:`ปลอก DB/RB${ds} @${S.s}`}));}}
+   if(S&&S.s>0){const rad=bendRadius(ds,det,true),a0=(s?b.y0:b.x0)+Math.max(50,cs0+ds/2),a1=(s?b.y1:b.x1)-Math.max(50,cs1+ds/2);
+    out.push(bar('stirrup',{d:ds,tie:true,points:closedLink(t,2,s,t0+ct0+ds/2,t1-ct1-ds/2,b.z0+fc.bottom+ds/2,b.z1-fc.top-ds/2,a0,det,rad,ds),code:'99',axis:'Z',radius:rad,dist:{axis:s,from:a0,to:a1,spacing:S.s},note:`ปลอก DB/RB${ds} @${S.s}`}));}}
  }
  if(r.purpose==='wall'){
   const V=r.vert,H=r.horz,ext=r.ext||0;
@@ -209,13 +236,13 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    if(H&&H.s>0)take('horz',loopBars(pm,{z:b.z0+c+H.d,zTop:b.z1-c-H.d,diameter:H.d,grade:grade(H.d),spacing:H.s,cover:c,lap:lapLength(det,H.d),mark:'P',note:'เหล็กนอนผิวนอก'}));
    notes.push(`${p.label}: ผนังที่ไม่ใช่กล่อง ใช้เหล็กรอบผิวนอก (ผิวในให้วาดเพิ่ม)`);}
   else{const alongX=b.x1-b.x0>=b.y1-b.y0,s=alongX?0:1,t=1-s,pt=(u:number,w:number,z:number):Vec3=>s===0?[u,w,z]:[w,u,z];
-   const L0=(s?b.y0:b.x0),L1=(s?b.y1:b.x1),T0=(t?b.y0:b.x0),T1=(t?b.y1:b.x1),dh=H?.d||0,dv=V?.d||0;
-   const faces=(r.layers??2)===2?[{k:'a',h:T0+c+dh/2,v:T0+c+dh+dv/2},{k:'b',h:T1-c-dh/2,v:T1-c-dh-dv/2}]:[{k:'',h:(T0+T1)/2-dv/2-dh/2,v:(T0+T1)/2}];
+   const L0=(s?b.y0:b.x0),L1=(s?b.y1:b.x1),T0=(t?b.y0:b.x0),T1=(t?b.y1:b.x1),dh=H?.d||0,dv=V?.d||0,cL0=s?fc.y0:fc.x0,cL1=s?fc.y1:fc.x1,cT0=t?fc.y0:fc.x0,cT1=t?fc.y1:fc.x1;
+   const faces=(r.layers??2)===2?[{k:'a',h:T0+cT0+dh/2,v:T0+cT0+dh+dv/2},{k:'b',h:T1-cT1-dh/2,v:T1-cT1-dh-dv/2}]:[{k:'',h:(T0+T1)/2-dv/2-dh/2,v:(T0+T1)/2}];
    // anchor: vertical bars start on the bottom mesh of the part below with a 90° foot turned outward
    const sup=r.anchor&&V?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover;
    for(const f of faces){
-    if(V&&V.s>0){const u0=L0+c+dh+dv/2,u1=L1-c-dh-dv/2,top=ref?b.z0+(ext||lapLength(det,V.d)):b.z1+(ext||-c-V.d/2);
-     let base:Vec3[]=[pt(u0,f.v,b.z0+c+V.d/2)],anchored=0;
+    if(V&&V.s>0){const u0=L0+cL0+dh+dv/2,u1=L1-cL1-dh-dv/2,top=ref?b.z0+(ext||lapLength(det,V.d)):b.z1+(ext||-fc.top-V.d/2);
+     let base:Vec3[]=[pt(u0,f.v,b.z0+fc.bottom+V.d/2)],anchored=0;
      // feet of walls along Y lie one bar higher, on top of the feet of walls along X (perpendicular feet would cross)
      if(sup){const zb=sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+V.d/2+(s?V.d+2:0),dir=f.k==='b'?1:-1,edge=t?(dir>0?sup.c.y1:sup.c.y0):(dir>0?sup.c.x1:sup.c.x0);
       anchored=Math.max(0,Math.min(det.hook90*V.d+sketchRadius(V.d),Math.abs(edge-f.v)-sc-V.d/2));
@@ -229,7 +256,7 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
      const kept=all.filter(embedded);if(!kept.length){notes.push(`${p.label}: เหล็กตั้งผิว ${f.k||'กลาง'} ไม่มีตำแหน่งที่ฝังในคอนกรีตได้`);continue;}
      if(kept.length<all.length){out.push(withPositions(bar(`vert${f.k}`,{d:V.d,points:pts,code:pts.length>2?'11':'00',axis:'Z',dist:{axis:s,from:u0,to:u1,spacing:V.s},note:`เหล็กตั้ง${f.k?` ผิว ${f.k==='a'?'1':'2'}`:''} DB${V.d} @${V.s}`}),s,all,kept,`ตัด ${all.length-kept.length} ตำแหน่งที่อยู่เหนือช่องเปิด`));continue;}
      out.push(bar(`vert${f.k}`,{d:V.d,points:pts,code:pts.length>2?'11':'00',axis:'Z',dist:{axis:s,from:u0,to:u1,spacing:V.s},note:`เหล็กตั้ง${f.k?` ผิว ${f.k==='a'?'1':'2'}`:''} DB${V.d} @${V.s}${sup?` · ยึดลง${sup.q.label}${anchored>2*V.d?` ขา 90° ${Math.round(anchored)}`:''}`:''}${ext?` · ยื่นพ้นหัว ${Math.round(ext)}`:''}`}));}
-    if(H&&H.s>0&&!ref){const z0=b.z0+c+H.d/2,z1=b.z1-c-H.d/2;out.push(bar(`horz${f.k}`,{d:H.d,points:[pt(L0+c+H.d/2,f.h,z0),pt(L1-c-H.d/2,f.h,z0)],code:'00',axis:axisOf(s),dist:{axis:2,from:z0,to:z1,spacing:H.s},note:`เหล็กนอน${f.k?` ผิว ${f.k==='a'?'1':'2'}`:''} DB${H.d} @${H.s}`}));}}}
+    if(H&&H.s>0&&!ref){const z0=b.z0+fc.bottom+H.d/2,z1=b.z1-fc.top-H.d/2;out.push(bar(`horz${f.k}`,{d:H.d,points:[pt(L0+cL0+H.d/2,f.h,z0),pt(L1-cL1-H.d/2,f.h,z0)],code:'00',axis:axisOf(s),dist:{axis:2,from:z0,to:z1,spacing:H.s},note:`เหล็กนอน${f.k?` ผิว ${f.k==='a'?'1':'2'}`:''} DB${H.d} @${H.s}`}));}}}
  }
  const off=new Set(r.off||[]);
  return {bars:off.size?out.filter(b=>!off.has(b.id.slice(`${PRESET_PREFIX}${p.id}-`.length))):out,notes};

@@ -1,16 +1,16 @@
 import {lazy,Suspense,useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
-import {Box,Layers,Maximize2,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,SquarePen,Trash2,Undo2,Wand2,X as Close} from 'lucide-react';
+import {Box,Layers,Maximize2,Ruler,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,SquarePen,Trash2,Undo2,Wand2,X as Close} from 'lucide-react';
 import type {Bar,Member,Project} from '../domain/model';
 import {takeoff,validateMember} from '../domain/engine';
 import {buildView,markColors} from '../domain/elementViews';
 import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
 import {hookDevLength,lapLength} from '../domain/elementInput';
-import {partPurposeLabels,partPurposes,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
+import {faceLabels,partPurposeLabels,partPurposes,type FaceKey,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
 import {addHooks,barLayout,boxFaces,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
  type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
 import {BarEditModal} from './BarEditModal';
-import {applyPartPresets,defaultPartRebar,detachPreset,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
+import {applyPartPresets,defaultPartRebar,detachPreset,edgeCover,edgeFaces,faceCovers,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
 import {barOwner,markFor,modelTags,newGroupId,nextTag,ownerParts,tagMarks,withAutoTags} from '../domain/partTags';
 import {Field,number} from './EditorControls';
 import {ModelView} from './Geometry';
@@ -21,8 +21,9 @@ type Kind=SketchView['kind'];
 /** Cut positions shared by the views: x = section Y–Y plane, y = section X–X plane, z = plan level. */
 type Cuts={x:number;y:number;z:number};
 const viewOf=(kind:Kind,c:Cuts):SketchView=>({kind,at:kind==='sx'?c.y:kind==='sy'?c.x:c.z});
-type CSnap=Snap|{p:P2;kind:'lap';label:string};
-const snapLabels:Record<CSnap['kind'],string>={corner:'มุม cover',cover:'แนว cover',edge:'ขอบคอนกรีต',ortho:'แนวฉาก',grid:'grid',free:'อิสระ',lap:'ระยะพ้นผิวคอนกรีต'};
+type CSnap=Snap|{p:P2;kind:'lap';label:string}|{p:P2;kind:'bar';label:string};
+type FacePick={part:string;face:FaceKey|'side'};
+const snapLabels:Record<CSnap['kind'],string>={corner:'มุม cover',cover:'แนว cover',edge:'ขอบคอนกรีต',ortho:'แนวฉาก',grid:'grid',free:'อิสระ',lap:'ระยะพ้นผิวคอนกรีต',bar:'ชิดเหล็กเส้นอื่น'};
 const cutLabels=['Y–Y','X–X','แปลน'];
 const viewTitles:Record<Kind,string>={plan:'แปลน (Z)',sx:'รูปตัด X–X',sy:'รูปตัด Y–Y'};
 const Custom3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Custom3DModal})));
@@ -33,10 +34,11 @@ const noEnds:SketchEndSet={start:{ext:null,hook:'none',leg:0,n:0},end:{ext:null,
 
 type Ctx={
  m:Member;rows:ReturnType<typeof takeoff>['rows'];colors:Map<string,string>;readOnly:boolean;tool:Tool;force:boolean;grid:number;ortho:boolean;dia:number;off:number;
+ cover:number;extra:number;snapFaces:boolean;snapBars:boolean;picked:FacePick[];pickFaces:(f:FacePick[])=>void;
  cuts:Cuts;setCuts:(c:Cuts)=>void;active:Kind;setActive:(k:Kind)=>void;focus:string;focusIds:string[];fbox?:Box3;setFocus:(id:string)=>void;
  pts:P2[];hits:CoverHit[];drawKind:Kind|null;setPts:(f:(p:P2[])=>P2[])=>void;setHits:(f:(h:CoverHit[])=>CoverHit[])=>void;setDrawKind:(k:Kind)=>void;reset:()=>void;
  hooks:{start:HookEnd;end:HookEnd};hookTable:HookTable;laps:{label:string;len:number}[];
- finish:(view:SketchView,points:P2[],rings:P2[][])=>void;sel:string;setSel:(id:string)=>void;selBar?:Bar;selView?:SketchView;
+ finish:(view:SketchView,points:P2[],rings:P2[][],warn?:string[])=>void;sel:string;setSel:(id:string)=>void;selBar?:Bar;selView?:SketchView;
  updateSel:(patch:{points?:P2[];layout?:LayoutRule;ends?:SketchEndSet},final?:boolean)=>void;settle:()=>void;deleteSel:()=>void;
  editBar:(id:string)=>void;big:Kind|'3d'|'';expand:(k:Kind|'3d'|'')=>void;
 };
@@ -68,14 +70,15 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  const rows=useMemo(()=>takeoff(m,spec).rows,[m,spec]),colors=useMemo(()=>markColors(rows),[rows]);
  const errors=useMemo(()=>validateMember(m,spec),[m,spec]),outsideLen=useMemo(()=>outsideLengths(m),[m]);
  const selBar=m.bars.find(b=>b.id===sel),selView=selBar?viewOfBar(selBar):undefined;
+ const [picked,setPicked]=useState<FacePick[]>([]),[snapFaces,setSnapFaces]=useState(true),[snapBars,setSnapBars]=useState(true);
  const [notes,setNotes]=useState<string[]>([]),[edit,setEdit]=useState(''),[big,setBig]=useState<Kind|'3d'|''>('');
  const commitBars=(bars:Bar[],select?:string,final=true)=>{const next={...m,bars};onChange(final?withOutsideRegions(next,spec):next);if(select!==undefined)setSel(select);};
  // bars made by the tools while a part / group is in focus belong to it: owner id + its tag's Marks
  const commitNew=(made:Bar[])=>{if(!made.length)return;let work=m;const own=made.map(b=>{const nb={...b,id:focus?partSketchId(focus):b.id,mark:''};nb.mark=markFor(work,focus||undefined);work={...work,bars:[...work.bars,nb]};return nb;});commitBars([...m.bars,...own],own[0].id);};
  const reset=()=>{setPts([]);setHits([]);setDrawKind(null);};
- const finish=(view:SketchView,points:P2[],rings:P2[][])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),i0=h.points.indexOf(points[0]),mark=markFor(m,focus||undefined);
+ const finish=(view:SketchView,points:P2[],rings:P2[][],warn:string[]=[])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),i0=h.points.indexOf(points[0]),mark=markFor(m,focus||undefined);
   const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,...(hooks.start.flip?{flip:true}:{}),n:Math.max(0,i0)},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,...(hooks.end.flip?{flip:true}:{}),n:Math.max(0,h.points.length-Math.max(0,i0)-points.length)}};
-  const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});setNotes(h.notes);commitBars([...m.bars,{...bar,ends}],bar.id);reset();setTool('select');};
+  const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});commitBars([...m.bars,{...bar,ends}],bar.id);setNotes([...h.notes,...warn]);reset();setTool('select');};
  const updateSel=(patch:{points?:P2[];diameter?:number;layout?:LayoutRule;grade?:string;mark?:string;ends?:SketchEndSet},final=true)=>{if(!selBar||!selView)return;
   const old=selBar.points.map(p=>toView(selView,p as [number,number,number]));const l=patch.layout||barLayout(selBar);
   const next=sketchBar({id:selBar.id,mark:patch.mark||selBar.mark,view:selView,points:patch.points||old,diameter:patch.diameter||selBar.diameter,grade:patch.grade||selBar.grade,layout:l,note:selBar.note});
@@ -89,7 +92,9 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  if(!sm)return <section className="panel padded"><p className="notice">สร้างรูปทรงในแท็บ “รูปทรง (หลายชิ้นส่วน)” และกดใช้กับสมาชิกก่อน แล้วจึงใส่เหล็ก</p></section>;
  const owned=(b:Bar)=>barOwner(sm,b),mine=(b:Bar)=>!focus||owned(b)===focus;
  const listed=m.bars.filter(b=>(isSketchBar(b)||isPresetBar(b))&&(!win||mine(b))).sort((a,b)=>Number(!!focus&&owned(b)===focus)-Number(!!focus&&owned(a)===focus));
- const ctx:Ctx={m,rows,colors,readOnly,tool,force,grid,ortho,dia,off:cover+extra+dia/2,cuts,setCuts,active,setActive,focus,focusIds:focusParts.map(p=>p.id),fbox:win?fbox:undefined,setFocus,pts,hits,drawKind,setPts,setHits,setDrawKind,reset,hooks,hookTable,laps,finish,sel,setSel,selBar,selView,updateSel,settle,deleteSel,editBar:id=>{setSel(id);setEdit(id);},big,expand:setBig};
+ const ctx:Ctx={m,rows,colors,readOnly,tool,force,grid,ortho,dia,off:cover+extra+dia/2,cover,extra,snapFaces,snapBars,picked,pickFaces:setPicked,cuts,setCuts,active,setActive,focus,focusIds:focusParts.map(p=>p.id),fbox:win?fbox:undefined,setFocus,pts,hits,drawKind,setPts,setHits,setDrawKind,reset,hooks,hookTable,laps,finish,sel,setSel,selBar,selView,updateSel,settle,deleteSel,editBar:id=>{setSel(id);setEdit(id);},big,expand:setBig};
+ // cover of one face (undefined = back to the part / member cover); presets follow
+ const setFaceCover=(id:string,face:FaceKey|'side',v:number|undefined)=>{const next={...m,shapeModel:{...sm,parts:sm.parts.map(p=>{if(p.id!==id)return p;const c={...p.covers};if(v===undefined)delete c[face];else c[face]=v;return {...p,covers:Object.keys(c).length?c:undefined};})}};const res=applyPartPresets(next,spec);setNotes(res.notes);onChange(res.member);};
  const savePart=(id:string,rebar:PartRebar|undefined)=>{const next={...m,shapeModel:{...sm,parts:sm.parts.map(p=>p.id===id?{...p,rebar}:p)}};const res=applyPartPresets(next,spec);setNotes(res.notes);onChange(res.member);};
  const open=(id:string)=>{setFocus(id);setSel('');reset();setTool(t=>t==='notes'?'select':t);setWin(true);};
  // picked parts → the group with exactly these parts, else a new group (tag G-nn)
@@ -147,7 +152,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
       <button type="button" className="danger-text" disabled={readOnly} onClick={()=>dropGroup(focusGroup.id)}><Trash2 size={13}/>ลบกลุ่ม</button></div>
      :<p className="muted part-hint">ทั้งโมเดล · เลือกชิ้นจากรายการด้านบนเพื่อกำหนดหน้าที่และใช้เหล็ก Preset</p>}
     <h4>เครื่องมือวาด</h4>
-    <div className="sketch-toolbar">{([['draw',<PenLine size={14}/>,'วาดเหล็ก'],['select',<MousePointer2 size={14}/>,'เลือก / แก้'],['mesh',<Grid3x3 size={14}/>,'ตะแกรง (แปลน)'],['loop',<Repeat size={14}/>,'Loop / Hoop'],['notes',<Sparkles size={14}/>,'จาก Note ในแบบ']] as const).map(([k,i,l])=><button key={k} className={tool===k?'active':''} disabled={readOnly&&k!=='select'} onClick={()=>{setTool(k);reset();}}>{i}{l}</button>)}</div>
+    <div className="sketch-toolbar">{([['draw',<PenLine size={14}/>,'วาดเหล็ก'],['select',<MousePointer2 size={14}/>,'เลือก / แก้'],['mesh',<Grid3x3 size={14}/>,'ตะแกรง (แปลน)'],['loop',<Repeat size={14}/>,'Loop / Hoop'],['notes',<Sparkles size={14}/>,'จาก Note ในแบบ'],['cover',<Ruler size={14}/>,'Cover รายด้าน']] as const).map(([k,i,l])=><button key={k} className={tool===k?'active':''} disabled={readOnly&&k!=='select'} onClick={()=>{setTool(k);reset();}}>{i}{l}</button>)}</div>
     <h4>เหล็ก</h4>
     <div className="form-grid">
      <label className="field"><span>ขนาด</span><select value={dia} onChange={e=>setDia(Number(e.target.value))}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label>
@@ -158,6 +163,8 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
      <label className="check"><input type="checkbox" checked={ortho} disabled={force} onChange={e=>setOrtho(e.target.checked)}/>แนวฉาก 90°</label>
     </div>
     <label className="check sketch-force"><input type="checkbox" checked={force} onChange={e=>{setForce(e.target.checked);reset();}}/><b>บังคับวาดตามแนว cover</b> (ปิดเพื่อวาดเหล็กยื่นพ้นคอนกรีต · Snap ที่ระยะ Lap / Ldh / 12d จากผิว)</label>
+    {!force&&<div className="snap-opts"><span>Snap อ้างอิง:</span><label className="check"><input type="checkbox" checked disabled/>แนว cover</label><label className="check"><input type="checkbox" checked={snapFaces} onChange={e=>setSnapFaces(e.target.checked)}/>ผิวคอนกรีต</label><label className="check" title="เส้นขนานกับเหล็กที่มีอยู่ ห่างศูนย์ d₁/2 + d₂/2 (ผิวชนผิว) ไม่ทับกันในระนาบเดียวกัน"><input type="checkbox" checked={snapBars} onChange={e=>setSnapBars(e.target.checked)}/>ชิดเหล็กเส้นอื่น</label></div>}
+    <div className="actions layer-step"><button type="button" title="เลื่อนแนววาดเข้าอีก 1 ชั้นเหล็ก (ขนาดที่เลือก) เพื่อไม่ทับเหล็กชั้นแรก" onClick={()=>setExtra(x=>x+dia)}>+ ชั้นถัดไป (+{dia})</button>{extra>0&&<button type="button" onClick={()=>setExtra(0)}>กลับชั้นแรก</button>}</div>
     <Field label="ระดับแปลน Z (mm)" type="number" value={cuts.z} onChange={v=>setCuts({...cuts,z:Number(v)||0})}/>
     <div className="sketch-levels">{levels.filter(z=>!fbox||z>=fbox.z0-1e-6&&z<=fbox.z1+1e-6).map(z=><button key={z} type="button" onClick={()=>setCuts({...cuts,z})}>{fmt(z)}</button>)}</div>
     <h4>ขอที่ปลายเหล็ก (เส้นใหม่)</h4>
@@ -166,11 +173,12 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
     {tool==='draw'&&<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตั้งฉาก{viewTitles[active]}{focusTag?` · ใน ${focusTag}`:''}</h4><LayoutFields layout={layout} range={rangeFor(active)} onChange={setLayout}/></>}
     {tool==='mesh'&&<MeshTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} within={focusParts.map(p=>p.id)} readOnly={readOnly} onCreate={commitNew}/>}
     {tool==='notes'&&<NotesTool m={m} readOnly={readOnly} gradeOf={gradeOf} onNotes={rebarNotes=>onChange({...m,shapeModel:{...sm,...(rebarNotes.length?{rebarNotes}:{rebarNotes:undefined})}})} onCreate={commitNew}/>}
+    {tool==='cover'&&<CoverTool m={m} focusPart={focusPart} picked={picked} readOnly={readOnly} onSet={setFaceCover}/>}
     {tool==='loop'&&<LoopTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} det={det} within={focusParts.map(p=>p.id)} readOnly={readOnly} onCreate={commitNew}/>}
    </aside>
    <div className="sketch-views">
     <SketchCanvas kind="plan" ctx={ctx}/>
-    <div className="sketch-canvas sketch-3d"><div className="sketch-status"><b>3D</b><span>ชิ้นที่เลือก = สีส้ม · คลิกเหล็กเลือก Mark · คลิกคอนกรีตเปลี่ยนชิ้น</span><button type="button" className="view-expand" title="ขยายมุมมอง" aria-label="ขยายมุมมอง 3D" onClick={()=>setBig('3d')}><Maximize2 size={13}/></button></div><ModelView member={m} spec={spec} selected={sel} onSelect={setSel} part={focusParts.map(p=>p.id).join(',')} onPart={id=>{if(!focusGroup)setFocus(id);}} height={330} keepView/></div>
+    <div className="sketch-canvas sketch-3d"><div className="sketch-status"><b>3D</b><span>ชิ้นที่เลือก = สีส้ม · คลิกเหล็กเลือก Mark · คลิกคอนกรีตเปลี่ยนชิ้น</span><button type="button" className="view-expand" title="ขยายมุมมอง" aria-label="ขยายมุมมอง 3D" onClick={()=>setBig('3d')}><Maximize2 size={13}/></button></div><ModelView member={m} spec={spec} selected={sel} onSelect={setSel} part={focusParts.map(p=>p.id).join(',')} onPart={id=>{if(!focusGroup)setFocus(id);}} onFace={tool==='cover'?(part,face)=>setPicked([{part,face}]):undefined} height={330} keepView/></div>
     <SketchCanvas kind="sx" ctx={ctx}/>
     <SketchCanvas kind="sy" ctx={ctx}/>
    </div>
@@ -208,6 +216,19 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  </section>;
 }
 
+/** Cover per face: faces picked in a view (edges in plan / sections, surfaces in 3D) and every face of the part in focus.
+ * Blank = the part cover / member cover; never below the member cover (the placement checks use it). Commits on Enter / blur. */
+function CoverTool({m,focusPart,picked,readOnly,onSet}:{m:Member;focusPart?:ShapePart;picked:FacePick[];readOnly:boolean;onSet:(part:string,face:FaceKey|'side',v:number|undefined)=>void}){
+ const sm=m.shapeModel!,eff=(p:ShapePart,face:FaceKey|'side')=>face==='side'?Math.max(m.cover,p.covers?.side??p.rebar?.cover??m.cover):faceCovers(m,p)[face];
+ const row=(p:ShapePart,face:FaceKey|'side')=>{const v=p.covers?.[face],commit=(raw:string)=>{const t=raw.trim(),n=t===''?undefined:Math.min(1000,Math.max(m.cover,Number(t)||m.cover));if(n!==v)onSet(p.id,face,n);};return <label className="field cover-row" key={`${p.id}-${face}-${v??''}`}><span>{p.tag?`${p.tag} · `:''}{faceLabels[face]}</span>
+  <input type="number" min={m.cover} max={1000} disabled={readOnly} defaultValue={v??''} placeholder={`${fmt(eff(p,face))}`} onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commit((e.target as HTMLInputElement).value);}}}/></label>;};
+ const picks=picked.flatMap(k=>{const p=sm.parts.find(q=>q.id===k.part);return p?[{p,face:k.face}]:[];});
+ const all:(FaceKey|'side')[]=focusPart?.shape==='box'?['x0','x1','y0','y1','bottom','top']:['side','bottom','top'];
+ return <div className="sketch-sub cover-tool"><h4>Cover รายด้าน</h4><p className="muted">คลิกขอบคอนกรีตในแปลน / รูปตัด หรือคลิกผิวใน 3D เพื่อเลือกด้าน · ช่องว่าง = ใช้ cover ของชิ้น · ต่ำสุด {m.cover} (cover สมาชิก ที่ใช้ตรวจ) · Enter เพื่อบันทึก · เหล็ก Preset สร้างใหม่ตาม cover</p>
+  {picks.length?<div className="form-grid">{picks.map(x=>row(x.p,x.face))}</div>:<p className="muted">ยังไม่ได้เลือกด้าน</p>}
+  {focusPart&&<><h4>ทุกด้านของ {focusPart.tag||focusPart.label}</h4><div className="form-grid">{all.map(face=>row(focusPart,face))}</div></>}</div>;
+}
+
 const hookNames:Record<SketchEndSet['start']['hook'],string>={none:'ปลายตรง',std90:'ขอมาตรฐาน 90°',std135:'ขอมาตรฐาน 135° (6d ≥ 75)',std180:'ขอมาตรฐาน 180°',custom:'ฉาก 90° กำหนดความยาว'};
 /** Both ends of a drawn bar: distance past (+) / short of (−) the part face along the end run (blank = as drawn), and
  * the end hook (standard 90° / 180° from the spec hook table, or a custom leg). Faces = the part in focus, else the concrete. */
@@ -215,7 +236,7 @@ function EndsEditor({bar,view,m,cover,focusBox,det,table,readOnly,onApply}:{bar:
  const [e,setE]=useState<SketchEndSet>(()=>bar.ends||noEnds),d=bar.diameter;
  const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],std=row?row.a90:12*d;
  const quick:[string,number][]=[[`cover −${fmt(cover)}`,-cover],['ผิว 0',0],[`Lap +${fmt(lapLength(det,d))}`,lapLength(det,d)],[`Ldh +${fmt(hookDevLength(det,d))}`,hookDevLength(det,d)]];
- const apply=()=>{const at={...view,at:bar.points[0][viewAxes(view).n]},region=viewRegion(m,at),faces=focusBox?boxFaces([boxIn(focusBox,view.kind)]):edgeSegments(region),rings=coverRings(region,cover+d/2);
+ const apply=()=>{const at={...view,at:bar.points[0][viewAxes(view).n]},region=viewRegion(m,at),faces=focusBox?boxFaces([boxIn(focusBox,view.kind)]):edgeSegments(region),rings=coverRings(region,(p,q)=>Math.max(cover,edgeCover(m,view.kind,p,q,at.at)??0)+d/2);
   const res=withEnds(bar.points.map(p=>toView(at,p as [number,number,number])),bar.ends,e,d,faces,rings,table);onApply(res.points,res.ends,res.notes);setE(res.ends);};
  const end=(k:'start'|'end',label:string)=>{const v=e[k],put=(p:Partial<typeof v>)=>setE({...e,[k]:{...v,...p}});return <div className="bar-end" key={k}><b>{label}</b>
   <div className="form-grid"><label className="field"><span>ระยะจากผิว{focusBox?'ชิ้น':'คอนกรีต'} (+ ออก / − เข้า)</span><input type="number" disabled={readOnly} value={v.ext??''} placeholder="ตามที่วาด" onChange={x=>put({ext:x.target.value===''?null:Number(x.target.value)})}/></label>
@@ -262,9 +283,14 @@ type CanvasDrag={kind:'pt';index:number}|{kind:'cut';axis:number}|{kind:'range';
 function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean}){
  const {m}=ctx,view=viewOf(kind,ctx.cuts),a=viewAxes(view),sm=m.shapeModel!;
  const region=useMemo(()=>viewRegion(m,view),[m,kind,view.at]);
- const coverSegs=useMemo(()=>offsetSegments(region,ctx.off),[region,ctx.off]),edges=useMemo(()=>edgeSegments(region),[region]);
- const rings=useMemo(()=>coverRings(region,ctx.off),[region,ctx.off]),faces=useMemo(()=>coverRings(region,0),[region]);
+ // cover line per edge: the face cover where one is set (never below the tool cover) + layer shift + bar radius
+ const offE=useMemo(()=>(p:P2,q:P2)=>Math.max(ctx.cover,edgeCover(m,kind,p,q,view.at)??0)+ctx.extra+ctx.dia/2,[m,kind,view.at,ctx.cover,ctx.extra,ctx.dia]);
+ const coverSegs=useMemo(()=>offsetSegments(region,offE),[region,offE]),edges=useMemo(()=>edgeSegments(region),[region]);
+ const rings=useMemo(()=>coverRings(region,offE),[region,offE]),faces=useMemo(()=>coverRings(region,0),[region]);
  const vd=useMemo(()=>buildView(m,ctx.rows,undefined,kind==='plan'?{axes:[0,1]}:{axes:[a.u,a.v] as [number,number],normal:a.n,cut:view.at}),[m,ctx.rows,kind,view.at]);
+ // lines parallel to the bars in this plane, d₁/2 + d₂/2 off both sides: a new bar snapped there touches, never overlaps
+ const barSegs=useMemo(()=>ctx.snapBars?vd.bars.flatMap(b=>b.lines.flatMap(l=>{const dx=l.b[0]-l.a[0],dy=l.b[1]-l.a[1],L=Math.hypot(dx,dy);if(L<1)return [];const o=(b.row.diameter+ctx.dia)/2,n:P2=[-dy/L*o,dx/L*o];
+  return [1,-1].map(k=>({a:[l.a[0]+k*n[0],l.a[1]+k*n[1]] as P2,b:[l.b[0]+k*n[0],l.b[1]+k*n[1]] as P2,mark:b.row.mark}));})):[],[vd,ctx.dia,ctx.snapBars]);
  const W=560,H=380,M=46,svg=useRef<SVGSVGElement>(null),size=[m.x,m.y,m.z];
  // frame: the part / group in focus (rebar window) with its bars, else the member and every bar
  const fb=ctx.fbox&&boxIn(ctx.fbox,kind),fbars=fb?vd.bars.filter(b=>barOwner(sm,{id:b.row.id})===ctx.focus):vd.bars;
@@ -284,9 +310,24 @@ function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean})
   if(!Number.isFinite(tE))return;const along=(raw[0]-prev[0])*u[0]+(raw[1]-prev[1])*u[1];
   for(const l of ctx.laps){const t=tE+l.len;if(Math.abs(along-t)<=14/s)return {p:[prev[0]+u[0]*t,prev[1]+u[1]*t],kind:'lap',label:l.label};}
  };
- const snapAt=(e:{clientX:number;clientY:number},prev?:P2):CSnap=>{const w=world(e),base=snapPoint(w,{cover:coverSegs,edges,prev,tol:12/s,grid:ctx.grid,ortho:ctx.ortho}),lap=lapSnap(w,prev);return lap&&base.kind!=='corner'&&base.kind!=='cover'?lap:base;};
+ const snapAt=(e:{clientX:number;clientY:number},prev?:P2):CSnap=>{const w=world(e),base=snapPoint(w,{cover:coverSegs,edges:ctx.snapFaces?edges:[],prev,tol:12/s,grid:ctx.grid,ortho:ctx.ortho}),lap=lapSnap(w,prev);
+  // a cover snap on top of an existing bar (same plane) gives way to the line beside that bar
+  const onBar=(p:P2)=>vd.bars.some(b=>b.lines.some(l=>{const ex=l.b[0]-l.a[0],ey=l.b[1]-l.a[1],LL=ex*ex+ey*ey;if(LL<1)return false;const t=((p[0]-l.a[0])*ex+(p[1]-l.a[1])*ey)/LL;return t>-.01&&t<1.01&&Math.hypot(p[0]-l.a[0]-t*ex,p[1]-l.a[1]-t*ey)<(b.row.diameter+ctx.dia)/2-.5;}));
+  if((base.kind==='corner'||base.kind==='cover')&&!(ctx.snapBars&&onBar(base.p)))return base;
+  // beside another bar (same plane): nearest offset line within reach, kept orthogonal to the previous point when possible
+  let bb:{p:P2;d:number;mark:string}|undefined;for(const g of barSegs){const ex=g.b[0]-g.a[0],ey=g.b[1]-g.a[1],LL=ex*ex+ey*ey,t=Math.max(0,Math.min(1,((w[0]-g.a[0])*ex+(w[1]-g.a[1])*ey)/LL));let q:P2=[g.a[0]+t*ex,g.a[1]+t*ey];
+   if(ctx.ortho&&prev){if(Math.abs(ey)<1e-6&&Math.abs(q[0]-prev[0])<12/s)q=[prev[0],q[1]];if(Math.abs(ex)<1e-6&&Math.abs(q[1]-prev[1])<12/s)q=[q[0],prev[1]];}
+   const d=Math.hypot(w[0]-q[0],w[1]-q[1]);if(d<=10/s&&(!bb||d<bb.d))bb={p:q,d,mark:g.mark};}
+  if(bb)return {p:bb.p,kind:'bar',label:`ชิด ${bb.mark}`};
+  return lap??base;};
+ // same plane, parallel and closer than the two radii: the new bar would overlap an existing one
+ const clashes=(line:P2[])=>{const out=new Set<string>();for(let i=1;i<line.length;i++){const a0=line[i-1],a1=line[i],ux=a1[0]-a0[0],uy=a1[1]-a0[1],L=Math.hypot(ux,uy);if(L<1)continue;
+   for(const b of vd.bars)for(const l of b.lines){const vx=l.b[0]-l.a[0],vy=l.b[1]-l.a[1],V=Math.hypot(vx,vy);if(V<1||Math.abs(ux*vy-uy*vx)/(L*V)>.02)continue;
+    const dist=Math.abs((l.a[0]-a0[0])*uy-(l.a[1]-a0[1])*ux)/L;if(dist>=(b.row.diameter+ctx.dia)/2-.5)continue;
+    const pr=(p:P2)=>((p[0]-a0[0])*ux+(p[1]-a0[1])*uy)/L,o0=Math.max(0,Math.min(pr(l.a),pr(l.b))),o1=Math.min(L,Math.max(pr(l.a),pr(l.b)));if(o1-o0>10)out.add(`${b.row.mark} (ห่างศูนย์ ${fmt(dist)} < ${fmt((b.row.diameter+ctx.dia)/2)})`);}}
+  return [...out].map(t=>`ทับเหล็ก ${t} ในระนาบเดียวกัน · ใช้ “+ ชั้นถัดไป” หรือ Snap ชิดเหล็กเส้นอื่น`);};
  const coverAt=(e:{clientX:number;clientY:number})=>snapToCover(world(e),rings,12/s,ctx.grid);
- const finish=()=>ctx.finish(view,pts,rings);
+ const finish=()=>ctx.finish(view,pts,rings,clashes(pts));
  const editable=!!ctx.selBar&&isSketchBar(ctx.selBar)&&ctx.selView?.kind===kind;
  // distribution range grips: the selected sketch bar's distribution axis lies in this view
  const dAxis=ctx.selBar&&isSketchBar(ctx.selBar)&&ctx.selBar.distributionAxis?'XYZ'.indexOf(ctx.selBar.distributionAxis):-1,inPlane=dAxis===a.u||dAxis===a.v;
@@ -330,6 +371,8 @@ function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean})
    {region.map((poly,i)=><path key={i} className="sk-concrete" fillRule="evenodd" d={poly.map(r=>`M${(r as P2[]).map(p=>`${X(p[0])},${Y(p[1])}`).join('L')}Z`).join('')}/>)}
    {parts.map(q=>{const d=partShape(q);return d&&<path key={q.p.id} d={d} fillRule="evenodd" className={`sk-part ${q.p.role} ${ctx.focusIds.includes(q.p.id)?'focus':''}`} onPointerDown={()=>{if(ctx.tool!=='draw')ctx.setFocus(q.p.id);}}><title>{q.p.label}</title></path>;})}
    {rings.map((r,i)=><polygon key={i} className={`sk-cover ${ctx.force?'forced':''}`} points={r.map(p=>`${X(p[0])},${Y(p[1])}`).join(' ')}/>)}
+   {ctx.tool==='cover'&&edges.map((e,i)=>{const hits=edgeFaces(m,kind,e.a,e.b,view.at);if(!hits.length)return null;const on=hits.some(h=>ctx.picked.some(p=>p.part===h.part.id&&p.face===h.face)),c=edgeCover(m,kind,e.a,e.b,view.at)??m.cover,mx=(e.a[0]+e.b[0])/2,my=(e.a[1]+e.b[1])/2;
+    return <g key={`f${i}`} className={`sk-face ${on?'picked':''}`} onPointerDown={ev=>{ev.stopPropagation();ctx.pickFaces(hits.map(h=>({part:h.part.id,face:h.face})));}}><line x1={X(e.a[0])} y1={Y(e.a[1])} x2={X(e.b[0])} y2={Y(e.b[1])}/><text x={X(mx)} y={Y(my)} dy={-5} textAnchor="middle">c {fmt(c)}</text><title>{hits.map(h=>`${h.part.tag||h.part.label} · ${faceLabels[h.face]}`).join(' / ')} · คลิกเพื่อแก้ cover</title></g>;})}
    {ctx.force&&ctx.tool==='draw'&&rings.flatMap((r,i)=>r.map((p,k)=><circle key={`${i}-${k}`} className="sk-corner" cx={X(p[0])} cy={Y(p[1])} r={2.5}/>))}
    {vd.bars.map(b=>{const c=ctx.colors.get(b.row.id)||'#167561',on=b.row.id===ctx.sel,dim=!!ctx.focus&&barOwner(sm,{id:b.row.id})!==ctx.focus&&!on;return <g key={b.row.id} className={`sk-bar ${on?'sel':''}`} opacity={dim?.28:1} onPointerDown={e=>{if(ctx.tool==='select'){e.stopPropagation();ctx.setSel(b.row.id);}}} onContextMenu={e=>{e.preventDefault();ctx.editBar(b.row.id);}}>
     {b.lines.map((l,i)=><line key={i} x1={X(l.a[0])} y1={Y(l.a[1])} x2={X(l.b[0])} y2={Y(l.b[1])} stroke={on?'#d4802a':c} strokeWidth={Math.max(2,b.row.diameter*s)+(on?2:0)} strokeLinecap="round"/>)}
