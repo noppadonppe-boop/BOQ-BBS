@@ -1,3 +1,4 @@
+import {HelpButton} from './HelpCenter';
 import {useMemo,useState} from 'react';
 import {isCoverQuestion} from '../domain/shapeProposal';
 import {standardCover} from '../domain/shapeApply';
@@ -74,7 +75,7 @@ export function LayoutFields({layout:l,onChange,disabled=false,range}:{layout:La
   if(rule==='spacing'&&l.rule==='count'&&n.count>1)next.spacing=Math.max(1,Math.ceil(gap-1e-6));
   onChange(next);};
  return <div className="form-grid">
-  <label className="field"><span>กฎการกระจาย</span><select disabled={disabled} value={l.rule} onChange={e=>setRule(e.target.value as LayoutRule['rule'])}><option value="spacing">กลุ่ม · ระยะ @ ไม่เกิน</option><option value="count">กลุ่ม · จำนวนเส้น</option><option value="single">เส้นเดี่ยว</option></select></label>
+  <div className="field"><span>กฎการกระจาย <HelpButton topic="layout-rule"/></span><select aria-label="กฎการกระจาย" disabled={disabled} value={l.rule} onChange={e=>setRule(e.target.value as LayoutRule['rule'])}><option value="spacing">กลุ่ม · ระยะ @ ไม่เกิน</option><option value="count">กลุ่ม · จำนวนเส้น</option><option value="single">เส้นเดี่ยว</option></select></div>
   {l.rule==='spacing'&&<Field label="ระยะ @ ไม่เกิน (mm)" type="number" disabled={disabled} value={l.spacing} onChange={v=>onChange({...l,spacing:Math.max(25,Number(v)||25)})}/>}
   {l.rule==='count'&&<Field label="จำนวน (เส้น)" type="number" disabled={disabled} value={l.count} onChange={v=>onChange({...l,count:Math.max(1,Math.min(2000,Math.trunc(Number(v)||1)))})}/>}
   {l.rule==='single'&&<span/>}

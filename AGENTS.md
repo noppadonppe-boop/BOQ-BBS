@@ -353,6 +353,12 @@
   (pile / cut by length when the unit is m, rebar ÷ 1000 for ตัน). Excel sheet “BOQ” (A–L rules, M–O quantity / rate /
   amount) `src/data/boqChaptersExcel.ts`; command `saveBoqChapters` (admin / QS, null clears); in backup / restore.
   UI: BOQ Summary tab “ตามหมวด BOQ เจ้าของงาน” `components/OwnerBoq.tsx` (uses the page scope). Test: `tmp/boqChapters.test.tsx`.
+- Help (คู่มือ): topics in `src/help/helpContent.ts` (`helpTopics`: group, summary, where, steps, tips, limits, related,
+  figure, `updated`; `helpChanges` = “มีอะไรใหม่”; `contextTopic()` maps page / category → topic), schematic SVGs in
+  `src/help/HelpFigures.tsx`, drawer `src/components/HelpCenter.tsx` (top-bar “คู่มือ” button / F1 opens the current page's
+  topic; `<HelpButton topic>` beside headings / tools; `openHelp(id)` from anywhere). **Every feature change updates its topic
+  (text, limits, `updated` date) and adds a `helpChanges` row; a new menu / tab / tool gets a topic and a HelpButton.**
+  Harness: `tmp/preview/help.html` (`#<topic>`, `#all` = every figure).
 - Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
 - Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
   add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).

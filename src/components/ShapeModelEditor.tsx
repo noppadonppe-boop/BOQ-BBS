@@ -1,3 +1,4 @@
+import {HelpButton} from './HelpCenter';
 import {useDeferredValue,useMemo,useRef,useState,type KeyboardEvent as RKeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
 import {Copy,Crosshair,Layers,Magnet,Plus,Redo2,Trash2,Undo2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
@@ -112,7 +113,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
   <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={(shape,c)=>{edit(()=>shape);setSel(shape.parts[0].id);setCover(c??standardCover(shape));setCoverSource(c?'จากแบบ':'มาตรฐาน');}}/>
   <div className="shape-layout">
    <aside className="shape-parts">
-    <div className="shape-parts-head"><h4>ชิ้นส่วน ({draft.parts.length}/40)</h4>{!readOnly&&draft.parts.some(p=>!p.tag)&&<button type="button" className="link-button" title="ตั้ง Tag no. ให้ชิ้นที่ยังไม่มี ตามหน้าที่ (F ฐานราก · C เสา · B คาน · S พื้น · W ผนัง · R อ้างอิง · P บ่อ · X อื่น) · Mark ของเหล็กจะขึ้นต้นด้วย Tag เมื่อกดใช้รูปทรง" onClick={()=>edit(d=>withAutoTags(d,p=>guessPurpose(p,d)))}>ตั้ง Tag อัตโนมัติ</button>}</div>
+    <div className="shape-parts-head"><h4>ชิ้นส่วน ({draft.parts.length}/40) <HelpButton topic="tags"/></h4>{!readOnly&&draft.parts.some(p=>!p.tag)&&<button type="button" className="link-button" title="ตั้ง Tag no. ให้ชิ้นที่ยังไม่มี ตามหน้าที่ (F ฐานราก · C เสา · B คาน · S พื้น · W ผนัง · R อ้างอิง · P บ่อ · X อื่น) · Mark ของเหล็กจะขึ้นต้นด้วย Tag เมื่อกดใช้รูปทรง" onClick={()=>edit(d=>withAutoTags(d,p=>guessPurpose(p,d)))}>ตั้ง Tag อัตโนมัติ</button>}</div>
     {draft.parts.map((p,i)=><button key={p.id} type="button" className={`shape-part ${p.id===sel?'active':''} ${p.role}`} onClick={()=>setSel(p.id)}>
      <i className={`stage-${Math.min(p.stage,3)}`}/><span><b>{p.tag?<em className="part-tag">{p.tag}</em>:`${i+1}. `}{p.label}</b><small>{p.role==='void'?'ช่องเปิด · ':p.role==='reference'?'อ้างอิง · ':''}{shapeKindLabels[p.shape]} · สูง {fmt(p.height)} · Stage {p.stage}</small></span></button>)}
     {!readOnly&&<div className="shape-add">{adders.map(([l,f])=><button key={l} type="button" disabled={draft.parts.length>=40} onClick={()=>add(f())}><Plus size={12}/>{l}</button>)}</div>}
@@ -121,6 +122,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
    </aside>
    <div className="shape-views" tabIndex={0} onKeyDown={keys} aria-label="มุมมองรูปทรง · ลูกศร / PageUp / PageDown เลื่อนชิ้นที่เลือก · Ctrl+Z ย้อนกลับ">
     <div className="shape-toolbar">
+     <HelpButton topic="shape-model"/>
      <button type="button" disabled={readOnly||!undo.current.length} title="ย้อนกลับ (Ctrl+Z)" onClick={()=>restore(undo,redo)}><Undo2 size={13}/>ย้อนกลับ</button>
      <button type="button" disabled={readOnly||!redo.current.length} title="ทำซ้ำ (Ctrl+Y)" onClick={()=>restore(redo,undo)}><Redo2 size={13}/></button>
      <button type="button" disabled={readOnly||!part} title="ตั้ง z0 = ผิวบนของชิ้นคอนกรีตที่ทับอยู่ด้านล่างในแปลน" onClick={onTop}><Layers size={13}/>วางบนชิ้นด้านล่าง</button>

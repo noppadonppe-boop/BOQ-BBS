@@ -1,3 +1,4 @@
+import {HelpButton} from './HelpCenter';
 import {lazy,Suspense,useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
 import {Box,Layers,Maximize2,Ruler,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,SquarePen,Trash2,Undo2,Wand2,X as Close} from 'lucide-react';
 import type {Bar,Member,Project} from '../domain/model';
@@ -153,7 +154,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
       <button type="button" className="danger-text" disabled={readOnly} onClick={()=>dropGroup(focusGroup.id)}><Trash2 size={13}/>ลบกลุ่ม</button></div>
      :<p className="muted part-hint">ทั้งโมเดล · เลือกชิ้นจากรายการด้านบนเพื่อกำหนดหน้าที่และใช้เหล็ก Preset</p>}
     <h4>เครื่องมือวาด</h4>
-    <div className="sketch-toolbar">{([['draw',<PenLine size={14}/>,'วาดเหล็ก'],['select',<MousePointer2 size={14}/>,'เลือก / แก้'],['mesh',<Grid3x3 size={14}/>,'ตะแกรง (แปลน)'],['loop',<Repeat size={14}/>,'Loop / Hoop'],['notes',<Sparkles size={14}/>,'จาก Note ในแบบ'],['cover',<Ruler size={14}/>,'Cover รายด้าน']] as const).map(([k,i,l])=><button key={k} className={tool===k?'active':''} disabled={readOnly&&k!=='select'} onClick={()=>{setTool(k);reset();}}>{i}{l}</button>)}</div>
+    <div className="sketch-toolbar">{([['draw',<PenLine size={14}/>,'วาดเหล็ก'],['select',<MousePointer2 size={14}/>,'เลือก / แก้'],['mesh',<Grid3x3 size={14}/>,'ตะแกรง (แปลน)'],['loop',<Repeat size={14}/>,'Loop / Hoop'],['notes',<Sparkles size={14}/>,'จาก Note ในแบบ'],['cover',<Ruler size={14}/>,'Cover รายด้าน']] as const).map(([k,i,l])=><button key={k} className={tool===k?'active':''} disabled={readOnly&&k!=='select'} onClick={()=>{setTool(k);reset();}}>{i}{l}</button>)}<HelpButton topic={tool==='cover'?'cover-faces':tool==='loop'?'loop-laps':tool==='select'?'rebar-window':'rebar-tools'}/></div>
     <h4>เหล็ก</h4>
     <div className="form-grid">
      <label className="field"><span>ขนาด</span><select value={dia} onChange={e=>setDia(Number(e.target.value))}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label>
@@ -246,7 +247,7 @@ function EndsEditor({bar,view,m,cover,focusBox,det,table,readOnly,onApply}:{bar:
    {v.hook!=='none'&&(()=>{const i=hookInfo(v.hook,d,table,v.leg);return <p className="hook-info">D {fmt(i.D)} · {v.hook==='std135'||v.hook==='std180'?'ส่วนตรงหลังงอ':'ขา'} {fmt(v.hook==='custom'?v.leg:i.L)}{v.hook==='std135'?` · H ${fmt(i.H)}`:''}{i.ag?` · A/G ตาราง ${fmt(i.ag)}`:''} · ยาวขอ ≈ {fmt(i.dev)}</p>;})()}
    {v.hook!=='none'&&<label className="check" title="ปกติของอเข้าหาคอนกรีต · ติ๊กเพื่องอไปอีกด้าน"><input type="checkbox" disabled={readOnly} checked={!!v.flip} onChange={x=>put({flip:x.target.checked||undefined})}/>กลับทิศขอ</label>}</div>
   <div className="bar-end-quick">{quick.map(([t,x])=><button key={t} type="button" disabled={readOnly} onClick={()=>put({ext:x})}>{t}</button>)}<button type="button" disabled={readOnly} onClick={()=>put({ext:null})}>ตามที่วาด</button></div></div>;};
- return <div className="bar-ends"><h4>ปลายเหล็ก</h4>{end('start','ปลายต้น · จุด A (จุดแรกที่วาด)')}{end('end',`ปลายท้าย · จุดสุดท้าย (หลังช่วง ${String.fromCharCode(64+Math.max(1,bar.points.length-1-(bar.ends?.start.n||0)-(bar.ends?.end.n||0)))})`)}
+ return <div className="bar-ends"><h4>ปลายเหล็ก <HelpButton topic="bar-ends"/> <HelpButton topic="hooks" label="ขอ"/></h4>{end('start','ปลายต้น · จุด A (จุดแรกที่วาด)')}{end('end',`ปลายท้าย · จุดสุดท้าย (หลังช่วง ${String.fromCharCode(64+Math.max(1,bar.points.length-1-(bar.ends?.start.n||0)-(bar.ends?.end.n||0)))})`)}
   <div className="actions"><button type="button" className="primary" disabled={readOnly} onClick={apply}>ใช้กับเหล็กนี้</button><button type="button" disabled={readOnly} onClick={()=>setE({...e,end:{...e.start,n:e.end.n}})}>ปลายท้าย = ปลายต้น</button></div></div>;
 }
 
