@@ -109,9 +109,10 @@
   Rebar tab = part table (Tag, purpose, sets, kg; tick ≥ 2 → group) → full-screen rebar window (`.rebar-window`: views framed on
   the part / group, tools create bars owned by it via `commitNew`; mesh / loop tools stay inside its plan: `within` → `regionWithin()`). Drawn bar ends `bar.ends {start,end: ext | null, hook
   none|std90|std135|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
-  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; 135° = turned back in: `bendTangent(r,135)` (r·tan 67.5°, the bend) + straight tail 6d ≥ 75 `hook135Tail`, so closed
-  stirrups end at a corner with both tails into the core; `leg` > 0 = own length (90°: from the tip; 135 / 180: tail after the bend),
-  standard = `stdHookLength()`; `flip` = turn to the other side); UI `EndsEditor` (+ “A ต้น / ท้าย” markers in views and `BarShapeSvg`).
+  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; hooks follow the stirrup / tie hook detail: the outer face of the bend lies on the stop line (end point = centreline, cover line);
+  90° leg from the outer face 6d ≤ DB16 / 12d above, 135° corner moved past the tip by r·tan 67.5° − r (`end.shift`, undone on re-apply) with a
+  10d tail, 180° tail 4d ≥ 65; D from spec STIRRUP AND TIE HOOKS (else END HOOKS) → `hookRadius()` (also the drawn bar radius);
+  `leg` > 0 = own length, `flip` = other side, side = the perpendicular with more room; ext = stop line (with a hook: outer face of the bend); UI `EndsEditor` (+ “A ต้น / ท้าย” markers in views and `BarShapeSvg`).
   Cover per face `part.covers {x0,x1,y0,y1,bottom,top,side}` (≤ 1,000, never below the member cover — checks use it): `faceCovers()`
   for presets (meshes / loops take `sides`, columns / beams / walls per face), `edgeFaces()` / `edgeCover()` map a view edge (at the cut)
   to part faces; sketch cover lines offset per edge (`coverRings` / `offsetSegments` take an `EdgeOffset` function; collinear

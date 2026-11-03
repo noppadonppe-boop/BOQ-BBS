@@ -68,51 +68,64 @@ export function traceCover(rings:P2[][],from:CoverHit,to:CoverHit):P2[]{
 const inRing=(p:P2,r:P2[])=>{let c=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;};
 /** Inside the cover outline (outer rings minus hole rings). */
 export function insideCover(p:P2,rings:P2[][]){let inside=false;for(const r of rings){if(ringArea(r)>0){if(inRing(p,r))inside=true;}else if(inRing(p,r))return false;}return inside;}
-/** End hook: kind, leg = hook length from the bar tip along the hook (0 = standard; custom = the 90° leg), flip = turn to the
- * other side (default: toward the concrete). */
+/** End hook: kind; leg = own length (90° / custom: leg from the outer face of the bar to its end · 135° / 180°: straight tail
+ * after the bend), 0 = the standard; flip = turn to the other side (default: toward the concrete). */
 export type HookEnd={kind:'none'|'std90'|'std135'|'std180'|'custom';leg:number;flip?:boolean};
-/** 135° hook: turned back into the concrete, straight extension 6d ≥ 75 mm (ACI 318 seismic hook) after the bend. */
-export const hook135Tail=(d:number)=>Math.max(6*d,75);
-/** Leg used by a bend of `deg` with radius r on each side of the corner (r·tan(deg/2)); a 135° hook needs this before its tail. */
+/** Hook data per bar size from the spec (STIRRUP AND TIE HOOKS, else END HOOKS): finished bend diameter D; 90° A/G, 135° A/G and
+ * H (seismic, 10d) for display. */
+export type HookTable={bar:number;D:number;a90?:number;a135?:number;h135?:number}[];
+const hookRow=(t:HookTable,d:number)=>t.find(r=>r.bar===d)||t.filter(r=>r.bar>=d).sort((x,y)=>x.bar-y.bar)[0];
+/** Centreline bend radius of drawn bars and their hooks: D/2 + d/2 (D from the table, else 4d up to DB16 / 6d above). */
+export const hookRadius=(d:number,t:HookTable)=>(hookRow(t,d)?.D??(d<=16?4:6)*d)/2+d/2;
+/** Leg used by a bend of `deg` with radius r on each side of the corner (r·tan(deg/2)). */
 export const bendTangent=(r:number,deg:number)=>r*Math.tan(deg*Math.PI/360);
-/** Standard hook data per bar size (from the spec's hook table): A/G of 90° hooks and the 180° extension. */
-export type HookTable={bar:number;a90:number}[];
-/** Standard hook length (90°: from the bar tip, A/G − d/2 · 135°: straight tail after the bend, 6d ≥ 75 · 180°: straight tail
- * after the bend, 4d ≥ 65). */
-export function stdHookLength(kind:HookEnd['kind'],d:number,table:HookTable){
- const r=sketchRadius(d),row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0];
- return kind==='std135'?hook135Tail(d):kind==='std180'?Math.max(4*d,65):row?row.a90-d/2:12*d+r;
+/** Standard hook length (stirrup / tie hooks): 90° leg from the outer face of the bar 6d up to DB16, 12d above · 135° straight
+ * tail after the bend 10d · 180° tail 4d ≥ 65. */
+export function stdHookLength(kind:HookEnd['kind'],d:number,_t?:HookTable){return kind==='std135'?10*d:kind==='std180'?Math.max(4*d,65):(d<=16?6:12)*d;}
+/** Figures shown with a hook: D, H (135°: drop of the tail's outer face below the stop line), developed length after the
+ * straight bar (centreline) and the table A/G when there is one. */
+export function hookInfo(kind:HookEnd['kind'],d:number,t:HookTable,own=0){
+ const r=hookRadius(d,t),D=2*r-d,L=own||stdHookLength(kind,d,t),row=hookRow(t,d),T=bendTangent(r,135);
+ if(kind==='std135')return {D,L,H:(T+L)*Math.SQRT1_2-(T-r)+d/2,dev:r*3*Math.PI/4+L,ag:row?.a135};
+ if(kind==='std180')return {D,L,H:0,dev:r*Math.PI+L,ag:undefined};
+ return {D,L,H:0,dev:r*Math.PI/2+Math.max(0,L-d/2-r),ag:kind==='std90'?row?.a90:undefined};
 }
-/** Adds end hooks: 90° (standard = table A/G, or a user leg) or 180° (standard), turned into the concrete and clipped
- * at the cover outline. Returns the new points and notes about clipped hooks. */
-export function addHooks(points:P2[],ends:{start:HookEnd;end:HookEnd},d:number,rings:P2[][],table:HookTable):{points:P2[];notes:string[]}{
- if(points.length<2)return {points,notes:[]};
- const notes:string[]=[],r=sketchRadius(d),row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0];
- const hook=(tip:P2,next:P2,e:HookEnd,label:string):P2[]=>{
-  if(e.kind==='none')return [];
+type Built={tip:P2;pts:P2[];shift:number};
+/** One hook at `tip` (centreline end: the outer face of the bend lies on the stop line, d/2 beyond the tip) for a bar arriving
+ * along u, turned to `side`. 90°: corner at the tip, leg L − d/2. 135°: corner moved past the tip by r·tan 67.5° − r so the bend
+ * reaches the stop line, tail L after the bend. 180°: two corners 2r apart, tail L. `room` (inside the concrete) clips. */
+function buildHook(tip:P2,u:P2,side:P2,e:HookEnd,d:number,t:HookTable,label:string,notes:string[],room?:(from:P2,dir:P2)=>number):Built|undefined{
+ if(e.kind==='none')return;
+ const r=hookRadius(d,t),own=e.leg>0?e.leg:0,at=(p:P2,v:P2,k:number):P2=>[p[0]+v[0]*k,p[1]+v[1]*k];
+ const ninety=():Built|undefined=>{const want=(e.kind==='custom'?e.leg:own||stdHookLength('std90',d,t))-d/2,avail=room?room(tip,side):Infinity,leg=Math.min(want,avail);
+  if(leg<want-.5)notes.push(`${label}: ขอยาว ${Math.round(want+d/2)} ถูกจำกัดเป็น ${Math.round(leg+d/2)} mm ตามแนว cover`);
+  if(leg<=r*1.5){notes.push(`${label}: ที่ไม่พอสำหรับขอ ใช้ปลายตรง`);return;}return {tip,pts:[at(tip,side,leg)],shift:0};};
+ if(e.kind==='std180'){const h=2*r,tail=own||stdHookLength('std180',d,t);
+  if(room&&room(tip,side)+1e-6<h){notes.push(`${label}: ที่ไม่พอสำหรับขอ 180° ใช้ขอ 90° แทน`);return ninety();}
+  const c=at(tip,side,h);return {tip,pts:[c,at(c,[-u[0],-u[1]],r+tail)],shift:0};}
+ if(e.kind==='std135'){const T=bendTangent(r,135),shift=T-r,V=at(tip,u,shift),dir:P2=[(side[0]-u[0])*Math.SQRT1_2,(side[1]-u[1])*Math.SQRT1_2],A=at(V,dir,T);
+  const tail=own||stdHookLength('std135',d,t),avail=room?room(A,dir):Infinity,tl=Math.min(tail,avail);
+  if(tl<tail-.5)notes.push(`${label}: ขอ 135° ส่วนตรง ${Math.round(tail)} ถูกจำกัดเป็น ${Math.round(tl)} mm ตามแนว cover`);
+  if(tl<2*d){notes.push(`${label}: ที่ไม่พอสำหรับขอ 135° ใช้ขอ 90° แทน`);return ninety();}
+  return {tip:V,pts:[at(V,dir,T+tl)],shift};}
+ return ninety();
+}
+/** Adds end hooks (stop line = outer face of the bend at the end point's cover line), turned into the concrete and clipped at
+ * the cover outline. Returns the points, notes, hook point counts and how far each end corner moved past its tip (135°). */
+export function addHooks(points:P2[],ends:{start:HookEnd;end:HookEnd},d:number,rings:P2[][],table:HookTable):{points:P2[];notes:string[];n:{start:number;end:number};shift:{start:number;end:number}}{
+ if(points.length<2)return {points,notes:[],n:{start:0,end:0},shift:{start:0,end:0}};
+ const notes:string[]=[];
+ const ok=(from:P2,dir:P2,t:number)=>{const q:P2=[from[0]+dir[0]*t,from[1]+dir[1]*t];return insideCover(q,rings)||onCover(q,rings);};
+ // coarse 5 mm march, then bisection to < 0.1 mm so clipped hooks end exactly on the cover line
+ const room=(from:P2,dir:P2)=>{if(!ok(from,dir,0))return 0;let t=0;for(let k=1;k<=4000;k++){if(!ok(from,dir,k*5))break;t=k*5;}let lo=t,hi=t+5;if(t<20000){for(let i=0;i<8;i++){const mid=(lo+hi)/2;if(ok(from,dir,mid))lo=mid;else hi=mid;}}return lo;};
+ const hook=(tip:P2,next:P2,e:HookEnd,label:string)=>{if(e.kind==='none')return;
   const dx=tip[0]-next[0],dy=tip[1]-next[1],l=Math.hypot(dx,dy)||1,u:P2=[dx/l,dy/l],perp:P2[]=[[-u[1],u[0]],[u[1],-u[0]]];
-  // turn toward the concrete: the perpendicular whose short step stays inside the cover outline
-  const step=Math.max(5,d),inward=perp.find(n=>insideCover([tip[0]+n[0]*step-u[0]*step,tip[1]+n[1]*step-u[1]*step],rings))||perp[0],side:P2=e.flip?[-inward[0],-inward[1]]:inward;
-  const ok=(from:P2,dir:P2,t:number)=>{const q:P2=[from[0]+dir[0]*t,from[1]+dir[1]*t];return insideCover(q,rings)||onCover(q,rings);};
-  // coarse 5 mm march, then bisection to < 0.1 mm so clipped hooks end exactly on the cover line
-  const room=(from:P2,dir:P2)=>{let t=0;for(let k=1;k<=4000;k++){if(!ok(from,dir,k*5))break;t=k*5;}let lo=t,hi=t+5;if(t<20000){for(let i=0;i<8;i++){const mid=(lo+hi)/2;if(ok(from,dir,mid))lo=mid;else hi=mid;}}return lo;};
-  // 180°: semicircle (two corners 2r apart) + straight extension 4d ≥ 65 mm (ACI 318 / วสท. standard hook)
-  const own=e.leg>0?e.leg:0;
-  if(e.kind==='std180'){const h=2*r,tail=own||Math.max(4*d,65),avail=room(tip,side);
-   if(avail+1e-6<h){notes.push(`${label}: ที่ไม่พอสำหรับขอ 180° ใช้ขอ 90° แทน`);return hook(tip,next,{kind:'std90',leg:0,flip:e.flip},label);}
-   const c:P2=[tip[0]+side[0]*h,tip[1]+side[1]*h];return [c,[c[0]-u[0]*(r+tail),c[1]-u[1]*(r+tail)]];}
-  // 135°: the bend takes r·tan 67.5° of the leg, the tail (own or 6d ≥ 75) runs straight after it
-  if(e.kind==='std135'){const s2=Math.SQRT1_2,T=bendTangent(r,135),dir:P2=[(side[0]-u[0])*s2,(side[1]-u[1])*s2],want=T+(own||hook135Tail(d)),avail=room(tip,dir),leg=Math.min(want,avail);
-   if(leg<want-.5)notes.push(`${label}: ขอ 135° ยาว ${Math.round(want)} ถูกจำกัดเป็น ${Math.round(leg)} mm ตามแนว cover`);
-   if(leg<=T+2*d){notes.push(`${label}: ที่ไม่พอสำหรับขอ 135° ใช้ขอ 90° แทน`);return hook(tip,next,{kind:'std90',leg:0,flip:e.flip},label);}
-   return [[tip[0]+dir[0]*leg,tip[1]+dir[1]*leg]];}
-  const want=e.kind==='custom'?e.leg:own||(row?row.a90-d/2:12*d+r),avail=room(tip,side),leg=Math.min(want,avail);
-  if(leg<want-.5)notes.push(`${label}: ขอยาว ${Math.round(want)} ถูกจำกัดเป็น ${Math.round(leg)} mm ตามแนว cover`);
-  if(leg<=r*1.5){notes.push(`${label}: ที่ไม่พอสำหรับขอ ใช้ปลายตรง`);return [];}
-  return [[tip[0]+side[0]*leg,tip[1]+side[1]*leg]];
- };
+  // turn toward the concrete: the perpendicular with more room inside the cover outline (a short step back from the tip)
+  const step=Math.max(5,d),roomOf=(n:P2)=>{const q:P2=[tip[0]-u[0]*step,tip[1]-u[1]*step];return insideCover([q[0]+n[0]*step,q[1]+n[1]*step],rings)?room(q,n):-1;},inward=roomOf(perp[1])>roomOf(perp[0])?perp[1]:perp[0],side:P2=e.flip?[-inward[0],-inward[1]]:inward;
+  return buildHook(tip,u,side,e,d,table,label,notes,room);};
  const s=hook(points[0],points[1],ends.start,'ปลายต้น'),e=hook(points.at(-1)!,points.at(-2)!,ends.end,'ปลายท้าย');
- return {points:[...s.reverse(),...points,...e],notes};
+ const body=[...points];if(s)body[0]=s.tip;if(e)body[body.length-1]=e.tip;
+ return {points:[...(s?[...s.pts].reverse():[]),...body,...(e?.pts||[])],notes,n:{start:s?.pts.length||0,end:e?.pts.length||0},shift:{start:s?.shift||0,end:e?.shift||0}};
 }
 /** Distance along the ray o + t·u to segment s (undefined when it misses). */
 export function rayHit(o:P2,u:P2,s:Seg){const e=[s.b[0]-s.a[0],s.b[1]-s.a[1]],den=u[0]*e[1]-u[1]*e[0];if(Math.abs(den)<1e-9)return;const w=[s.a[0]-o[0],s.a[1]-o[1]],t=(w[0]*e[1]-w[1]*e[0])/den,k=(w[0]*u[1]-w[1]*u[0])/den;return k>=-1e-9&&k<=1+1e-9?t:undefined;}
@@ -121,32 +134,33 @@ export function boxFaces(boxes:{lo:P2;hi:P2}[]):Seg[]{return boxes.flatMap(({lo,
 /** Cover per plan side (box faces) for mesh / loop tools; unset sides use `cover`. */
 export type SideCovers={x0?:number;x1?:number;y0?:number;y1?:number};
 export type SketchEndSet=NonNullable<Bar['ends']>;
-/** Re-applies the end settings of a drawn bar: strips the hook points added before (`prev.n`), moves each end with an
- * `ext` to the first face crossed from its neighbour + ext (+ past the face / − short of it), then adds the hooks
- * (inside the concrete: turned in and clipped at the cover like `addHooks`; past the concrete: full length, turned
- * toward the concrete). Returns the points and the settings with the hook point counts. */
+/** Re-applies the end settings of a drawn bar: strips the hook points added before (`prev.n`) and puts a moved 135° corner back
+ * (`prev.shift`), moves each end with an `ext` to the first face crossed from its neighbour + ext (+ past the face / − short of
+ * it), then adds the hooks (inside the concrete: turned in and clipped at the cover like `addHooks`; past the concrete: full
+ * length, turned toward the concrete). Returns the points and the settings with the hook point counts and corner shifts. */
 export function withEnds(points:P2[],prev:SketchEndSet|undefined,next:SketchEndSet,d:number,faces:Seg[],rings:P2[][],table:HookTable):{points:P2[];ends:SketchEndSet;notes:string[]}{
  const core=points.slice(prev?.start.n||0,points.length-(prev?.end.n||0));if(core.length<2)return {points,ends:prev||next,notes:['ปลายเหล็ก: เส้นสั้นเกินไป']};
  const notes:string[]=[],c=[...core];
- const move=(tip:number,nb:number,ext:number|null,label:string)=>{if(ext===null)return;const o=c[nb],dx=c[tip][0]-o[0],dy=c[tip][1]-o[1],l=Math.hypot(dx,dy);if(l<1e-6)return;const u:P2=[dx/l,dy/l];
+ const along=(tip:number,nb:number,k:number)=>{const o=c[nb],dx=c[tip][0]-o[0],dy=c[tip][1]-o[1],l=Math.hypot(dx,dy);if(l<1e-6||!k)return;c[tip]=[c[tip][0]+dx/l*k,c[tip][1]+dy/l*k];};
+ along(0,1,-(prev?.start.shift||0));along(c.length-1,c.length-2,-(prev?.end.shift||0));
+ // stop line: the bar end, or with a hook the outer face of its bend (d/2 past the centreline end)
+ const move=(tip:number,nb:number,ext:number|null,label:string,hooked:boolean)=>{if(ext===null)return;const o=c[nb],dx=c[tip][0]-o[0],dy=c[tip][1]-o[1],l=Math.hypot(dx,dy);if(l<1e-6)return;const u:P2=[dx/l,dy/l];
   let t=Infinity;for(const f of faces){const h=rayHit(o,u,f);if(h!==undefined&&h>1e-6&&h<t)t=h;}
   if(!Number.isFinite(t)){notes.push(`${label}: ไม่พบผิวคอนกรีตตามแนวปลายเหล็ก`);return;}
-  const L=t+ext;if(L<=Math.max(10,d)){notes.push(`${label}: ระยะ ${ext} ทำให้ท่อนปลายสั้นเกินไป`);return;}c[tip]=[o[0]+u[0]*L,o[1]+u[1]*L];};
- move(0,1,next.start.ext,'ปลายต้น');move(c.length-1,c.length-2,next.end.ext,'ปลายท้าย');
- const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],r=sketchRadius(d);
+  const L=t+ext-(hooked?d/2:0);if(L<=Math.max(10,d)){notes.push(`${label}: ระยะ ${ext} ทำให้ท่อนปลายสั้นเกินไป`);return;}c[tip]=[o[0]+u[0]*L,o[1]+u[1]*L];};
+ move(0,1,next.start.ext,'ปลายต้น',next.start.hook!=='none');move(c.length-1,c.length-2,next.end.ext,'ปลายท้าย',next.end.hook!=='none');
  const centre=rings.flat().reduce((s,p)=>[s[0]+p[0],s[1]+p[1]] as P2,[0,0] as P2).map(v=>v/Math.max(1,rings.flat().length)) as unknown as P2;
- // hook on a tip past the concrete: not clipped, turned toward the concrete centre
- const free=(tip:P2,nb:P2,e:{hook:string;leg:number;flip?:boolean}):P2[]=>{const dx=tip[0]-nb[0],dy=tip[1]-nb[1],l=Math.hypot(dx,dy)||1,u:P2=[dx/l,dy/l],n0:P2=[-u[1],u[0]],toward=(centre[0]-tip[0])*n0[0]+(centre[1]-tip[1])*n0[1]>=0,side:P2=toward!==!!e.flip?n0:[u[1],-u[0]],own=e.leg>0?e.leg:0;
-  if(e.hook==='std180'){const h=2*r,tail=own||Math.max(4*d,65),q:P2=[tip[0]+side[0]*h,tip[1]+side[1]*h];return [q,[q[0]-u[0]*(r+tail),q[1]-u[1]*(r+tail)]];}
-  if(e.hook==='std135'){const s2=Math.SQRT1_2,L=bendTangent(r,135)+(own||hook135Tail(d));return [[tip[0]+(side[0]-u[0])*s2*L,tip[1]+(side[1]-u[1])*s2*L]];}
-  const leg=e.hook==='custom'?e.leg:own||(row?row.a90-d/2:12*d+r);return leg>r*1.5?[[tip[0]+side[0]*leg,tip[1]+side[1]*leg]]:[];};
- const inside=(p:P2)=>insideCover(p,rings)||onCover(p,rings);
- const end=(k:'start'|'end'):P2[]=>{const e=next[k];if(e.hook==='none')return [];const tip=k==='start'?c[0]:c.at(-1)!,nb=k==='start'?c[1]:c.at(-2)!;
-  if(!inside(tip))return free(tip,nb,e);
-  const h=addHooks(k==='start'?c:[...c],{start:k==='start'?{kind:e.hook as HookEnd['kind'],leg:e.leg,flip:e.flip}:{kind:'none',leg:0},end:k==='end'?{kind:e.hook as HookEnd['kind'],leg:e.leg,flip:e.flip}:{kind:'none',leg:0}},d,rings,table);notes.push(...h.notes);
-  return k==='start'?h.points.slice(0,h.points.length-c.length).reverse():h.points.slice(c.length);};
- const s=end('start'),e=end('end');
- return {points:[...s.reverse(),...c,...e],ends:{start:{...next.start,n:s.length},end:{...next.end,n:e.length}},notes};
+ const inside=(p:P2)=>insideCover(p,rings)||onCover(p,rings),none:HookEnd={kind:'none',leg:0};
+ const one=(k:'start'|'end'):Built|undefined=>{const e=next[k];if(e.hook==='none')return;const tip=k==='start'?c[0]:c.at(-1)!,nb=k==='start'?c[1]:c.at(-2)!,he:HookEnd={kind:e.hook,leg:e.leg,flip:e.flip},label=k==='start'?'ปลายต้น':'ปลายท้าย';
+  // a tip past the concrete: not clipped, turned toward the concrete centre
+  if(!inside(tip)){const dx=tip[0]-nb[0],dy=tip[1]-nb[1],l=Math.hypot(dx,dy)||1,u:P2=[dx/l,dy/l],n0:P2=[-u[1],u[0]],toward=(centre[0]-tip[0])*n0[0]+(centre[1]-tip[1])*n0[1]>=0;
+   return buildHook(tip,u,toward!==!!e.flip?n0:[u[1],-u[0]],he,d,table,label,notes);}
+  const h=addHooks(c,{start:k==='start'?he:none,end:k==='end'?he:none},d,rings,table);notes.push(...h.notes);
+  return k==='start'?(h.n.start?{tip:h.points[h.n.start],pts:h.points.slice(0,h.n.start).reverse(),shift:h.shift.start}:undefined)
+   :(h.n.end?{tip:h.points[h.points.length-1-h.n.end],pts:h.points.slice(h.points.length-h.n.end),shift:h.shift.end}:undefined);};
+ const s=one('start'),e=one('end');if(s)c[0]=s.tip;if(e)c[c.length-1]=e.tip;
+ const out=(x:SketchEndSet['start'],b:Built|undefined)=>{const {shift:_s,...rest}=x;return {...rest,n:b?.pts.length||0,...(b?.shift?{shift:Number(b.shift.toFixed(3))}:{})};};
+ return {points:[...(s?[...s.pts].reverse():[]),...c,...(e?.pts||[])],ends:{start:out(next.start,s),end:out(next.end,e)},notes};
 }
 const onCover=(p:P2,rings:P2[][])=>rings.some(r=>r.some((a,i)=>near(p,{a,b:r[(i+1)%r.length]}).d<1&&near(p,{a,b:r[(i+1)%r.length]}).t>=-1e-6&&near(p,{a,b:r[(i+1)%r.length]}).t<=1+1e-6));
 const near=(p:P2,s:Seg):{q:P2;d:number;t:number}=>{const dx=s.b[0]-s.a[0],dy=s.b[1]-s.a[1],l=dx*dx+dy*dy,t=l?((p[0]-s.a[0])*dx+(p[1]-s.a[1])*dy)/l:0,q:P2=[s.a[0]+t*dx,s.a[1]+t*dy];return {q,d:Math.hypot(p[0]-q[0],p[1]-q[1]),t};};
@@ -210,11 +224,11 @@ export const sketchRadius=(d:number)=>(d<=16?2:3.5)*d+d/2;
 export const SKETCH_PREFIX='sk-';
 export const isSketchBar=(b:Bar)=>b.id.startsWith(SKETCH_PREFIX);
 /** Bar from a sketch: template drawn at `layout.from` on the normal axis, distributed to `layout.to`. */
-export function sketchBar(o:{mark:string;view:SketchView;points:P2[];diameter:number;grade:string;layout:LayoutRule;note?:string;id?:string}):Bar{
+export function sketchBar(o:{mark:string;view:SketchView;points:P2[];diameter:number;grade:string;layout:LayoutRule;note?:string;id?:string;radius?:number}):Bar{
  const l=layoutOf(o.layout),a=viewAxes(o.view),pts=o.points.map(p=>toWorld(o.view,p,l.from)),code=detectShapeCode(o.points);
  const longest=o.points.slice(1).map((p,i)=>({i,l:Math.hypot(p[0]-o.points[i][0],p[1]-o.points[i][1])})).sort((x,y)=>y.l-x.l)[0]?.i??0;
  const d=[0,1,2].map(k=>Math.abs(pts[longest+1][k]-pts[longest][k])),axis=axisName[d.indexOf(Math.max(...d))];
- const radius=o.points.length>2?sketchRadius(o.diameter):0;
+ const radius=o.points.length>2?o.radius??sketchRadius(o.diameter):0;
  return {...blankBar(o.mark),id:o.id||`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:l.count,shape:'polyline',shapeCode:code,axis,face:'side',radius:Number(radius.toFixed(3)),
   points:pts.map(p=>p.map(v=>Number(v.toFixed(3))) as Vec3),distributionAxis:axisName[a.n],distributionStart:l.from,distributionEnd:l.to,layoutRule:{rule:o.layout.rule,spacing:Math.max(1,o.layout.spacing||200)},
   ...(['00','11','21'].includes(code)?{lengthMethod:'bs8666' as const}:{}),note:(o.note||`วาดบน${o.view.kind==='plan'?`แปลน Z ${Math.round(o.view.at)}`:`รูปตัด ${o.view.kind==='sx'?'X–X':'Y–Y'} @${Math.round(o.view.at)}`} · ${o.layout.rule==='spacing'?`@${o.layout.spacing}`:o.layout.rule==='count'?`${l.count} เส้น`:'เดี่ยว'}`).slice(0,500)};

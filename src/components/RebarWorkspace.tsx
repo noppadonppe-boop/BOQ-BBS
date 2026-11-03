@@ -7,7 +7,7 @@ import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
 import {hookDevLength,lapLength} from '../domain/elementInput';
 import {faceLabels,partPurposeLabels,partPurposes,type FaceKey,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
-import {addHooks,barLayout,boxFaces,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
+import {addHooks,barLayout,boxFaces,hookInfo,hookRadius,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
  type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
 import {BarEditModal} from './BarEditModal';
 import {applyPartPresets,defaultPartRebar,detachPreset,edgeCover,edgeFaces,faceCovers,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
@@ -65,7 +65,8 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  useEffect(()=>{const [from,to]=rangeFor(active);setLayout(l=>({...l,from,to}));},[active,focus,cover,dia,m.x,m.y,m.z]);
  const [pts,setPts]=useState<P2[]>([]),[hits,setHits]=useState<CoverHit[]>([]),[drawKind,setDrawKind]=useState<Kind|null>(null),[sel,setSel]=useState('');
  const [force,setForce]=useState(true),[hooks,setHooks]=useState<{start:HookEnd;end:HookEnd}>({start:{kind:'none',leg:0},end:{kind:'none',leg:0}});
- const hookTable:HookTable=codeValues(spec.codeData,spec.designCode).endHooks.map(h=>({bar:h.bar,a90:h.a90}));
+ // hook data: STIRRUP AND TIE HOOKS (D, 90° / 135° seismic A/G and H), sizes it lacks from END HOOKS (D)
+ const hookTable:HookTable=useMemo(()=>{const cv=codeValues(spec.codeData,spec.designCode),ties=cv.stirrupHooks.map(h=>({bar:h.bar,D:h.D,a90:h.a90,a135:h.a135s,h135:h.h135s}));return [...ties,...cv.endHooks.filter(h=>!ties.some(t=>t.bar===h.bar)).map(h=>({bar:h.bar,D:h.D}))].sort((a,b)=>a.bar-b.bar);},[spec]);
  const laps=useMemo(()=>[{label:`Lap ${fmt(lapLength(det,dia))}`,len:lapLength(det,dia)},{label:`Ldh ${fmt(hookDevLength(det,dia))}`,len:hookDevLength(det,dia)},{label:`12d ${fmt(12*dia)}`,len:12*dia}],[det,dia]);
  const rows=useMemo(()=>takeoff(m,spec).rows,[m,spec]),colors=useMemo(()=>markColors(rows),[rows]);
  const errors=useMemo(()=>validateMember(m,spec),[m,spec]),outsideLen=useMemo(()=>outsideLengths(m),[m]);
@@ -76,12 +77,12 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  // bars made by the tools while a part / group is in focus belong to it: owner id + its tag's Marks
  const commitNew=(made:Bar[])=>{if(!made.length)return;let work=m;const own=made.map(b=>{const nb={...b,id:focus?partSketchId(focus):b.id,mark:''};nb.mark=markFor(work,focus||undefined);work={...work,bars:[...work.bars,nb]};return nb;});commitBars([...m.bars,...own],own[0].id);};
  const reset=()=>{setPts([]);setHits([]);setDrawKind(null);};
- const finish=(view:SketchView,points:P2[],rings:P2[][],warn:string[]=[])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),i0=h.points.indexOf(points[0]),mark=markFor(m,focus||undefined);
-  const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,...(hooks.start.flip?{flip:true}:{}),n:Math.max(0,i0)},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,...(hooks.end.flip?{flip:true}:{}),n:Math.max(0,h.points.length-Math.max(0,i0)-points.length)}};
-  const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});commitBars([...m.bars,{...bar,ends}],bar.id);setNotes([...h.notes,...warn]);reset();setTool('select');};
+ const finish=(view:SketchView,points:P2[],rings:P2[][],warn:string[]=[])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),mark=markFor(m,focus||undefined);
+  const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,...(hooks.start.flip?{flip:true}:{}),n:h.n.start,...(h.shift.start?{shift:Number(h.shift.start.toFixed(3))}:{})},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,...(hooks.end.flip?{flip:true}:{}),n:h.n.end,...(h.shift.end?{shift:Number(h.shift.end.toFixed(3))}:{})}};
+  const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout,radius:hookRadius(dia,hookTable)});commitBars([...m.bars,{...bar,ends}],bar.id);setNotes([...h.notes,...warn]);reset();setTool('select');};
  const updateSel=(patch:{points?:P2[];diameter?:number;layout?:LayoutRule;grade?:string;mark?:string;ends?:SketchEndSet},final=true)=>{if(!selBar||!selView)return;
   const old=selBar.points.map(p=>toView(selView,p as [number,number,number]));const l=patch.layout||barLayout(selBar);
-  const next=sketchBar({id:selBar.id,mark:patch.mark||selBar.mark,view:selView,points:patch.points||old,diameter:patch.diameter||selBar.diameter,grade:patch.grade||selBar.grade,layout:l,note:selBar.note});
+  const next=sketchBar({id:selBar.id,mark:patch.mark||selBar.mark,view:selView,points:patch.points||old,diameter:patch.diameter||selBar.diameter,grade:patch.grade||selBar.grade,layout:l,note:selBar.note,radius:hookRadius(patch.diameter||selBar.diameter,hookTable)});
   const ends=patch.ends||selBar.ends;
   commitBars(m.bars.map(b=>b.id===selBar.id?{...next,...(ends?{ends}:{}),placementConfirmed:false}:b),undefined,final);};
  const settle=()=>onChange(withOutsideRegions(m,spec));
@@ -229,19 +230,20 @@ function CoverTool({m,focusPart,picked,readOnly,onSet}:{m:Member;focusPart?:Shap
   {focusPart&&<><h4>ทุกด้านของ {focusPart.tag||focusPart.label}</h4><div className="form-grid">{all.map(face=>row(focusPart,face))}</div></>}</div>;
 }
 
-const hookNames:Record<SketchEndSet['start']['hook'],string>={none:'ปลายตรง',std90:'ขอมาตรฐาน 90°',std135:'ขอมาตรฐาน 135° (6d ≥ 75)',std180:'ขอมาตรฐาน 180°',custom:'ฉาก 90° กำหนดความยาว'};
+const hookNames:Record<SketchEndSet['start']['hook'],string>={none:'ปลายตรง',std90:'ขอมาตรฐาน 90°',std135:'ขอมาตรฐาน 135°',std180:'ขอมาตรฐาน 180°',custom:'ฉาก 90° กำหนดความยาว'};
 /** Both ends of a drawn bar: distance past (+) / short of (−) the part face along the end run (blank = as drawn), and
  * the end hook (standard 90° / 180° from the spec hook table, or a custom leg). Faces = the part in focus, else the concrete. */
 function EndsEditor({bar,view,m,cover,focusBox,det,table,readOnly,onApply}:{bar:Bar;view:SketchView;m:Member;cover:number;focusBox?:Box3;det:ReturnType<typeof detailingFor>;table:HookTable;readOnly:boolean;onApply:(points:P2[],ends:SketchEndSet,notes:string[])=>void}){
  const [e,setE]=useState<SketchEndSet>(()=>bar.ends||noEnds),d=bar.diameter;
- const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],std=row?row.a90:12*d;
+ const std=stdHookLength('std90',d,table);
  const quick:[string,number][]=[[`cover −${fmt(cover)}`,-cover],['ผิว 0',0],[`Lap +${fmt(lapLength(det,d))}`,lapLength(det,d)],[`Ldh +${fmt(hookDevLength(det,d))}`,hookDevLength(det,d)]];
  const apply=()=>{const at={...view,at:bar.points[0][viewAxes(view).n]},region=viewRegion(m,at),faces=focusBox?boxFaces([boxIn(focusBox,view.kind)]):edgeSegments(region),rings=coverRings(region,(p,q)=>Math.max(cover,edgeCover(m,view.kind,p,q,at.at)??0)+d/2);
   const res=withEnds(bar.points.map(p=>toView(at,p as [number,number,number])),bar.ends,e,d,faces,rings,table);onApply(res.points,res.ends,res.notes);setE(res.ends);};
  const end=(k:'start'|'end',label:string)=>{const v=e[k],put=(p:Partial<typeof v>)=>setE({...e,[k]:{...v,...p}});return <div className="bar-end" key={k}><b>{label}</b>
-  <div className="form-grid"><label className="field"><span>ระยะจากผิว{focusBox?'ชิ้น':'คอนกรีต'} (+ ออก / − เข้า)</span><input type="number" disabled={readOnly} value={v.ext??''} placeholder="ตามที่วาด" onChange={x=>put({ext:x.target.value===''?null:Number(x.target.value)})}/></label>
-   <label className="field"><span>ปลาย</span><select disabled={readOnly} value={v.hook} onChange={x=>{const h=x.target.value as typeof v.hook;put({hook:h,leg:h==='custom'?v.leg||std:0});}}>{(Object.keys(hookNames) as (keyof typeof hookNames)[]).map(h=><option key={h} value={h}>{hookNames[h]}{h==='std90'?` (${fmt(std)})`:''}</option>)}</select></label>
+  <div className="form-grid"><label className="field"><span>ระยะหยุดเหล็ก จากผิว{focusBox?'ชิ้น':'คอนกรีต'} (+ ออก / − เข้า{v.hook!=='none'?' · ถึงผิวนอกส่วนโค้ง':''})</span><input type="number" disabled={readOnly} value={v.ext??''} placeholder="ตามที่วาด" onChange={x=>put({ext:x.target.value===''?null:Number(x.target.value)})}/></label>
+   <label className="field"><span>ปลาย</span><select disabled={readOnly} value={v.hook} onChange={x=>{const h=x.target.value as typeof v.hook;put({hook:h,leg:h==='custom'?v.leg||std:0});}}>{(Object.keys(hookNames) as (keyof typeof hookNames)[]).map(h=><option key={h} value={h}>{hookNames[h]}{h==='std90'?` (ขา ${fmt(std)})`:h==='std135'?` (10d = ${fmt(10*d)})`:''}</option>)}</select></label>
    {v.hook!=='none'&&<label className="field"><span>{v.hook==='custom'?'ความยาวขา 90° (mm)':v.hook==='std90'?`ความยาวขาจากปลาย (ว่าง = มาตรฐาน ${fmt(stdHookLength(v.hook,d,table))})`:`ส่วนตรงหลังงอ (ว่าง = มาตรฐาน ${fmt(stdHookLength(v.hook,d,table))})`}</span><input type="number" min={0} disabled={readOnly} value={v.leg||''} placeholder={fmt(stdHookLength(v.hook,d,table))} onChange={x=>put({leg:Math.max(0,Number(x.target.value)||0)})}/></label>}
+   {v.hook!=='none'&&(()=>{const i=hookInfo(v.hook,d,table,v.leg);return <p className="hook-info">D {fmt(i.D)} · {v.hook==='std135'||v.hook==='std180'?'ส่วนตรงหลังงอ':'ขา'} {fmt(v.hook==='custom'?v.leg:i.L)}{v.hook==='std135'?` · H ${fmt(i.H)}`:''}{i.ag?` · A/G ตาราง ${fmt(i.ag)}`:''} · ยาวขอ ≈ {fmt(i.dev)}</p>;})()}
    {v.hook!=='none'&&<label className="check" title="ปกติของอเข้าหาคอนกรีต · ติ๊กเพื่องอไปอีกด้าน"><input type="checkbox" disabled={readOnly} checked={!!v.flip} onChange={x=>put({flip:x.target.checked||undefined})}/>กลับทิศขอ</label>}</div>
   <div className="bar-end-quick">{quick.map(([t,x])=><button key={t} type="button" disabled={readOnly} onClick={()=>put({ext:x})}>{t}</button>)}<button type="button" disabled={readOnly} onClick={()=>put({ext:null})}>ตามที่วาด</button></div></div>;};
  return <div className="bar-ends"><h4>ปลายเหล็ก</h4>{end('start','ปลายต้น · จุด A (จุดแรกที่วาด)')}{end('end',`ปลายท้าย · จุดสุดท้าย (หลังช่วง ${String.fromCharCode(64+Math.max(1,bar.points.length-1-(bar.ends?.start.n||0)-(bar.ends?.end.n||0)))})`)}
