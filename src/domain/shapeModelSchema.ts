@@ -32,6 +32,8 @@ export const partRebarSchema=z.object({
  loopsJoined:z.boolean().optional(),
  vert:barAt.optional(),horz:barAt.optional(),layers:z.union([z.literal(1),z.literal(2)]).optional(),
  ext:mm.optional(),anchor:z.boolean().optional(),
+ /** preset bar sets taken over as drawn bars (key = id after `pp-<part>-`): no longer built from the preset */
+ off:z.array(z.string().max(30)).max(40).optional(),
 }).strict();
 export type PartRebar=z.infer<typeof partRebarSchema>;
 /** Tag no. of a part / bar group: names it on the drawings, prefixes its Marks (`F-01/01`) and splits the BBS sheets. */

@@ -102,6 +102,10 @@
   via `markFor()`, `tagMarks()` renumbers on tag change (keeps the number after the slash), run by `applyPartPresets`.
   New members (no bars) are tagged on shape apply; untagged members show a one-click banner in the rebar tab (renames Marks).
   Group bars move with their parts when every part of the group moved alike (`moveOwnedSketchBars`).
+  Bar edit window `BarEditModal.tsx` (right-click / double-click a set in the list or a bar in a view): Mark, size, segment
+  lengths (`withSegment`: direction kept, later points follow), layout, ends; live shape (`BarShapeSvg`) + cut length / weight;
+  duplicate / delete. Preset sets are read only until “แยกจาก Preset” (`detachPreset`: becomes `sk-<part>-…`, key added to
+  `part.rebar.off` so the preset skips it). Each of the 4 views has an expand button (overlay `.view-zoom`, Esc closes).
   Rebar tab = part table (Tag, purpose, sets, kg; tick ≥ 2 → group) → full-screen rebar window (`.rebar-window`: views framed on
   the part / group, tools create bars owned by it via `commitNew`; mesh / loop tools stay inside its plan: `within` → `regionWithin()`). Drawn bar ends `bar.ends {start,end: ext | null, hook
   none|std90|std135|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from

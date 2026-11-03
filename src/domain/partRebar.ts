@@ -231,7 +231,15 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
      out.push(bar(`vert${f.k}`,{d:V.d,points:pts,code:pts.length>2?'11':'00',axis:'Z',dist:{axis:s,from:u0,to:u1,spacing:V.s},note:`เหล็กตั้ง${f.k?` ผิว ${f.k==='a'?'1':'2'}`:''} DB${V.d} @${V.s}${sup?` · ยึดลง${sup.q.label}${anchored>2*V.d?` ขา 90° ${Math.round(anchored)}`:''}`:''}${ext?` · ยื่นพ้นหัว ${Math.round(ext)}`:''}`}));}
     if(H&&H.s>0&&!ref){const z0=b.z0+c+H.d/2,z1=b.z1-c-H.d/2;out.push(bar(`horz${f.k}`,{d:H.d,points:[pt(L0+c+H.d/2,f.h,z0),pt(L1-c-H.d/2,f.h,z0)],code:'00',axis:axisOf(s),dist:{axis:2,from:z0,to:z1,spacing:H.s},note:`เหล็กนอน${f.k?` ผิว ${f.k==='a'?'1':'2'}`:''} DB${H.d} @${H.s}`}));}}}
  }
- return {bars:out,notes};
+ const off=new Set(r.off||[]);
+ return {bars:off.size?out.filter(b=>!off.has(b.id.slice(`${PRESET_PREFIX}${p.id}-`.length))):out,notes};
+}
+/** Takes a preset bar over as a drawn bar of its part (same Mark / geometry, id `sk-<part>-…`): its preset key is
+ * switched off so the preset no longer rebuilds it. */
+export function detachPreset(m:Member,id:string):{member:Member;id:string}|undefined{
+ const sm=m.shapeModel,b=m.bars.find(x=>x.id===id),pid=b&&barPart(sm,b),p=sm?.parts.find(q=>q.id===pid);if(!sm||!b||!p?.rebar||!isPresetBar(b))return;
+ const key=b.id.slice(`${PRESET_PREFIX}${p.id}-`.length),nid=partSketchId(p.id);
+ return {id:nid,member:{...m,bars:m.bars.map(x=>x.id===id?{...x,id:nid,note:`${x.note} · แยกจาก Preset`.slice(0,500)}:x),shapeModel:{...sm,parts:sm.parts.map(q=>q.id===p.id?{...q,rebar:{...q.rebar!,off:[...new Set([...(q.rebar!.off||[]),key])]}}:q)}}};
 }
 
 /** Rebuilds every part's preset bars (marks kept per bar id), drops presets of removed parts, then reference regions. */
