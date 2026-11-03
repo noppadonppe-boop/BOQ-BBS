@@ -1,5 +1,5 @@
 import {lazy,Suspense,useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
-import {Box,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,Trash2,Undo2,Wand2} from 'lucide-react';
+import {Box,Layers,MousePointer2,PenLine,Grid3x3,Repeat,Sparkles,Trash2,Undo2,Wand2,X as Close} from 'lucide-react';
 import type {Bar,Member,Project} from '../domain/model';
 import {takeoff,validateMember} from '../domain/engine';
 import {buildView,markColors} from '../domain/elementViews';
@@ -7,9 +7,10 @@ import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
 import {hookDevLength,lapLength} from '../domain/elementInput';
 import {partPurposeLabels,partPurposes,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
-import {addHooks,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,nextMark,offsetSegments,polyLength,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,
- type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type Seg,type Snap,type SketchView} from '../domain/rebarSketch';
-import {applyPartPresets,barPart,defaultPartRebar,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions} from '../domain/partRebar';
+import {addHooks,boxFaces,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
+ type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
+import {applyPartPresets,defaultPartRebar,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
+import {barOwner,markFor,modelTags,newGroupId,nextTag,ownerParts,tagMarks} from '../domain/partTags';
 import {Field,number} from './EditorControls';
 import {ModelView} from './Geometry';
 import {DIAS,HookFields,LayoutFields,LoopTool,MeshTool,NotesTool,viewOfBar,type Tool} from './RebarSketch';
@@ -22,35 +23,40 @@ const viewOf=(kind:Kind,c:Cuts):SketchView=>({kind,at:kind==='sx'?c.y:kind==='sy
 type CSnap=Snap|{p:P2;kind:'lap';label:string};
 const snapLabels:Record<CSnap['kind'],string>={corner:'มุม cover',cover:'แนว cover',edge:'ขอบคอนกรีต',ortho:'แนวฉาก',grid:'grid',free:'อิสระ',lap:'ระยะพ้นผิวคอนกรีต'};
 const cutLabels=['Y–Y','X–X','แปลน'];
-const viewTitles:Record<Kind,string>={plan:'แปลน',sx:'รูปตัด X–X',sy:'รูปตัด Y–Y'};
-/** Distance along the ray o + t·u to segment s (undefined when it misses). */
-function rayHit(o:P2,u:P2,s:Seg){const e=[s.b[0]-s.a[0],s.b[1]-s.a[1]],den=u[0]*e[1]-u[1]*e[0];if(Math.abs(den)<1e-9)return;const w=[s.a[0]-o[0],s.a[1]-o[1]],t=(w[0]*e[1]-w[1]*e[0])/den,k=(w[0]*u[1]-w[1]*u[0])/den;return k>=-1e-9&&k<=1+1e-9?t:undefined;}
+const viewTitles:Record<Kind,string>={plan:'แปลน (Z)',sx:'รูปตัด X–X',sy:'รูปตัด Y–Y'};
 const Custom3DModal=lazy(()=>import('./Element3DModal').then(m=>({default:m.Custom3DModal})));
+const unionBox=(bs:Box3[]):Box3|undefined=>bs.length?{x0:Math.min(...bs.map(b=>b.x0)),x1:Math.max(...bs.map(b=>b.x1)),y0:Math.min(...bs.map(b=>b.y0)),y1:Math.max(...bs.map(b=>b.y1)),z0:Math.min(...bs.map(b=>b.z0)),z1:Math.max(...bs.map(b=>b.z1))}:undefined;
+/** Box of a part in a view: [u lo, v lo] – [u hi, v hi]. */
+const boxIn=(b:Box3,kind:Kind)=>{const lo=[b.x0,b.y0,b.z0],hi=[b.x1,b.y1,b.z1],a=viewAxes({kind,at:0});return {lo:[lo[a.u],lo[a.v]] as P2,hi:[hi[a.u],hi[a.v]] as P2};};
+const noEnds:SketchEndSet={start:{ext:null,hook:'none',leg:0,n:0},end:{ext:null,hook:'none',leg:0,n:0}};
 
 type Ctx={
  m:Member;rows:ReturnType<typeof takeoff>['rows'];colors:Map<string,string>;readOnly:boolean;tool:Tool;force:boolean;grid:number;ortho:boolean;dia:number;off:number;
- cuts:Cuts;setCuts:(c:Cuts)=>void;active:Kind;setActive:(k:Kind)=>void;focus:string;setFocus:(id:string)=>void;
+ cuts:Cuts;setCuts:(c:Cuts)=>void;active:Kind;setActive:(k:Kind)=>void;focus:string;focusIds:string[];fbox?:Box3;setFocus:(id:string)=>void;
  pts:P2[];hits:CoverHit[];drawKind:Kind|null;setPts:(f:(p:P2[])=>P2[])=>void;setHits:(f:(h:CoverHit[])=>CoverHit[])=>void;setDrawKind:(k:Kind)=>void;reset:()=>void;
  hooks:{start:HookEnd;end:HookEnd};hookTable:HookTable;laps:{label:string;len:number}[];
  finish:(view:SketchView,points:P2[],rings:P2[][])=>void;sel:string;setSel:(id:string)=>void;selBar?:Bar;selView?:SketchView;
- updateSel:(patch:{points?:P2[];layout?:LayoutRule},final?:boolean)=>void;settle:()=>void;deleteSel:()=>void;
+ updateSel:(patch:{points?:P2[];layout?:LayoutRule;ends?:SketchEndSet},final?:boolean)=>void;settle:()=>void;deleteSel:()=>void;
 };
 
-/** Rebar workspace for shape-model members: pick a part (purpose + preset bars, completeness), draw bars in plan /
- * section X–X / section Y–Y side by side with 3D; cut lines, bar points and distribution ranges are dragged in any view;
- * bars may run past the concrete (laps / starters / dowels get reference regions, snaps at lap / Ldh). */
+/** Rebar of shape-model members. The tab lists the parts and bar groups (Tag no., purpose, bar sets); a part (or several
+ * picked together = one bar group) opens the rebar window: plan (Z) / section X–X / section Y–Y framed on it + 3D,
+ * presets, drawing tools, bar ends (past / short of the face, standard or custom hooks) and group / single layouts.
+ * Bars drawn in the window belong to the part / group (`sk-<id>-…`, Marks `<tag>/nn`). */
 export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;project:Project;readOnly:boolean;onChange:(next:Member)=>void}){
  const sm=m.shapeModel,spec=project.spec,det=useMemo(()=>detailingFor(spec),[spec]);
  const g=useMemo(()=>sm?shapeGeometry(sm):undefined,[sm]);
- const solids=sm?.parts||[];
- const [focus,setFocusId]=useState(''),focusPart=solids.find(p=>p.id===focus);
+ const [focus,setFocusId]=useState(''),[win,setWin]=useState(false),[picks,setPicks]=useState<string[]>([]);
+ const focusGroup=sm?.groups?.find(x=>x.id===focus),focusParts=useMemo(()=>sm&&focus?ownerParts(sm,focus):[],[sm,focus]);
+ const focusPart=!focusGroup&&focusParts.length===1?focusParts[0]:undefined,fbox=unionBox(focusParts.map(partBox));
+ const focusTag=focusGroup?.tag||focusPart?.tag,focusLabel=focusGroup?.label||focusPart?.label||'ทั้งโมเดล';
  const [cuts,setCuts]=useState<Cuts>(()=>({x:Math.round(m.x/2),y:Math.round(m.y/2),z:Math.round(Math.min(m.z/2,m.cover+8))}));
- const setFocus=(id:string)=>{setFocusId(id);const p=solids.find(q=>q.id===id);if(p){const b=partBox(p);setCuts({x:Math.round((b.x0+b.x1)/2),y:Math.round((b.y0+b.y1)/2),z:Math.round((b.z0+b.z1)/2)});}};
+ const setFocus=(id:string)=>{setFocusId(id);const b=unionBox(sm&&id?ownerParts(sm,id).map(partBox):[]);if(b)setCuts({x:Math.round((b.x0+b.x1)/2),y:Math.round((b.y0+b.y1)/2),z:Math.round((b.z0+b.z1)/2)});};
  const [active,setActive]=useState<Kind>('sx'),[view3d,setView3d]=useState(false),[tool,setTool]=useState<Tool>(()=>m.shapeModel?.rebarNotes?.length&&!m.bars.some(isSketchBar)&&!m.bars.some(isPresetBar)?'notes':'select');
  const [dia,setDia]=useState(16),[cover,setCover]=useState(m.cover),[extra,setExtra]=useState(0),[grid,setGrid]=useState(25),[ortho,setOrtho]=useState(true);
  const grades=codeValues(spec.codeData,spec.designCode).grades,gradeOf=(d:number)=>grades.find(r=>r.bar===d)?.grade||(d<=9?'SR24':'SD40');
- // default distribution range: along the drawing view's normal over the part in focus (else the member)
- const rangeFor=(kind:Kind):[number,number]=>{const n=viewAxes({kind,at:0}).n,c=cover+dia/2;if(focusPart){const b=partBox(focusPart),lo=[b.x0,b.y0,b.z0][n],hi=[b.x1,b.y1,b.z1][n];return [lo+c,Math.max(lo+c,hi-c)];}return defaultRange(m,{kind,at:0},cover,dia);};
+ // default distribution range: along the drawing view's normal over the part / group in focus (else the member)
+ const rangeFor=(kind:Kind):[number,number]=>{const n=viewAxes({kind,at:0}).n,c=cover+dia/2;if(fbox){const lo=[fbox.x0,fbox.y0,fbox.z0][n],hi=[fbox.x1,fbox.y1,fbox.z1][n];return [lo+c,Math.max(lo+c,hi-c)];}return defaultRange(m,{kind,at:0},cover,dia);};
  const [layout,setLayout]=useState<LayoutRule>(()=>{const [from,to]=defaultRange(m,{kind:'sx',at:0},m.cover,16);return {rule:'spacing',spacing:200,count:5,from,to};});
  useEffect(()=>{const [from,to]=rangeFor(active);setLayout(l=>({...l,from,to}));},[active,focus,cover,dia,m.x,m.y,m.z]);
  const [pts,setPts]=useState<P2[]>([]),[hits,setHits]=useState<CoverHit[]>([]),[drawKind,setDrawKind]=useState<Kind|null>(null),[sel,setSel]=useState('');
@@ -62,34 +68,81 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  const selBar=m.bars.find(b=>b.id===sel),selView=selBar?viewOfBar(selBar):undefined;
  const [notes,setNotes]=useState<string[]>([]);
  const commitBars=(bars:Bar[],select?:string,final=true)=>{const next={...m,bars};onChange(final?withOutsideRegions(next,spec):next);if(select!==undefined)setSel(select);};
+ // bars made by the tools while a part / group is in focus belong to it: owner id + its tag's Marks
+ const commitNew=(made:Bar[])=>{if(!made.length)return;let work=m;const own=made.map(b=>{const nb={...b,id:focus?partSketchId(focus):b.id,mark:''};nb.mark=markFor(work,focus||undefined);work={...work,bars:[...work.bars,nb]};return nb;});commitBars([...m.bars,...own],own[0].id);};
  const reset=()=>{setPts([]);setHits([]);setDrawKind(null);};
- const finish=(view:SketchView,points:P2[],rings:P2[][])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),mark=nextMark(m);
-  const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});setNotes(h.notes);commitBars([...m.bars,bar],bar.id);reset();setTool('select');};
- const updateSel=(patch:{points?:P2[];diameter?:number;layout?:LayoutRule;grade?:string;mark?:string},final=true)=>{if(!selBar||!selView)return;
+ const finish=(view:SketchView,points:P2[],rings:P2[][])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),i0=h.points.indexOf(points[0]),mark=markFor(m,focus||undefined);
+  const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,n:Math.max(0,i0)},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,n:Math.max(0,h.points.length-Math.max(0,i0)-points.length)}};
+  const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});setNotes(h.notes);commitBars([...m.bars,{...bar,ends}],bar.id);reset();setTool('select');};
+ const updateSel=(patch:{points?:P2[];diameter?:number;layout?:LayoutRule;grade?:string;mark?:string;ends?:SketchEndSet},final=true)=>{if(!selBar||!selView)return;
   const old=selBar.points.map(p=>toView(selView,p as [number,number,number]));const l=patch.layout||{rule:selBar.count===1?'single':'count',spacing:layout.spacing,count:selBar.count,from:selBar.distributionStart,to:selBar.distributionEnd} as LayoutRule;
   const next=sketchBar({id:selBar.id,mark:patch.mark||selBar.mark,view:selView,points:patch.points||old,diameter:patch.diameter||selBar.diameter,grade:patch.grade||selBar.grade,layout:l,note:selBar.note});
-  commitBars(m.bars.map(b=>b.id===selBar.id?{...next,placementConfirmed:false}:b),undefined,final);};
+  const ends=patch.ends||selBar.ends;
+  commitBars(m.bars.map(b=>b.id===selBar.id?{...next,...(ends?{ends}:{}),placementConfirmed:false}:b),undefined,final);};
  const settle=()=>onChange(withOutsideRegions(m,spec));
  const deleteSel=()=>{if(selBar&&!readOnly)commitBars(m.bars.filter(b=>b.id!==selBar.id),'');};
  const levels=g?[...new Set(g.levels)]:[];
  const sketchErrors=errors.filter(t=>m.bars.some(b=>(isSketchBar(b)||isPresetBar(b))&&t.startsWith(`${b.mark}:`)));
+ useEffect(()=>{if(!win)return;const esc=(e:globalThis.KeyboardEvent)=>{if(e.key==='Escape'&&!(e.target as HTMLElement).closest('input,select,textarea,.sketch-canvas'))setWin(false);};window.addEventListener('keydown',esc);return()=>window.removeEventListener('keydown',esc);},[win]);
  if(!sm)return <section className="panel padded"><p className="notice">สร้างรูปทรงในแท็บ “รูปทรง (หลายชิ้นส่วน)” และกดใช้กับสมาชิกก่อน แล้วจึงใส่เหล็ก</p></section>;
- const ctx:Ctx={m,rows,colors,readOnly,tool,force,grid,ortho,dia,off:cover+extra+dia/2,cuts,setCuts,active,setActive,focus,setFocus,pts,hits,drawKind,setPts,setHits,setDrawKind,reset,hooks,hookTable,laps,finish,sel,setSel,selBar,selView,updateSel,settle,deleteSel};
- const owned=(b:Bar)=>barPart(sm,b),listed=m.bars.filter(b=>isSketchBar(b)||isPresetBar(b)).sort((a,b)=>Number(!!focus&&owned(b)===focus)-Number(!!focus&&owned(a)===focus));
+ const owned=(b:Bar)=>barOwner(sm,b),mine=(b:Bar)=>!focus||owned(b)===focus;
+ const listed=m.bars.filter(b=>(isSketchBar(b)||isPresetBar(b))&&(!win||mine(b))).sort((a,b)=>Number(!!focus&&owned(b)===focus)-Number(!!focus&&owned(a)===focus));
+ const ctx:Ctx={m,rows,colors,readOnly,tool,force,grid,ortho,dia,off:cover+extra+dia/2,cuts,setCuts,active,setActive,focus,focusIds:focusParts.map(p=>p.id),fbox:win?fbox:undefined,setFocus,pts,hits,drawKind,setPts,setHits,setDrawKind,reset,hooks,hookTable,laps,finish,sel,setSel,selBar,selView,updateSel,settle,deleteSel};
  const savePart=(id:string,rebar:PartRebar|undefined)=>{const next={...m,shapeModel:{...sm,parts:sm.parts.map(p=>p.id===id?{...p,rebar}:p)}};const res=applyPartPresets(next,spec);setNotes(res.notes);onChange(res.member);};
+ const open=(id:string)=>{setFocus(id);setSel('');reset();setTool(t=>t==='notes'?'select':t);setWin(true);};
+ // picked parts → the group with exactly these parts, else a new group (tag G-nn)
+ const openGroup=()=>{const ids=picks.filter(id=>sm.parts.some(p=>p.id===id));if(ids.length<2)return;const same=sm.groups?.find(x=>x.parts.length===ids.length&&ids.every(id=>x.parts.includes(id)));
+  if(same){open(same.id);return;}if(readOnly||(sm.groups?.length||0)>=20)return;
+  const id=newGroupId(sm),grp={id,tag:nextTag('G',modelTags(sm)),label:sm.parts.filter(p=>ids.includes(p.id)).map(p=>p.tag||p.label).join(' + ').slice(0,80),parts:ids};
+  onChange({...m,shapeModel:{...sm,groups:[...(sm.groups||[]),grp]}});setPicks([]);open(id);};
+ const putGroup=(id:string,patch:{tag?:string;label?:string})=>onChange(tagMarks({...m,shapeModel:{...sm,groups:sm.groups!.map(x=>x.id===id?{...x,...patch}:x)}}));
+ const dropGroup=(id:string)=>{const n=m.bars.filter(b=>owned(b)===id).length;if(n&&!confirm(`ลบกลุ่มนี้และเหล็ก ${n} ชุดของกลุ่ม?`))return;const groups=sm.groups!.filter(x=>x.id!==id);
+  onChange(withOutsideRegions({...m,bars:m.bars.filter(b=>owned(b)!==id),shapeModel:{...sm,groups:groups.length?groups:undefined}},spec));setFocusId('');setWin(false);};
+ const putTag=(id:string,tag:string|undefined)=>onChange(tagMarks({...m,shapeModel:{...sm,parts:sm.parts.map(p=>p.id===id?{...p,tag}:p)}}));
+ const tagTaken=(id:string,t:string)=>[...sm.parts.filter(p=>p.id!==id).map(p=>p.tag),...(sm.groups||[]).filter(x=>x.id!==id).map(x=>x.tag)].some(x=>x&&x.toUpperCase()===t.toUpperCase());
+ const tagInput=(id:string,value:string|undefined,on:(t:string|undefined)=>void)=><input className="tag-input" aria-label="Tag no." disabled={readOnly} defaultValue={value||''} key={value||''} placeholder="—" onBlur={e=>{const t=e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,16);if(t===(value||''))return;if(t&&(!/^[A-Z0-9]/.test(t)||tagTaken(id,t))){alert(`Tag “${t}” ใช้ไม่ได้หรือซ้ำ`);e.target.value=value||'';return;}on(t||undefined);}} onKeyDown={e=>{if(e.key==='Enter')(e.target as HTMLInputElement).blur();}}/>;
+ const kg=(id:string)=>rows.filter(r=>barOwner(sm,{id:r.id})===id).reduce((t,r)=>t+r.weight,0);
  return <section className="panel padded rebar-sketch">
   {view3d&&<Suspense fallback={<div className="e3d-shade"><div className="notice">กำลังเปิดมุมมอง 3D…</div></div>}><Custom3DModal member={m} spec={spec} readOnly={readOnly} onChange={onChange} onClose={()=>setView3d(false)}/></Suspense>}
-  <div className="section-heading"><div><h3>ใส่เหล็ก · เลือกชิ้นส่วน แล้วใช้ Preset หรือวาดในมุมมองใดก็ได้</h3><p className="muted">คลิกชิ้นส่วน (ในรายการ / มุมมอง / 3D) เพื่อโฟกัส · วาด: คลิกวางจุด ดับเบิลคลิก/Enter จบเส้น · ลากเส้นแนวตัด จุดเหล็ก (□) และช่วงกระจาย (◆) ได้ทุกมุมมอง · ปลดล็อก “บังคับตามแนว cover” เพื่อวาดเหล็กยื่นพ้นคอนกรีต</p></div>
+  <div className="section-heading"><div><h3>ใส่เหล็ก · ชิ้นส่วน (Tag no.)</h3><p className="muted">คลิก “ใส่เหล็ก” ของชิ้นส่วนเพื่อเปิดหน้าต่างใส่เหล็ก (แปลน Z · รูปตัด X–X · Y–Y · 3D เฉพาะชิ้นนั้น) · ติ๊กหลายชิ้นแล้ว “ใส่เหล็กเป็นกลุ่ม” เพื่อวางเหล็กก้อนเดียวต่อเนื่องข้ามชิ้นส่วน · Mark ของเหล็กขึ้นต้นด้วย Tag (เช่น F-01/01)</p></div>
    <div className="actions"><button className="view3d-button" onClick={()=>setView3d(true)} title="มุมมอง 3D แบบเต็ม · คลิกขวาเพื่อแก้ไขชิ้นส่วนและเหล็กเสริม"><Box size={15}/>3D Modal</button></div></div>
-  <div className="part-strip" role="toolbar" aria-label="ชิ้นส่วน">
-   <button type="button" className={!focus?'active':''} onClick={()=>setFocusId('')}>ทั้งหมด</button>
-   {solids.map(p=>{const n=m.bars.filter(b=>owned(b)===p.id).length;return <button key={p.id} type="button" className={p.id===focus?'active':''} onClick={()=>setFocus(p.id)}><b>{p.label}</b><small>{p.rebar?partPurposeLabels[p.rebar.purpose]:'ยังไม่กำหนดหน้าที่'} · {n} ชุด</small></button>;})}
+  <table className="part-table"><thead><tr><th/><th>Tag no.</th><th>ชิ้นส่วน / กลุ่ม</th><th>หน้าที่</th><th className="num">ชุดเหล็ก</th><th className="num">kg</th><th/></tr></thead><tbody>
+   {sm.parts.map(p=>{const n=m.bars.filter(b=>owned(b)===p.id).length;return <tr key={p.id} className={`${p.role}${picks.includes(p.id)?' picked':''}`}>
+    <td><input type="checkbox" aria-label={`เลือก ${p.label}`} checked={picks.includes(p.id)} onChange={e=>setPicks(x=>e.target.checked?[...x,p.id]:x.filter(y=>y!==p.id))}/></td>
+    <td>{tagInput(p.id,p.tag,t=>putTag(p.id,t))}</td>
+    <td><b>{p.label}</b><small>{p.role==='void'?'ช่องเปิด / บ่อ':p.role==='reference'?'อ้างอิง (เทภายหลัง)':`Stage ${p.stage}`} · Z {fmt(p.z0)}–{fmt(p.z0+p.height)}</small></td>
+    <td>{p.rebar?partPurposeLabels[p.rebar.purpose]:<span className="muted">ยังไม่กำหนด</span>}</td><td className="num">{n||'—'}</td><td className="num">{n?number(kg(p.id),1):'—'}</td>
+    <td><button type="button" className="primary" onClick={()=>open(p.id)}><PenLine size={13}/>ใส่เหล็ก</button></td></tr>;})}
+   {(sm.groups||[]).map(x=>{const n=m.bars.filter(b=>owned(b)===x.id).length;return <tr key={x.id} className="group">
+    <td><Layers size={14}/></td><td>{tagInput(x.id,x.tag,t=>{if(t)putGroup(x.id,{tag:t});})}</td>
+    <td><b>{x.label}</b><small>กลุ่มเหล็ก · {x.parts.map(id=>sm.parts.find(p=>p.id===id)?.tag||sm.parts.find(p=>p.id===id)?.label).join(' + ')}</small></td>
+    <td>เหล็กต่อเนื่องข้ามชิ้น</td><td className="num">{n||'—'}</td><td className="num">{n?number(kg(x.id),1):'—'}</td>
+    <td><button type="button" className="primary" onClick={()=>open(x.id)}><PenLine size={13}/>ใส่เหล็ก</button></td></tr>;})}
+  </tbody></table>
+  <div className="actions part-table-actions">
+   <button type="button" disabled={picks.length<2} title="เปิดหน้าต่างใส่เหล็กของชิ้นที่ติ๊กรวมกัน (สร้างกลุ่ม Tag G-nn ถ้ายังไม่มี)" onClick={openGroup}><Layers size={13}/>ใส่เหล็กเป็นกลุ่ม ({picks.length} ชิ้น)</button>
+   <button type="button" onClick={()=>open('')}>ใส่เหล็กทั้งโมเดล</button>
+   {sm.parts.some(p=>!p.tag)&&<span className="muted">ตั้ง Tag no. ได้ในตาราง หรือปุ่ม “ตั้ง Tag อัตโนมัติ” ในแท็บรูปทรง</span>}
   </div>
+  {notes.length>0&&!win&&<p className="notice warning">{notes.join(' · ')}</p>}
+  <h4>ตรวจ</h4>
+  {sketchErrors.length?<ul className="shape-check bad">{sketchErrors.slice(0,8).map(t=><li key={t}>{t}</li>)}</ul>:<p className="ok-text">✔ cover · อยู่ในคอนกรีต / พื้นที่อ้างอิง · ไม่ผ่านช่องเปิด</p>}
+  <p className="muted">หลังใส่เหล็ก: ตรวจในแท็บ “ตรวจเหล็กทับกัน” · ยืนยันตำแหน่งใน “แบบ & BBS” (เลือกแบบทั้งโมเดล หรือแยกตาม Tag) · บันทึกสมาชิก</p>
+  {win&&<div className="rebar-window" role="dialog" aria-label={`ใส่เหล็ก ${focusTag||''} ${focusLabel}`}>
+   <div className="rebar-window-head">
+    <div><h3>{focusTag&&<em className="part-tag">{focusTag}</em>}{focusLabel}</h3><p className="muted">{focusGroup?`กลุ่มเหล็ก · ${focusParts.length} ชิ้น · เหล็กที่วาดวิ่งต่อเนื่องข้ามชิ้นส่วน`:focusPart?`${focusPart.rebar?partPurposeLabels[focusPart.rebar.purpose]:'ยังไม่กำหนดหน้าที่'} · ขนาด ${fmt(fbox!.x1-fbox!.x0)} × ${fmt(fbox!.y1-fbox!.y0)} × ${fmt(fbox!.z1-fbox!.z0)}`:'ทั้งโมเดล'} · วาด: คลิกวางจุด ดับเบิลคลิก/Enter จบเส้น · ลากแนวตัด จุดเหล็ก (□) ช่วงกระจาย (◆) · Esc ปิด</p></div>
+    <label className="field compact"><span>ชิ้น</span><select value={focus} onChange={e=>{setFocus(e.target.value);setSel('');reset();}}><option value="">ทั้งโมเดล</option>{sm.parts.map(p=><option key={p.id} value={p.id}>{p.tag?`${p.tag} · `:''}{p.label}</option>)}{(sm.groups||[]).map(x=><option key={x.id} value={x.id}>{x.tag} · {x.label} (กลุ่ม)</option>)}</select></label>
+    <button type="button" className="e3d-close" aria-label="ปิดหน้าต่างใส่เหล็ก" onClick={()=>setWin(false)}><Close size={18}/></button>
+   </div>
   <div className={`sketch-layout${tool==='notes'?' notes-open':''}`}>
    <aside className="sketch-tools">
-    {focusPart?<PartPanel key={focusPart.id} part={focusPart} m={m} spec={spec} det={det} readOnly={readOnly} onSave={r=>savePart(focusPart.id,r)}/>:<p className="muted part-hint">เลือกชิ้นส่วนด้านบนเพื่อกำหนดหน้าที่ (เสา / คาน / พื้น / ผนัง / ฐานราก) และใช้เหล็ก Preset</p>}
+    {focusPart?<PartPanel key={focusPart.id} part={focusPart} m={m} spec={spec} det={det} readOnly={readOnly} onSave={r=>savePart(focusPart.id,r)}/>
+     :focusGroup?<div className="part-panel"><h4>กลุ่มเหล็ก · {focusGroup.tag}</h4><Field label="ชื่อกลุ่ม" value={focusGroup.label} disabled={readOnly} onChange={v=>{const t=String(v).slice(0,80);if(t.trim())putGroup(focusGroup.id,{label:t});}}/>
+      <p className="muted">ชิ้นในกลุ่ม: {focusParts.map(p=>p.tag||p.label).join(' + ')} · เหล็ก Preset ยังเป็นของแต่ละชิ้น · เหล็กที่วาดที่นี่เป็นของกลุ่ม (BBS แยกชุด {focusGroup.tag})</p>
+      <button type="button" className="danger-text" disabled={readOnly} onClick={()=>dropGroup(focusGroup.id)}><Trash2 size={13}/>ลบกลุ่ม</button></div>
+     :<p className="muted part-hint">ทั้งโมเดล · เลือกชิ้นจากรายการด้านบนเพื่อกำหนดหน้าที่และใช้เหล็ก Preset</p>}
     <h4>เครื่องมือวาด</h4>
-    <div className="sketch-toolbar">{([['draw',<PenLine size={14}/>,'วาดเหล็ก'],['select',<MousePointer2 size={14}/>,'เลือก / แก้'],['mesh',<Grid3x3 size={14}/>,'ตะแกรง (แปลน)'],['loop',<Repeat size={14}/>,'ลูปรอบผิว'],['notes',<Sparkles size={14}/>,'จาก Note ในแบบ']] as const).map(([k,i,l])=><button key={k} className={tool===k?'active':''} disabled={readOnly&&k!=='select'} onClick={()=>{setTool(k);reset();}}>{i}{l}</button>)}</div>
+    <div className="sketch-toolbar">{([['draw',<PenLine size={14}/>,'วาดเหล็ก'],['select',<MousePointer2 size={14}/>,'เลือก / แก้'],['mesh',<Grid3x3 size={14}/>,'ตะแกรง (แปลน)'],['loop',<Repeat size={14}/>,'Loop / Hoop'],['notes',<Sparkles size={14}/>,'จาก Note ในแบบ']] as const).map(([k,i,l])=><button key={k} className={tool===k?'active':''} disabled={readOnly&&k!=='select'} onClick={()=>{setTool(k);reset();}}>{i}{l}</button>)}</div>
     <h4>เหล็ก</h4>
     <div className="form-grid">
      <label className="field"><span>ขนาด</span><select value={dia} onChange={e=>setDia(Number(e.target.value))}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label>
@@ -101,32 +154,32 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
     </div>
     <label className="check sketch-force"><input type="checkbox" checked={force} onChange={e=>{setForce(e.target.checked);reset();}}/><b>บังคับวาดตามแนว cover</b> (ปิดเพื่อวาดเหล็กยื่นพ้นคอนกรีต · Snap ที่ระยะ Lap / Ldh / 12d จากผิว)</label>
     <Field label="ระดับแปลน Z (mm)" type="number" value={cuts.z} onChange={v=>setCuts({...cuts,z:Number(v)||0})}/>
-    <div className="sketch-levels">{levels.map(z=><button key={z} type="button" onClick={()=>setCuts({...cuts,z})}>{fmt(z)}</button>)}</div>
-    <h4>ขอที่ปลายเหล็ก</h4>
+    <div className="sketch-levels">{levels.filter(z=>!fbox||z>=fbox.z0-1e-6&&z<=fbox.z1+1e-6).map(z=><button key={z} type="button" onClick={()=>setCuts({...cuts,z})}>{fmt(z)}</button>)}</div>
+    <h4>ขอที่ปลายเหล็ก (เส้นใหม่)</h4>
     <HookFields label="ปลายต้น" value={hooks.start} d={dia} table={hookTable} onChange={v=>setHooks(h=>({...h,start:v}))}/>
     <HookFields label="ปลายท้าย" value={hooks.end} d={dia} table={hookTable} onChange={v=>setHooks(h=>({...h,end:v}))}/>
-    {tool==='draw'&&<><h4>Layout · กระจายตั้งฉาก{viewTitles[active]}{focusPart?` · ในชิ้น ${focusPart.label}`:''}</h4><LayoutFields layout={layout} onChange={setLayout}/></>}
-    {tool==='mesh'&&<MeshTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} readOnly={readOnly} onCreate={bars=>commitBars([...m.bars,...bars],bars[0]?.id||'')}/>}
-    {tool==='notes'&&<NotesTool m={m} readOnly={readOnly} gradeOf={gradeOf} onNotes={rebarNotes=>onChange({...m,shapeModel:{...sm,...(rebarNotes.length?{rebarNotes}:{rebarNotes:undefined})}})} onCreate={bars=>commitBars([...m.bars,...bars],bars[0]?.id||'')}/>}
-    {tool==='loop'&&<LoopTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} readOnly={readOnly} onCreate={bars=>commitBars([...m.bars,...bars],bars[0]?.id||'')}/>}
+    {tool==='draw'&&<><h4>เหล็กกลุ่ม / เดี่ยว · กระจายตั้งฉาก{viewTitles[active]}{focusTag?` · ใน ${focusTag}`:''}</h4><LayoutFields layout={layout} onChange={setLayout}/></>}
+    {tool==='mesh'&&<MeshTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} readOnly={readOnly} onCreate={commitNew}/>}
+    {tool==='notes'&&<NotesTool m={m} readOnly={readOnly} gradeOf={gradeOf} onNotes={rebarNotes=>onChange({...m,shapeModel:{...sm,...(rebarNotes.length?{rebarNotes}:{rebarNotes:undefined})}})} onCreate={commitNew}/>}
+    {tool==='loop'&&<LoopTool m={m} z={cuts.z} dia={dia} cover={cover} grade={gradeOf(dia)} det={det} readOnly={readOnly} onCreate={commitNew}/>}
    </aside>
    <div className="sketch-views">
     <SketchCanvas kind="plan" ctx={ctx}/>
-    <div className="sketch-canvas sketch-3d"><div className="sketch-status"><b>3D</b><span>ชิ้นที่โฟกัส = สีส้ม · คลิกเหล็กเลือก Mark · คลิกคอนกรีตเลือกชิ้น</span></div><ModelView member={m} spec={spec} selected={sel} onSelect={setSel} part={focus} onPart={setFocus} height={330} keepView/></div>
+    <div className="sketch-canvas sketch-3d"><div className="sketch-status"><b>3D</b><span>ชิ้นที่เลือก = สีส้ม · คลิกเหล็กเลือก Mark · คลิกคอนกรีตเปลี่ยนชิ้น</span></div><ModelView member={m} spec={spec} selected={sel} onSelect={setSel} part={focusParts.map(p=>p.id).join(',')} onPart={id=>{if(!focusGroup)setFocus(id);}} height={330} keepView/></div>
     <SketchCanvas kind="sx" ctx={ctx}/>
     <SketchCanvas kind="sy" ctx={ctx}/>
    </div>
    <aside className="sketch-props">
     {notes.length>0&&<p className="notice warning">{notes.join(' · ')}</p>}
-    <h4>ชุดเหล็ก ({listed.length}){focusPart?` · ${focusPart.label} อยู่บนสุด`:''}</h4>
-    <div className="sketch-list">{listed.map(b=>{const o=owned(b),op=sm.parts.find(p=>p.id===o),out=outsideLen.get(b.id);return <button key={b.id} type="button" className={`${b.id===sel?'active':''} ${focus&&o!==focus?'dim':''}`} onClick={()=>{setSel(b.id);const v=viewOfBar(b);if(v)setCuts({...cuts,...(v.kind==='sx'?{y:Math.round(b.points[0][1])}:v.kind==='sy'?{x:Math.round(b.points[0][0])}:{z:Math.round(b.points[0][2])})});setTool('select');}}>
-     <i style={{background:colors.get(b.id)}}/><span><b>{b.mark}</b> {b.diameter<=9?'RB':'DB'}{b.diameter} × {b.count} · {b.shapeCode}{isPresetBar(b)?' · Preset':''}<small>{op?`${op.label} · `:''}{b.note}{out?` · ยื่นพ้นคอนกรีต ${fmt(out)} mm`:''}</small></span></button>;})}</div>
+    <h4>ชุดเหล็ก{focusTag?` ของ ${focusTag}`:''} ({listed.length})</h4>
+    <div className="sketch-list">{listed.map(b=>{const o=owned(b),op=sm.parts.find(p=>p.id===o)||sm.groups?.find(x=>x.id===o),out=outsideLen.get(b.id);return <button key={b.id} type="button" className={`${b.id===sel?'active':''} ${focus&&o!==focus?'dim':''}`} onClick={()=>{setSel(b.id);const v=viewOfBar(b);if(v)setCuts({...cuts,...(v.kind==='sx'?{y:Math.round(b.points[0][1])}:v.kind==='sy'?{x:Math.round(b.points[0][0])}:{z:Math.round(b.points[0][2])})});setTool('select');}}>
+     <i style={{background:colors.get(b.id)}}/><span><b>{b.mark}</b> {b.diameter<=9?'RB':'DB'}{b.diameter} × {b.count} · {b.shapeCode}{isPresetBar(b)?' · Preset':''}<small>{op&&!focus?`${op.label} · `:''}{b.note}{out?` · ยื่นพ้นคอนกรีต ${fmt(out)} mm`:''}</small></span></button>;})}</div>
     {selBar&&<div className="sketch-sel"><h4>{selBar.mark} · คุณสมบัติ</h4>
      {isSketchBar(selBar)&&selView?<>
       <div className="form-grid"><Field label="Mark" value={selBar.mark} disabled={readOnly} onChange={v=>updateSel({mark:String(v).slice(0,32)||selBar.mark})}/>
        <label className="field"><span>ขนาด</span><select disabled={readOnly} value={selBar.diameter} onChange={e=>{const d=Number(e.target.value);updateSel({diameter:d,grade:gradeOf(d)});}}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label></div>
       <LayoutFields layout={{rule:selBar.count===1?'single':'count',spacing:layout.spacing,count:selBar.count,from:selBar.distributionStart,to:selBar.distributionEnd}} onChange={l=>updateSel({layout:l})} disabled={readOnly}/>
-      <div className="actions sketch-hook-add">{(['start','end'] as const).map(k=><button key={k} type="button" disabled={readOnly||hooks[k].kind==='none'} title="ใช้ชนิดขอที่เลือกในแผงซ้าย" onClick={()=>{const old=selBar.points.map(p=>toView(selView,p as [number,number,number])),rings=coverRings(viewRegion(m,{...selView,at:selView.kind==='sx'?cuts.y:selView.kind==='sy'?cuts.x:cuts.z}),cover+extra+selBar.diameter/2),h=addHooks(old,{start:k==='start'?hooks.start:{kind:'none',leg:0},end:k==='end'?hooks.end:{kind:'none',leg:0}},selBar.diameter,rings,hookTable);setNotes(h.notes);updateSel({points:h.points});}}>+ ขอ{k==='start'?'ปลายต้น':'ปลายท้าย'}</button>)}</div>
+      <EndsEditor key={selBar.id} bar={selBar} view={selView} m={m} cover={cover} focusBox={focusPart?fbox:undefined} det={det} table={hookTable} readOnly={readOnly} onApply={(points,ends,n)=>{setNotes(n);updateSel({points,ends});}}/>
       <p className="muted">Shape {selBar.shapeCode} · {selBar.points.length} จุด · ลากจุด (□) ใน{viewTitles[selView.kind]} · ลากช่วงกระจาย (◆) ในมุมมองอื่น</p></>
       :isPresetBar(selBar)?<p className="muted">ชุด Preset ของชิ้นส่วน · แก้ขนาด / ระยะในแผง “หน้าที่ของชิ้น” ด้านซ้าย (สร้างใหม่ทุกครั้งที่รูปทรงเปลี่ยน)</p>
       :<p className="muted">ชุดนี้สร้างด้วยเครื่องมืออื่น · แก้ในแท็บ “แบบ & BBS”</p>}
@@ -135,10 +188,28 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
     <h4>ตรวจ</h4>
     {sketchErrors.length?<ul className="shape-check bad">{sketchErrors.slice(0,8).map(t=><li key={t}>{t}</li>)}</ul>:<p className="ok-text">✔ cover · อยู่ในคอนกรีต / พื้นที่อ้างอิง · ไม่ผ่านช่องเปิด</p>}
     {m.placementContext?.regions.some(r=>r.id.startsWith('genext-'))&&<p className="muted">เส้นประทอง = พื้นที่อ้างอิงของเหล็กที่ยื่นพ้นคอนกรีต (ไม่คิดคอนกรีต / แบบหล่อ)</p>}
-    <p className="muted">หลังใส่เหล็ก: ตรวจในแท็บ “ตรวจเหล็กทับกัน” · ยืนยันตำแหน่งใน “แบบ & BBS” · บันทึกสมาชิก</p>
    </aside>
   </div>
+  </div>}
  </section>;
+}
+
+const hookNames:Record<SketchEndSet['start']['hook'],string>={none:'ปลายตรง',std90:'ขอมาตรฐาน 90°',std180:'ขอมาตรฐาน 180°',custom:'ฉาก 90° กำหนดความยาว'};
+/** Both ends of a drawn bar: distance past (+) / short of (−) the part face along the end run (blank = as drawn), and
+ * the end hook (standard 90° / 180° from the spec hook table, or a custom leg). Faces = the part in focus, else the concrete. */
+function EndsEditor({bar,view,m,cover,focusBox,det,table,readOnly,onApply}:{bar:Bar;view:SketchView;m:Member;cover:number;focusBox?:Box3;det:ReturnType<typeof detailingFor>;table:HookTable;readOnly:boolean;onApply:(points:P2[],ends:SketchEndSet,notes:string[])=>void}){
+ const [e,setE]=useState<SketchEndSet>(()=>bar.ends||noEnds),d=bar.diameter;
+ const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],std=row?row.a90:12*d;
+ const quick:[string,number][]=[[`cover −${fmt(cover)}`,-cover],['ผิว 0',0],[`Lap +${fmt(lapLength(det,d))}`,lapLength(det,d)],[`Ldh +${fmt(hookDevLength(det,d))}`,hookDevLength(det,d)]];
+ const apply=()=>{const at={...view,at:bar.points[0][viewAxes(view).n]},region=viewRegion(m,at),faces=focusBox?boxFaces([boxIn(focusBox,view.kind)]):edgeSegments(region),rings=coverRings(region,cover+d/2);
+  const res=withEnds(bar.points.map(p=>toView(at,p as [number,number,number])),bar.ends,e,d,faces,rings,table);onApply(res.points,res.ends,res.notes);setE(res.ends);};
+ const end=(k:'start'|'end',label:string)=>{const v=e[k],put=(p:Partial<typeof v>)=>setE({...e,[k]:{...v,...p}});return <div className="bar-end" key={k}><b>{label}</b>
+  <div className="form-grid"><label className="field"><span>ระยะจากผิว{focusBox?'ชิ้น':'คอนกรีต'} (+ ออก / − เข้า)</span><input type="number" disabled={readOnly} value={v.ext??''} placeholder="ตามที่วาด" onChange={x=>put({ext:x.target.value===''?null:Number(x.target.value)})}/></label>
+   <label className="field"><span>ปลาย</span><select disabled={readOnly} value={v.hook} onChange={x=>put({hook:x.target.value as typeof v.hook,leg:v.leg||std})}>{(Object.keys(hookNames) as (keyof typeof hookNames)[]).map(h=><option key={h} value={h}>{hookNames[h]}{h==='std90'?` (${fmt(std)})`:''}</option>)}</select></label>
+   {v.hook==='custom'&&<Field label="ความยาวขา (mm)" type="number" disabled={readOnly} value={v.leg} onChange={x=>put({leg:Math.max(0,Number(x)||0)})}/>}</div>
+  <div className="bar-end-quick">{quick.map(([t,x])=><button key={t} type="button" disabled={readOnly} onClick={()=>put({ext:x})}>{t}</button>)}<button type="button" disabled={readOnly} onClick={()=>put({ext:null})}>ตามที่วาด</button></div></div>;};
+ return <div className="bar-ends"><h4>ปลายเหล็ก</h4>{end('start','ปลายต้น')}{end('end','ปลายท้าย')}
+  <div className="actions"><button type="button" className="primary" disabled={readOnly} onClick={apply}>ใช้กับเหล็กนี้</button><button type="button" disabled={readOnly} onClick={()=>setE({...e,end:{...e.start,n:e.end.n}})}>ปลายท้าย = ปลายต้น</button></div></div>;
 }
 
 /** Purpose of the part in focus, its preset values and what is still missing. Edits stay local until “สร้าง / อัปเดต”. */
@@ -165,7 +236,7 @@ function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;sp
    {r.purpose!=='other'&&num(`Cover ชิ้นนี้ (≥ ${m.cover})`,r.cover??m.cover,c=>setR({...r,cover:Math.max(m.cover,c)}))}
   </div>
   {r.purpose==='other'?<p className="muted">ไม่มี Preset · ใช้ “วาดเหล็ก” ในมุมมอง (เหล็กที่วาดขณะโฟกัสชิ้นนี้จะย้ายตามชิ้น)</p>:null}
-  <div className="actions part-actions"><button type="button" className="primary" disabled={readOnly||(!dirty&&!!part.rebar&&m.bars.some(b=>barPart(m.shapeModel,b)===part.id&&isPresetBar(b)))} onClick={()=>onSave(r)}><Wand2 size={13}/>{part.rebar?'อัปเดตเหล็ก Preset':'สร้างเหล็ก Preset'}</button>
+  <div className="actions part-actions"><button type="button" className="primary" disabled={readOnly||(!dirty&&!!part.rebar&&m.bars.some(b=>barOwner(m.shapeModel,b)===part.id&&isPresetBar(b)))} onClick={()=>onSave(r)}><Wand2 size={13}/>{part.rebar?'อัปเดตเหล็ก Preset':'สร้างเหล็ก Preset'}</button>
    {part.rebar&&<button type="button" className="danger-text" disabled={readOnly} onClick={()=>{if(confirm(`ลบเหล็ก Preset ของ “${part.label}”?`))onSave(undefined);}}><Trash2 size={13}/>ลบ Preset</button>}</div>
   {cov.length>0&&<><h4>ความครบของเหล็ก</h4><ul className="part-coverage">{cov.map(c=><li key={c.label} className={c.ok===true?'ok':c.ok==='warn'?'warn':'bad'}>{c.ok===true?'✔':c.ok==='warn'?'!':'✖'} {c.label}{c.hint?<small> · {c.hint}</small>:null}</li>)}</ul></>}
  </div>;
@@ -180,7 +251,10 @@ function SketchCanvas({kind,ctx}:{kind:Kind;ctx:Ctx}){
  const rings=useMemo(()=>coverRings(region,ctx.off),[region,ctx.off]),faces=useMemo(()=>coverRings(region,0),[region]);
  const vd=useMemo(()=>buildView(m,ctx.rows,undefined,kind==='plan'?{axes:[0,1]}:{axes:[a.u,a.v] as [number,number],normal:a.n,cut:view.at}),[m,ctx.rows,kind,view.at]);
  const W=560,H=380,M=46,svg=useRef<SVGSVGElement>(null),size=[m.x,m.y,m.z];
- const all:P2[]=[[0,0],[size[a.u],size[a.v]],...vd.bars.flatMap(b=>[...b.lines.flatMap(l=>[l.a,l.b]),...b.dots])];
+ // frame: the part / group in focus (rebar window) with its bars, else the member and every bar
+ const fb=ctx.fbox&&boxIn(ctx.fbox,kind),fbars=fb?vd.bars.filter(b=>barOwner(sm,{id:b.row.id})===ctx.focus):vd.bars;
+ const all:P2[]=[...(fb?[fb.lo,fb.hi]:[[0,0],[size[a.u],size[a.v]]] as P2[]),...fbars.flatMap(b=>[...b.lines.flatMap(l=>[l.a,l.b]),...b.dots])];
+ if(fb){const pad=Math.max(150,.12*Math.max(fb.hi[0]-fb.lo[0],fb.hi[1]-fb.lo[1]));all.push([fb.lo[0]-pad,fb.lo[1]-pad],[fb.hi[0]+pad,fb.hi[1]+pad]);}
  const live={lo:[Math.min(...all.map(p=>p[0])),Math.min(...all.map(p=>p[1]))],hi:[Math.max(...all.map(p=>p[0])),Math.max(...all.map(p=>p[1]))]};
  const [drag,setDrag]=useState<(CanvasDrag&{frame:typeof live})|null>(null),{lo,hi}=drag?.frame??live;
  const s=Math.min((W-2*M)/(hi[0]-lo[0]||1),(H-2*M)/(hi[1]-lo[1]||1)),ox=M+((W-2*M)-(hi[0]-lo[0])*s)/2,oy=H-M-((H-2*M)-(hi[1]-lo[1])*s)/2;
@@ -238,10 +312,10 @@ function SketchCanvas({kind,ctx}:{kind:Kind;ctx:Ctx}){
    {mine&&pts.length>0&&<span className="actions"><button type="button" onClick={()=>{ctx.setPts(p=>p.slice(0,-1));ctx.setHits(x=>x.slice(0,-1));}}><Undo2 size={13}/>ลบจุด</button><button type="button" className="primary" disabled={pts.length<2} onClick={finish}>จบเส้น ({pts.length})</button></span>}</div>
   <svg ref={svg} className={`sketch-svg tool-${ctx.tool}`} viewBox={`0 0 ${W} ${H}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={()=>{setHover(null);up();}}>
    {region.map((poly,i)=><path key={i} className="sk-concrete" fillRule="evenodd" d={poly.map(r=>`M${(r as P2[]).map(p=>`${X(p[0])},${Y(p[1])}`).join('L')}Z`).join('')}/>)}
-   {parts.map(q=>{const d=partShape(q);return d&&<path key={q.p.id} d={d} fillRule="evenodd" className={`sk-part ${q.p.role} ${q.p.id===ctx.focus?'focus':''}`} onPointerDown={()=>{if(ctx.tool!=='draw')ctx.setFocus(q.p.id);}}><title>{q.p.label}</title></path>;})}
+   {parts.map(q=>{const d=partShape(q);return d&&<path key={q.p.id} d={d} fillRule="evenodd" className={`sk-part ${q.p.role} ${ctx.focusIds.includes(q.p.id)?'focus':''}`} onPointerDown={()=>{if(ctx.tool!=='draw')ctx.setFocus(q.p.id);}}><title>{q.p.label}</title></path>;})}
    {rings.map((r,i)=><polygon key={i} className={`sk-cover ${ctx.force?'forced':''}`} points={r.map(p=>`${X(p[0])},${Y(p[1])}`).join(' ')}/>)}
    {ctx.force&&ctx.tool==='draw'&&rings.flatMap((r,i)=>r.map((p,k)=><circle key={`${i}-${k}`} className="sk-corner" cx={X(p[0])} cy={Y(p[1])} r={2.5}/>))}
-   {vd.bars.map(b=>{const c=ctx.colors.get(b.row.id)||'#167561',on=b.row.id===ctx.sel,dim=!!ctx.focus&&barPart(sm,b.row as unknown as Bar)!==ctx.focus&&!on;return <g key={b.row.id} className={`sk-bar ${on?'sel':''}`} opacity={dim?.28:1} onPointerDown={e=>{if(ctx.tool==='select'){e.stopPropagation();ctx.setSel(b.row.id);}}}>
+   {vd.bars.map(b=>{const c=ctx.colors.get(b.row.id)||'#167561',on=b.row.id===ctx.sel,dim=!!ctx.focus&&barOwner(sm,{id:b.row.id})!==ctx.focus&&!on;return <g key={b.row.id} className={`sk-bar ${on?'sel':''}`} opacity={dim?.28:1} onPointerDown={e=>{if(ctx.tool==='select'){e.stopPropagation();ctx.setSel(b.row.id);}}}>
     {b.lines.map((l,i)=><line key={i} x1={X(l.a[0])} y1={Y(l.a[1])} x2={X(l.b[0])} y2={Y(l.b[1])} stroke={on?'#d4802a':c} strokeWidth={Math.max(2,b.row.diameter*s)+(on?2:0)} strokeLinecap="round"/>)}
     {b.dots.map((d,i)=><circle key={i} cx={X(d[0])} cy={Y(d[1])} r={Math.max(2.5,b.row.diameter*s/2)} fill={on?'#d4802a':c}/>)}
     {!dim&&b.lines.flatMap((l,i)=>outside(l).map((o,k)=><line key={`o${i}-${k}`} className="sk-out" x1={X(o.a[0])} y1={Y(o.a[1])} x2={X(o.b[0])} y2={Y(o.b[1])}/>))}</g>;})}

@@ -4,6 +4,7 @@ import {quantityBasisState} from '../domain/quantityBasis';
 import {elementInputSchema} from '../domain/elementInput';
 import {drawSheet,sheetFormat,sheetPageCount,type SheetData} from '../domain/bbsSheet';
 import {drawPrims} from './primsPdf';
+import {tagSheetSets} from '../domain/tagSheets';
 import {loadProjectLogo,type LoadedLogo} from './projectLogo';
 import {font,frozenTakeoff,label,ordered} from './exports';
 
@@ -25,8 +26,7 @@ export async function bbsSheetPdf(bundle:SnapshotBundle,size:'A3'|'A1'):Promise<
  const logo=await loadProjectLogo(bundle.project).catch(()=>undefined);
  let first=true;
  for(const m of members){
-  const data=snapshotSheetData(bundle,m,logo);
-  for(let page=0;page<sheetPageCount(data);page++){if(!first)doc.addPage(paper(m),'landscape');first=false;drawPrims(doc,drawSheet(data,page));}
+  for(const data of tagSheetSets(snapshotSheetData(bundle,m,logo)))for(let page=0;page<sheetPageCount(data);page++){if(!first)doc.addPage(paper(m),'landscape');first=false;drawPrims(doc,drawSheet(data,page));}
   if(doc.getNumberOfPages()>500)throw Error('แบ่งชุด: แบบ BBS เกิน 500 หน้า');
  }
  return doc.output('blob');

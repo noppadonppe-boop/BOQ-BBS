@@ -34,8 +34,11 @@ export const partRebarSchema=z.object({
  ext:mm.optional(),anchor:z.boolean().optional(),
 }).strict();
 export type PartRebar=z.infer<typeof partRebarSchema>;
+/** Tag no. of a part / bar group: names it on the drawings, prefixes its Marks (`F-01/01`) and splits the BBS sheets. */
+export const TAG_RE=/^[A-Za-z0-9][A-Za-z0-9-]{0,15}$/;
+const tag=z.string().regex(TAG_RE,'Tag no. ใช้ A–Z 0–9 และ - ไม่เกิน 16 ตัว');
 const base={
- id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().trim().min(1).max(80),
+ id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().trim().min(1).max(80),tag:tag.optional(),
  /** solid = concrete; void = opening / pit / recess subtracted from the solids;
   * reference = a column / wall above this element cast later (no concrete / formwork here; its starter bars
   * and dowels may run inside it: placement region `genref-<id>`) */
@@ -74,6 +77,8 @@ export const shapeModelSchema=z.object({
  parts:z.array(shapePartSchema).min(1).max(40),
  piles:shapePilesSchema.optional(),
  site:shapeSiteSchema.optional(),
+ /** bar groups: several parts reinforced as one (bars drawn on the group `sk-<group id>-…` run across its parts) */
+ groups:z.array(z.object({id:z.string().regex(/^g[a-zA-Z0-9_-]{1,39}$/),tag,label:z.string().trim().min(1).max(80),parts:z.array(z.string().max(40)).min(2).max(40)}).strict()).max(20).optional(),
  /** reinforcement notes read from the drawings (AI or typed), used to suggest bar sets */
  rebarNotes:z.array(z.object({text:z.string().trim().min(1).max(120),meaning:z.string().max(200).default(''),source:z.string().max(200).default(''),
   /** where the AI placed the note: part id, face (B/T/EF/LOOP/ADD/NOTE) and direction */
@@ -85,6 +90,10 @@ export const shapeModelSchema=z.object({
  note:z.string().max(1000).default(''),
 }).strict().superRefine((s,c)=>{
  if(new Set(s.parts.map(p=>p.id)).size!==s.parts.length)c.addIssue({code:'custom',path:['parts'],message:'รหัสชิ้นส่วนซ้ำ'});
+ const tags=[...s.parts.flatMap(p=>p.tag?[p.tag.toUpperCase()]:[]),...(s.groups||[]).map(g=>g.tag.toUpperCase())];
+ if(new Set(tags).size!==tags.length)c.addIssue({code:'custom',path:['parts'],message:'Tag no. ซ้ำ'});
+ const ids=new Set(s.parts.map(p=>p.id));
+ (s.groups||[]).forEach((g,i)=>{if(ids.has(g.id))c.addIssue({code:'custom',path:['groups',i,'id'],message:'รหัสกลุ่มซ้ำกับชิ้นส่วน'});if(g.parts.some(p=>!ids.has(p)))c.addIssue({code:'custom',path:['groups',i,'parts'],message:`กลุ่ม ${g.tag}: มีชิ้นส่วนที่ไม่มีในโมเดล`});});
  if(!s.parts.some(p=>p.role==='solid'))c.addIssue({code:'custom',path:['parts'],message:'ต้องมีชิ้นส่วนคอนกรีตอย่างน้อย 1 ชิ้น'});
  s.parts.forEach((p,i)=>{
   if(p.shape==='circle'&&p.inner>=p.diameter)c.addIssue({code:'custom',path:['parts',i,'inner'],message:'Ø ใน ต้องน้อยกว่า Ø นอก'});

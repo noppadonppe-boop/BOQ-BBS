@@ -16,27 +16,31 @@ export type BarDisplay=z.infer<typeof barDisplaySchema>;
 export const sheetLayoutSchema=z.enum(['one','split']);
 export type SheetLayout=z.infer<typeof sheetLayoutSchema>;
 const sheetStyle={sheetSize:sheetSizeSchema.optional(),viewScale:viewScaleSchema.optional(),barDisplay:barDisplaySchema.optional(),planSplit:z.boolean().optional(),markGutter:z.boolean().optional(),
- sheetLayout:sheetLayoutSchema.optional(),viewsPerPage:z.number().int().min(0).max(4).optional()};
+ sheetLayout:sheetLayoutSchema.optional(),viewsPerPage:z.number().int().min(0).max(4).optional(),
+ /** custom elements with tagged parts: one BBS sheet set for the whole model, or one per Tag + a summary (`tagSheets.ts`) */
+ partSheets:z.enum(['model','tag']).optional()};
 export const standardScales=[1,2,5,10,15,20,25,30,40,50,75,100,125,150,200,250,300,400,500,750,1000];
 export const viewScaleChoices=[20,25,50,75,100];
 // run / rev = automatic drawing number parts (…segments-Run 001–999-R0–9); number is kept composed for keys and registers
 // sheetSize / viewScale = this member's override of the project default (titleBlock.sheetSize / viewScale)
-export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional(),run:z.number().int().min(1).max(999).optional(),rev:z.number().int().min(0).max(9).optional(),...sheetStyle});
+export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional(),run:z.number().int().min(1).max(999).optional(),rev:z.number().int().min(0).max(9).optional(),...sheetStyle,
+ /** per-Tag sheets: only these tags (empty / absent = every tag) */
+ partTags:z.array(z.string().max(16)).max(60).optional()});
 export type DrawingSetup=z.infer<typeof drawingSetupSchema>;
 export const drawingProfileSchema=z.object({template:z.literal('owner-v1'),language:z.enum(['th','en']),projectName:text(80).min(1),company:text(80),owner:text(80),location:text(80),contract:text(50),discipline:text(50),preparedBy:text(60),checkedBy:text(60),indexNumber:text(80),indexRevision:text(16)});
 export type DrawingProfile=z.infer<typeof drawingProfileSchema>;
 export const titleBlockSchema=z.object({company:z.string().max(300),drawnBy:z.string().max(200),checkedBy:z.string().max(200),approvedBy:z.string().max(200).optional(),drawingPrefix:z.string().max(80),drawingSuffix:z.string().max(80).optional(),drawingParts:z.array(z.string().max(50)).max(8).optional(),sheetLanguage:z.enum(['th','en','zh']).optional(),...sheetStyle});
 export const sheetStyleSchema=z.object(sheetStyle);
 export type SheetStyle=z.infer<typeof sheetStyleSchema>;
-export type SheetSetup={size:SheetSize;scale:ViewScale;bars:BarDisplay;split:boolean;gutter:boolean;layout:SheetLayout;perPage:number};
+export type SheetSetup={size:SheetSize;scale:ViewScale;bars:BarDisplay;split:boolean;gutter:boolean;layout:SheetLayout;perPage:number;parts:'model'|'tag'};
 /** BBS sheet setup of a member: member override, else project default, else A3 / auto / representative / one plan / gutter. */
 export function sheetSetupOf(p:{titleBlock?:SheetStyle},m?:{drawingSetup?:SheetStyle}):SheetSetup{
  const o=m?.drawingSetup,d=p.titleBlock;
  return {size:o?.sheetSize||d?.sheetSize||'A3',scale:o?.viewScale??d?.viewScale??'auto',bars:o?.barDisplay||d?.barDisplay||'representative',split:o?.planSplit??d?.planSplit??false,gutter:o?.markGutter??d?.markGutter??true,
-  layout:o?.sheetLayout||d?.sheetLayout||'one',perPage:o?.viewsPerPage??d?.viewsPerPage??0};
+  layout:o?.sheetLayout||d?.sheetLayout||'one',perPage:o?.viewsPerPage??d?.viewsPerPage??0,parts:o?.partSheets||d?.partSheets||'model'};
 }
 /** Member drawingSetup fields that override the project sheet style. */
-export const sheetStyleKeys=['sheetSize','viewScale','barDisplay','planSplit','markGutter','sheetLayout','viewsPerPage'] as const;
+export const sheetStyleKeys=['sheetSize','viewScale','barDisplay','planSplit','markGutter','sheetLayout','viewsPerPage','partSheets'] as const;
 export const viewScaleLabel=(v:ViewScale)=>v==='auto'?'Auto':`1:${v}`;
 export const drawingNumberKey=(s:string)=>s.normalize('NFC').trim().toLowerCase();
 export const MAX_DRAWING_PARTS=8;

@@ -92,6 +92,37 @@ export function addHooks(points:P2[],ends:{start:HookEnd;end:HookEnd},d:number,r
  const s=hook(points[0],points[1],ends.start,'ปลายต้น'),e=hook(points.at(-1)!,points.at(-2)!,ends.end,'ปลายท้าย');
  return {points:[...s.reverse(),...points,...e],notes};
 }
+/** Distance along the ray o + t·u to segment s (undefined when it misses). */
+export function rayHit(o:P2,u:P2,s:Seg){const e=[s.b[0]-s.a[0],s.b[1]-s.a[1]],den=u[0]*e[1]-u[1]*e[0];if(Math.abs(den)<1e-9)return;const w=[s.a[0]-o[0],s.a[1]-o[1]],t=(w[0]*e[1]-w[1]*e[0])/den,k=(w[0]*u[1]-w[1]*u[0])/den;return k>=-1e-9&&k<=1+1e-9?t:undefined;}
+/** Box faces of parts in a view (plan: plan rectangle; sections: u-extent × height), as segments. */
+export function boxFaces(boxes:{lo:P2;hi:P2}[]):Seg[]{return boxes.flatMap(({lo,hi})=>[{a:lo,b:[hi[0],lo[1]] as P2},{a:[hi[0],lo[1]] as P2,b:hi},{a:hi,b:[lo[0],hi[1]] as P2},{a:[lo[0],hi[1]] as P2,b:lo}]);}
+export type SketchEndSet=NonNullable<Bar['ends']>;
+/** Re-applies the end settings of a drawn bar: strips the hook points added before (`prev.n`), moves each end with an
+ * `ext` to the first face crossed from its neighbour + ext (+ past the face / − short of it), then adds the hooks
+ * (inside the concrete: turned in and clipped at the cover like `addHooks`; past the concrete: full length, turned
+ * toward the concrete). Returns the points and the settings with the hook point counts. */
+export function withEnds(points:P2[],prev:SketchEndSet|undefined,next:SketchEndSet,d:number,faces:Seg[],rings:P2[][],table:HookTable):{points:P2[];ends:SketchEndSet;notes:string[]}{
+ const core=points.slice(prev?.start.n||0,points.length-(prev?.end.n||0));if(core.length<2)return {points,ends:prev||next,notes:['ปลายเหล็ก: เส้นสั้นเกินไป']};
+ const notes:string[]=[],c=[...core];
+ const move=(tip:number,nb:number,ext:number|null,label:string)=>{if(ext===null)return;const o=c[nb],dx=c[tip][0]-o[0],dy=c[tip][1]-o[1],l=Math.hypot(dx,dy);if(l<1e-6)return;const u:P2=[dx/l,dy/l];
+  let t=Infinity;for(const f of faces){const h=rayHit(o,u,f);if(h!==undefined&&h>1e-6&&h<t)t=h;}
+  if(!Number.isFinite(t)){notes.push(`${label}: ไม่พบผิวคอนกรีตตามแนวปลายเหล็ก`);return;}
+  const L=t+ext;if(L<=Math.max(10,d)){notes.push(`${label}: ระยะ ${ext} ทำให้ท่อนปลายสั้นเกินไป`);return;}c[tip]=[o[0]+u[0]*L,o[1]+u[1]*L];};
+ move(0,1,next.start.ext,'ปลายต้น');move(c.length-1,c.length-2,next.end.ext,'ปลายท้าย');
+ const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],r=sketchRadius(d);
+ const centre=rings.flat().reduce((s,p)=>[s[0]+p[0],s[1]+p[1]] as P2,[0,0] as P2).map(v=>v/Math.max(1,rings.flat().length)) as unknown as P2;
+ // hook on a tip past the concrete: not clipped, turned toward the concrete centre
+ const free=(tip:P2,nb:P2,e:{hook:string;leg:number}):P2[]=>{const dx=tip[0]-nb[0],dy=tip[1]-nb[1],l=Math.hypot(dx,dy)||1,u:P2=[dx/l,dy/l],n0:P2=[-u[1],u[0]],side:P2=(centre[0]-tip[0])*n0[0]+(centre[1]-tip[1])*n0[1]>=0?n0:[u[1],-u[0]];
+  if(e.hook==='std180'){const h=2*r,tail=Math.max(4*d,65),q:P2=[tip[0]+side[0]*h,tip[1]+side[1]*h];return [q,[q[0]-u[0]*(r+tail),q[1]-u[1]*(r+tail)]];}
+  const leg=e.hook==='custom'?e.leg:row?row.a90-d/2:12*d+r;return leg>r*1.5?[[tip[0]+side[0]*leg,tip[1]+side[1]*leg]]:[];};
+ const inside=(p:P2)=>insideCover(p,rings)||onCover(p,rings);
+ const end=(k:'start'|'end'):P2[]=>{const e=next[k];if(e.hook==='none')return [];const tip=k==='start'?c[0]:c.at(-1)!,nb=k==='start'?c[1]:c.at(-2)!;
+  if(!inside(tip))return free(tip,nb,e);
+  const h=addHooks(k==='start'?c:[...c],{start:k==='start'?{kind:e.hook as HookEnd['kind'],leg:e.leg}:{kind:'none',leg:0},end:k==='end'?{kind:e.hook as HookEnd['kind'],leg:e.leg}:{kind:'none',leg:0}},d,rings,table);notes.push(...h.notes);
+  return k==='start'?h.points.slice(0,h.points.length-c.length).reverse():h.points.slice(c.length);};
+ const s=end('start'),e=end('end');
+ return {points:[...s.reverse(),...c,...e],ends:{start:{...next.start,n:s.length},end:{...next.end,n:e.length}},notes};
+}
 const onCover=(p:P2,rings:P2[][])=>rings.some(r=>r.some((a,i)=>near(p,{a,b:r[(i+1)%r.length]}).d<1&&near(p,{a,b:r[(i+1)%r.length]}).t>=-1e-6&&near(p,{a,b:r[(i+1)%r.length]}).t<=1+1e-6));
 const near=(p:P2,s:Seg):{q:P2;d:number;t:number}=>{const dx=s.b[0]-s.a[0],dy=s.b[1]-s.a[1],l=dx*dx+dy*dy,t=l?((p[0]-s.a[0])*dx+(p[1]-s.a[1])*dy)/l:0,q:P2=[s.a[0]+t*dx,s.a[1]+t*dy];return {q,d:Math.hypot(p[0]-q[0],p[1]-q[1]),t};};
 function lineHit(s1:Seg,s2:Seg):P2|undefined{const d1=[s1.b[0]-s1.a[0],s1.b[1]-s1.a[1]],d2=[s2.b[0]-s2.a[0],s2.b[1]-s2.a[1]],den=d1[0]*d2[1]-d1[1]*d2[0];if(Math.abs(den)<1e-9)return;const t=((s2.a[0]-s1.a[0])*d2[1]-(s2.a[1]-s1.a[1])*d2[0])/den;return [s1.a[0]+t*d1[0],s1.a[1]+t*d1[1]];}
@@ -189,7 +220,7 @@ export function meshBars(m:Member,o:{z:number;diameter:number;grade:string;spaci
  return out;
 }
 /** Horizontal closed loops just inside the outer edge of the plan region at `z`, stacked from z to zTop at ≤ spacing; lap overlap on the first side. */
-export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:string;spacing:number;cover:number;lap:number;mark:string;note:string}):Bar[]{
+export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:string;spacing:number;cover:number;lap:number;mark:string;note:string;split?:(ring:P2[])=>P2[][]}):Bar[]{
  const sm=m.shapeModel;if(!sm)return [];const s=shapeGeometry(sm).slabs.find(s=>o.z>=s.z0-1e-6&&o.z<=s.z1+1e-6);if(!s||!s.region.length)return [];
  const outer=open(s.region.reduce((a,b)=>Math.abs(area(a[0] as P2[]))>=Math.abs(area(b[0] as P2[]))?a:b)[0] as P2[]),off=o.cover+o.diameter/2;
  const segs=outer.map((a,i)=>{const b=outer[(i+1)%outer.length],dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy);return {a:[a[0]-dy/l*off,a[1]+dx/l*off] as P2,b:[b[0]-dy/l*off,b[1]+dx/l*off] as P2};});
@@ -199,6 +230,10 @@ export function loopBars(m:Member,o:{z:number;zTop:number;diameter:number;grade:
  const pts=[...ring,first,lapEnd].map(p=>[Number(p[0].toFixed(3)),Number(p[1].toFixed(3)),o.z] as Vec3);
  const limit=stackTop(m,ring,o.z)-o.cover-o.diameter/2,zTop=Math.min(o.zTop,limit),clipped=zTop<o.zTop-.5;
  const lay=layoutOf({rule:'spacing',spacing:o.spacing,count:0,from:o.z,to:Math.max(o.z,zTop)});
+ // lapped pieces (2 / 3 laps): one bar per piece, Marks are given by the caller
+ if(o.split){const pieces=o.split(ring);return pieces.map((pp,k)=>{const pts=pp.map(p=>[Number(p[0].toFixed(3)),Number(p[1].toFixed(3)),o.z] as Vec3);
+  return {...blankBar(o.mark),id:`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:lay.count,shape:'polyline' as const,shapeCode:detectShapeCode(pp),axis:'X' as const,face:'side' as const,radius:Number(sketchRadius(o.diameter).toFixed(3)),
+   points:pts,distributionAxis:'Z' as const,distributionStart:lay.from,distributionEnd:lay.to,note:`${o.note} ท่อน ${k+1}/${pieces.length} · ${lay.count} ชั้น @ ≤ ${o.spacing} · ทาบ ${o.lap} mm${clipped?` · จำกัดถึง Z ${Math.round(zTop)}`:''}`.slice(0,500)};});}
  return [{...blankBar(o.mark),id:`${SKETCH_PREFIX}${crypto.randomUUID().slice(0,12)}`,diameter:o.diameter,grade:o.grade,count:lay.count,shape:'polyline',shapeCode:'99',axis:'X',face:'side',radius:Number(sketchRadius(o.diameter).toFixed(3)),
   points:pts,distributionAxis:'Z',distributionStart:lay.from,distributionEnd:lay.to,note:`${o.note} · ${lay.count} ชั้น @ ≤ ${o.spacing} · ทาบ ${o.lap} mm${clipped?` · จำกัดถึง Z ${Math.round(zTop)} (เหนือนั้นแปลนเปลี่ยน)`:''}`.slice(0,500)}];
 }

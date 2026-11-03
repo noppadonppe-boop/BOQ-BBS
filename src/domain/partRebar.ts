@@ -3,9 +3,10 @@ import {DEFAULT_DETAILING,bendRadius,closedLink,gradeFor,lapLength,hookDevLength
 import {detailingFromSpec} from './specDetailing';
 import {inMulti,partPolygon,shapeGeometry} from './shapeGeometry';
 import {type PartPurpose,type PartRebar,type ShapeModel,type ShapePart} from './shapeModelSchema';
-import {coverRings,layoutOf,loopBars,meshBars,nextMark,sketchRadius,verticalFaceBars,type P2} from './rebarSketch';
+import {coverRings,layoutOf,loopBars,meshBars,sketchRadius,verticalFaceBars,type P2} from './rebarSketch';
 import {editablePlacementContext,REGION_LIMIT} from './placementContext';
 import {schedule} from './engine';
+import {markFor,tagMarks} from './partTags';
 
 // Reinforcement per shape-model part (custom elements): a part's purpose (column / beam / slab / wall / footing)
 // picks preset bar sets built from the part geometry. Preset bars have ids `pp-<part id>-<key>` and are rebuilt
@@ -241,8 +242,8 @@ export function applyPartPresets(m:Member,spec:Spec):{member:Member;notes:string
  for(const p of sm.parts){if(!p.rebar)continue;let res;try{res=partPresetBars(m,p,spec);}catch(e){notes.push(`${p.label}: ${e instanceof Error?e.message:String(e)}`);continue;}notes.push(...res.notes);built.push(...res.bars);}
  // bars that existed keep their Mark; new ones take the next free Mark after all kept ones
  const made:Bar[]=built.map(b=>({...b,mark:old.get(b.id)?.mark||'',placementConfirmed:false}));
- for(const b of made)if(!b.mark)b.mark=nextMark({...m,bars:[...kept,...made.filter(x=>x.mark)]});
- const work:Member=coordinateBars({...m,bars:[...kept,...made].slice(0,300)},spec);
+ for(const b of made)if(!b.mark)b.mark=markFor({...m,bars:[...kept,...made.filter(x=>x.mark)]},barPart(sm,b));
+ const work:Member=coordinateBars(tagMarks({...m,bars:[...kept,...made].slice(0,300)}),spec);
  if(made.length+m.bars.filter(b=>!isPresetBar(b)).length>300)notes.push('จำนวนชุดเหล็กเกิน 300 ชุด · ตัดชุดท้าย ๆ ออก');
  return {member:withOutsideRegions(work,spec),notes};
 }

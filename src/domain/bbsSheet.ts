@@ -11,6 +11,7 @@ import {textWidth,wrapText,type Prim} from './drawingPrims';
 import {composeDrawingNumber,sheetSetupOf,sheetSizes,standardScales,type ViewScale} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
 import {concreteNote,memberConcrete} from './concreteMixes';
+import type {SheetScope} from './tagSheets';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -27,13 +28,16 @@ export type SheetData={member:Member;rows:SheetRow[];input?:ElementInput;project
  takeoff:{concrete:number;formwork:number;excavation:number;backfill:number;lean:number;rebar:number;sand?:number;sheet?:number;compaction?:number};
  status:string;revision:string;date:string;provisional:boolean;
  /** Company logo (data URL + pixel size) shown in the title block. */
- logo?:{src:string;width:number;height:number}};
+ logo?:{src:string;width:number;height:number};
+ /** one sheet set of a custom element split per Tag (`tagSheets.ts`): a tag's bars, or the summary of the tags */
+ scope?:SheetScope};
 type BoqLine={item:string;unit:string;each:number;total:number;bold?:boolean;count?:boolean};
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const fmt=(v:number,d=2)=>v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 
 export function sheetBoq(s:SheetData):BoqLine[]{
  const q=s.takeoff,n=s.quantity,m=s.member,B=sheetText[sheetLangOf(s.project)].boq,mix=memberConcrete(m),out:BoqLine[]=[{item:mix?`${B.concrete} ${mix}`:B.concrete,unit:'m³',each:q.concrete,total:q.concrete*n}];
+ if(s.scope?.kind==='tag'&&s.scope.rebarOnly){out.length=0;steelLines(s,out,B);return out;}
  // shape model with several pour stages: concrete per stage (manual deductions stay in the total above)
  const stages=m.shapeModel?shapeStageVolumes(m.shapeModel):[];if(stages.length>1)for(const st of stages)out.push({item:B.stage(st.stage),unit:'m³',each:st.volume,total:st.volume*n});
  // footing (box) pour stages: concrete and formwork per stage, construction joints between stages
@@ -49,12 +53,17 @@ export function sheetBoq(s:SheetData):BoqLine[]{
  const piles=(p:{count:number;size:number;lengthEach:number;totalLength:number;cutCount:number;cutLengthEach:number})=>{if(!p.count)return;out.push({item:B.pile(p.size,p.lengthEach),unit:B.piece,each:p.count,total:p.count*n,count:true},{item:B.pileLength,unit:'m',each:p.totalLength,total:p.totalLength*n});if(p.cutCount)out.push({item:B.pileCut(Math.round(p.cutLengthEach*1000)),unit:B.piece,each:p.cutCount,total:p.cutCount*n,count:true});};
  if(s.input?.category==='Foundation'&&s.input.foundationType==='pile')piles(pileQuantities(s.input));
  if(m.shapeModel?.piles)piles(shapePileQuantities(m.shapeModel));
- const bySize=new Map<string,{d:number;grade:string;w:number}>();
- for(const r of s.rows){const k=`${r.diameter}|${r.grade}`,v=bySize.get(k)||{d:r.diameter,grade:r.grade,w:0};v.w+=r.weight;bySize.set(k,v);}
- for(const v of [...bySize.values()].sort((a,b)=>a.d-b.d))out.push({item:B.steel(barName(v.d),v.grade),unit:'kg',each:v.w,total:v.w*n});
- out.push({item:B.steelTotal,unit:'kg',each:q.rebar,total:q.rebar*n,bold:true});
+ steelLines(s,out,B);
  return out;
 }
+function steelLines(s:SheetData,out:BoqLine[],B:typeof sheetText['th']['boq']){
+ const n=s.quantity,bySize=new Map<string,{d:number;grade:string;w:number}>();
+ for(const r of s.rows){const k=`${r.diameter}|${r.grade}`,v=bySize.get(k)||{d:r.diameter,grade:r.grade,w:0};v.w+=r.weight;bySize.set(k,v);}
+ for(const v of [...bySize.values()].sort((a,b)=>a.d-b.d))out.push({item:B.steel(barName(v.d),v.grade),unit:'kg',each:v.w,total:v.w*n});
+ out.push({item:B.steelTotal,unit:'kg',each:s.takeoff.rebar,total:s.takeoff.rebar*n,bold:true});
+}
+/** Rows of the sheet's table: bars, or the tags of a summary set. */
+const tableCount=(s:SheetData)=>s.scope?.kind==='summary'?s.scope.tags.length:s.rows.length;
 type SheetView={title:string;spec:Parameters<typeof buildView>[3];cuts?:ReturnType<typeof defaultCuts>;plan:boolean};
 const lying=(r:SheetRow)=>r.paths.some(p=>p.some((q,i)=>i>0&&Math.hypot(q[0]-p[i-1][0],q[1]-p[i-1][1])>=1));
 /** Views of a member on the drawing sheets of the split layout: plan (or bottom / top plans), sections X–X / Y–Y and
@@ -88,8 +97,8 @@ function layout(s:SheetData){
  // split layout (not for beam groups / column stacks, which page their own views): BBS table over the left area of the
  // first sheet(s) (bigger rows), notes + BOQ + title block on the right; then sheets of large views with a title strip
  const own=s.input?.category==='Beam'&&s.input.layout==='group'||s.input?.category==='Column'&&s.input.layout==='stack';
- if(S.layout!=='split'||own)return {...base,split:false,tablePages:0,groups:[] as number[][],tRow:0,tHead:0,tTop:0,tPer:0,pages:Math.max(1,Math.ceil(s.rows.length/perPage),beamSheetPages(s.input))};
- const tRow=S.bbsRow*1.35,tHead=S.bbsHead*1.2,tTop=S.margin+22,tPer=Math.max(1,Math.floor((S.h-S.margin-9-tTop-tHead)/tRow)),tablePages=Math.max(1,Math.ceil(s.rows.length/tPer));
+ if(S.layout!=='split'||own)return {...base,split:false,tablePages:0,groups:[] as number[][],tRow:0,tHead:0,tTop:0,tPer:0,pages:Math.max(1,Math.ceil(tableCount(s)/perPage),beamSheetPages(s.input))};
+ const tRow=S.bbsRow*1.35,tHead=S.bbsHead*1.2,tTop=S.margin+22,tPer=Math.max(1,Math.floor((S.h-S.margin-9-tTop-tHead)/tRow)),tablePages=Math.max(1,Math.ceil(tableCount(s)/tPer));
  const views=sheetViews(s),idx=views.map((_,i)=>i),n=Math.min(4,S.perPage);
  const groups=n?Array.from({length:Math.ceil(idx.length/n)},(_,k)=>idx.slice(k*n,(k+1)*n)):[idx.filter(i=>views[i].plan),idx.filter(i=>!views[i].plan)].filter(g=>g.length);
  return {...base,split:true,tablePages,groups,tRow,tHead,tTop,tPer,pages:tablePages+groups.length};
@@ -113,7 +122,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  if(kind!=='views')line(sx,S.margin,sx,S.h-S.margin,.45,ink);
  // Left: heading, views and notes.
  const m=s.member,input=s.input,colors=markColors(s.rows),cuts=defaultCuts(m,s.rows);
- text(`${m.code} · ${T.category[m.category]} · ${lang==='zh'?'配筋详图':'REINFORCEMENT DETAIL'}`,S.left+4,S.margin+6,4.2,{bold:true});
+ text(`${m.code} · ${s.scope?.kind==='tag'?`${s.scope.label} · `:s.scope?.kind==='summary'?'SUMMARY · ':''}${T.category[m.category]} · ${lang==='zh'?'配筋详图':'REINFORCEMENT DETAIL'}`,S.left+4,S.margin+6,4.2,{bold:true});
  text(`${s.project.code} · ${s.project.name}`,S.left+4,S.margin+10.5,2.6,{color:'#4b6166',raw:true});
  line(S.left,S.margin+13,kind==='views'?right:sx,S.margin+13,.3,ink);
  // A3: 128 mm for plan / section X–X; larger paper keeps the same split of the height
@@ -179,16 +188,23 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  const big=kind==='tables',tx=big?S.left:sx,tw=big?sx-S.left:S.strip,f=tw/S.strip,fz=big?1.2:1,rowH=big?L.tRow:S.bbsRow,headH=big?L.tHead:S.bbsHead,top=big?L.tTop:L.tableTop,per=big?L.tPer:L.perPage,tr=tx+tw;
  const cols:{title:string;w:number;align?:'end'}[]=[{w:10},{w:31},{w:13},{w:24},{w:15,align:'end' as const},{w:10,align:'end' as const},{w:13,align:'end' as const},{w:19,align:'end' as const}].map((c,i)=>({...c,w:c.w*f,title:T.cols[i]}));
  const tPages=big?L.tablePages:L.pages,hy=big?top-3.5:S.margin+5.5;
- text(`${lang==='zh'?'钢筋弯曲表 BAR BENDING SCHEDULE':'BAR BENDING SCHEDULE'}${tPages>1?` (${page+1}/${tPages})`:''}`,tx+3,hy,3.4*fz,{bold:true});text(`${s.rows.length} Marks`,tr-3,hy,2.4*fz,{anchor:'end',color:'#4b6166'});
+ text(`${s.scope?.kind==='summary'?'SUMMARY BY TAG':lang==='zh'?'钢筋弯曲表 BAR BENDING SCHEDULE':'BAR BENDING SCHEDULE'}${tPages>1?` (${page+1}/${tPages})`:''}`,tx+3,hy,3.4*fz,{bold:true});text(`${s.rows.length} Marks`,tr-3,hy,2.4*fz,{anchor:'end',color:'#4b6166'});
  let y=top,x=tx;out.push({t:'rect',x:tx,y,w:tw,h:headH,fill:'#203940'});
  for(const c of cols){cell(c.title,x,y,c.w,headH,2.2*fz,c.align||'start','#ffffff');x+=c.w;}y+=headH;
- const subset=s.rows.slice(page*per,(page+1)*per);
+ const summary=s.scope?.kind==='summary'?s.scope.tags:undefined,subset=summary?[]:s.rows.slice(page*per,(page+1)*per);
+ if(summary){
+  // summary set: one row per tag (sheet set, Marks, concrete, rebar) instead of the bars
+  const sw=[22,52,14,22,25].map(v=>v*f),head=['TAG','',"MARKS",'m³','kg'],part=summary.slice(page*per,(page+1)*per);
+  y=top+headH;out.push({t:'rect',x:tx,y:top,w:tw,h:headH,fill:'#203940'});x=tx;head.forEach((t,i)=>{cell(i===1?(lang==='th'?'ชิ้นส่วน / กลุ่ม':'PART / GROUP'):t,x,top,sw[i],headH,2.2*fz,i>1?'end':'start','#ffffff',true);x+=sw[i];});
+  for(const t of part){x=tx;[t.tag,t.label,String(t.marks),t.concrete===null?'—':fmt(t.concrete*s.quantity,3),fmt(t.weight*s.quantity)].forEach((v,i)=>{cell(v,x,y,sw[i],rowH,2.3*fz,i>1?'end':'start',ink,i!==1);x+=sw[i];});line(tx,y+rowH,tr,y+rowH);y+=rowH;}
+  x=tx;for(const w of sw.slice(0,-1)){x+=w;line(x,top,x,y);}
+ }
  for(const r of subset){x=tx;const values=[r.mark,r.note||'',`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
   const bar=r as unknown as Bar,raw=bar.shape&&!['arc','helix'].includes(bar.shape)?barPaths(m,bar)[0]||[]:[];
-  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],raw,r.diameter,x+5*fz,y+2.6*fz,c.w-10*fz,rowH-5*fz,colors.get(r.id)||ink,barCouplerEnds(input,r.id));text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+rowH-.8,1.8*fz,{color:'#4b6166'});}else cell(values[i],x,y,c.w,rowH,(i===1?1.9:2.3)*fz,c.align||'start');x+=c.w;});
+  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],raw,r.diameter,x+5*fz,y+2.6*fz,c.w-10*fz,rowH-5*fz,colors.get(r.id)||ink,barCouplerEnds(input,r.id));text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+rowH-.8,1.8*fz,{color:'#4b6166'});}else cell(values[i],x,y,c.w,rowH,(i===1?1.9:i===0&&r.mark.length>5?Math.max(1.5,Math.min(2.3,(c.w/fz-1.6)/(r.mark.length*.56))):2.3)*fz,c.align||'start');x+=c.w;});
   line(tx,y+rowH,tr,y+rowH);y+=rowH;}
- if(!subset.length){cell(T.noBars,tx,y,tw,rowH);y+=rowH;}
- x=tx;for(const c of cols.slice(0,-1)){x+=c.w;line(x,top,x,y);}
+ if(!summary&&!subset.length){cell(T.noBars,tx,y,tw,rowH);y+=rowH;}
+ if(!summary){x=tx;for(const c of cols.slice(0,-1)){x+=c.w;line(x,top,x,y);}}
  if(big)out.push({t:'rect',x:tx,y:top,w:tw,h:y-top,stroke:ink,width:.3});
  if(!big||page===L.tablePages-1)text(T.totalWeight(fmt(s.takeoff.rebar*s.quantity),s.quantity),tr-2,y+4,2.5*fz,{anchor:'end',bold:true});
  // Right strip: BOQ table.

@@ -8,6 +8,7 @@ import {isModelFile,modelFileLabel} from '../domain/fileTypes';
 import {partPurposeLabels,partPurposes,shapeKindLabels,type PartPurpose,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
 import {applyPartPresets,defaultPartRebar,detailingFor,guessPurpose,moveOwnedSketchBars} from '../domain/partRebar';
 import {normaliseShape,partPolygon,shapeFootprint,shapePileQuantities} from '../domain/shapeGeometry';
+import {modelTags,nextTag,pruneGroups,tagLetter,withAutoTags} from '../domain/partTags';
 import {applyShapeModel,shapeProblems,shapeStageVolumes,standardCover,starterShape} from '../domain/shapeApply';
 import {takeoff} from '../domain/engine';
 import {buildView,renderView,viewHeight} from '../domain/elementViews';
@@ -69,7 +70,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
   const b=partBox(p),moved={...p,...movedPart(p,(a.x0+a.x1-b.x0-b.x1)/2,(a.y0+a.y1-b.y0-b.y1)/2,0)} as ShapePart;
   return p.role!=='void'?{...moved,z0:a.z1}:moved;
  };
- const add=(p:ShapePart,place=true)=>{const q=place?placed(p):p;edit(d=>({...d,confirmed:false,parts:[...d.parts,q]}));setSel(q.id);setNote(!place?`สำเนาวางถัดไปทางขวา (+X)`:part?`วาง “${q.label}” กึ่งกลาง${q.role==='solid'?'บนผิวบน':'ใน'} “${part.label}”`:'');};
+ const add=(p:ShapePart,place=true)=>{let q=place?placed(p):p;if(draft.parts.some(x=>x.tag))q={...q,tag:nextTag(tagLetter(q,guessPurpose(q,draft)),modelTags(draft))};edit(d=>({...d,confirmed:false,parts:[...d.parts,q]}));setSel(q.id);setNote(!place?`สำเนาวางถัดไปทางขวา (+X)`:part?`วาง “${q.label}” กึ่งกลาง${q.role==='solid'?'บนผิวบน':'ใน'} “${part.label}”`:'');};
  const onTop=()=>{if(!part)return;const s=supports(draft.parts,part);if(!s.length){setNote('ไม่มีชิ้นคอนกรีตใต้ชิ้นนี้ในแปลน · ลากให้ทับกันในแปลนก่อน');return;}
   if(s[0].z1===part.z0){setNote(`“${part.label}” วางบนผิวบนอยู่แล้ว (z0 = ${fmt(part.z0)})`);return;}put(part.id,{z0:s[0].z1});setNote(`ยก “${part.label}” ไปวางบนผิวบนของชิ้นด้านล่าง · z0 = ${fmt(s[0].z1)}`);};
  const centre=()=>{if(!part)return;const s=supports(draft.parts,part);if(!s.length){setNote('ไม่มีชิ้นคอนกรีตใต้ชิ้นนี้ในแปลน · ลากให้ทับกันในแปลนก่อน');return;}
@@ -109,9 +110,9 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
   <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={(shape,c)=>{edit(()=>shape);setSel(shape.parts[0].id);setCover(c??standardCover(shape));setCoverSource(c?'จากแบบ':'มาตรฐาน');}}/>
   <div className="shape-layout">
    <aside className="shape-parts">
-    <h4>ชิ้นส่วน ({draft.parts.length}/40)</h4>
+    <div className="shape-parts-head"><h4>ชิ้นส่วน ({draft.parts.length}/40)</h4>{!readOnly&&draft.parts.some(p=>!p.tag)&&<button type="button" className="link-button" title="ตั้ง Tag no. ให้ชิ้นที่ยังไม่มี ตามหน้าที่ (F ฐานราก · C เสา · B คาน · S พื้น · W ผนัง · R อ้างอิง · P บ่อ · X อื่น) · Mark ของเหล็กจะขึ้นต้นด้วย Tag เมื่อกดใช้รูปทรง" onClick={()=>edit(d=>withAutoTags(d,p=>guessPurpose(p,d)))}>ตั้ง Tag อัตโนมัติ</button>}</div>
     {draft.parts.map((p,i)=><button key={p.id} type="button" className={`shape-part ${p.id===sel?'active':''} ${p.role}`} onClick={()=>setSel(p.id)}>
-     <i className={`stage-${Math.min(p.stage,3)}`}/><span><b>{i+1}. {p.label}</b><small>{p.role==='void'?'ช่องเปิด · ':p.role==='reference'?'อ้างอิง · ':''}{shapeKindLabels[p.shape]} · สูง {fmt(p.height)} · Stage {p.stage}</small></span></button>)}
+     <i className={`stage-${Math.min(p.stage,3)}`}/><span><b>{p.tag?<em className="part-tag">{p.tag}</em>:`${i+1}. `}{p.label}</b><small>{p.role==='void'?'ช่องเปิด · ':p.role==='reference'?'อ้างอิง · ':''}{shapeKindLabels[p.shape]} · สูง {fmt(p.height)} · Stage {p.stage}</small></span></button>)}
     {!readOnly&&<div className="shape-add">{adders.map(([l,f])=><button key={l} type="button" disabled={draft.parts.length>=40} onClick={()=>add(f())}><Plus size={12}/>{l}</button>)}</div>}
     <PilesPanel draft={draft} readOnly={readOnly} onChange={piles=>edit(d=>({...d,confirmed:false,piles}))}/>
     <SitePanel draft={draft} readOnly={readOnly} onChange={site=>edit(d=>({...d,site}))}/>
@@ -136,7 +137,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
     {part?<PartProps part={part} index={draft.parts.indexOf(part)} readOnly={readOnly} onChange={patch=>put(part.id,patch)}
      onPurpose={k=>put(part.id,{rebar:k?defaultPartRebar(k,part,det,draft):undefined})} suggested={guessPurpose(part,draft)}
      onDuplicate={()=>{const b=partBox(part),c={...structuredClone(part),id:newId(),label:`${part.label} (สำเนา)`};add({...c,...movedPart(c,b.x1-b.x0,0,0)} as ShapePart,false);}}
-     onDelete={()=>{if(draft.parts.filter(p=>p.role==='solid').length===1&&part.role==='solid')return;edit(d=>({...d,confirmed:false,parts:d.parts.filter(p=>p.id!==part.id)}));setSel(draft.parts.find(p=>p.id!==part.id)?.id||'');}}/>:<p className="muted">เลือกชิ้นส่วน</p>}
+     onDelete={()=>{if(draft.parts.filter(p=>p.role==='solid').length===1&&part.role==='solid')return;edit(d=>pruneGroups({...d,confirmed:false,parts:d.parts.filter(p=>p.id!==part.id)}));setSel(draft.parts.find(p=>p.id!==part.id)?.id||'');}}/>:<p className="muted">เลือกชิ้นส่วน</p>}
     <h4>ตรวจมิติ</h4>
     {checks.blockers.length?<ul className="shape-check bad">{checks.blockers.map(t=><li key={t}>{t}</li>)}</ul>:<p className="ok-text">✔ รูปทรงคำนวณได้ · ไม่มีชิ้นส่วนลอย / เข็มนอกแปลน</p>}
     {checks.notes.length>0&&<ul className="shape-check">{checks.notes.map(t=><li key={t}>{t}</li>)}</ul>}
@@ -321,7 +322,7 @@ function PartProps({part:p,index,readOnly,onChange,onPurpose,suggested,onDuplica
  const coord=(label:string,key:string)=><Field key={key} label={label} type="number" disabled={readOnly} value={(p as any)[key]} onChange={v=>onChange({[key]:Number(v)||0} as any)}/>;
  return <div className="shape-part-props">
   <div className="section-heading"><h4>{index+1}. คุณสมบัติ · {shapeKindLabels[p.shape]}</h4><span className="actions"><button type="button" title="ทำสำเนา" disabled={readOnly} onClick={onDuplicate}><Copy size={13}/></button><button type="button" className="danger-text" title="ลบ" disabled={readOnly} onClick={onDelete}><Trash2 size={13}/></button></span></div>
-  <Field label="ชื่อชิ้นส่วน" value={p.label} disabled={readOnly} onChange={v=>onChange({label:String(v).slice(0,80)})}/>
+  <div className="form-grid"><Field label="Tag no." value={p.tag||''} disabled={readOnly} onChange={v=>{const t=String(v).toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,16);onChange({tag:/^[A-Z0-9]/.test(t)?t:undefined});}}/><Field label="ชื่อชิ้นส่วน" value={p.label} disabled={readOnly} onChange={v=>onChange({label:String(v).slice(0,80)})}/></div>
   <div className="form-grid">
    <label className="field"><span>บทบาท</span><select disabled={readOnly} value={p.role} onChange={e=>onChange({role:e.target.value as ShapePart['role']})}><option value="solid">คอนกรีต</option><option value="void">ช่องเปิด / หลุม (หัก)</option><option value="reference">อ้างอิง · เสา / ผนังเทภายหลัง (ไม่คิดคอนกรีต)</option></select></label>
    <label className="field" title="ใช้เลือกเหล็ก Preset ในแท็บใส่เหล็ก · Preset สร้างใหม่ทุกครั้งที่กดใช้รูปทรง"><span>หน้าที่ (เหล็ก Preset)</span><select disabled={readOnly} value={p.rebar?.purpose||''} onChange={e=>onPurpose(e.target.value as PartPurpose|'')}><option value="">— ยังไม่กำหนด</option>{(p.role==='void'?(['wall'] as const):partPurposes).map(k=><option key={k} value={k}>{p.role==='void'?'เหล็กรอบผิวบ่อ / ช่องเปิด':partPurposeLabels[k]}{k===suggested?' (แนะนำ)':''}</option>)}</select></label>

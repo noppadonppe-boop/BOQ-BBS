@@ -793,7 +793,7 @@ function loopRing(ring:Pt[]){const r=signedArea(ring)<0?[...ring].reverse():ring
 /** Lapped pieces of one horizontal loop: lap centres by pattern (each lap kept inside one side, clear of the bends),
  * piece k runs from lap k to lap k+1 plus half a lap at both ends. Pattern 1 / 2 pieces longer than the limit move on
  * to the next pattern. */
-function loopPieces(ring0:Pt[],laps:LoopLaps|undefined,det:Detailing,d:number){
+export function loopPieces(ring0:Pt[],laps:LoopLaps|undefined,det:Detailing,d:number){
  const ring=loopRing(ring0),x=loopLapLength(det,d,laps),m=radius(d,det)+d,max=Math.min(LOOP_MAX_LENGTH,det.stockLength||LOOP_MAX_LENGTH);
  let s=0;const E=ring.map((a,k)=>{const b=ring[(k+1)%ring.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),e={a,b,len,s0:s};s+=len;return e;}),P=s;
  const at=(t:number):Pt=>{const u=((t%P)+P)%P,e=E.find(q=>u>=q.s0&&u<=q.s0+q.len)||E[0],f=e.len?(u-e.s0)/e.len:0;return [e.a[0]+(e.b[0]-e.a[0])*f,e.a[1]+(e.b[1]-e.a[1])*f];};

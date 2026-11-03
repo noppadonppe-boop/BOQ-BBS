@@ -95,7 +95,19 @@
   higher, mesh bars step aside from vertical bars, ties / horizontal rings step off mesh levels. Wall dowels over an opening
   (no cover-clear embedment) are cut. Speed: `shapeGeometry` caches per model object, `placementMember` per member object.
   `INTERFERENCE_LIMITS.comparisons` 20 M (a 1,000-piece mat needs ~1.3 M).
-  Dev harness: `tmp/preview/shape.html` (tabs shape / rebar; `tmp/` is outside Vite's watcher — restart the dev server after editing it).
+  Dev harness: `tmp/preview/shape.html` (tabs shape / rebar / sheet, `#asm-tag` = tagged assembly; `tmp/` is outside Vite's watcher — restart the dev server after editing it).
+- Part Tag no. (`src/domain/partTags.ts`): `part.tag` / `shapeModel.groups[] {id g…, tag, label, parts ≥ 2}` (bar groups: several
+  parts reinforced as one, drawn bars `sk-<group id>-…`); owner of a bar = `barOwner()` (parts + groups; `barPart()` = parts only).
+  Auto tags `withAutoTags()` (F / C / B / S / W / X by purpose, R reference, P pit walls, V voids; G-nn groups); Marks `<tag>/nn`
+  via `markFor()`, `tagMarks()` renumbers on tag change (keeps the number after the slash), run by `applyPartPresets`.
+  Rebar tab = part table (Tag, purpose, sets, kg; tick ≥ 2 → group) → full-screen rebar window (`.rebar-window`: views framed on
+  the part / group, tools create bars owned by it via `commitNew`). Drawn bar ends `bar.ends {start,end: ext | null, hook
+  none|std90|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
+  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped); UI `EndsEditor`.
+  Loop tool laps 1 / 2 / 3 points (`loopBars(…, split)` + exported `loopPieces`). BBS per Tag: sheet style `partSheets`
+  model | tag + `drawingSetup.partTags` → `tagSheetSets()` (`tagSheets.ts`): one set per tag (own bars, own concrete, other
+  solids as context boxes, piles under it), groups rebar only, untagged bars `GEN`, then a summary set (`scope.kind 'summary'`:
+  table per tag); used by `SheetA3Preview` and `bbsSheetPdf`. Test: `tmp/partTags.test.ts`.
 - Rebar notes (Phase 3): `src/domain/rebarNotes.ts` (rule parser `parseRebarNote`, `suggestFromNotes`,
   `barsFromSuggestions`; loops / vertical face bars stop where the plan changes via `stackTop`); notes kept in
   `shapeModel.rebarNotes` (also filled from the AI shape proposal); UI tool “จาก Note ในแบบ” in `RebarSketch.tsx`.
