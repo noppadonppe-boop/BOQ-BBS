@@ -60,7 +60,7 @@ export function HookFields({label,value,d,table,onChange}:{label:string;value:Ho
  const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],std=row?row.a90:12*d;
  return <div className="form-grid sketch-hook"><label className="field"><span>{label}</span><select value={value.kind} onChange={e=>{const k=e.target.value as HookEnd['kind'];onChange({...value,kind:k,leg:k==='custom'?value.leg||std:0});}}>
   <option value="none">ไม่มีขอ (ปลายตรง)</option><option value="std90">ขอมาตรฐาน 90° (A/G {fmt(std)})</option><option value="std135">ขอมาตรฐาน 135° (6d ≥ 75)</option><option value="std180">ขอมาตรฐาน 180°</option><option value="custom">ฉาก 90° กำหนดความยาวเอง</option></select></label>
-  {value.kind==='none'?<span/>:<label className="field"><span>{value.kind==='custom'?'ความยาวฉาก (mm)':'ความยาวขอ (ว่าง = มาตรฐาน)'}</span><input type="number" min={0} value={value.leg||''} placeholder={fmt(stdHookLength(value.kind,d,table))} onChange={e=>onChange({...value,leg:Math.max(0,Number(e.target.value)||0)})}/></label>}
+  {value.kind==='none'?<span/>:<label className="field"><span>{value.kind==='custom'?'ความยาวฉาก (mm)':value.kind==='std90'?'ความยาวขา (ว่าง = มาตรฐาน)':'ส่วนตรงหลังงอ (ว่าง = มาตรฐาน)'}</span><input type="number" min={0} value={value.leg||''} placeholder={fmt(stdHookLength(value.kind,d,table))} onChange={e=>onChange({...value,leg:Math.max(0,Number(e.target.value)||0)})}/></label>}
   {value.kind!=='none'&&<label className="check"><input type="checkbox" checked={!!value.flip} onChange={e=>onChange({...value,flip:e.target.checked||undefined})}/>กลับทิศขอ</label>}</div>;
 }
 /** Group (at most @ spacing → count from the range / fixed count) or a single bar along the distribution axis. Switching a
