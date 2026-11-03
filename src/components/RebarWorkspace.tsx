@@ -7,7 +7,7 @@ import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
 import {hookDevLength,lapLength} from '../domain/elementInput';
 import {partPurposeLabels,partPurposes,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
-import {addHooks,boxFaces,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
+import {addHooks,boxFaces,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
  type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
 import {BarEditModal} from './BarEditModal';
 import {applyPartPresets,defaultPartRebar,detachPreset,detailingFor,guessPurpose,isPresetBar,outsideLengths,partBox,partCoverage,partSketchId,withOutsideRegions,type Box3} from '../domain/partRebar';
@@ -74,7 +74,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
  const commitNew=(made:Bar[])=>{if(!made.length)return;let work=m;const own=made.map(b=>{const nb={...b,id:focus?partSketchId(focus):b.id,mark:''};nb.mark=markFor(work,focus||undefined);work={...work,bars:[...work.bars,nb]};return nb;});commitBars([...m.bars,...own],own[0].id);};
  const reset=()=>{setPts([]);setHits([]);setDrawKind(null);};
  const finish=(view:SketchView,points:P2[],rings:P2[][])=>{if(points.length<2||readOnly){reset();return;}const h=addHooks(points,hooks,dia,rings,hookTable),i0=h.points.indexOf(points[0]),mark=markFor(m,focus||undefined);
-  const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,n:Math.max(0,i0)},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,n:Math.max(0,h.points.length-Math.max(0,i0)-points.length)}};
+  const ends:SketchEndSet={start:{ext:null,hook:hooks.start.kind,leg:hooks.start.leg,...(hooks.start.flip?{flip:true}:{}),n:Math.max(0,i0)},end:{ext:null,hook:hooks.end.kind,leg:hooks.end.leg,...(hooks.end.flip?{flip:true}:{}),n:Math.max(0,h.points.length-Math.max(0,i0)-points.length)}};
   const bar=sketchBar({...(focus?{id:partSketchId(focus)}:{}),mark,view,points:h.points,diameter:dia,grade:gradeOf(dia),layout});setNotes(h.notes);commitBars([...m.bars,{...bar,ends}],bar.id);reset();setTool('select');};
  const updateSel=(patch:{points?:P2[];diameter?:number;layout?:LayoutRule;grade?:string;mark?:string;ends?:SketchEndSet},final=true)=>{if(!selBar||!selView)return;
   const old=selBar.points.map(p=>toView(selView,p as [number,number,number]));const l=patch.layout||{rule:selBar.count===1?'single':'count',spacing:layout.spacing,count:selBar.count,from:selBar.distributionStart,to:selBar.distributionEnd} as LayoutRule;
@@ -219,10 +219,11 @@ function EndsEditor({bar,view,m,cover,focusBox,det,table,readOnly,onApply}:{bar:
   const res=withEnds(bar.points.map(p=>toView(at,p as [number,number,number])),bar.ends,e,d,faces,rings,table);onApply(res.points,res.ends,res.notes);setE(res.ends);};
  const end=(k:'start'|'end',label:string)=>{const v=e[k],put=(p:Partial<typeof v>)=>setE({...e,[k]:{...v,...p}});return <div className="bar-end" key={k}><b>{label}</b>
   <div className="form-grid"><label className="field"><span>ระยะจากผิว{focusBox?'ชิ้น':'คอนกรีต'} (+ ออก / − เข้า)</span><input type="number" disabled={readOnly} value={v.ext??''} placeholder="ตามที่วาด" onChange={x=>put({ext:x.target.value===''?null:Number(x.target.value)})}/></label>
-   <label className="field"><span>ปลาย</span><select disabled={readOnly} value={v.hook} onChange={x=>put({hook:x.target.value as typeof v.hook,leg:v.leg||std})}>{(Object.keys(hookNames) as (keyof typeof hookNames)[]).map(h=><option key={h} value={h}>{hookNames[h]}{h==='std90'?` (${fmt(std)})`:''}</option>)}</select></label>
-   {v.hook==='custom'&&<Field label="ความยาวขา (mm)" type="number" disabled={readOnly} value={v.leg} onChange={x=>put({leg:Math.max(0,Number(x)||0)})}/>}</div>
+   <label className="field"><span>ปลาย</span><select disabled={readOnly} value={v.hook} onChange={x=>{const h=x.target.value as typeof v.hook;put({hook:h,leg:h==='custom'?v.leg||std:0});}}>{(Object.keys(hookNames) as (keyof typeof hookNames)[]).map(h=><option key={h} value={h}>{hookNames[h]}{h==='std90'?` (${fmt(std)})`:''}</option>)}</select></label>
+   {v.hook!=='none'&&<label className="field"><span>{v.hook==='custom'?'ความยาวขา 90° (mm)':`ความยาวขอจากปลาย (ว่าง = มาตรฐาน ${fmt(stdHookLength(v.hook,d,table))})`}</span><input type="number" min={0} disabled={readOnly} value={v.leg||''} placeholder={fmt(stdHookLength(v.hook,d,table))} onChange={x=>put({leg:Math.max(0,Number(x.target.value)||0)})}/></label>}
+   {v.hook!=='none'&&<label className="check" title="ปกติของอเข้าหาคอนกรีต · ติ๊กเพื่องอไปอีกด้าน"><input type="checkbox" disabled={readOnly} checked={!!v.flip} onChange={x=>put({flip:x.target.checked||undefined})}/>กลับทิศขอ</label>}</div>
   <div className="bar-end-quick">{quick.map(([t,x])=><button key={t} type="button" disabled={readOnly} onClick={()=>put({ext:x})}>{t}</button>)}<button type="button" disabled={readOnly} onClick={()=>put({ext:null})}>ตามที่วาด</button></div></div>;};
- return <div className="bar-ends"><h4>ปลายเหล็ก</h4>{end('start','ปลายต้น')}{end('end','ปลายท้าย')}
+ return <div className="bar-ends"><h4>ปลายเหล็ก</h4>{end('start','ปลายต้น · จุด A (จุดแรกที่วาด)')}{end('end',`ปลายท้าย · จุดสุดท้าย (หลังช่วง ${String.fromCharCode(64+Math.max(1,bar.points.length-1-(bar.ends?.start.n||0)-(bar.ends?.end.n||0)))})`)}
   <div className="actions"><button type="button" className="primary" disabled={readOnly} onClick={apply}>ใช้กับเหล็กนี้</button><button type="button" disabled={readOnly} onClick={()=>setE({...e,end:{...e.start,n:e.end.n}})}>ปลายท้าย = ปลายต้น</button></div></div>;
 }
 
@@ -336,6 +337,8 @@ function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean})
     {!dim&&b.lines.flatMap((l,i)=>outside(l).map((o,k)=><line key={`o${i}-${k}`} className="sk-out" x1={X(o.a[0])} y1={Y(o.a[1])} x2={X(o.b[0])} y2={Y(o.b[1])}/>))}</g>;})}
    {cutLines.map(({k,v})=>k===a.u?<g key={k} className="sk-cut"><line x1={X(v)} x2={X(v)} y1={8} y2={H-8} onPointerDown={e=>begin(e,{kind:'cut',axis:k})}/><text x={X(v)+4} y={16}>{cutLabels[k]}</text></g>
     :<g key={k} className="sk-cut"><line y1={Y(v)} y2={Y(v)} x1={8} x2={W-8} onPointerDown={e=>begin(e,{kind:'cut',axis:k})}/><text x={W-10} y={Y(v)-4} textAnchor="end">{cutLabels[k]}</text></g>)}
+   {editable&&ctx.selView&&(()=>{const b=ctx.selBar!,n0=b.ends?.start.n||0,n1=b.points.length-1-(b.ends?.end.n||0),q0=toView(ctx.selView!,b.points[n0] as [number,number,number]),q1=toView(ctx.selView!,b.points[n1] as [number,number,number]);
+    return <g className="sk-ends"><text x={X(q0[0])+8} y={Y(q0[1])-8}>A ต้น</text><text x={X(q1[0])+8} y={Y(q1[1])-8}>ท้าย</text></g>;})()}
    {editable&&ctx.selView&&ctx.selBar!.points.map((p,i)=>{const q=toView(ctx.selView!,p as [number,number,number]);return <rect key={i} className="sk-grip" x={X(q[0])-5} y={Y(q[1])-5} width={10} height={10} onPointerDown={e=>begin(e,{kind:'pt',index:i})}/>;})}
    {inPlane&&ctx.selBar&&(()=>{const b=ctx.selBar,p0=b.points[0],other=dAxis===a.u?a.v:a.u;return (['from','to'] as const).map(end=>{const v=end==='from'?b.distributionStart:b.distributionEnd,w:[number,number]=dAxis===a.u?[v,p0[other]]:[p0[other],v];
     return <g key={end} className="sk-range" onPointerDown={e=>begin(e,{kind:'range',end})}><circle className="hit" cx={X(w[0])} cy={Y(w[1])} r={13}/><polygon points={`${X(w[0])},${Y(w[1])-9} ${X(w[0])+9},${Y(w[1])} ${X(w[0])},${Y(w[1])+9} ${X(w[0])-9},${Y(w[1])}`}/><title>{end==='from'?'เริ่มกระจาย':'สิ้นสุดกระจาย'} {fmt(v)} · ลากเพื่อปรับ</title></g>;});})()}

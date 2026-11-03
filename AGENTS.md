@@ -109,7 +109,8 @@
   Rebar tab = part table (Tag, purpose, sets, kg; tick ≥ 2 → group) → full-screen rebar window (`.rebar-window`: views framed on
   the part / group, tools create bars owned by it via `commitNew`; mesh / loop tools stay inside its plan: `within` → `regionWithin()`). Drawn bar ends `bar.ends {start,end: ext | null, hook
   none|std90|std135|std180|custom, leg, n}` re-applied by `withEnds()` (`rebarSketch.ts`: strips the n hook points, end = first face from
-  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; 135° = turned back in, 6d ≥ 75 `hook135Tail`); UI `EndsEditor`.
+  its neighbour + ext; part faces = `boxFaces`, else the concrete; hooks past the concrete are not clipped; 135° = turned back in, 6d ≥ 75 `hook135Tail`; `leg` > 0 = own hook length from the tip for 90 / 135 / 180,
+  standard = `stdHookLength()`; `flip` = turn to the other side); UI `EndsEditor` (+ “A ต้น / ท้าย” markers in views and `BarShapeSvg`).
   Loop tool laps 1 / 2 / 3 points (`loopBars(…, split)` + exported `loopPieces`). BBS per Tag: sheet style `partSheets`
   model | tag + `drawingSetup.partTags` → `tagSheetSets()` (`tagSheets.ts`): one set per tag (own bars, own concrete, other
   solids as context boxes, piles under it), groups rebar only, untagged bars `GEN`, then a summary set (`scope.kind 'summary'`:

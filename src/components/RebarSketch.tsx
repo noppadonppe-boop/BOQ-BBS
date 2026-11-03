@@ -3,7 +3,7 @@ import {isCoverQuestion} from '../domain/shapeProposal';
 import {standardCover} from '../domain/shapeApply';
 import {barsFromSuggestions,suggestFromNotes,type NoteAction,type Suggestion} from '../domain/rebarNotes';
 import type {Bar,Member} from '../domain/model';
-import {isSketchBar,layoutOf,loopBars,meshBars,nextMark,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchView} from '../domain/rebarSketch';
+import {isSketchBar,layoutOf,stdHookLength,loopBars,meshBars,nextMark,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchView} from '../domain/rebarSketch';
 import {loopPieces,type Detailing} from '../domain/elementInput';
 import {Field} from './EditorControls';
 
@@ -58,9 +58,10 @@ export function NotesTool({m,readOnly,gradeOf,onNotes,onCreate}:{m:Member;readOn
 }
 export function HookFields({label,value,d,table,onChange}:{label:string;value:HookEnd;d:number;table:HookTable;onChange:(v:HookEnd)=>void}){
  const row=table.find(t=>t.bar===d)||table.filter(t=>t.bar>=d).sort((x,y)=>x.bar-y.bar)[0],std=row?row.a90:12*d;
- return <div className="form-grid sketch-hook"><label className="field"><span>{label}</span><select value={value.kind} onChange={e=>onChange({...value,kind:e.target.value as HookEnd['kind'],leg:value.leg||std})}>
+ return <div className="form-grid sketch-hook"><label className="field"><span>{label}</span><select value={value.kind} onChange={e=>{const k=e.target.value as HookEnd['kind'];onChange({...value,kind:k,leg:k==='custom'?value.leg||std:0});}}>
   <option value="none">ไม่มีขอ (ปลายตรง)</option><option value="std90">ขอมาตรฐาน 90° (A/G {fmt(std)})</option><option value="std135">ขอมาตรฐาน 135° (6d ≥ 75)</option><option value="std180">ขอมาตรฐาน 180°</option><option value="custom">ฉาก 90° กำหนดความยาวเอง</option></select></label>
-  {value.kind==='custom'?<Field label="ความยาวฉาก (mm)" type="number" value={value.leg} onChange={v=>onChange({...value,leg:Math.max(0,Number(v)||0)})}/>:<span/>}</div>;
+  {value.kind==='none'?<span/>:<label className="field"><span>{value.kind==='custom'?'ความยาวฉาก (mm)':'ความยาวขอ (ว่าง = มาตรฐาน)'}</span><input type="number" min={0} value={value.leg||''} placeholder={fmt(stdHookLength(value.kind,d,table))} onChange={e=>onChange({...value,leg:Math.max(0,Number(e.target.value)||0)})}/></label>}
+  {value.kind!=='none'&&<label className="check"><input type="checkbox" checked={!!value.flip} onChange={e=>onChange({...value,flip:e.target.checked||undefined})}/>กลับทิศขอ</label>}</div>;
 }
 export function LayoutFields({layout:l,onChange,disabled=false}:{layout:LayoutRule;onChange:(l:LayoutRule)=>void;disabled?:boolean}){
  return <div className="form-grid">

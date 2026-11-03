@@ -18,7 +18,7 @@ export function withSegment(points:Vec3[],i:number,L:number):Vec3[]{
 }
 
 /** Bar shape drawn on its two longest axes (not to scale across axes), segments lettered with their lengths. */
-export function BarShapeSvg({points,color='#0f766e',width=420,height=240}:{points:Vec3[];color?:string;width?:number;height?:number}){
+export function BarShapeSvg({points,color='#0f766e',width=420,height=240,ends}:{points:Vec3[];color?:string;width?:number;height?:number;ends?:{start:number;end:number}}){
  if(points.length<2)return null;
  const spans=[0,1,2].map(i=>Math.max(...points.map(p=>p[i]))-Math.min(...points.map(p=>p[i]))),axes=spans.map((s,i)=>({s,i})).sort((a,b)=>b.s-a.s).slice(0,2).map(v=>v.i);
  const lo=axes.map(a=>Math.min(...points.map(p=>p[a]))),M=36,su=(width-2*M)/(spans[axes[0]]||1),sv=spans[axes[1]]>1e-6?(height-2*M)/spans[axes[1]]:0,s=Math.min(su,sv||su);
@@ -30,6 +30,7 @@ export function BarShapeSvg({points,color='#0f766e',width=420,height=240}:{point
   {pts.map((p,i)=><circle key={i} cx={p[0]} cy={p[1]} r={3} fill="#fff" stroke={color} strokeWidth={1.5}/>)}
   {pts.slice(1).map((p,i)=>{const q=pts[i],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2,dx=p[0]-q[0],dy=p[1]-q[1],l=Math.hypot(dx,dy)||1,nx=-dy/l*14,ny=dx/l*14;
    return <text key={i} x={mx+nx} y={my+ny} textAnchor="middle" dominantBaseline="middle" className="bar-shape-label">{letter(i)} {fmt(len(points[i],points[i+1]))}</text>;})}
+  {ends&&(()=>{const a=pts[ends.start],b=pts[pts.length-1-ends.end];return a&&b?<g className="bar-shape-ends"><circle cx={a[0]} cy={a[1]} r={6} fill="#15803d"/><text x={a[0]+9} y={a[1]-9}>A ต้น</text><circle cx={b[0]} cy={b[1]} r={6} fill="#b91c1c"/><text x={b[0]+9} y={b[1]-9}>ท้าย</text></g>:null;})()}
   <text x={width-6} y={height-6} textAnchor="end" className="bar-shape-axis">{'XYZ'[axes[0]]} → · {'XYZ'[axes[1]]} ↑ · ไม่ตามมาตราส่วน</text>
  </svg>;
 }
@@ -55,7 +56,7 @@ export function BarEditModal({bar,m,spec,readOnly,gradeOf,onSave,onDetach,onDupl
     <button type="button" className="e3d-close" aria-label="ปิด" onClick={close}><Close size={18}/></button></div>
    {preset&&<p className="notice">ชุดนี้เป็นเหล็ก Preset ของชิ้นส่วน (สร้างใหม่ทุกครั้งที่รูปทรง / Preset เปลี่ยน) · แก้ขนาด / ระยะในแผง “หน้าที่ของชิ้น” หรือกด “แยกจาก Preset” เพื่อแก้รูปร่างเอง{onDetach&&!readOnly?<button type="button" onClick={onDetach}><Scissors size={13}/>แยกจาก Preset</button>:null}</p>}
    <div className="bar-edit-body">
-    <div className="bar-edit-shape"><BarShapeSvg points={d.points}/>
+    <div className="bar-edit-shape"><BarShapeSvg points={d.points} ends={{start:d.ends?.start.n||0,end:d.ends?.end.n||0}}/>
      {row&&<table className="shape-qty"><tbody><tr><td>Shape code</td><td>{d.shapeCode||'—'}</td></tr><tr><td>ยาวตัด</td><td>{fmt(row.cutLength)} mm</td></tr><tr><td>จำนวน</td><td>{row.count}</td></tr><tr><td>น้ำหนัก / ชุด</td><td>{number(row.weight,2)} kg</td></tr></tbody></table>}
      {notes.length>0&&<p className="notice warning">{notes.join(' · ')}</p>}</div>
     <div className="bar-edit-form">
