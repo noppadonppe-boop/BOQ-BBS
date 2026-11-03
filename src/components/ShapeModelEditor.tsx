@@ -1,11 +1,12 @@
-import {useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
-import {Copy,Plus,Trash2} from 'lucide-react';
+import {useDeferredValue,useMemo,useRef,useState,type KeyboardEvent as RKeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
+import {Copy,Crosshair,Layers,Magnet,Plus,Redo2,Trash2,Undo2} from 'lucide-react';
 import type {Attachment,Member,Project} from '../domain/model';
 import {isCoverQuestion,proposalGaps,proposalToShape,type ElementInventory,type InventoryElement,type ShapeAnswer,type ShapeProposal} from '../domain/shapeProposal';
 import {aiShapeConfigured,analyseShapeWithAI,inventoryWithAI} from '../data/aiShapeAnalysis';
 import {prepareDrawing} from '../data/drawingViews';
 import {isModelFile,modelFileLabel} from '../domain/fileTypes';
-import {shapeKindLabels,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
+import {partPurposeLabels,partPurposes,shapeKindLabels,type PartPurpose,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
+import {applyPartPresets,defaultPartRebar,detailingFor,guessPurpose,moveOwnedSketchBars} from '../domain/partRebar';
 import {normaliseShape,partPolygon,shapeFootprint,shapePileQuantities} from '../domain/shapeGeometry';
 import {applyShapeModel,shapeProblems,shapeStageVolumes,standardCover,starterShape} from '../domain/shapeApply';
 import {takeoff} from '../domain/engine';
@@ -18,10 +19,30 @@ import {SaveTemplateButton} from './ElementTemplates';
 import {templatePayload} from '../domain/elementTemplates';
 
 type P2=[number,number];
-type Drag={mode:'move'|'size'|'radius'|'vertex'|'cutX'|'cutY';id?:string;index?:number;start:P2;orig?:ShapePart;origCut?:number};
+type Frame={lo:P2;hi:P2};
+/** `frame` = view extents at drag start (kept while dragging so the view does not rescale under the pointer). */
+type Drag={mode:'move'|'size'|'radius'|'vertex'|'cutX'|'cutY'|'height'|'width';id?:string;index?:number;start:P2;orig?:ShapePart;frame:Frame};
+/** Magnet guide line: axis 0 = vertical line at u, 1 = horizontal line at v. */
+type Guide={axis:0|1;at:number};
+type Box3={x0:number;x1:number;y0:number;y1:number;z0:number;z1:number};
 const newId=()=>`p${crypto.randomUUID().replace(/-/g,'').slice(0,8)}`;
 const base=(label:string,role:'solid'|'void',z0:number,height:number)=>({id:newId(),label,role,stage:1,z0,height,formSides:true,formBottom:false,source:''});
 const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
+const partBox=(p:ShapePart):Box3=>{const r=partPolygon(p)[0],xs=r.map(q=>q[0]),ys=r.map(q=>q[1]);return {x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys),z0:p.z0,z1:p.z0+p.height};};
+const movedPart=(o:ShapePart,dx:number,dy:number,dz:number):Partial<ShapePart>=>{const z0=o.z0+dz;switch(o.shape){case 'box':case 'shaft':return {x:o.x+dx,y:o.y+dy,z0};case 'circle':return {cx:o.cx+dx,cy:o.cy+dy,z0};case 'polygon':return {points:o.points.map(([x,y])=>[x+dx,y+dy] as P2),z0};}};
+/** Magnet: nearest edge within tol for either end of [lo, lo + size] → new lo and the edge hit. */
+const fit=(lo:number,size:number,edges:number[],tol:number)=>{let best:{v:number;edge:number;d:number}|undefined;for(const e of edges)for(const off of [0,size]){const d=Math.abs(lo+off-e);if(d<=tol&&(!best||d<best.d))best={v:e-off,edge:e,d};}return best;};
+/** Solid parts overlapping `p` in plan (bounding boxes) that start at or below it, highest top first. */
+const supports=(parts:ShapePart[],p:ShapePart)=>{const b=partBox(p);return parts.filter(q=>q.id!==p.id&&q.role==='solid').map(partBox).filter(c=>c.x0<b.x1&&b.x0<c.x1&&c.y0<b.y1&&b.y0<c.y1&&c.z0<=b.z0+1e-6).sort((a,c)=>c.z1-a.z1);};
+/** Fit a view of [lo, hi] into W × H with margin M, Y up. */
+function viewFrame({lo,hi}:Frame,W:number,H:number,M:number){
+ const s=Math.min((W-2*M)/Math.max(1,hi[0]-lo[0]),(H-2*M)/Math.max(1,hi[1]-lo[1])),ox=M+((W-2*M)-(hi[0]-lo[0])*s)/2,oy=H-M-((H-2*M)-(hi[1]-lo[1])*s)/2;
+ const X=(x:number)=>ox+(x-lo[0])*s,Y=(y:number)=>oy-(y-lo[1])*s;
+ const dimH=(x0:number,x1:number,y:number,t:string)=><g className="dim"><line x1={X(x0)} x2={X(x1)} y1={y} y2={y}/><line x1={X(x0)} x2={X(x0)} y1={y-4} y2={y+4}/><line x1={X(x1)} x2={X(x1)} y1={y-4} y2={y+4}/><text x={(X(x0)+X(x1))/2} y={y-4} textAnchor="middle">{t}</text></g>;
+ const dimV=(y0:number,y1:number,x:number,t:string)=><g className="dim"><line y1={Y(y0)} y2={Y(y1)} x1={x} x2={x}/><line y1={Y(y0)} y2={Y(y0)} x1={x-4} x2={x+4}/><line y1={Y(y1)} y2={Y(y1)} x1={x-4} x2={x+4}/><text x={x-5} y={(Y(y0)+Y(y1))/2} textAnchor="end" dominantBaseline="middle">{t}</text></g>;
+ return {s,ox,oy,X,Y,dimH,dimV};
+}
+const guideLines=(guides:Guide[],X:(v:number)=>number,Y:(v:number)=>number,W:number,H:number)=>guides.map((g,i)=>g.axis===0?<line key={i} className="guide" x1={X(g.at)} x2={X(g.at)} y1={6} y2={H-6}/>:<line key={i} className="guide" y1={Y(g.at)} y2={Y(g.at)} x1={6} x2={W-6}/>);
 
 /** Custom element · step 3 “ยืนยันรูปทรง”: parts list, interactive plan, sections, 3D, checks and quantities. */
 export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply}:{member:Member;project:Project;attachments?:Attachment[];readOnly:boolean;onApply:(m:Member)=>void}){
@@ -30,10 +51,34 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  const [cover,setCover]=useState(member.cover),[coverSource,setCoverSource]=useState('');
  const [boqCategory,setBoqCategory]=useState<BoqCategory>(member.boqCategory||'Other');
  const [sel,setSel]=useState(draft.parts[0]?.id||''),[snap,setSnap]=useState(50),[cut,setCut]=useState<P2>(()=>[member.x/2,member.y/2]);
+ const [magnet,setMagnet]=useState(true),[note,setNote]=useState('');
  const part=draft.parts.find(p=>p.id===sel);
- const put=(id:string,patch:Partial<ShapePart>)=>setDraft(d=>({...d,confirmed:false,parts:d.parts.map(p=>p.id===id?{...p,...patch} as ShapePart:p)}));
- const add=(p:ShapePart)=>{setDraft(d=>({...d,confirmed:false,parts:[...d.parts,p]}));setSel(p.id);};
+ // undo / redo: snapshots of the draft before each edit (a drag = one edit)
+ const latest=useRef(draft);latest.current=draft;
+ const undo=useRef<ShapeModel[]>([]),redo=useRef<ShapeModel[]>([]);
+ const record=()=>{undo.current=[...undo.current.slice(-99),latest.current];redo.current=[];};
+ const restore=(from:typeof undo,to:typeof undo)=>{const d=from.current.at(-1);if(readOnly||!d)return;from.current=from.current.slice(0,-1);to.current=[...to.current,latest.current];setDraft(d);if(!d.parts.some(p=>p.id===sel))setSel(d.parts[0]?.id||'');setNote('');};
+ const edit=(f:(d:ShapeModel)=>ShapeModel)=>{record();setDraft(f);};
+ const put=(id:string,patch:Partial<ShapePart>,rec=true)=>{if(rec)record();setDraft(d=>({...d,confirmed:false,parts:d.parts.map(p=>p.id===id?{...p,...patch} as ShapePart:p)}));};
  const top=Math.max(...draft.parts.filter(p=>p.role==='solid').map(p=>p.z0+p.height),0),bx=Math.max(1000,...draft.parts.map(p=>partPolygon(p)[0].reduce((m,v)=>Math.max(m,v[0]),0)));
+ /** New parts go centred on the selected part: solids on its top, openings down from its top (round ones through it). */
+ const placed=(p:ShapePart):ShapePart=>{
+  if(!part)return p;const a=partBox(part);
+  if(p.shape==='box'&&p.role==='solid')p={...p,w:Math.min(p.w,a.x1-a.x0),d:Math.min(p.d,a.y1-a.y0)};
+  if(p.role==='void')p=p.shape==='circle'?{...p,z0:a.z0,height:a.z1-a.z0}:{...p,height:Math.min(p.height,a.z1-a.z0),z0:Math.max(a.z0,a.z1-p.height)};
+  const b=partBox(p),moved={...p,...movedPart(p,(a.x0+a.x1-b.x0-b.x1)/2,(a.y0+a.y1-b.y0-b.y1)/2,0)} as ShapePart;
+  return p.role==='solid'?{...moved,z0:a.z1}:moved;
+ };
+ const add=(p:ShapePart,place=true)=>{const q=place?placed(p):p;edit(d=>({...d,confirmed:false,parts:[...d.parts,q]}));setSel(q.id);setNote(!place?`สำเนาวางถัดไปทางขวา (+X)`:part?`วาง “${q.label}” กึ่งกลาง${q.role==='solid'?'บนผิวบน':'ใน'} “${part.label}”`:'');};
+ const onTop=()=>{if(!part)return;const s=supports(draft.parts,part);if(!s.length){setNote('ไม่มีชิ้นคอนกรีตใต้ชิ้นนี้ในแปลน · ลากให้ทับกันในแปลนก่อน');return;}
+  if(s[0].z1===part.z0){setNote(`“${part.label}” วางบนผิวบนอยู่แล้ว (z0 = ${fmt(part.z0)})`);return;}put(part.id,{z0:s[0].z1});setNote(`ยก “${part.label}” ไปวางบนผิวบนของชิ้นด้านล่าง · z0 = ${fmt(s[0].z1)}`);};
+ const centre=()=>{if(!part)return;const s=supports(draft.parts,part);if(!s.length){setNote('ไม่มีชิ้นคอนกรีตใต้ชิ้นนี้ในแปลน · ลากให้ทับกันในแปลนก่อน');return;}
+  const a=s[0],b=partBox(part);put(part.id,movedPart(part,(a.x0+a.x1-b.x0-b.x1)/2,(a.y0+a.y1-b.y0-b.y1)/2,0));setNote(`จัด “${part.label}” กึ่งกลางชิ้นด้านล่าง (แปลน)`);};
+ const keys=(e:RKeyboardEvent)=>{if((e.target as HTMLElement).closest('input,select,textarea')||readOnly)return;const k=e.key,ctrl=e.ctrlKey||e.metaKey;
+  if(ctrl&&(k==='z'||k==='Z')){e.preventDefault();if(e.shiftKey)restore(redo,undo);else restore(undo,redo);return;}
+  if(ctrl&&(k==='y'||k==='Y')){e.preventDefault();restore(redo,undo);return;}
+  const st=e.shiftKey?snap*10:snap,m:Record<string,[number,number,number]>={ArrowLeft:[-st,0,0],ArrowRight:[st,0,0],ArrowUp:[0,st,0],ArrowDown:[0,-st,0],PageUp:[0,0,st],PageDown:[0,0,-st]};
+  if(m[k]&&part){e.preventDefault();put(part.id,movedPart(part,...m[k]));}};
  const adders:[string,()=>ShapePart][]=[
   ['กล่อง',()=>({...base('กล่อง','solid',0,600),shape:'box',x:bx,y:0,w:1000,d:1000})],
   ['หลายเหลี่ยม',()=>({...base('หลายเหลี่ยม','solid',0,600),shape:'polygon',points:[[bx,0],[bx+2000,0],[bx+2000,1000],[bx+1000,1000],[bx+1000,2000],[bx,2000]]})],
@@ -48,32 +93,48 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
  const q=useMemo(()=>{try{return preview?takeoff(preview,project.spec):undefined;}catch{return undefined;}},[preview,project.spec]);
  const stages=useMemo(()=>{try{return shapeStageVolumes(normaliseShape(draft).model);}catch{return [];}},[draft]);
  const piles=draft.piles?shapePileQuantities(draft):undefined;
+ const preview3d=useDeferredValue(preview);
  const blocked=readOnly||!preview||checks.blockers.length>0;
  const std=standardCover(draft);
- const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;onApply({...applyShapeModel(member,draft),cover:Math.max(0,cover),boqCategory});};
+ const det=useMemo(()=>detailingFor(project.spec),[project.spec]);
+ // preset bars of every part are rebuilt and bars drawn on a part follow its move
+ const apply=()=>{if(blocked||!preview)return;if((member.geometry||member.prismGeometry||member.beamAssembly)&&!confirm('สมาชิกนี้ใช้รูปทรงแบบเดิม (กล่อง / หน้าตัด / ช่วงคาน) การใช้รูปทรงหลายชิ้นส่วนจะแทนที่ทั้งหมด ดำเนินการต่อ?'))return;
+  const shaped=moveOwnedSketchBars({...applyShapeModel(member,draft),cover:Math.max(0,cover),boqCategory},member.shapeModel),{member:done,notes}=applyPartPresets(shaped,project.spec);
+  if(notes.length)setNote(notes.join(' · '));onApply(done);};
  return <section className="panel padded shape-editor">
   <div className="section-heading"><div><h3>รูปทรงหลายชิ้นส่วน · {member.code}</h3><p className="muted">ประกอบจากชิ้นส่วน (กล่อง · หลายเหลี่ยม · ทรงกระบอก/ผนังกลม · ปล่อง) และช่องเปิด · ชิ้นส่วนซ้อนกันนับครั้งเดียว · แก้ได้ทั้งในแปลนและช่องคุณสมบัติ · มิติ mm</p></div>
    <div className="actions"><SaveTemplateButton project={project} category={member.category} defaultName={member.code} payload={()=>templatePayload(member,{shapeModel:draft,cover,boqCategory})}/><label className="field compact"><span>หมวด BOQ</span><select aria-label="หมวด BOQ" disabled={readOnly} value={boqCategory} onChange={e=>setBoqCategory(e.target.value as BoqCategory)} title="รวมปริมาณในรายงาน BOQ กับหมวดนี้">{boqCategories.map(c=><option key={c} value={c}>{boqCategoryLabels[c]}</option>)}</select></label><label className="field compact"><span>Snap</span><select value={snap} onChange={e=>setSnap(Number(e.target.value))}>{[1,10,25,50,100].map(v=><option key={v} value={v}>{v} mm</option>)}</select></label></div></div>
-  <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={(shape,c)=>{setDraft(shape);setSel(shape.parts[0].id);setCover(c??standardCover(shape));setCoverSource(c?'จากแบบ':'มาตรฐาน');}}/>
+  <AiShapePanel member={member} project={project} attachments={attachments} readOnly={readOnly} onUse={(shape,c)=>{edit(()=>shape);setSel(shape.parts[0].id);setCover(c??standardCover(shape));setCoverSource(c?'จากแบบ':'มาตรฐาน');}}/>
   <div className="shape-layout">
    <aside className="shape-parts">
     <h4>ชิ้นส่วน ({draft.parts.length}/40)</h4>
     {draft.parts.map((p,i)=><button key={p.id} type="button" className={`shape-part ${p.id===sel?'active':''} ${p.role}`} onClick={()=>setSel(p.id)}>
      <i className={`stage-${Math.min(p.stage,3)}`}/><span><b>{i+1}. {p.label}</b><small>{p.role==='void'?'ช่องเปิด · ':''}{shapeKindLabels[p.shape]} · สูง {fmt(p.height)} · Stage {p.stage}</small></span></button>)}
     {!readOnly&&<div className="shape-add">{adders.map(([l,f])=><button key={l} type="button" disabled={draft.parts.length>=40} onClick={()=>add(f())}><Plus size={12}/>{l}</button>)}</div>}
-    <PilesPanel draft={draft} readOnly={readOnly} onChange={piles=>setDraft(d=>({...d,confirmed:false,piles}))}/>
-    <SitePanel draft={draft} readOnly={readOnly} onChange={site=>setDraft(d=>({...d,site}))}/>
+    <PilesPanel draft={draft} readOnly={readOnly} onChange={piles=>edit(d=>({...d,confirmed:false,piles}))}/>
+    <SitePanel draft={draft} readOnly={readOnly} onChange={site=>edit(d=>({...d,site}))}/>
    </aside>
-   <div className="shape-views">
-    <div className="shape-view"><b className="shape-view-title">PLAN (TOP VIEW) · ลากชิ้นส่วน / ด้าม · เส้นประ = แนวตัด</b><PlanEditor draft={draft} sel={sel} snap={snap} cut={cut} readOnly={readOnly} onSelect={setSel} onPart={put} onCut={setCut}/></div>
-    <div className="shape-view"><b className="shape-view-title">3D</b>{preview?<ModelView member={preview} spec={project.spec} selected="" onSelect={()=>{}}/>:<p className="notice danger">{applyError}</p>}</div>
+   <div className="shape-views" tabIndex={0} onKeyDown={keys} aria-label="มุมมองรูปทรง · ลูกศร / PageUp / PageDown เลื่อนชิ้นที่เลือก · Ctrl+Z ย้อนกลับ">
+    <div className="shape-toolbar">
+     <button type="button" disabled={readOnly||!undo.current.length} title="ย้อนกลับ (Ctrl+Z)" onClick={()=>restore(undo,redo)}><Undo2 size={13}/>ย้อนกลับ</button>
+     <button type="button" disabled={readOnly||!redo.current.length} title="ทำซ้ำ (Ctrl+Y)" onClick={()=>restore(redo,undo)}><Redo2 size={13}/></button>
+     <button type="button" disabled={readOnly||!part} title="ตั้ง z0 = ผิวบนของชิ้นคอนกรีตที่ทับอยู่ด้านล่างในแปลน" onClick={onTop}><Layers size={13}/>วางบนชิ้นด้านล่าง</button>
+     <button type="button" disabled={readOnly||!part} title="เลื่อนในแปลนให้กึ่งกลางตรงกับชิ้นด้านล่าง" onClick={centre}><Crosshair size={13}/>กึ่งกลางชิ้นด้านล่าง</button>
+     <label className="check" title="ลากแล้วดูดชิดขอบ / ผิวของชิ้นอื่น (เส้นนำสีส้ม)"><input type="checkbox" checked={magnet} onChange={e=>setMagnet(e.target.checked)}/><Magnet size={13}/>ดูดชิดขอบ</label>
+     <span className="muted">{note||`ลูกศร = X / Y · PageUp / PageDown = Z · ทีละ ${snap} mm (Shift ×10)`}</span>
+    </div>
+    <div className="shape-view"><b className="shape-view-title">PLAN (มองบน) · ลาก = X, Y · ด้าม = ขนาด · เส้นประ = แนวตัด</b><PlanEditor draft={draft} sel={sel} snap={snap} cut={cut} readOnly={readOnly} magnet={magnet} onSelect={setSel} onBegin={record} onPart={(id,p)=>put(id,p,false)} onCut={setCut}/></div>
+    <div className="shape-view"><b className="shape-view-title">3D · ชิ้นที่เลือก = สีส้ม · คลิกเนื้อคอนกรีตเพื่อเลือก</b>{preview3d?<ModelView member={preview3d} spec={project.spec} selected="" onSelect={()=>{}} part={sel} onPart={setSel} height={300} keepView/>:<p className="notice danger">{applyError}</p>}</div>
+    <div className="shape-view"><b className="shape-view-title">รูปด้าน X (มองจากด้านหน้า) · ลาก = X, Z · ด้าม = ความสูง / กว้าง</b><ElevationEditor draft={draft} sel={sel} snap={snap} axis={0} readOnly={readOnly} magnet={magnet} onSelect={setSel} onBegin={record} onPart={(id,p)=>put(id,p,false)}/></div>
+    <div className="shape-view"><b className="shape-view-title">รูปด้าน Y (มองจากด้านขวา) · ลาก = Y, Z · ด้าม = ความสูง / ยาว</b><ElevationEditor draft={draft} sel={sel} snap={snap} axis={1} readOnly={readOnly} magnet={magnet} onSelect={setSel} onBegin={record} onPart={(id,p)=>put(id,p,false)}/></div>
     {preview&&<><div className="shape-view"><b className="shape-view-title">SECTION X–X (Y = {fmt(cut[1])})</b><SectionView member={preview} axes={[0,2]} normal={1} cut={cut[1]+shift[1]}/></div>
      <div className="shape-view"><b className="shape-view-title">SECTION Y–Y (X = {fmt(cut[0])})</b><SectionView member={preview} axes={[1,2]} normal={0} cut={cut[0]+shift[0]}/></div></>}
    </div>
    <aside className="shape-props">
     {part?<PartProps part={part} index={draft.parts.indexOf(part)} readOnly={readOnly} onChange={patch=>put(part.id,patch)}
-     onDuplicate={()=>{const c={...structuredClone(part),id:newId(),label:`${part.label} (สำเนา)`};add(c);}}
-     onDelete={()=>{if(draft.parts.filter(p=>p.role==='solid').length===1&&part.role==='solid')return;setDraft(d=>({...d,confirmed:false,parts:d.parts.filter(p=>p.id!==part.id)}));setSel(draft.parts.find(p=>p.id!==part.id)?.id||'');}}/>:<p className="muted">เลือกชิ้นส่วน</p>}
+     onPurpose={k=>put(part.id,{rebar:k?defaultPartRebar(k,part,det):undefined})}
+     onDuplicate={()=>{const b=partBox(part),c={...structuredClone(part),id:newId(),label:`${part.label} (สำเนา)`};add({...c,...movedPart(c,b.x1-b.x0,0,0)} as ShapePart,false);}}
+     onDelete={()=>{if(draft.parts.filter(p=>p.role==='solid').length===1&&part.role==='solid')return;edit(d=>({...d,confirmed:false,parts:d.parts.filter(p=>p.id!==part.id)}));setSel(draft.parts.find(p=>p.id!==part.id)?.id||'');}}/>:<p className="muted">เลือกชิ้นส่วน</p>}
     <h4>ตรวจมิติ</h4>
     {checks.blockers.length?<ul className="shape-check bad">{checks.blockers.map(t=><li key={t}>{t}</li>)}</ul>:<p className="ok-text">✔ รูปทรงคำนวณได้ · ไม่มีชิ้นส่วนลอย / เข็มนอกแปลน</p>}
     {checks.notes.length>0&&<ul className="shape-check">{checks.notes.map(t=><li key={t}>{t}</li>)}</ul>}
@@ -172,19 +233,22 @@ function SectionView({member,axes,normal,cut}:{member:Member;axes:[number,number
 }
 
 /** Interactive plan: parts in raw model coordinates (Y up), drag body to move, grips to resize / reshape, cut lines draggable. */
-function PlanEditor({draft,sel,snap,cut,readOnly,onSelect,onPart,onCut}:{draft:ShapeModel;sel:string;snap:number;cut:P2;readOnly:boolean;onSelect:(id:string)=>void;onPart:(id:string,patch:Partial<ShapePart>)=>void;onCut:(c:P2)=>void}){
- const svg=useRef<SVGSVGElement>(null),[drag,setDrag]=useState<Drag|null>(null),W=560,H=380,M=56;
+function PlanEditor({draft,sel,snap,cut,readOnly,magnet,onSelect,onBegin,onPart,onCut}:{draft:ShapeModel;sel:string;snap:number;cut:P2;readOnly:boolean;magnet:boolean;onSelect:(id:string)=>void;onBegin:()=>void;onPart:(id:string,patch:Partial<ShapePart>)=>void;onCut:(c:P2)=>void}){
+ const svg=useRef<SVGSVGElement>(null),[drag,setDrag]=useState<Drag|null>(null),[guides,setGuides]=useState<Guide[]>([]),W=560,H=380,M=56;
  const pts=[...draft.parts.flatMap(p=>partPolygon(p)[0]),...(draft.piles?.positions||[])];
- const lo=[Math.min(...pts.map(p=>p[0])),Math.min(...pts.map(p=>p[1]))],hi=[Math.max(...pts.map(p=>p[0])),Math.max(...pts.map(p=>p[1]))];
- const s=Math.min((W-2*M)/Math.max(1,hi[0]-lo[0]),(H-2*M)/Math.max(1,hi[1]-lo[1])),ox=M+((W-2*M)-(hi[0]-lo[0])*s)/2,oy=H-M-((H-2*M)-(hi[1]-lo[1])*s)/2;
- const X=(x:number)=>ox+(x-lo[0])*s,Y=(y:number)=>oy-(y-lo[1])*s;
+ const live:Frame={lo:[Math.min(...pts.map(p=>p[0])),Math.min(...pts.map(p=>p[1]))],hi:[Math.max(...pts.map(p=>p[0])),Math.max(...pts.map(p=>p[1]))]};
+ const {lo,hi}=drag?.frame??live,{s,ox,oy,X,Y,dimH,dimV}=viewFrame({lo,hi},W,H,M);
  const world=(e:{clientX:number;clientY:number}):P2=>{const m=svg.current!.getScreenCTM()!.inverse(),p=new DOMPoint(e.clientX,e.clientY).matrixTransform(m);return [(p.x-ox)/s+lo[0],(oy-p.y)/s+lo[1]];};
  const sn=(v:number)=>Math.round(v/snap)*snap;
- const begin=(e:RPointerEvent,d:Omit<Drag,'start'>)=>{if(readOnly)return;e.stopPropagation();(e.target as Element).setPointerCapture?.(e.pointerId);setDrag({...d,start:world(e)});};
- const move=(e:RPointerEvent)=>{if(!drag)return;const w=world(e),dx=sn(w[0]-drag.start[0]),dy=sn(w[1]-drag.start[1]),o=drag.orig as any;
+ const begin=(e:RPointerEvent,d:Omit<Drag,'start'|'frame'>)=>{if(readOnly)return;e.stopPropagation();(e.target as Element).setPointerCapture?.(e.pointerId);if(d.id)onBegin();setDrag({...d,start:world(e),frame:live});};
+ const end=()=>{setDrag(null);setGuides([]);};
+ const move=(e:RPointerEvent)=>{if(!drag)return;const w=world(e),rx=w[0]-drag.start[0],ry=w[1]-drag.start[1],dx=sn(rx),dy=sn(ry),o=drag.orig as any;
   if(drag.mode==='cutX'){onCut([cut[0],sn(w[1])]);return;}if(drag.mode==='cutY'){onCut([sn(w[0]),cut[1]]);return;}
   if(!o||!drag.id)return;
-  if(drag.mode==='move'){if(o.shape==='box'||o.shape==='shaft')onPart(drag.id,{x:o.x+dx,y:o.y+dy});else if(o.shape==='circle')onPart(drag.id,{cx:o.cx+dx,cy:o.cy+dy});else onPart(drag.id,{points:o.points.map(([x,y]:P2)=>[x+dx,y+dy])});}
+  if(drag.mode==='move'){const b=partBox(o),others=draft.parts.filter(p=>p.id!==drag.id).map(partBox),tol=8/s;
+   const mx=magnet?fit(b.x0+rx,b.x1-b.x0,others.flatMap(c=>[c.x0,c.x1]),tol):undefined,my=magnet?fit(b.y0+ry,b.y1-b.y0,others.flatMap(c=>[c.y0,c.y1]),tol):undefined;
+   setGuides([...(mx?[{axis:0 as const,at:mx.edge}]:[]),...(my?[{axis:1 as const,at:my.edge}]:[])]);
+   onPart(drag.id,movedPart(o,mx?mx.v-b.x0:dx,my?my.v-b.y0:dy,0));}
   if(drag.mode==='size')onPart(drag.id,{w:Math.max(snap,o.w+dx),d:Math.max(snap,o.d+dy)});
   if(drag.mode==='radius')onPart(drag.id,{diameter:Math.max(2*snap,sn(2*Math.hypot(w[0]-o.cx,w[1]-o.cy)))});
   if(drag.mode==='vertex')onPart(drag.id,{points:o.points.map((p:P2,i:number)=>i===drag.index?[sn(w[0]),sn(w[1])]:p)});
@@ -192,9 +256,7 @@ function PlanEditor({draft,sel,snap,cut,readOnly,onSelect,onPart,onCut}:{draft:S
  const fp=useMemo(()=>{try{return shapeFootprint(draft);}catch{return [];}},[draft]);
  const path=(rings:P2[][])=>rings.map(r=>`M${r.map(p=>`${X(p[0])},${Y(p[1])}`).join('L')}Z`).join('');
  const selPart=draft.parts.find(p=>p.id===sel);
- const dimH=(x0:number,x1:number,y:number,t:string)=><g className="dim"><line x1={X(x0)} x2={X(x1)} y1={y} y2={y}/><line x1={X(x0)} x2={X(x0)} y1={y-4} y2={y+4}/><line x1={X(x1)} x2={X(x1)} y1={y-4} y2={y+4}/><text x={(X(x0)+X(x1))/2} y={y-4} textAnchor="middle">{t}</text></g>;
- const dimV=(y0:number,y1:number,x:number,t:string)=><g className="dim"><line y1={Y(y0)} y2={Y(y1)} x1={x} x2={x}/><line y1={Y(y0)} y2={Y(y0)} x1={x-4} x2={x+4}/><line y1={Y(y1)} y2={Y(y1)} x1={x-4} x2={x+4}/><text x={x-5} y={(Y(y0)+Y(y1))/2} textAnchor="end" dominantBaseline="middle">{t}</text></g>;
- return <svg ref={svg} className="shape-plan" viewBox={`0 0 ${W} ${H}`} onPointerMove={move} onPointerUp={()=>setDrag(null)} onPointerLeave={()=>setDrag(null)} onPointerDown={()=>onSelect('')} role="img" aria-label="แปลนรูปทรง">
+ return <svg ref={svg} className="shape-plan" viewBox={`0 0 ${W} ${H}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end} onPointerDown={()=>onSelect('')} role="img" aria-label="แปลนรูปทรง">
   <path d={fp.map(poly=>path(poly.map(r=>r.slice(0,-1) as P2[]))).join('')} className="fp" fillRule="evenodd"/>
   {draft.parts.map(p=><path key={p.id} d={path(partPolygon(p))} fillRule="evenodd" className={`part ${p.role} stage${Math.min(p.stage,3)} ${p.id===sel?'sel':''}`} onPointerDown={e=>{onSelect(p.id);begin(e,{mode:'move',id:p.id,orig:structuredClone(p)});}}/>)}
   {draft.piles?.positions.map(([x,y],i)=><circle key={i} cx={X(x)} cy={Y(y)} r={Math.max(3,draft.piles!.size/2*s)} className="pile"/>)}
@@ -206,10 +268,53 @@ function PlanEditor({draft,sel,snap,cut,readOnly,onSelect,onPart,onCut}:{draft:S
    if(p.shape==='circle')return <><rect className="grip" x={X(p.cx+p.diameter/2)-5} y={Y(p.cy)-5} width={10} height={10} onPointerDown={e=>begin(e,{mode:'radius',id:p.id,orig:structuredClone(p)})}/><text className="grip-t" x={X(p.cx)} y={Y(p.cy)} textAnchor="middle">Ø{fmt(p.diameter)}{p.inner?` / Ø${fmt(p.inner)}`:''}</text></>;
    if(p.shape==='polygon')return p.points.map(([x,y]:P2,i:number)=>{const n=p.points[(i+1)%p.points.length],len=Math.hypot(n[0]-x,n[1]-y);return <g key={i}><rect className="grip" x={X(x)-5} y={Y(y)-5} width={10} height={10} onPointerDown={e=>begin(e,{mode:'vertex',id:p.id,index:i,orig:structuredClone(p)})}/>{len*s>40&&<text className="grip-t" x={(X(x)+X(n[0]))/2} y={(Y(y)+Y(n[1]))/2-4} textAnchor="middle">{fmt(len)}</text>}</g>;});
    return null;})()}
+  {guideLines(guides,X,Y,W,H)}
  </svg>;
 }
 
-function PartProps({part:p,index,readOnly,onChange,onDuplicate,onDelete}:{part:ShapePart;index:number;readOnly:boolean;onChange:(patch:Partial<ShapePart>)=>void;onDuplicate:()=>void;onDelete:()=>void}){
+/** Elevation X (axis 0: seen from the front, X to the right) or Y (axis 1: seen from the right, Y to the right), Z up.
+ * Parts as their plan extents × z0..z0+height; drag a part to move it along the axis and in Z, grips for height and width. */
+function ElevationEditor({draft,sel,snap,axis,readOnly,magnet,onSelect,onBegin,onPart}:{draft:ShapeModel;sel:string;snap:number;axis:0|1;readOnly:boolean;magnet:boolean;onSelect:(id:string)=>void;onBegin:()=>void;onPart:(id:string,patch:Partial<ShapePart>)=>void}){
+ const svg=useRef<SVGSVGElement>(null),[drag,setDrag]=useState<Drag|null>(null),[guides,setGuides]=useState<Guide[]>([]),W=560,H=380,M=56;
+ const boxes=draft.parts.map(p=>({p,b:partBox(p)}));
+ const u0=(b:Box3)=>axis?b.y0:b.x0,u1=(b:Box3)=>axis?b.y1:b.x1;
+ const live:Frame={lo:[Math.min(...boxes.map(q=>u0(q.b))),Math.min(0,...boxes.map(q=>q.b.z0))],hi:[Math.max(...boxes.map(q=>u1(q.b))),Math.max(...boxes.map(q=>q.b.z1))]};
+ const {lo,hi}=drag?.frame??live,{s,ox,oy,X,Y,dimH,dimV}=viewFrame({lo,hi},W,H,M);
+ const world=(e:{clientX:number;clientY:number}):P2=>{const m=svg.current!.getScreenCTM()!.inverse(),p=new DOMPoint(e.clientX,e.clientY).matrixTransform(m);return [(p.x-ox)/s+lo[0],(oy-p.y)/s+lo[1]];};
+ const sn=(v:number)=>Math.round(v/snap)*snap;
+ const begin=(e:RPointerEvent,d:Omit<Drag,'start'|'frame'>)=>{if(readOnly)return;e.stopPropagation();(e.target as Element).setPointerCapture?.(e.pointerId);onBegin();setDrag({...d,start:world(e),frame:live});};
+ const end=()=>{setDrag(null);setGuides([]);};
+ const move=(e:RPointerEvent)=>{if(!drag?.id||!drag.orig)return;const w=world(e),du=w[0]-drag.start[0],dv=w[1]-drag.start[1],o=drag.orig,b=partBox(o),tol=8/s;
+  const others=boxes.filter(q=>q.p.id!==drag.id).map(q=>q.b),uEdges=others.flatMap(c=>[u0(c),u1(c)]),zEdges=[0,...others.flatMap(c=>[c.z0,c.z1])];
+  if(drag.mode==='move'){const mu=magnet?fit(u0(b)+du,u1(b)-u0(b),uEdges,tol):undefined,mz=magnet?fit(b.z0+dv,b.z1-b.z0,zEdges,tol):undefined;
+   const d=mu?mu.v-u0(b):sn(du),dz=mz?mz.v-b.z0:sn(dv);
+   setGuides([...(mu?[{axis:0 as const,at:mu.edge}]:[]),...(mz?[{axis:1 as const,at:mz.edge}]:[])]);
+   onPart(drag.id,movedPart(o,axis?0:d,axis?d:0,dz));}
+  if(drag.mode==='height'){const mz=magnet?fit(b.z1+dv,0,zEdges,tol):undefined;setGuides(mz?[{axis:1,at:mz.edge}]:[]);onPart(drag.id,{height:Math.max(snap,mz?mz.v-b.z0:o.height+sn(dv))});}
+  if(drag.mode==='width'){
+   if(o.shape==='circle'){onPart(drag.id,{diameter:Math.max(2*snap,o.diameter+2*sn(du))});return;}
+   if(o.shape!=='box'&&o.shape!=='shaft')return;
+   const mu=magnet?fit(u1(b)+du,0,uEdges,tol):undefined,size=Math.max(snap,mu?mu.v-u0(b):u1(b)-u0(b)+sn(du));setGuides(mu?[{axis:0,at:mu.edge}]:[]);
+   onPart(drag.id,axis?{d:size}:{w:size});}
+ };
+ // far parts first (X: larger Y is farther, Y: smaller X is farther), the selected one last
+ const depth=(b:Box3)=>axis?b.x1:-b.y0,order=[...boxes].sort((a,c)=>Number(a.p.id===sel)-Number(c.p.id===sel)||depth(a.b)-depth(c.b));
+ const selBox=boxes.find(q=>q.p.id===sel);
+ return <svg ref={svg} className="shape-plan" viewBox={`0 0 ${W} ${H}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end} onPointerDown={()=>onSelect('')} role="img" aria-label={axis?'รูปด้าน Y':'รูปด้าน X'}>
+  <line className="ground" x1={X(lo[0])-24} x2={X(hi[0])+24} y1={Y(0)} y2={Y(0)}/><text className="grip-t" x={X(hi[0])+26} y={Y(0)+4}>z 0</text>
+  {order.map(({p,b})=><rect key={p.id} x={X(u0(b))} y={Y(b.z1)} width={Math.max(1,(u1(b)-u0(b))*s)} height={Math.max(1,(b.z1-b.z0)*s)} className={`part ${p.role} stage${Math.min(p.stage,3)} ${p.id===sel?'sel':''}`} onPointerDown={e=>{onSelect(p.id);begin(e,{mode:'move',id:p.id,orig:structuredClone(p)});}}><title>{p.label}</title></rect>)}
+  {dimH(lo[0],hi[0],H-14,fmt(hi[0]-lo[0]))}{dimV(lo[1],hi[1],18,fmt(hi[1]-lo[1]))}
+  {selBox&&(()=>{const {p,b}=selBox,mid=(u0(b)+u1(b))/2;return <>
+   {dimH(u0(b),u1(b),Y(b.z1)-12,fmt(u1(b)-u0(b)))}{dimV(b.z0,b.z1,X(u0(b))-10,fmt(b.z1-b.z0))}
+   <text className="grip-t" x={X(u1(b))+6} y={Y(b.z0)-3}>z0 {fmt(b.z0)}</text>
+   {!readOnly&&<><rect className="grip" x={X(mid)-5} y={Y(b.z1)-5} width={10} height={10} onPointerDown={e=>begin(e,{mode:'height',id:p.id,orig:structuredClone(p)})}><title>ลากเพื่อปรับความสูง</title></rect>
+    {p.shape!=='polygon'&&<rect className="grip" x={X(u1(b))-5} y={Y((b.z0+b.z1)/2)-5} width={10} height={10} onPointerDown={e=>begin(e,{mode:'width',id:p.id,orig:structuredClone(p)})}><title>ลากเพื่อปรับ{axis?'ความยาว Y':'ความกว้าง X'}</title></rect>}</>}
+  </>;})()}
+  {guideLines(guides,X,Y,W,H)}
+ </svg>;
+}
+
+function PartProps({part:p,index,readOnly,onChange,onPurpose,onDuplicate,onDelete}:{part:ShapePart;index:number;readOnly:boolean;onChange:(patch:Partial<ShapePart>)=>void;onPurpose:(k:PartPurpose|'')=>void;onDuplicate:()=>void;onDelete:()=>void}){
  const num=(label:string,key:string,min=0)=><Field key={key} label={label} type="number" disabled={readOnly} value={(p as any)[key]} onChange={v=>onChange({[key]:Math.max(min,Number(v)||0)} as any)}/>;
  const coord=(label:string,key:string)=><Field key={key} label={label} type="number" disabled={readOnly} value={(p as any)[key]} onChange={v=>onChange({[key]:Number(v)||0} as any)}/>;
  return <div className="shape-part-props">
@@ -217,6 +322,7 @@ function PartProps({part:p,index,readOnly,onChange,onDuplicate,onDelete}:{part:S
   <Field label="ชื่อชิ้นส่วน" value={p.label} disabled={readOnly} onChange={v=>onChange({label:String(v).slice(0,80)})}/>
   <div className="form-grid">
    <label className="field"><span>บทบาท</span><select disabled={readOnly} value={p.role} onChange={e=>onChange({role:e.target.value as ShapePart['role']})}><option value="solid">คอนกรีต</option><option value="void">ช่องเปิด / หลุม (หัก)</option></select></label>
+   {p.role==='solid'&&<label className="field" title="ใช้เลือกเหล็ก Preset ในแท็บใส่เหล็ก · Preset สร้างใหม่ทุกครั้งที่กดใช้รูปทรง"><span>หน้าที่ (เหล็ก Preset)</span><select disabled={readOnly} value={p.rebar?.purpose||''} onChange={e=>onPurpose(e.target.value as PartPurpose|'')}><option value="">— ยังไม่กำหนด</option>{partPurposes.map(k=><option key={k} value={k}>{partPurposeLabels[k]}{k===guessPurpose(p)?' (แนะนำ)':''}</option>)}</select></label>}
    <label className="field"><span>Stage การเท</span><select disabled={readOnly||p.role==='void'} value={p.stage} onChange={e=>onChange({stage:Number(e.target.value)})}>{[1,2,3,4,5].map(n=><option key={n} value={n}>Stage {n}</option>)}</select></label>
    {coord('ระดับล่าง z0','z0')}{num('ความสูง','height',1)}
    {(p.shape==='box'||p.shape==='shaft')&&<>{coord('มุม X','x')}{coord('มุม Y','y')}{num('กว้าง X','w',1)}{num('ยาว Y','d',1)}</>}

@@ -12,6 +12,26 @@ const pt=z.tuple([coord,coord]);
 export const shapeKinds=['box','polygon','circle','shaft'] as const;
 export const rebarNoteFaces=['B','T','EF','LOOP','ADD','NOTE'] as const;
 export type RebarNoteFace=typeof rebarNoteFaces[number];
+/** What a part is for: picks the preset bar sets (`partRebar.ts`); other = drawn by hand only. */
+export const partPurposes=['column','beam','slab','wall','footing','other'] as const;
+export type PartPurpose=typeof partPurposes[number];
+export const partPurposeLabels:Record<PartPurpose,string>={column:'เสา / ตอม่อ',beam:'คาน',slab:'พื้น',wall:'ผนัง',footing:'ฐานราก',other:'อื่นๆ (วาดเอง)'};
+const dia=z.number().finite().positive().max(60);
+/** bar size + spacing (0 = layer not used) / bar size + count */
+const barAt=z.object({d:dia,s:mm}).strict(),barN=z.object({d:dia,n:z.number().int().min(0).max(40)}).strict();
+/** Preset reinforcement of one part; bars `pp-<part id>-…` are rebuilt from it whenever the part changes.
+ * column: main (bars per X / Y face incl. corners) + ties, ext above the top, anchor = 90° feet in the part below;
+ * beam: top / bottom bars along the longer plan side + stirrups, ext past both ends; slab: meshB / meshT both ways;
+ * wall: vert / horz per face (layers 1 | 2), ext above the top, anchor = feet on the bottom mesh of the part below; footing: meshB (legs = bent up) / meshT + loops. */
+export const partRebarSchema=z.object({
+ purpose:z.enum(partPurposes),cover:mm.optional(),
+ main:z.object({d:dia,nx:z.number().int().min(2).max(20),ny:z.number().int().min(2).max(20)}).strict().optional(),tie:barAt.optional(),
+ top:barN.optional(),bottom:barN.optional(),stirrup:barAt.optional(),
+ meshB:barAt.optional(),meshT:barAt.optional(),legs:z.boolean().optional(),loops:barAt.optional(),
+ vert:barAt.optional(),horz:barAt.optional(),layers:z.union([z.literal(1),z.literal(2)]).optional(),
+ ext:mm.optional(),anchor:z.boolean().optional(),
+}).strict();
+export type PartRebar=z.infer<typeof partRebarSchema>;
 const base={
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().trim().min(1).max(80),
  /** solid = concrete; void = opening / pit / recess subtracted from the solids */
@@ -23,6 +43,8 @@ const base={
  formSides:z.boolean(),formBottom:z.boolean(),
  /** where the dimensions come from (drawing / section / note) */
  source:z.string().max(200).default(''),
+ /** purpose + preset bars of this part */
+ rebar:partRebarSchema.optional(),
 };
 export const shapePartSchema=z.discriminatedUnion('shape',[
  z.object({...base,shape:z.literal('box'),x:coord,y:coord,w:len,d:len}).strict(),

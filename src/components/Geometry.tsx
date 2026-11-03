@@ -62,4 +62,4 @@ export function Shape({path,coupler}:{path:Vec3[];coupler?:{top:boolean;bottom:b
   {ends.map((e,k)=><g key={k} transform={`translate(${e.ex} ${e.ey}) rotate(${e.ang})`}><title>Coupler</title><rect x={-4} y={-2.4} width={8} height={4.8} fill="#fff" stroke="currentColor" strokeWidth="1"/><line x1={0} x2={0} y1={-2.4} y2={2.4} stroke="currentColor" strokeWidth=".8"/></g>)}</svg>;
 }
 const LazyModel=lazy(()=>import('./ModelView'));
-export function ModelView(props:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void}){return <Suspense fallback={<div className="empty">กำลังเปิดมุมมอง 3D…</div>}><LazyModel {...props}/></Suspense>;}
+export function ModelView(props:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void;part?:string;onPart?:(id:string)=>void;height?:number;keepView?:boolean}){return <Suspense fallback={<div className="empty">กำลังเปิดมุมมอง 3D…</div>}><LazyModel {...props}/></Suspense>;}

@@ -56,7 +56,7 @@ import {composeDrawingNumber,drawingRevText,sheetStyleKeys} from '../domain/draw
 import {numberedSetup} from '../domain/drawingNumbers';
 import {ElementInputPanel} from './ElementInputPanel';
 import {ShapeModelEditor} from './ShapeModelEditor';
-import {RebarSketch} from './RebarSketch';
+import {RebarSketch} from './RebarWorkspace';
 import {SheetA3Preview} from './SheetA3Preview';
 import {IfcSourceBanner} from './IfcMemberTools';
 import {barCouplerEnds,supportsElementInput} from '../domain/elementInput';

@@ -39,7 +39,11 @@
   (box / polygon / circle-ring / shaft, solid or void, stage, z0+height) + piles + site. Geometry engine
   `src/domain/shapeGeometry.ts` (level slabs, polygon-clipping union/difference, equal-area circles, surfaces, contains,
   sections) hooked in `solids.ts`; apply/checks in `shapeApply.ts`; views in `elementViews.ts` / `projection.ts`;
-  UI `ShapeModelEditor.tsx` (tab “รูปทรง” for Custom). AI shape reading: gateway task `shape` in `functions/index.js`
+  UI `ShapeModelEditor.tsx` (tab “รูปทรง” for Custom: plan + elevation X / Y editors `ElevationEditor` — drag moves
+  X/Y/Z, grips height / width, magnet `fit()` to other parts' edges, view frame frozen while dragging; 3D `ModelView`
+  `part` / `onPart` highlights and picks the selected part, `keepView`; toolbar undo / redo (Ctrl+Z / Y), “วางบนชิ้นด้านล่าง”
+  / “กึ่งกลางชิ้นด้านล่าง” (`supports()`), arrows / PageUp / PageDown nudge; new parts centred on the selected part's top).
+  Part “หน้าที่ (เหล็ก Preset)” select; apply = `moveOwnedSketchBars` + `applyPartPresets`. Dev harness: `tmp/preview/shape.html`. AI shape reading: gateway task `shape` in `functions/index.js`
   (owner must deploy) + `src/data/aiShapeAnalysis.ts` + `src/domain/shapeProposal.ts`; the browser sends zoomed views of
   the sheet (`src/data/drawingViews.ts`, overview + 3×2 tiles) as `context.views`. Proposal notes carry part / face / dir
   (`shapeModel.rebarNotes[].partId|face|dir`, questions in `rebarQuestions`) used as hints by `suggestFromNotes`.
@@ -66,8 +70,21 @@
   `tmp/ifcConvert.test.ts`, `tmp/ifcSheet.test.tsx`; dev harness `tmp/preview/ifc.html`.
 - Rebar sketch (Phase 2): `src/domain/rebarSketch.ts` (view regions, cover snap lines, snapping, shape-code detection,
   layout rules, `sketchBar`, `meshBars`, `loopBars`; sketched bars have ids `sk-`, polyline + distributionAxis so the
-  view is recovered from the bar) + UI `RebarSketch.tsx` (tab “ใส่เหล็ก (วาดบนรูปตัด)” for shape-model members).
+  view is recovered from the bar). UI = rebar workspace `RebarWorkspace.tsx` (exports `RebarSketch`; tab “ใส่เหล็ก” for
+  shape-model members): part strip (focus), plan / section X–X / section Y–Y canvases (`SketchCanvas`, shared cuts, draggable
+  cut lines, point grips, distribution-range grips ◆) + 3D (`ModelView` part / bar pick); sub-tools stay in `RebarSketch.tsx`.
   Tests: `tmp/rebarSketch.test.ts`. Forced cover drawing: `coverRings` / `snapToCover` / `traceCover`; end hooks `addHooks`.
+  Free drawing snaps past the concrete face at Lap / Ldh / 12d (`lapSnap`).
+- Part rebar (`src/domain/partRebar.ts`): `part.rebar` (`partRebarSchema` in `shapeModelSchema.ts`: purpose column | beam |
+  slab | wall | footing | other + preset values) → `partPresetBars()` / `applyPartPresets()` (bars `pp-<part>-<key>`, rebuilt on
+  every shape apply and preset save, marks kept per id); bars drawn while a part is in focus are `sk-<part>-…` and move with it
+  (`moveOwnedSketchBars`); owner = `barPart()`. Part cover can only be ≥ member cover (checks use the member cover).
+  Bar parts past the concrete get reference regions `genext-<k>` (`withOutsideRegions`, padded by cover; run on every final
+  bar commit). Completeness per purpose `partCoverage()`; purpose guess `guessPurpose()`. Corner bars sit in the link bend
+  (`cornerInset`). Tests: `tmp/partRebar.test.ts`; full assembly (2 footings + wall + column + beam + slab, presets, checks,
+  interference: only the column through the footing / slab meshes clashes across parts) `tmp/assembly.test.ts`, model in
+  `tmp/preview/assemblyModel.ts` (harness `shape.html#asm`).
+  Dev harness: `tmp/preview/shape.html` (tabs shape / rebar; `tmp/` is outside Vite's watcher — restart the dev server after editing it).
 - Rebar notes (Phase 3): `src/domain/rebarNotes.ts` (rule parser `parseRebarNote`, `suggestFromNotes`,
   `barsFromSuggestions`; loops / vertical face bars stop where the plan changes via `stackTop`); notes kept in
   `shapeModel.rebarNotes` (also filled from the AI shape proposal); UI tool “จาก Note ในแบบ” in `RebarSketch.tsx`.

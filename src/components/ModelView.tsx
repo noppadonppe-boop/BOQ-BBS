@@ -8,8 +8,19 @@ import {barCouplerEnds,beamColumnBoxes} from '../domain/elementInput';
 import {contextBoxes,couplerMeshes} from './coupler3d';
 import {boundsOf,solidQuantities} from '../domain/solids';
 import {surfaceTriangles} from '../domain/prismGeometry';
-export default function ModelView({member:m,spec,selected,onSelect}:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void}){
+import {partPolygon} from '../domain/shapeGeometry';
+/** Shape-model part as a prism (plan rings extruded over z0..z0+height), model axes Y up, -plan Y. */
+function partGeometry(p:NonNullable<Member['shapeModel']>['parts'][number]){
+ const [outer,...holes]=partPolygon(p),ring=(r:[number,number][])=>r.map(([x,y])=>new THREE.Vector2(x/1000,y/1000));
+ const s=new THREE.Shape(ring(outer));s.holes=holes.map(h=>new THREE.Path(ring(h)));
+ const g=new THREE.ExtrudeGeometry(s,{depth:p.height/1000,bevelEnabled:false,curveSegments:24});
+ g.rotateX(-Math.PI/2);g.translate(0,p.z0/1000,0);return g;
+}
+/** `part` / `onPart`: shape-model members — highlight the selected part, click a part to select it.
+ * `keepView`: keep the camera when the member changes (live editors). */
+export default function ModelView({member:m,spec,selected,onSelect,part,onPart,height=420,keepView}:{member:Member;spec:Spec;selected:string;onSelect:(id:string)=>void;part?:string;onPart?:(id:string)=>void;height?:number;keepView?:boolean}){
  const el=useRef<HTMLDivElement>(null),view=useRef<(axis:string)=>void>(()=>{}),[error,setError]=useState('');
+ const kept=useRef<{position:THREE.Vector3;target:THREE.Vector3}|null>(null);
  useEffect(()=>{
   if(!el.current)return;const host=el.current;let renderer:THREE.WebGLRenderer;
   try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});}catch{setError('เครื่องนี้เปิด WebGL ไม่ได้ ใช้มุมมอง 2D ได้');return;}
@@ -17,7 +28,8 @@ export default function ModelView({member:m,spec,selected,onSelect}:{member:Memb
   const scene=new THREE.Scene();scene.background=new THREE.Color('#f5f7f6');
   const viewport=placementViewBounds(m),d=viewport.size.map(n=>n/1000),center=new THREE.Vector3((viewport.min[0]+viewport.max[0])/2000,(viewport.min[2]+viewport.max[2])/2000,-(viewport.min[1]+viewport.max[1])/2000),extent=Math.max(...d),camera=new THREE.PerspectiveCamera(38,1,.01,1000);
   const controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(center);controls.enableDamping=true;
-  const place=(axis:string)=>{const v=axis==='X'?new THREE.Vector3(1,0,0):axis==='Y'?new THREE.Vector3(0,0,-1):axis==='Z'?new THREE.Vector3(.0001,1,0):new THREE.Vector3(1,.8,1);camera.position.copy(center).add(v.normalize().multiplyScalar(extent*2.3));controls.update();};view.current=place;place('ISO');
+  const place=(axis:string)=>{const v=axis==='X'?new THREE.Vector3(1,0,0):axis==='Y'?new THREE.Vector3(0,0,-1):axis==='Z'?new THREE.Vector3(.0001,1,0):new THREE.Vector3(1,.8,1);camera.position.copy(center).add(v.normalize().multiplyScalar(extent*2.3));controls.update();};view.current=place;
+  if(keepView&&kept.current){camera.position.copy(kept.current.position);controls.target.copy(kept.current.target);controls.update();}else place('ISO');
   const vertices:number[]=[];for(const surface of solidQuantities(m).surfaces)for(const triangle of surfaceTriangles(surface))for(const p of triangle)vertices.push(p[0]/1000,p[2]/1000,-p[1]/1000);
   const bodyGeometry=new THREE.BufferGeometry();bodyGeometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));bodyGeometry.computeVertexNormals();
   scene.add(new THREE.Mesh(bodyGeometry,new THREE.MeshBasicMaterial({color:0xc8d2d1,transparent:true,opacity:.17,depthWrite:false,side:THREE.DoubleSide})));
@@ -33,10 +45,19 @@ export default function ModelView({member:m,spec,selected,onSelect}:{member:Memb
    const g=new THREE.TubeGeometry(new PolyCurve(),Math.max(2,pts.length*2),bar.diameter/2000,5,false),mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:bar.id===selected?0xe69432:0x168674}));mesh.userData.id=bar.id;scene.add(mesh);meshes.push(mesh);
    for(const c of couplerMeshes(pts,bar.diameter,barCouplerEnds(m.elementInput,bar.id),new THREE.MeshBasicMaterial({color:0x5b6b70}))){c.userData.id=bar.id;scene.add(c);meshes.push(c);}
   }}
-  const ray=new THREE.Raycaster();const click=(ev:MouseEvent)=>{const r=renderer.domElement.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((ev.clientX-r.left)/r.width*2-1,-(ev.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObjects(meshes)[0];if(hit)onSelect(hit.object.userData.id);};renderer.domElement.addEventListener('click',click);
-  const resize=()=>{renderer.setSize(host.clientWidth,420);camera.aspect=host.clientWidth/420;camera.updateProjectionMatrix();};const ro=new ResizeObserver(resize);ro.observe(host);resize();
+  // shape-model parts: invisible pick bodies, the selected one drawn orange
+  const partMeshes:THREE.Object3D[]=[];
+  if(onPart&&m.shapeModel)for(const p of m.shapeModel.parts){const g=partGeometry(p),on=p.id===part,void_=p.role==='void';
+   const mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:void_?0xb4553a:0xe69432,transparent:true,opacity:on?.32:0,depthWrite:false,side:THREE.DoubleSide}));mesh.userData.part=p.id;scene.add(mesh);partMeshes.push(mesh);
+   if(on){const e=new THREE.LineSegments(new THREE.EdgesGeometry(g,20),new THREE.LineBasicMaterial({color:void_?0xb4553a:0xd4802a}));e.renderOrder=2;scene.add(e);}}
+  const ray=new THREE.Raycaster();let down=[0,0];
+  const press=(ev:PointerEvent)=>{down=[ev.clientX,ev.clientY];};
+  const click=(ev:MouseEvent)=>{if(Math.hypot(ev.clientX-down[0],ev.clientY-down[1])>4)return;const r=renderer.domElement.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((ev.clientX-r.left)/r.width*2-1,-(ev.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObjects(meshes)[0];if(hit){onSelect(hit.object.userData.id);return;}
+   const ph=ray.intersectObjects(partMeshes)[0];if(ph&&onPart)onPart(ph.object.userData.part);};
+  renderer.domElement.addEventListener('pointerdown',press);renderer.domElement.addEventListener('click',click);
+  const resize=()=>{renderer.setSize(host.clientWidth,height);camera.aspect=host.clientWidth/height;camera.updateProjectionMatrix();};const ro=new ResizeObserver(resize);ro.observe(host);resize();
   let frame:number;const render=()=>{controls.update();renderer.render(scene,camera);frame=requestAnimationFrame(render);};render();
-  return ()=>{cancelAnimationFrame(frame);ro.disconnect();controls.dispose();scene.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.LineSegments){o.geometry.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material.dispose();}});renderer.dispose();renderer.domElement.remove();};
- },[m,spec,selected]);
- return <div><div className="view-tools">{['ISO','X','Y','Z'].map(a=><button key={a} onClick={()=>view.current(a)}>{a}</button>)}<span>ลากเพื่อหมุน · ล้อเมาส์เพื่อซูม · คลิกเหล็กเลือก Mark</span></div>{hasPlacementContext(m)&&<p className="muted model-context-legend">เส้นประทอง = พื้นที่รอยต่อ · ประแดง = ช่องเปิดอ้างอิง · ไม่คิดคอนกรีต/แบบหล่อ BOQ</p>}{error&&<p className="notice">{error}</p>}<div ref={el} className="model-canvas"/></div>;
+  return ()=>{cancelAnimationFrame(frame);kept.current={position:camera.position.clone(),target:controls.target.clone()};ro.disconnect();controls.dispose();scene.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.LineSegments){o.geometry.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material.dispose();}});renderer.dispose();renderer.domElement.remove();};
+ },[m,spec,selected,part,height]);
+ return <div><div className="view-tools">{['ISO','X','Y','Z'].map(a=><button key={a} onClick={()=>view.current(a)}>{a}</button>)}<span>ลากเพื่อหมุน · ล้อเมาส์เพื่อซูม · คลิกเหล็กเลือก Mark{onPart?' · คลิกเนื้อคอนกรีตเลือกชิ้นส่วน':''}</span></div>{hasPlacementContext(m)&&<p className="muted model-context-legend">เส้นประทอง = พื้นที่รอยต่อ · ประแดง = ช่องเปิดอ้างอิง · ไม่คิดคอนกรีต/แบบหล่อ BOQ</p>}{error&&<p className="notice">{error}</p>}<div ref={el} className="model-canvas"/></div>;
 }

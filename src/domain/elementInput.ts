@@ -749,6 +749,7 @@ export const tieHookLabel=(d:number,det:Detailing)=>{const h=tieHook(d,det);retu
  * first corner with the standard hooks of `tieHook` wrapped around the corner bar: 90° hook
  * legs run along the adjacent sides, one bar diameter `d` inside them; 135° hooks bend about
  * the same centre as the other corners (around the corner bar) and their tails run diagonally into the core. */
+export {link as closedLink,radius as bendRadius};
 function link(u:number,v:number,w:number,u0:number,u1:number,v0:number,v1:number,at:number,det:Detailing,rad:number,d:number):V3[]{
  const p=(a:number,b:number):V3=>{const r:V3=[0,0,0];r[u]=a;r[v]=b;r[w]=at;return r;};
  const {angle,ext}=tieHook(d,det);
