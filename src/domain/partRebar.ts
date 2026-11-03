@@ -23,19 +23,26 @@ export function barPart(sm:ShapeModel|undefined,b:Bar):string|undefined{
 export const isPresetBar=(b:Bar)=>b.id.startsWith(PRESET_PREFIX);
 export const partSketchId=(partId:string)=>`sk-${partId}-${crypto.randomUUID().replace(/-/g,'').slice(0,10)}`;
 
-/** Purpose guessed from the part's proportions (thin & wide = slab / wall, tall & small = column, long = beam). */
-export function guessPurpose(p:ShapePart):PartPurpose{
+/** Purpose guessed from the part's proportions (thin & wide = slab / wall, tall & small = column, long = beam);
+ * with the model: a block cast on a footing (not a column / thin wall) is footing too (upper pour, step). */
+export function guessPurpose(p:ShapePart,sm?:ShapeModel):PartPurpose{
  if(p.role==='void')return 'other';
  const b=partBox(p),w=b.x1-b.x0,d=b.y1-b.y0,h=p.height,small=Math.min(w,d),big=Math.max(w,d);
  if(p.shape==='circle'&&p.inner>0||p.shape==='shaft')return 'wall';
  if(h<=Math.min(400,small/3))return 'slab';
  if(small<=400&&big>=3*small&&h>=big/3)return 'wall';
  if(h>=2*small&&big<=1.5*small)return 'column';
+ const s=sm&&supportOf(sm,p);if(s&&(s.q.rebar?.purpose??guessPurpose(s.q))==='footing')return 'footing';
  if(big>=3*small&&h<big/3)return 'beam';
  return small>=1000&&h<=small?'footing':'other';
 }
-/** Preset values for a purpose (sized from the part): the user edits them in the rebar workspace. */
-export function defaultPartRebar(purpose:PartPurpose,p:ShapePart,det:Detailing):PartRebar{
+/** Preset values for a purpose (sized from the part): the user edits them in the rebar workspace. With the model,
+ * slabs / footings cast on lower concrete get no bottom mesh (the joint is covered by the lower part's top mesh). */
+export function defaultPartRebar(purpose:PartPurpose,p:ShapePart,det:Detailing,sm?:ShapeModel):PartRebar{
+ const r=presetFor(purpose,p,det);
+ return sm&&(purpose==='slab'||purpose==='footing')&&supportOf(sm,p)&&r.meshB?{...r,meshB:{...r.meshB,s:0},meshT:{d:r.meshT?.d||12,s:r.meshT?.s||200}}:r;
+}
+function presetFor(purpose:PartPurpose,p:ShapePart,det:Detailing):PartRebar{
  const b=partBox(p),small=Math.min(b.x1-b.x0,b.y1-b.y0);
  switch(purpose){
   case 'column':{const n=(len:number)=>Math.max(2,Math.min(8,Math.round(len/200)+1));return {purpose,main:{d:16,nx:n(b.x1-b.x0),ny:n(b.y1-b.y0)},tie:{d:9,s:150},ext:lapLength(det,16),anchor:true};}
@@ -53,6 +60,12 @@ const partMember=(m:Member,p:ShapePart):Member=>({...m,shapeModel:{...m.shapeMod
 function supportOf(sm:ShapeModel,p:ShapePart){
  const b=partBox(p);return sm.parts.filter(q=>q.id!==p.id&&q.role==='solid'&&Math.abs(q.z0+q.height-p.z0)<1).map(q=>({q,c:partBox(q)}))
   .filter(({c})=>c.x0<b.x1&&b.x0<c.x1&&c.y0<b.y1&&b.y0<c.y1).sort((s,t)=>(t.c.x1-t.c.x0)*(t.c.y1-t.c.y0)-(s.c.x1-s.c.x0)*(s.c.y1-s.c.y0))[0];
+}
+/** Part to anchor in: the support, else a solid part holding this part's base (a starter cast inside a mat). */
+function hostOf(sm:ShapeModel,p:ShapePart){
+ const s=supportOf(sm,p);if(s)return s;const b=partBox(p),corners:P2[]=[[b.x0,b.y0],[b.x1,b.y0],[b.x1,b.y1],[b.x0,b.y1]];
+ return sm.parts.filter(q=>q.id!==p.id&&q.role==='solid'&&q.z0<=p.z0+1e-6&&p.z0<q.z0+q.height-1e-6).map(q=>({q,c:partBox(q)}))
+  .filter(({q})=>corners.every(k=>inMulti(k,[partPolygon(q) as P2[][]],1))).sort((s,t)=>(t.c.x1-t.c.x0)*(t.c.y1-t.c.y0)-(s.c.x1-s.c.x0)*(s.c.y1-s.c.y0))[0];
 }
 const r3=(p:Vec3)=>p.map(v=>Number(v.toFixed(3))) as Vec3;
 /** Inset (each axis) of a corner bar Ø d so it bears on the bend of a link Ø dt with centreline radius rad. */
@@ -88,7 +101,7 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
  }
  if(r.purpose==='column'&&r.main){
   const M=r.main,T=r.tie,dt=T?.d||0,a=c+dt+M.d/2,top=r.ext?b.z1+r.ext:b.z1-c-M.d/2,tieTop=b.z1-Math.max(50,c+dt/2);
-  const sup=r.anchor?supportOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover;
+  const sup=r.anchor?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover,base=sup?Math.max(b.z0,sup.c.z1):b.z0;
   const zb=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+c+M.d/2;
   const foot=sup?Math.min(hookDevLength(det,M.d),det.hook90*M.d+sketchRadius(M.d)):0;
   const pos:{p:P2;n:P2}[]=[];
@@ -107,10 +120,10 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    const turns=pos.map(q=>{let t=(ang(q.n)-ang(first.n))*180/Math.PI;if(t>180)t-=360;if(t<-180)t+=360;return Math.round(t*1000)/1000;});
    out.push(bar('main',{d:M.d,points:pts,code:pts.length>2?'11':'00',axis:'Z',offsets:pos.map(q=>[q.p[0]-pivot[0],q.p[1]-pivot[1],0] as Vec3),turns,
     note:`เหล็กยืน ${pos.length}-DB${M.d}${room>2*M.d?` · ขา 90° ${Math.round(room)} ในฐาน`:''}${r.ext?` · ยื่นพ้นหัว ${Math.round(r.ext)} (ต่อทาบ)`:''}`}));
-   if(T&&T.s>0&&boxy){const rad=bendRadius(dt,det,true),z0=b.z0+(sup?50:Math.max(50,c+dt/2)),z1=tieTop;
+   if(T&&T.s>0&&boxy){const rad=bendRadius(dt,det,true),z0=base+(sup?50:Math.max(50,c+dt/2)),z1=tieTop;
     out.push(bar('tie',{d:dt,tie:true,points:closedLink(0,1,2,b.x0+c+dt/2,b.x1-c-dt/2,b.y0+c+dt/2,b.y1-c-dt/2,z0,det,rad,dt),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:z0,to:z1,spacing:T.s},note:`ปลอก RB/DB${dt} @${T.s}`}));
     // ties in the support stay under its top mesh
-    if(sup){const T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(b.z0-75,sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-dt-10);if(zs1>zs0)out.push(bar('tie-in',{d:dt,tie:true,points:closedLink(0,1,2,b.x0+c+dt/2,b.x1-c-dt/2,b.y0+c+dt/2,b.y1-c-dt/2,zs0,det,rad,dt),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:zs0,to:zs1,spacing:300},note:'ปลอกยึดเหล็กยืนในฐาน @300'}));}}
+    if(sup){const T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(base-75,sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-dt-10);if(zs1>zs0)out.push(bar('tie-in',{d:dt,tie:true,points:closedLink(0,1,2,b.x0+c+dt/2,b.x1-c-dt/2,b.y0+c+dt/2,b.y1-c-dt/2,zs0,det,rad,dt),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:zs0,to:zs1,spacing:300},note:'ปลอกยึดเหล็กยืนในฐาน @300'}));}}
    if(T&&T.s>0&&p.shape==='circle'){const R=p.diameter/2-c-dt/2,n=24,lap=lapLength(det,dt),ring:Vec3[]=Array.from({length:n+1},(_,k)=>{const t=2*Math.PI*k/n;return [p.cx+R*Math.cos(t),p.cy+R*Math.sin(t),b.z0+50] as Vec3;});
     const t1=lap/R;ring.push([p.cx+R*Math.cos(t1),p.cy+R*Math.sin(t1),b.z0+50]);
     out.push(bar('tie',{d:dt,tie:true,points:ring,code:'99',axis:'Z',radius:0,dist:{axis:2,from:b.z0+50,to:tieTop,spacing:T.s},note:`ปลอกวงกลม DB${dt} @${T.s} ทาบ ${Math.round(lap)}`}));}
@@ -137,7 +150,7 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    const L0=(s?b.y0:b.x0),L1=(s?b.y1:b.x1),T0=(t?b.y0:b.x0),T1=(t?b.y1:b.x1),dh=H?.d||0,dv=V?.d||0;
    const faces=(r.layers??2)===2?[{k:'a',h:T0+c+dh/2,v:T0+c+dh+dv/2},{k:'b',h:T1-c-dh/2,v:T1-c-dh-dv/2}]:[{k:'',h:(T0+T1)/2-dv/2-dh/2,v:(T0+T1)/2}];
    // anchor: vertical bars start on the bottom mesh of the part below with a 90° foot turned outward
-   const sup=r.anchor&&V?supportOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover;
+   const sup=r.anchor&&V?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover;
    for(const f of faces){
     if(V&&V.s>0){const u0=L0+c+dh+dv/2,u1=L1-c-dh-dv/2,top=b.z1+(ext||-c-V.d/2);
      let base:Vec3[]=[pt(u0,f.v,b.z0+c+V.d/2)],anchored=0;
@@ -221,15 +234,17 @@ export type CoverageItem={label:string;ok:boolean|'warn';hint?:string};
 export function partCoverage(m:Member,p:ShapePart,spec:Spec):CoverageItem[]{
  const r=p.rebar;if(!r||r.purpose==='other')return [];
  const ids=new Set(m.bars.filter(b=>barPart(m.shapeModel,b)===p.id).map(b=>b.id)),has=(k:string)=>[...ids].some(id=>id.startsWith(`${PRESET_PREFIX}${p.id}-${k}`)),drawn=[...ids].some(id=>id.startsWith('sk-'));
- const det=detailingFor(spec);
+ const det=detailingFor(spec),onLower=!!m.shapeModel&&!!supportOf(m.shapeModel,p);
  switch(r.purpose){
   case 'column':{const lap=r.main?lapLength(det,r.main.d):0,ext=r.ext||0;return [{label:'เหล็กยืน (main)',ok:has('main')},{label:'ปลอก',ok:has('tie')},{label:'ยึดลงชิ้นด้านล่าง (ขา 90°)',ok:!r.anchor?'warn':has('main')&&!!m.bars.find(b=>b.id===`${PRESET_PREFIX}${p.id}-main`&&b.points.length>2),hint:r.anchor?undefined:'ไม่ได้เลือกยึดลงฐาน'},
    {label:`ต่อทาบด้านบน ≥ Lap ${Math.round(lap)}`,ok:ext>=lap-1?true:ext>0?'warn':'warn',hint:ext>=lap-1?undefined:ext>0?`ยื่น ${Math.round(ext)} < ${Math.round(lap)}`:'ไม่มีเหล็กยื่นพ้นหัว (ถ้าเป็นชั้นบนสุดถือว่าถูก)'}];}
   case 'beam':return [{label:'เหล็กบน',ok:has('top')},{label:'เหล็กล่าง',ok:has('bot')},{label:'ปลอก',ok:has('stirrup')}];
-  case 'slab':return [{label:'ตะแกรงล่าง 2 ทาง',ok:has('bx')&&has('by')},{label:'ตะแกรงบน',ok:has('tx')&&has('ty')?true:'warn',hint:has('tx')?undefined:'ไม่มี (พื้นช่วงสั้น / บางอาจไม่ต้องใช้)'}];
+  case 'slab':return [onLower?{label:'ตะแกรงล่าง (หล่อบนคอนกรีตชิ้นล่าง)',ok:true,hint:has('bx')?undefined:'ไม่ต้องใช้ · รอยต่อใช้ตะแกรงบนของชิ้นล่าง'}:{label:'ตะแกรงล่าง 2 ทาง',ok:has('bx')&&has('by')},{label:'ตะแกรงบน',ok:has('tx')&&has('ty')?true:'warn',hint:has('tx')?undefined:'ไม่มี (พื้นช่วงสั้น / บางอาจไม่ต้องใช้)'}];
   case 'wall':{const sup=m.shapeModel&&supportOf(m.shapeModel,p);return [{label:'เหล็กตั้ง',ok:has('vert')},{label:'เหล็กนอน',ok:has('horz')},{label:'2 ชั้น (ผนังหนา ≥ 200)',ok:(r.layers??2)===2||Math.min(partBox(p).x1-partBox(p).x0,partBox(p).y1-partBox(p).y0)<200?true:'warn'},
    ...(sup?[{label:`ยึดลง${sup.q.label}`,ok:r.anchor&&has('vert')?true:drawn?'warn' as const:false,hint:r.anchor?undefined:'เหล็กตั้งไม่ได้ฝังลงชิ้นด้านล่าง'}]:[])];}
-  case 'footing':return [{label:'ตะแกรงล่าง X',ok:has('bx')},{label:'ตะแกรงล่าง Y',ok:has('by')},{label:'ตะแกรงบน',ok:has('tx')?true:'warn',hint:has('tx')?undefined:'ไม่มีตะแกรงบน'},{label:'เหล็กรอบผิวข้าง (หนา > 600)',ok:p.height<=600||has('loop')||drawn?true:'warn',hint:p.height>600&&!has('loop')?'ฐานหนา · ควรมีลูปรอบผิว':undefined}];
+  case 'footing':return [...(onLower?[{label:'ตะแกรงล่าง (หล่อบนคอนกรีตชิ้นล่าง)',ok:true,hint:has('bx')?undefined:'ไม่ต้องใช้ · รอยต่อใช้ตะแกรงบนของชิ้นล่าง'}]:[{label:'ตะแกรงล่าง X',ok:has('bx')},{label:'ตะแกรงล่าง Y',ok:has('by')}]),
+   {label:'ตะแกรงบน',ok:has('tx')?true:'warn',hint:has('tx')?undefined:'ไม่มีตะแกรงบน'},
+   {label:'เหล็กรอบผิวข้าง (หนา > 600)',ok:p.height<=600||has('loop')||drawn?true:'warn',hint:p.height>600&&!has('loop')?(onLower?'ฐานหนา · ชิ้นที่ติดกันหลายชิ้น: ใช้เครื่องมือ “ลูปรอบผิว” รอบแปลนรวมแทนลูปทีละชิ้น':'ฐานหนา · ควรมีลูปรอบผิว'):undefined}];
  }
  return [];
 }

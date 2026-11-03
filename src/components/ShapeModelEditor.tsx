@@ -132,7 +132,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
    </div>
    <aside className="shape-props">
     {part?<PartProps part={part} index={draft.parts.indexOf(part)} readOnly={readOnly} onChange={patch=>put(part.id,patch)}
-     onPurpose={k=>put(part.id,{rebar:k?defaultPartRebar(k,part,det):undefined})}
+     onPurpose={k=>put(part.id,{rebar:k?defaultPartRebar(k,part,det,draft):undefined})} suggested={guessPurpose(part,draft)}
      onDuplicate={()=>{const b=partBox(part),c={...structuredClone(part),id:newId(),label:`${part.label} (สำเนา)`};add({...c,...movedPart(c,b.x1-b.x0,0,0)} as ShapePart,false);}}
      onDelete={()=>{if(draft.parts.filter(p=>p.role==='solid').length===1&&part.role==='solid')return;edit(d=>({...d,confirmed:false,parts:d.parts.filter(p=>p.id!==part.id)}));setSel(draft.parts.find(p=>p.id!==part.id)?.id||'');}}/>:<p className="muted">เลือกชิ้นส่วน</p>}
     <h4>ตรวจมิติ</h4>
@@ -314,7 +314,7 @@ function ElevationEditor({draft,sel,snap,axis,readOnly,magnet,onSelect,onBegin,o
  </svg>;
 }
 
-function PartProps({part:p,index,readOnly,onChange,onPurpose,onDuplicate,onDelete}:{part:ShapePart;index:number;readOnly:boolean;onChange:(patch:Partial<ShapePart>)=>void;onPurpose:(k:PartPurpose|'')=>void;onDuplicate:()=>void;onDelete:()=>void}){
+function PartProps({part:p,index,readOnly,onChange,onPurpose,suggested,onDuplicate,onDelete}:{part:ShapePart;index:number;readOnly:boolean;suggested:PartPurpose;onChange:(patch:Partial<ShapePart>)=>void;onPurpose:(k:PartPurpose|'')=>void;onDuplicate:()=>void;onDelete:()=>void}){
  const num=(label:string,key:string,min=0)=><Field key={key} label={label} type="number" disabled={readOnly} value={(p as any)[key]} onChange={v=>onChange({[key]:Math.max(min,Number(v)||0)} as any)}/>;
  const coord=(label:string,key:string)=><Field key={key} label={label} type="number" disabled={readOnly} value={(p as any)[key]} onChange={v=>onChange({[key]:Number(v)||0} as any)}/>;
  return <div className="shape-part-props">
@@ -322,7 +322,7 @@ function PartProps({part:p,index,readOnly,onChange,onPurpose,onDuplicate,onDelet
   <Field label="ชื่อชิ้นส่วน" value={p.label} disabled={readOnly} onChange={v=>onChange({label:String(v).slice(0,80)})}/>
   <div className="form-grid">
    <label className="field"><span>บทบาท</span><select disabled={readOnly} value={p.role} onChange={e=>onChange({role:e.target.value as ShapePart['role']})}><option value="solid">คอนกรีต</option><option value="void">ช่องเปิด / หลุม (หัก)</option></select></label>
-   {p.role==='solid'&&<label className="field" title="ใช้เลือกเหล็ก Preset ในแท็บใส่เหล็ก · Preset สร้างใหม่ทุกครั้งที่กดใช้รูปทรง"><span>หน้าที่ (เหล็ก Preset)</span><select disabled={readOnly} value={p.rebar?.purpose||''} onChange={e=>onPurpose(e.target.value as PartPurpose|'')}><option value="">— ยังไม่กำหนด</option>{partPurposes.map(k=><option key={k} value={k}>{partPurposeLabels[k]}{k===guessPurpose(p)?' (แนะนำ)':''}</option>)}</select></label>}
+   {p.role==='solid'&&<label className="field" title="ใช้เลือกเหล็ก Preset ในแท็บใส่เหล็ก · Preset สร้างใหม่ทุกครั้งที่กดใช้รูปทรง"><span>หน้าที่ (เหล็ก Preset)</span><select disabled={readOnly} value={p.rebar?.purpose||''} onChange={e=>onPurpose(e.target.value as PartPurpose|'')}><option value="">— ยังไม่กำหนด</option>{partPurposes.map(k=><option key={k} value={k}>{partPurposeLabels[k]}{k===suggested?' (แนะนำ)':''}</option>)}</select></label>}
    <label className="field"><span>Stage การเท</span><select disabled={readOnly||p.role==='void'} value={p.stage} onChange={e=>onChange({stage:Number(e.target.value)})}>{[1,2,3,4,5].map(n=><option key={n} value={n}>Stage {n}</option>)}</select></label>
    {coord('ระดับล่าง z0','z0')}{num('ความสูง','height',1)}
    {(p.shape==='box'||p.shape==='shaft')&&<>{coord('มุม X','x')}{coord('มุม Y','y')}{num('กว้าง X','w',1)}{num('ยาว Y','d',1)}</>}

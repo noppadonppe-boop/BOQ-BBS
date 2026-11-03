@@ -143,7 +143,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
 
 /** Purpose of the part in focus, its preset values and what is still missing. Edits stay local until “สร้าง / อัปเดต”. */
 function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;spec:Project['spec'];det:ReturnType<typeof detailingFor>;readOnly:boolean;onSave:(r:PartRebar|undefined)=>void}){
- const [r,setR]=useState<PartRebar>(()=>part.rebar||defaultPartRebar(guessPurpose(part),part,det));
+ const [r,setR]=useState<PartRebar>(()=>part.rebar||defaultPartRebar(guessPurpose(part,m.shapeModel),part,det,m.shapeModel));
  const dirty=JSON.stringify(r)!==JSON.stringify(part.rebar);
  const cov=useMemo(()=>partCoverage(m,part,spec),[m,part,spec]);
  const dsel=(label:string,v:number,on:(d:number)=>void)=><label className="field"><span>{label}</span><select disabled={readOnly} value={v} onChange={e=>on(Number(e.target.value))}>{DIAS.map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label>;
@@ -152,7 +152,7 @@ function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;sp
  const cnt=(k:'top'|'bottom',label:string)=>{const v=r[k]||{d:16,n:0};return <>{dsel(`${label} ขนาด`,v.d,d=>setR({...r,[k]:{...v,d}}))}{num(`${label} จำนวน`,v.n,n=>setR({...r,[k]:{...v,n:Math.min(40,Math.trunc(n))}}))}</>;};
  const lap=lapLength(det,r.main?.d||r.vert?.d||r.top?.d||16);
  return <div className="part-panel"><h4>หน้าที่ของชิ้น · {part.label}</h4>
-  <label className="field"><span>ใช้เป็น</span><select disabled={readOnly} value={r.purpose} onChange={e=>setR(defaultPartRebar(e.target.value as PartPurpose,part,det))}>{partPurposes.map(k=><option key={k} value={k}>{partPurposeLabels[k]}{!part.rebar&&k===guessPurpose(part)?' (แนะนำ)':''}</option>)}</select></label>
+  <label className="field"><span>ใช้เป็น</span><select disabled={readOnly} value={r.purpose} onChange={e=>setR(defaultPartRebar(e.target.value as PartPurpose,part,det,m.shapeModel))}>{partPurposes.map(k=><option key={k} value={k}>{partPurposeLabels[k]}{!part.rebar&&k===guessPurpose(part,m.shapeModel)?' (แนะนำ)':''}</option>)}</select></label>
   <div className="form-grid">
    {r.purpose==='column'&&<>{dsel('เหล็กยืน ขนาด',r.main?.d||16,d=>setR({...r,main:{...r.main!,d}}))}<span/>{num('จำนวนต่อด้าน X (รวมมุม)',r.main?.nx||2,n=>setR({...r,main:{...r.main!,nx:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{num('จำนวนต่อด้าน Y (รวมมุม)',r.main?.ny||2,n=>setR({...r,main:{...r.main!,ny:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{at('tie','ปลอก')}</>}
    {r.purpose==='beam'&&<>{cnt('top','เหล็กบน')}{cnt('bottom','เหล็กล่าง')}{at('stirrup','ปลอก')}</>}

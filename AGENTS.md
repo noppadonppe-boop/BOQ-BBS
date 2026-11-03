@@ -83,7 +83,10 @@
   bar commit). Completeness per purpose `partCoverage()`; purpose guess `guessPurpose()`. Corner bars sit in the link bend
   (`cornerInset`). Tests: `tmp/partRebar.test.ts`; full assembly (2 footings + wall + column + beam + slab, presets, checks,
   interference: only the column through the footing / slab meshes clashes across parts) `tmp/assembly.test.ts`, model in
-  `tmp/preview/assemblyModel.ts` (harness `shape.html#asm`).
+  `tmp/preview/assemblyModel.ts` (harness `shape.html#asm`). Anchorage host = support, else a solid holding the part's base
+  (`hostOf`: starters cast inside a mat); parts cast on lower concrete need no bottom mesh (`defaultPartRebar(…, sm)`,
+  `partCoverage`) and are guessed footing on a footing (`guessPurpose(p, sm)`). J-078 F-02 rebuilt from parts with our own
+  bars (sheet pour volumes 315.85 / 210.39 m³ match): `tmp/f02Custom.test.ts`, model `tmp/preview/f02Model.ts` (`shape.html#f02`).
   Dev harness: `tmp/preview/shape.html` (tabs shape / rebar; `tmp/` is outside Vite's watcher — restart the dev server after editing it).
 - Rebar notes (Phase 3): `src/domain/rebarNotes.ts` (rule parser `parseRebarNote`, `suggestFromNotes`,
   `barsFromSuggestions`; loops / vertical face bars stop where the plan changes via `stackTop`); notes kept in
