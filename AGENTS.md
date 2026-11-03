@@ -86,7 +86,15 @@
   `tmp/preview/assemblyModel.ts` (harness `shape.html#asm`). Anchorage host = support, else a solid holding the part's base
   (`hostOf`: starters cast inside a mat); parts cast on lower concrete need no bottom mesh (`defaultPartRebar(…, sm)`,
   `partCoverage`) and are guessed footing on a footing (`guessPurpose(p, sm)`). J-078 F-02 rebuilt from parts with our own
-  bars (sheet pour volumes 315.85 / 210.39 m³ match): `tmp/f02Custom.test.ts`, model `tmp/preview/f02Model.ts` (`shape.html#f02`).
+  bars (sheet pour volumes 315.85 / 210.39 m³ match): `tmp/f02Custom.test.ts`, model `tmp/preview/f02Model.ts` (`shape.html#f02`,
+  `#f02pit` adds the assumed deep pit). Part role `reference` (column / wall above, cast later): no concrete, placement region
+  `genref-<id>`; presets on it = starters / dowels only (`top = z0 + ext`). Void parts with purpose wall = pit walls
+  (`voidFaceBars`: loops + verticals round the opening). Footing `loopsJoined` = one loop set round touching footing parts
+  at the same base (`joinedGroup`, built by the first, banded by top level). `coordinateBars()` (run by `applyPartPresets`):
+  wall junction dowels belong to the first wall, dowels move inside a loop ring along them, wall feet along Y lie one bar
+  higher, mesh bars step aside from vertical bars, ties / horizontal rings step off mesh levels. Wall dowels over an opening
+  (no cover-clear embedment) are cut. Speed: `shapeGeometry` caches per model object, `placementMember` per member object.
+  `INTERFERENCE_LIMITS.comparisons` 20 M (a 1,000-piece mat needs ~1.3 M).
   Dev harness: `tmp/preview/shape.html` (tabs shape / rebar; `tmp/` is outside Vite's watcher — restart the dev server after editing it).
 - Rebar notes (Phase 3): `src/domain/rebarNotes.ts` (rule parser `parseRebarNote`, `suggestFromNotes`,
   `barsFromSuggestions`; loops / vertical face bars stop where the plan changes via `stackTop`); notes kept in

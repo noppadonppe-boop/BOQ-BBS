@@ -56,7 +56,12 @@ export function placementContextProblems(m:Member):string[]{
 
 // This union is solely the declared adjacent/future concrete for geometric
 // placement checks. It is never passed into takeoff, quantity totals or targets.
+// one placement member per member object: the geometry caches key on it, and checks call this once per bar path
+const placementCache=new WeakMap<Member,Member>();
 export function placementMember(m:Member):Member{
+ let p=placementCache.get(m);if(!p){p=buildPlacementMember(m);placementCache.set(m,p);}return p;
+}
+function buildPlacementMember(m:Member):Member{
  if(m.prismGeometry)return m;
  // shape model: reference regions join as box parts, reference openings as voids (placement only, never takeoff)
  if(m.shapeModel&&hasPlacementContext(m)){const box=(s:Solid,role:'solid'|'void')=>({id:`ctx-${s.id}`.slice(0,40),label:s.label||'อ้างอิง',role,stage:9,z0:s.origin[2],height:s.size[2],formSides:false,formBottom:false,source:'',shape:'box' as const,x:s.origin[0],y:s.origin[1],w:s.size[0],d:s.size[1]});

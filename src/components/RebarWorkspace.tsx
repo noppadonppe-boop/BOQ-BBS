@@ -42,7 +42,7 @@ type Ctx={
 export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;project:Project;readOnly:boolean;onChange:(next:Member)=>void}){
  const sm=m.shapeModel,spec=project.spec,det=useMemo(()=>detailingFor(spec),[spec]);
  const g=useMemo(()=>sm?shapeGeometry(sm):undefined,[sm]);
- const solids=(sm?.parts||[]).filter(p=>p.role==='solid');
+ const solids=sm?.parts||[];
  const [focus,setFocusId]=useState(''),focusPart=solids.find(p=>p.id===focus);
  const [cuts,setCuts]=useState<Cuts>(()=>({x:Math.round(m.x/2),y:Math.round(m.y/2),z:Math.round(Math.min(m.z/2,m.cover+8))}));
  const setFocus=(id:string)=>{setFocusId(id);const p=solids.find(q=>q.id===id);if(p){const b=partBox(p);setCuts({x:Math.round((b.x0+b.x1)/2),y:Math.round((b.y0+b.y1)/2),z:Math.round((b.z0+b.z1)/2)});}};
@@ -152,12 +152,13 @@ function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;sp
  const cnt=(k:'top'|'bottom',label:string)=>{const v=r[k]||{d:16,n:0};return <>{dsel(`${label} ขนาด`,v.d,d=>setR({...r,[k]:{...v,d}}))}{num(`${label} จำนวน`,v.n,n=>setR({...r,[k]:{...v,n:Math.min(40,Math.trunc(n))}}))}</>;};
  const lap=lapLength(det,r.main?.d||r.vert?.d||r.top?.d||16);
  return <div className="part-panel"><h4>หน้าที่ของชิ้น · {part.label}</h4>
-  <label className="field"><span>ใช้เป็น</span><select disabled={readOnly} value={r.purpose} onChange={e=>setR(defaultPartRebar(e.target.value as PartPurpose,part,det,m.shapeModel))}>{partPurposes.map(k=><option key={k} value={k}>{partPurposeLabels[k]}{!part.rebar&&k===guessPurpose(part,m.shapeModel)?' (แนะนำ)':''}</option>)}</select></label>
+  <label className="field"><span>ใช้เป็น</span><select disabled={readOnly} value={r.purpose} onChange={e=>setR(defaultPartRebar(e.target.value as PartPurpose,part,det,m.shapeModel))}>{(part.role==='void'?(['other','wall'] as const):partPurposes).map(k=><option key={k} value={k}>{part.role==='void'&&k==='wall'?'เหล็กรอบผิวบ่อ / ช่องเปิด':partPurposeLabels[k]}{!part.rebar&&k===guessPurpose(part,m.shapeModel)?' (แนะนำ)':''}</option>)}</select></label>
   <div className="form-grid">
    {r.purpose==='column'&&<>{dsel('เหล็กยืน ขนาด',r.main?.d||16,d=>setR({...r,main:{...r.main!,d}}))}<span/>{num('จำนวนต่อด้าน X (รวมมุม)',r.main?.nx||2,n=>setR({...r,main:{...r.main!,nx:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{num('จำนวนต่อด้าน Y (รวมมุม)',r.main?.ny||2,n=>setR({...r,main:{...r.main!,ny:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{at('tie','ปลอก')}</>}
    {r.purpose==='beam'&&<>{cnt('top','เหล็กบน')}{cnt('bottom','เหล็กล่าง')}{at('stirrup','ปลอก')}</>}
    {(r.purpose==='slab'||r.purpose==='footing')&&<>{at('meshB','ตะแกรงล่าง')}{at('meshT','ตะแกรงบน')}</>}
-   {r.purpose==='footing'&&<>{at('loops','ลูปรอบผิว')}<label className="check"><input type="checkbox" disabled={readOnly} checked={!!r.legs} onChange={e=>setR({...r,legs:e.target.checked})}/>ตะแกรงล่างงอขึ้น (U)</label></>}
+   {r.purpose==='footing'&&<>{at('loops','ลูปรอบผิว')}<label className="check"><input type="checkbox" disabled={readOnly} checked={!!r.legs} onChange={e=>setR({...r,legs:e.target.checked})}/>ตะแกรงล่างงอขึ้น (U)</label>
+    <label className="check" title="ฐาน / ก้อนเทที่ติดกันและเริ่มระดับเดียวกัน: ลูปวิ่งรอบแปลนรวม ชิ้นแรกของกลุ่มเป็นผู้สร้าง"><input type="checkbox" disabled={readOnly} checked={!!r.loopsJoined} onChange={e=>setR({...r,loopsJoined:e.target.checked})}/>ลูปรอบแปลนรวมกับชิ้นที่ติดกัน</label></>}
    {r.purpose==='wall'&&<>{at('vert','เหล็กตั้ง')}{at('horz','เหล็กนอน')}<label className="field"><span>ชั้นเหล็ก</span><select disabled={readOnly} value={r.layers??2} onChange={e=>setR({...r,layers:Number(e.target.value) as 1|2})}><option value={2}>2 ชั้น (2 ผิว)</option><option value={1}>1 ชั้น (กลาง)</option></select></label><span/></>}
    {(r.purpose==='column'||r.purpose==='wall'||r.purpose==='beam')&&<>{num(r.purpose==='beam'?'ยื่นพ้นปลายคาน (mm)':'ยื่นพ้นหัว (mm)',r.ext||0,ext=>setR({...r,ext}))}<button type="button" className="link-button" disabled={readOnly} onClick={()=>setR({...r,ext:lap})}>= Lap {fmt(lap)}</button></>}
    {(r.purpose==='column'||r.purpose==='wall')&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!r.anchor} onChange={e=>setR({...r,anchor:e.target.checked})}/>ยึดลงชิ้นด้านล่าง (ขา 90°)</label>}
@@ -221,7 +222,7 @@ function SketchCanvas({kind,ctx}:{kind:Kind;ctx:Ctx}){
  const via=ctx.force&&mine&&hits.length&&hoverHit?traceCover(rings,hits.at(-1)!,hoverHit):[];
  const core=pts.length&&hover?[...pts,...via,hover.p]:pts,liveLine=core.length>=2?addHooks(core,ctx.hooks,ctx.dia,rings,ctx.hookTable).points:core,code=detectShapeCode(liveLine),total=polyLength(liveLine);
  // parts cut by this view (largest first so small parts stay clickable on top)
- const parts=sm.parts.filter(p=>p.role==='solid').map(p=>({p,b:partBox(p)})).sort((x,y)=>(y.b.x1-y.b.x0)*(y.b.y1-y.b.y0)-(x.b.x1-x.b.x0)*(x.b.y1-x.b.y0));
+ const parts=sm.parts.filter(p=>p.role!=='void').map(p=>({p,b:partBox(p)})).sort((x,y)=>(y.b.x1-y.b.x0)*(y.b.y1-y.b.y0)-(x.b.x1-x.b.x0)*(x.b.y1-x.b.y0));
  const partShape=({p,b}:{p:ShapePart;b:ReturnType<typeof partBox>})=>{
   if(kind==='plan')return view.at>=b.z0-1e-6&&view.at<=b.z1+1e-6?partPolygon(p).map(r=>`M${r.map(q=>`${X(q[0])},${Y(q[1])}`).join('L')}Z`).join(''):'';
   const n0=[b.x0,b.y0,b.z0][a.n],n1=[b.x1,b.y1,b.z1][a.n];if(view.at<n0-1e-6||view.at>n1+1e-6)return '';
@@ -237,7 +238,7 @@ function SketchCanvas({kind,ctx}:{kind:Kind;ctx:Ctx}){
    {mine&&pts.length>0&&<span className="actions"><button type="button" onClick={()=>{ctx.setPts(p=>p.slice(0,-1));ctx.setHits(x=>x.slice(0,-1));}}><Undo2 size={13}/>ลบจุด</button><button type="button" className="primary" disabled={pts.length<2} onClick={finish}>จบเส้น ({pts.length})</button></span>}</div>
   <svg ref={svg} className={`sketch-svg tool-${ctx.tool}`} viewBox={`0 0 ${W} ${H}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={()=>{setHover(null);up();}}>
    {region.map((poly,i)=><path key={i} className="sk-concrete" fillRule="evenodd" d={poly.map(r=>`M${(r as P2[]).map(p=>`${X(p[0])},${Y(p[1])}`).join('L')}Z`).join('')}/>)}
-   {parts.map(q=>{const d=partShape(q);return d&&<path key={q.p.id} d={d} fillRule="evenodd" className={`sk-part ${q.p.id===ctx.focus?'focus':''}`} onPointerDown={()=>{if(ctx.tool!=='draw')ctx.setFocus(q.p.id);}}><title>{q.p.label}</title></path>;})}
+   {parts.map(q=>{const d=partShape(q);return d&&<path key={q.p.id} d={d} fillRule="evenodd" className={`sk-part ${q.p.role} ${q.p.id===ctx.focus?'focus':''}`} onPointerDown={()=>{if(ctx.tool!=='draw')ctx.setFocus(q.p.id);}}><title>{q.p.label}</title></path>;})}
    {rings.map((r,i)=><polygon key={i} className={`sk-cover ${ctx.force?'forced':''}`} points={r.map(p=>`${X(p[0])},${Y(p[1])}`).join(' ')}/>)}
    {ctx.force&&ctx.tool==='draw'&&rings.flatMap((r,i)=>r.map((p,k)=><circle key={`${i}-${k}`} className="sk-corner" cx={X(p[0])} cy={Y(p[1])} r={2.5}/>))}
    {vd.bars.map(b=>{const c=ctx.colors.get(b.row.id)||'#167561',on=b.row.id===ctx.sel,dim=!!ctx.focus&&barPart(sm,b.row as unknown as Bar)!==ctx.focus&&!on;return <g key={b.row.id} className={`sk-bar ${on?'sel':''}`} opacity={dim?.28:1} onPointerDown={e=>{if(ctx.tool==='select'){e.stopPropagation();ctx.setSel(b.row.id);}}}>

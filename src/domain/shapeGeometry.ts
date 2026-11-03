@@ -100,7 +100,13 @@ function compute(sm:ShapeModel):ShapeGeometry{
 }
 const cache=new Map<string,ShapeGeometry>();
 /** Cached geometry (quantities, surfaces, slabs) of a shape model. */
+// object cache first: point tests call this per sample, and stringifying the parts (with their rebar presets) each time is slow
+const byModel=new WeakMap<ShapeModel,ShapeGeometry>();
 export function shapeGeometry(sm:ShapeModel):ShapeGeometry{
+ const hit=byModel.get(sm);if(hit)return hit;
+ const g=shapeGeometryByParts(sm);byModel.set(sm,g);return g;
+}
+function shapeGeometryByParts(sm:ShapeModel):ShapeGeometry{
  const key=JSON.stringify(sm.parts);let g=cache.get(key);
  if(!g){try{g=compute(sm);}catch(e){g={slabs:[],levels:[],min:[0,0,0],max:[0,0,0],volume:0,formwork:0,surfaces:[],errors:[`รูปทรงคำนวณไม่ได้: ${e instanceof Error?e.message:String(e)}`],stages:[]};}cache.set(key,g);if(cache.size>24)cache.delete(cache.keys().next().value!);}
  return g;

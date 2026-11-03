@@ -16,7 +16,8 @@ export function closestSegments(a:Vec3,b:Vec3,c:Vec3,d:Vec3){
  if(lu&&lv){const un=u.map(n=>n/lu) as Vec3,vn=v.map(n=>n/lv) as Vec3,n=cross(un,vn),det=dot(n,n);if(det>1e-24){const s=dot(cross(vn,w),n)/det/lu,t=dot(cross(un,w),n)/det/lv;if(s>=0&&s<=1&&t>=0&&t<=1)candidates.push([s,t]);}}
  let best={distance:Infinity,s:0,t:0,a,c};for(const [s,t]of candidates){const p=at(a,b,s),q=at(c,d,t),distance=Math.hypot(...sub(p,q));if(distance<best.distance)best={distance,s,t,a:p,c:q};}return best;
 }
-export const INTERFERENCE_LIMITS={pieces:4000,segments:50000,comparisons:1000000,pairs:1000};
+// comparisons: a 600-piece mat (meshes crossing everywhere) needs ~1.3 M and runs in well under a second; 20 M ≈ 1 s
+export const INTERFERENCE_LIMITS={pieces:4000,segments:50000,comparisons:20000000,pairs:4000};
 type Identity={barId:string;mark:string;piece:number;poseId:string};
 type Segment={a:Vec3;b:Vec3;piece:number;radius:number;error:number;lo:Vec3;hi:Vec3};
 export type InterferencePair={first:Identity;second:Identity;gapLower:number;gapUpper:number;distance:number;firstPoint:Vec3;secondPoint:Vec3;endpointCandidate:boolean;approximation:number};

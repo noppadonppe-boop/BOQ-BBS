@@ -47,6 +47,8 @@ export default function ModelView({member:m,spec,selected,onSelect,part,onPart,h
   }}
   // shape-model parts: invisible pick bodies, the selected one drawn orange
   const partMeshes:THREE.Object3D[]=[];
+  // reference parts (cast later): dashed outline always
+  for(const p of m.shapeModel?.parts||[])if(p.role==='reference'){const g=partGeometry(p),e=new THREE.LineSegments(new THREE.EdgesGeometry(g,20),new THREE.LineDashedMaterial({color:0x8a6d3b,dashSize:.1,gapSize:.06}));e.computeLineDistances();scene.add(e);g.dispose();}
   if(onPart&&m.shapeModel)for(const p of m.shapeModel.parts){const g=partGeometry(p),on=p.id===part,void_=p.role==='void';
    const mesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:void_?0xb4553a:0xe69432,transparent:true,opacity:on?.32:0,depthWrite:false,side:THREE.DoubleSide}));mesh.userData.part=p.id;scene.add(mesh);partMeshes.push(mesh);
    if(on){const e=new THREE.LineSegments(new THREE.EdgesGeometry(g,20),new THREE.LineBasicMaterial({color:void_?0xb4553a:0xd4802a}));e.renderOrder=2;scene.add(e);}}

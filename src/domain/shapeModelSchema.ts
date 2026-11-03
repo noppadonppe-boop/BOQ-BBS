@@ -28,14 +28,18 @@ export const partRebarSchema=z.object({
  main:z.object({d:dia,nx:z.number().int().min(2).max(20),ny:z.number().int().min(2).max(20)}).strict().optional(),tie:barAt.optional(),
  top:barN.optional(),bottom:barN.optional(),stirrup:barAt.optional(),
  meshB:barAt.optional(),meshT:barAt.optional(),legs:z.boolean().optional(),loops:barAt.optional(),
+ /** footing loops run round the joined outline of touching footing parts at the same base level (built by the first of them) */
+ loopsJoined:z.boolean().optional(),
  vert:barAt.optional(),horz:barAt.optional(),layers:z.union([z.literal(1),z.literal(2)]).optional(),
  ext:mm.optional(),anchor:z.boolean().optional(),
 }).strict();
 export type PartRebar=z.infer<typeof partRebarSchema>;
 const base={
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),label:z.string().trim().min(1).max(80),
- /** solid = concrete; void = opening / pit / recess subtracted from the solids */
- role:z.enum(['solid','void']),
+ /** solid = concrete; void = opening / pit / recess subtracted from the solids;
+  * reference = a column / wall above this element cast later (no concrete / formwork here; its starter bars
+  * and dowels may run inside it: placement region `genref-<id>`) */
+ role:z.enum(['solid','void','reference']),
  /** pour stage (1 = first pour); overlaps belong to the lower stage */
  stage:z.number().int().min(1).max(9),
  z0:coord,height:len,
