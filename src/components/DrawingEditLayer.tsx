@@ -5,6 +5,7 @@ import {anchorPoint,concreteBox,lostAnchors,viewSnapPoints,type ViewSnap} from '
 import {annotationKind,nextRevision,type Anchor,type AnnotationOverride,type DrawingEdits,type DrawingRevision,type UserAnnotation,type ViewEdits} from '../domain/drawingEdits';
 import type {ViewKey} from '../domain/sheetLayoutSchema';
 import {PrimsSvg} from './PrimsSvg';
+import {Cloud,EyeOff,MousePointer2,MoveUpRight,Palette,PlusCircle,Ruler,Scissors,Tag,Triangle,Type,ZoomIn,type LucideIcon} from 'lucide-react';
 
 /** Drawing Edit mode of the Sheet Composer (Tekla-style). Phase 1: select the annotations of the sheet (automatic ones by their
  * stable key, user objects), move / hide / retext them, add text (T) and leaders (L). Phase 2: user dimension chains (D, snaps on
@@ -54,6 +55,10 @@ export function setOverride(e:DrawingEdits|undefined,vk:string,key:string,patch:
 /** Add / replace (same id, same place in the list) or remove (null) a user object. */
 export function setUserObject(e:DrawingEdits|undefined,vk:string,id:string,o:UserAnnotation|null):DrawingEdits{
  return withView(e,vk,v=>{const objs=v.objs||[],i=objs.findIndex(x=>x.id===id);return {...v,objs:o?i<0?[...objs,o]:objs.map(x=>x.id===id?o:x):objs.filter(x=>x.id!==id)};});}
+const HIDE_LABEL={dims:'Dimension อัตโนมัติ',marks:'ป้าย Mark อัตโนมัติ',levels:'ระดับอัตโนมัติ'} as const;
+/** Hide (true) / show a whole group of automatic annotations of a view (`ViewEdits.hide`). */
+export function setHide(e:DrawingEdits|undefined,vk:string,g:'dims'|'marks'|'levels',on:boolean):DrawingEdits{
+ return withView(e,vk,v=>{const h={...(v.hide||{})};if(on)h[g]=true;else delete h[g];const n={...v};if(Object.keys(h).length)n.hide=h;else delete n.hide;return n;});}
 /** Anchor of a snap (concrete edge flags / bar kept), rounded to 0.1 mm. */
 const anchorOf=(s:ViewSnap|{u:number;v:number}):Anchor=>({u:r1(s.u),v:r1(s.v),...('eu' in s&&s.eu?{eu:s.eu}:{}),...('ev' in s&&s.ev?{ev:s.ev}:{}),...('bar' in s&&s.bar?{bar:s.bar}:{}),...('pos' in s&&s.pos&&'bar' in s&&s.bar?{pos:s.pos,...(s.t!==undefined?{t:s.t}:{})}:{})});
 /** Mark label of a bar row in a view (as the automatic labels), for the fallback text of Mark leaders. */
@@ -65,14 +70,22 @@ type Pend={kind:'leader'|'mark'|'cloud';view:SheetViewInfo;at:[number,number];ba
 type Drag={ann:Ann;x0:number;y0:number;dx:number;dy:number;moved:boolean};
 /** context menu (client px) on an annotation or at a sheet point */
 type Menu={cx:number;cy:number;ann?:string;x:number;y:number};
-type ListFilter='all'|'user'|'edited'|'lost';
+type ListFilter='all'|'user'|'edited'|'lost'|'hidden';
+/** screen colours of edit mode (not printed): user objects orange, automatic annotations grey; lost anchors stay red */
+const USER_INK='#c2410c',AUTO_INK='#7b8a90',LOST_INK='#c0262d';
+function tint(p:Prim,c:string):Prim{
+ if(p.t==='dim'||p.t==='leader'||p.t==='mtext'){if(p.color===LOST_INK)return p;return {...p,color:c,draw:p.draw.map(q=>tint(q,c) as typeof q)} as Prim;}
+ const q:Record<string,unknown>={...p};if('color' in p&&p.color!==LOST_INK)q.color=c;if('stroke' in p&&p.stroke&&p.stroke!=='none'&&p.stroke!==LOST_INK)q.stroke=c;
+ if('fill' in p&&p.fill&&!/^(none|#fff(fff)?|white)$/i.test(p.fill)&&p.fill!==LOST_INK)q.fill=c;return q as Prim;}
+/** extra tools of the composer shown in the edit toolbar (section / detail switch to the layout mode) */
+export type EditExtras={section?:{run:()=>void;disabled?:boolean;title?:string};detail?:{run:()=>void;disabled?:boolean}};
 const BADGE:Record<Kind,string>={mark:'MRK',dim:'DIM',cover:'C',ex:'EX',level:'LVL',text:'TXT',leader:'LDR',cloud:'REV'};
 const SNAP_TOOLS:Tool[]=['dim','level','mark','addpt','leader','reanchor'];
-export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status}:{info:Info;edits:DrawingEdits|undefined;commit:(e:DrawingEdits)=>void;readOnly:boolean;setMsg:(m:string)=>void;
+export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status,extras}:{info:Info;edits:DrawingEdits|undefined;commit:(e:DrawingEdits)=>void;readOnly:boolean;setMsg:(m:string)=>void;extras?:EditExtras;
  /** drawing status (P4) shown in the panel */ status?:{state:string;label:string;detail:string}}){
  const [tool,setTool0]=useState<Tool>('select'),[sel,setSel]=useState<string>(),[hover,setHover]=useState<{x:number;y:number;ann?:string;snap?:Snap}>();
  const [pend,setPend]=useState<Pend>(),[drag,setDrag0]=useState<Drag>(),[focusText,setFocusText]=useState(0);
- const [menu,setMenu]=useState<Menu>(),[filter0,setFilter]=useState<ListFilter>('all');
+ const [menu,setMenu]=useState<Menu>(),[filter0,setFilter]=useState<ListFilter>('all'),[printInk,setPrintInk]=useState(false);
  // the drag also lives in a ref: the release may come from the window (outside the sheet) and must be applied once
  const dragRef=useRef<Drag|undefined>(undefined),setDrag=(d:Drag|undefined)=>{dragRef.current=d;setDrag0(d);};
  const setTool=(t:Tool)=>{setTool0(t);setPend(undefined);};
@@ -169,7 +182,9 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status}:{info:
   if(d){e.preventDefault();moveBy(selAnn,d[0],d[1]);return true;}
   return false;};
  /** sheet primitives without the annotation being dragged (its moved copy is drawn by the overlay) */
- const filter=(prims:Prim[])=>drag?.moved?prims.filter(p=>!(p.view===drag.ann.view.id&&p.key===drag.ann.key)):prims;
+ const editViews=useMemo(()=>new Set(info.views.filter(v=>v.key&&v.key!=='notes').map(v=>v.id)),[info]);
+ const filter=(prims0:Prim[])=>{const prims=drag?.moved?prims0.filter(p=>!(p.view===drag.ann.view.id&&p.key===drag.ann.key)):prims0;
+  return printInk?prims:prims.map(p=>p.key&&p.view&&editViews.has(p.view)?tint(p,p.key.startsWith('user:')?USER_INK:AUTO_INK):p);};
  const hov=anns.find(a=>a.id===hover?.ann),snapView=hover&&SNAP_TOOLS.includes(tool)?pend?.view||(tool==='addpt'||tool==='reanchor'?selAnn?.view:undefined)||viewAt(hover.x,hover.y):undefined;
  const marker=(s:ViewSnap,x:number,y:number,cls:string,r=.7)=>s.kind==='bar'?<circle className={cls} cx={x} cy={y} r={r}/>:s.kind==='mid'?<polygon className={cls} points={`${x},${y-r*1.2} ${x+r},${y+r*.8} ${x-r},${y+r*.8}`}/>:<rect className={cls} x={x-r} y={y-r} width={2*r} height={2*r}/>;
  const dimPreview=()=>{if(pend?.kind!=='dim'||!hover)return null;const pts=pend.pts.map(a=>anchorSheet(pend.view,a)),all=hover.snap?[...pts,[hover.snap.x,hover.snap.y] as [number,number]]:pts;
@@ -181,7 +196,7 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status}:{info:
  const overlay:ReactNode=<g className="ed-layer" pointerEvents="none">
   {snapView&&snapsOf(snapView).filter(s=>tool!=='mark'||pend||s.kind==='bar').slice(0,800).map((s,i)=>{const [x,y]=toSheet(snapView,s.u,s.v);return <g key={i}>{marker(s,x,y,'ed-snapc',.45)}</g>;})}
   {hov&&hov.id!==sel&&<rect className="ed-hover" x={hov.box.x0-.8} y={hov.box.y0-.8} width={hov.box.x1-hov.box.x0+1.6} height={hov.box.y1-hov.box.y0+1.6}/>}
-  {anns.filter(a=>a.user&&a.id!==sel).map(a=><rect key={a.id} className={`ed-user${lost.has(a.id)?' lost':''}`} x={a.box.x0-.6} y={a.box.y0-.6} width={a.box.x1-a.box.x0+1.2} height={a.box.y1-a.box.y0+1.2}/>)}
+  {printInk&&anns.filter(a=>a.user&&a.id!==sel).map(a=><rect key={a.id} className={`ed-user${lost.has(a.id)?' lost':''}`} x={a.box.x0-.6} y={a.box.y0-.6} width={a.box.x1-a.box.x0+1.2} height={a.box.y1-a.box.y0+1.2}/>)}
   {selAnn&&!drag?.moved&&<rect className={`ed-sel${selAnn.user?' user':''}${lost.has(selAnn.id)?' lost':''}`} x={selAnn.box.x0-1} y={selAnn.box.y0-1} width={selAnn.box.x1-selAnn.box.x0+2} height={selAnn.box.y1-selAnn.box.y0+2}/>}
   {selAnn&&!drag&&(()=>{const u=obj(selAnn);if(u?.kind!=='dim')return null;const ids=new Set(selAnn.view.data?.bars.map(b=>b.row.id));return u.pts.map((p,i)=>{const [x,y]=anchorSheet(selAnn.view,p);return <circle key={i} className={`ed-grip${p.bar&&!ids.has(p.bar)?' lost':''}`} cx={x} cy={y} r={.8}/>;});})()}
   {drag?.moved&&<g transform={`translate(${drag.dx} ${drag.dy})`} opacity={.75}><PrimsSvg prims={drag.ann.prims}/><rect className="ed-sel" x={drag.ann.box.x0-1} y={drag.ann.box.y0-1} width={drag.ann.box.x1-drag.ann.box.x0+2} height={drag.ann.box.y1-drag.ann.box.y0+2}/></g>}
@@ -195,8 +210,18 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status}:{info:
   tool==='mark'?pend?'คลิกตำแหน่งป้าย':'คลิกที่เหล็ก ○ เพื่อทำป้าย Mark':tool==='dim'?!pend?'Dimension: คลิกจุดแรก (□ มุม · △ กึ่งกลาง · ○ เหล็ก)':pend.kind==='dim'&&pend.pts.length<2?'คลิกจุดที่สอง':'คลิกจุด snap เพื่อต่อ chain · คลิกที่ว่างเพื่อวางเส้น · Enter = วางระยะมาตรฐาน':
   tool==='level'?'ระดับ: คลิกจุด snap บนรูปตัดแนวดิ่ง':tool==='reanchor'?'ยึดจุดใหม่: คลิกจุด snap (เหล็ก ○) แทนจุดที่หลุด · Esc = ยกเลิก':tool==='addpt'?'คลิกจุด snap ที่จะเพิ่มเข้า Dimension ที่เลือก':drag?.moved?`ย้าย ${drag.dx.toFixed(1)} · ${drag.dy.toFixed(1)} mm`:hov?`${KIND[hov.kind]}${hov.user?' (เพิ่มเอง)':''} · ${hov.label}`:'';
  const snapHint=hover?.snap?` · Snap: ${hover.snap.s.label}${hover.snap.s.eu||hover.snap.s.ev?' (ขอบคอนกรีต)':''}`:'';
- const tb=(t:Tool,label:string,k:string,dis=readOnly)=><button key={t} aria-pressed={tool===t} className={tool===t?'active':''} disabled={dis} onClick={()=>setTool(t)}>{label} <kbd>{k}</kbd></button>;
- const toolbar:ReactNode=<>{tb('select','เลือก / ย้าย','V',false)}{tb('dim','+ Dimension','D')}{tb('level','+ ระดับ','E')}{tb('mark','+ Mark','M')}{tb('text','+ ข้อความ','T')}{tb('leader','+ Leader','L')}{tb('cloud','+ ก้อนเมฆ Rev','C')}</>;
+ const rb=(key:string,Icon:LucideIcon,label:string,k:string|undefined,on:boolean,dis:boolean,run:()=>void,title?:string)=><button key={key} type="button" aria-pressed={on} className={`ed-rb${on?' active':''}`} disabled={dis} title={title||(k?`${label} (${k})`:label)} onClick={run}><Icon size={17} aria-hidden/><span>{label}</span>{k&&<kbd>{k}</kbd>}</button>;
+ const tb=(t:Tool,Icon:LucideIcon,label:string,k:string,dis=readOnly)=>rb(t,Icon,label,k,tool===t,dis,()=>{if(t==='addpt'){const u=selAnn&&obj(selAnn);if(u?.kind!=='dim'){setMsg('เลือก Dimension ที่เพิ่มเองก่อน แล้วกด A');return;}}setTool(t);});
+ const grp=(label:string,kids:ReactNode)=><div className="ed-grp" role="group" aria-label={label}><div>{kids}</div><small>{label}</small></div>;
+ const selDim=!!selAnn&&obj(selAnn)?.kind==='dim';
+ const toolbar:ReactNode=<div className="ed-ribbon">
+  {grp('เลือก',tb('select',MousePointer2,'เลือก','V',false))}
+  {grp('Dimension',<>{tb('dim',Ruler,'Dimension','D')}{tb('level',Triangle,'ระดับ','E')}{tb('addpt',PlusCircle,'เพิ่มจุด','A',readOnly||!selDim)}</>)}
+  {grp('ป้ายกำกับ',<>{tb('mark',Tag,'Mark','M')}{tb('text',Type,'ข้อความ','T')}{tb('leader',MoveUpRight,'Leader','L')}</>)}
+  {(extras?.section||extras?.detail)&&grp('รูป',<>{extras.section&&rb('sec',Scissors,'รูปตัด','S',false,!!extras.section.disabled,extras.section.run,extras.section.title)}{extras.detail&&rb('det',ZoomIn,'Detail','K',false,!!extras.detail.disabled,extras.detail.run)}</>)}
+  {grp('Revision',tb('cloud',Cloud,'ก้อนเมฆ','C'))}
+  {grp('แสดงผล',<>{rb('ink',Palette,'สีพิมพ์',undefined,printInk,false,()=>setPrintInk(x=>!x),printInk?'แสดงสีแยกชนิด (เพิ่มเอง = ส้ม, อัตโนมัติ = เทา)':'แสดงสีตามที่พิมพ์ / PDF')}{rb('hid',EyeOff,'ที่ซ่อน',undefined,filter0==='hidden',false,()=>setFilter(f=>f==='hidden'?'all':'hidden'),'รายการที่ซ่อนไว้ (แถบซ้าย)')}</>)}
+ </div>;
  const lostList=anns.filter(a=>lost.has(a.id));
  const edited=(a:Ann)=>!a.user&&!!over(a);
  const reanchor=(a:Ann)=>{if(readOnly)return;setSel(a.id);setTool('reanchor');};
@@ -229,21 +254,27 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status}:{info:
    {vertical(mView)&&mi('+ ระดับ',()=>setTool('level'),{dis:readOnly,k:'E'})}</>}
  </div>:null;
  /** object list (left column): the annotations of the sheet per view, user objects first; click = select, double click = edit text */
- const shown=anns.filter(a=>filter0==='all'||(filter0==='user'?a.user:filter0==='edited'?edited(a):lost.has(a.id)));
+ const shown=anns.filter(a=>filter0==='all'||(filter0==='user'?a.user:filter0==='edited'?edited(a):filter0==='lost'&&lost.has(a.id)));
+ const viewKeys=new Set(info.views.map(v=>v.key).filter(Boolean) as string[]);
+ const hiddenList=Object.entries(edits?.views||{}).filter(([vk])=>viewKeys.has(vk)).flatMap(([vk,v])=>[
+  ...Object.entries(v.over||{}).filter(([,o])=>o.hidden).map(([key])=>({vk,key,label:`${KIND[annotationKind(key)]||key} ${key.split(':').slice(1).join(':')}`,undo:()=>commit(setOverride(edits,vk,key,{hidden:undefined}))})),
+  ...(['dims','marks','levels'] as const).filter(g=>v.hide?.[g]).map(g=>({vk,key:`hide:${g}`,label:`ทั้งหมด: ${HIDE_LABEL[g]}`,undo:()=>commit(setHide(edits,vk,g,false))}))]);
  const nUser=anns.filter(a=>a.user).length,nEdited=anns.filter(edited).length;
  const list:ReactNode=<div className="ed-list">
   <h4>วัตถุบนแผ่น <small>{nUser} เพิ่มเอง · {anns.length-nUser} auto</small></h4>
-  <div className="segmented ed-filter" role="group" aria-label="กรองวัตถุ">{([['all','ทั้งหมด'],['user',`เพิ่มเอง ${nUser}`],['edited',`แก้แล้ว ${nEdited}`],['lost',`หลุด ${lostList.length}`]] as [ListFilter,string][])
+  <div className="segmented ed-filter" role="group" aria-label="กรองวัตถุ">{([['all','ทั้งหมด'],['user',`เพิ่มเอง ${nUser}`],['edited',`แก้แล้ว ${nEdited}`],['hidden',`ซ่อน ${hiddenList.length}`],['lost',`หลุด ${lostList.length}`]] as [ListFilter,string][])
    .filter(([f])=>f!=='lost'||lostList.length||filter0==='lost').map(([f,l])=><button key={f} type="button" className={filter0===f?'active':''} aria-pressed={filter0===f} onClick={()=>setFilter(f)}>{l}</button>)}</div>
   {info.views.filter(v=>v.key&&v.key!=='notes').map(v=>{const items=shown.filter(a=>a.view.id===v.id).sort((p,q)=>Number(q.user)-Number(p.user));if(!items.length)return null;
    return <div key={v.id} className="ed-group"><div className="ed-group-head">{v.title}{v.n>0?` · 1:${v.n}`:''} <small>{items.length}</small></div>
-    {items.slice(0,250).map(a=><div key={a.id} role="button" tabIndex={0} className={`ed-item${a.id===sel?' active':''}${a.user?' user':''}${lost.has(a.id)?' lost':''}`}
+    {filter0!=='hidden'&&items.slice(0,250).map(a=><div key={a.id} role="button" tabIndex={0} className={`ed-item${a.id===sel?' active':''}${a.user?' user':''}${lost.has(a.id)?' lost':''}`}
      onClick={()=>{setSel(a.id);setFocusText(0);}} onDoubleClick={()=>canText(a)&&editText(a)} onKeyDown={e=>{if(e.key==='Enter')setSel(a.id);}}
      onContextMenu={e=>{e.preventDefault();setSel(a.id);setMenu({cx:e.clientX,cy:e.clientY,x:0,y:0,ann:a.id});}}>
      <span className={`ed-badge k-${a.kind}${a.user?' user':''}`}>{BADGE[a.kind]}</span><span className="ed-name">{a.label||KIND[a.kind]}</span>
      {lost.has(a.id)?<small className="ed-flag lost">หลุด</small>:edited(a)?<small className="ed-flag">แก้</small>:null}</div>)}
     {items.length>250&&<p className="muted">… อีก {items.length-250} รายการ</p>}</div>;})}
-  {!shown.length&&<p className="muted">{filter0==='all'?'ยังไม่มีวัตถุ':'ไม่มีรายการ'}</p>}
+  {filter0==='hidden'&&info.views.filter(v=>v.key&&hiddenList.some(h=>h.vk===v.key)).map(v=><div key={v.id} className="ed-group"><div className="ed-group-head">{v.title}</div>
+   {hiddenList.filter(h=>h.vk===v.key).map(h=><div key={h.key} className="ed-item hidden"><span className="ed-name">{h.label}</span><button type="button" disabled={readOnly} onClick={h.undo}>แสดง</button></div>)}</div>)}
+  {(filter0==='hidden'?!hiddenList.length:!shown.length)&&<p className="muted">{filter0==='all'?'ยังไม่มีวัตถุ':'ไม่มีรายการ'}</p>}
   <p className="muted composer-hint">คลิก = เลือก · ดับเบิลคลิก = แก้ข้อความ · คลิกขวา = เมนู (บนแผ่นด้วย) · คลิกขวาระหว่างใช้เครื่องมือ = จบคำสั่ง</p>
  </div>;
  const panel:ReactNode=<EditPanel status={status} ann={selAnn} edits={edits} readOnly={readOnly} info={info} commit={commit} focusText={focusText} over={selAnn?over(selAnn):undefined} obj={selAnn?obj(selAnn):undefined}
@@ -309,11 +340,22 @@ function EditPanel({status,ann,edits,readOnly,info,commit,focusText,over,obj,los
      <button disabled={readOnly||!over} onClick={()=>setO(null)}>คืนค่า Auto</button>
      {ann.kind==='dim'&&<button disabled={readOnly} title="สร้าง Dimension ของผู้ใช้จากเส้นนี้ (เพิ่ม / ลบจุดได้) แล้วซ่อนเส้นเดิม" onClick={onDetach}>แยกเป็นของผู้ใช้</button>}</>}
    </div></>}
+  {!ann&&<ViewShow info={info} edits={edits} readOnly={readOnly} commit={commit}/>}
   {!ann&&<Revisions revs={edits?.revisions||[]} readOnly={readOnly} onChange={revisions=>commit({...(edits||{version:1,views:{}}),revisions})}/>}
   {hidden.length>0&&<fieldset className="composer-show"><legend>ซ่อนไว้ ({hidden.length})</legend>
    {hidden.map(h=><div key={h.vk+h.key} className="ed-hidden"><span><small>{h.title}</small>{KIND[annotationKind(h.key)]||h.key} <code>{h.key.split(':').slice(1).join(':')}</code></span>
     <button disabled={readOnly} onClick={()=>commit(setOverride(edits,h.vk,h.key,{hidden:undefined}))}>แสดง</button></div>)}</fieldset>}
  </div>;
+}
+
+/** “แสดง” per view (mockup): automatic dimensions / Mark labels / levels of a view on or off as a group (`ViewEdits.hide`). */
+function ViewShow({info,edits,readOnly,commit}:{info:Info;edits:DrawingEdits|undefined;readOnly:boolean;commit:(e:DrawingEdits)=>void}){
+ const views=info.views.filter(v=>v.key&&v.key!=='notes'&&v.key!=='revs'&&v.key!=='iso');if(!views.length)return null;
+ return <fieldset className="composer-show ed-show"><legend>แสดงในรูป</legend>
+  {views.map(v=>{const h=edits?.views[v.key!]?.hide||{},sec=v.data?.normal!==undefined&&v.data.normal!==2;
+   return <div key={v.id}><b>{v.title}</b>{(['dims','marks',...(sec?['levels' as const]:[])] as ('dims'|'marks'|'levels')[]).map(g=>
+    <label key={g} className="check"><input type="checkbox" disabled={readOnly} checked={!h[g]} onChange={e=>commit(setHide(edits,v.key!,g,!e.target.checked))}/>{HIDE_LABEL[g]}</label>)}</div>;})}
+ </fieldset>;
 }
 
 /** Revision table of the drawing (P4): rev / date / description / by; newest last (the table on the sheet shows newest first). */

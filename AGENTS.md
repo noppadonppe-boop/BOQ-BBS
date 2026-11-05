@@ -200,6 +200,8 @@
   `cloud` objects (tool C), templates carry `edits` per role (`templateFrom(…, edits)`, `templateEdits()`).
   Edit mode left column = object list (`useDrawingEdit().list`, filters), right-click menu (`context`), anchors on the first / last bar
   of a Mark (`anchor.pos` + `t`, leaders too; `barExtremes()`, `anchorPoint(a, cb, bars)`), re-anchor tool for lost anchors.
+  Grouped icon toolbar (section / detail via `EditExtras`), screen tint user orange / auto grey (“สีพิมพ์” off), list filter hidden,
+  per-view `ViewEdits.hide {dims, marks, levels}` (`setHide`, panel “แสดงในรูป”, merged into renderView `hide`).
   Status hash = `memberDrawingHash()` (schema-normalized member, same before / after saveMember). Command-layer test with an in-memory
   Firestore stand-in: `tests/drawingSave.test.ts` (roles, versions, status kept / Draft). Harness `tmp/preview/composer.html#footing-detailer`.
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),

@@ -166,6 +166,21 @@ describe('first / last bar anchors',()=>{
  });
 });
 
+// ---- per-view groups hidden (edit mode “แสดงในรูป”)
+import {drawingStatus} from '../src/domain/drawingStatus';
+describe('view hide groups',()=>{
+ it('hide dims / marks per view: only that view loses them, schema + clean keep it, overrides inside are not stale',()=>{
+  const s=footingData(2400,2400),base=drawSheetInfo(s),n=(i:typeof base,view:string,pre:string)=>i.prims.filter(p=>p.view===view&&p.key?.startsWith(pre)).length;
+  const pv=plan(base).id;expect(n(base,pv,'dim:')).toBeGreaterThan(0);expect(n(base,pv,'mark:')).toBeGreaterThan(0);
+  const e:DrawingEdits={version:1,views:{plan:{hide:{dims:true,marks:true},over:{'dim:hb0':{off:3}}}}};
+  expect(drawingEditsSchema.safeParse(e).success).toBe(true);expect(cleanDrawingEdits(e)).toEqual(e);
+  expect(cleanDrawingEdits({version:1,views:{plan:{hide:{}}}})).toBeUndefined();
+  const info=drawSheetInfo(withEdits(s,e));expect(n(info,pv,'dim:')).toBe(0);expect(n(info,pv,'mark:')).toBe(0);expect(n(info,pv,'cover:')).toBe(0);
+  const other=base.views.find(v=>v.key==='sec:def-x')!.id;expect(n(info,other,'dim:')).toBe(n(base,other,'dim:'));
+  expect(drawingStatus(withEdits(s,e)).stale).toBe(0);
+ });
+});
+
 // ---- phase 3: Detail views, ISO 3D, stepped sections; detailer role
 import {buildView} from '../src/domain/elementViews';
 import {sectionSpec} from '../src/domain/sheetLayout';

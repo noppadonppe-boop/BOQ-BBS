@@ -79,7 +79,9 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const commit=(d:Partial<Draft>)=>{if(readOnly)return;setUndo(u=>[...u.slice(-49),draft]);setRedo([]);setDraft({...draft,...d});};
  // drawing status (P4): model changed since the last save / confirmation, lost anchors, overrides without target
  const dstat=useMemo(()=>{const d=drawingStatus(shown);return {...d,...drawingStatusText(d)};},[shown]);
- const ed=useDrawingEdit({info,edits:draft.edits,commit:e=>commit({edits:e}),readOnly,setMsg,status:dstat});
+ const ed=useDrawingEdit({info,edits:draft.edits,commit:e=>commit({edits:e}),readOnly,setMsg,status:dstat,extras:{
+  section:{disabled:secRO,title:secRO&&!readOnly?'แก้รูปตัดต้องมีสิทธิ์แก้สมาชิก (Admin / QS)':'รูปตัด (S): สลับไปโหมดจัดหน้าแล้วเริ่มสร้างรูปตัด',run:()=>{ed.clear();setMode('layout');setDt(undefined);setTool({step:1});}},
+  detail:{disabled:readOnly||(draft.edits?.details?.length||0)>=8,run:()=>{ed.clear();setMode('layout');setTool(undefined);setDt({step:1});}}}});
  const editLayout=(f:(l:SheetLayout)=>SheetLayout)=>commit({...draft,layout:f(structuredClone(layout))});
  const editView=(k:ViewKey,patch:Partial<PlacedView>)=>editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.map(v=>v.view===k?{...v,...patch}:v)}))}));
  const editSection=(id:string,patch:Partial<SheetSection>)=>commit({layout:draft.layout||layout,sections:draft.sections.map(s=>s.id===id?{...s,...patch}:s)});

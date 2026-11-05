@@ -44,7 +44,9 @@ export const userLevelSchema=z.object({id:userId,kind:z.literal('level'),at:anch
 export const userCloudSchema=z.object({id:userId,kind:z.literal('cloud'),pts:z.array(z.tuple([model,model])).min(3).max(40),rev:z.string().regex(/^[A-Z0-9]{1,3}$/)}).strict();
 export const userAnnotationSchema=z.discriminatedUnion('kind',[userTextSchema,userLeaderSchema,userDimSchema,userLevelSchema,userCloudSchema]);
 export type UserAnnotation=z.infer<typeof userAnnotationSchema>;
-export const viewEditsSchema=z.object({over:z.record(annotationKeySchema,annotationOverrideSchema).optional(),objs:z.array(userAnnotationSchema).max(100).optional()}).strict()
+/** whole groups of automatic annotations hidden in a view (edit mode “แสดง”: dimensions incl. covers / EX, Mark labels, levels) */
+export const viewHideSchema=z.object({dims:z.literal(true).optional(),marks:z.literal(true).optional(),levels:z.literal(true).optional()}).strict();
+export const viewEditsSchema=z.object({over:z.record(annotationKeySchema,annotationOverrideSchema).optional(),objs:z.array(userAnnotationSchema).max(100).optional(),hide:viewHideSchema.optional()}).strict()
  .superRefine((v,c)=>{if(Object.keys(v.over||{}).length>300)c.addIssue({code:'custom',path:['over'],message:'แก้ annotation ได้ไม่เกิน 300 รายการต่อรูป'});
   const ids=new Set<string>();(v.objs||[]).forEach((o,i)=>{if(ids.has(o.id))c.addIssue({code:'custom',path:['objs',i],message:'รหัสวัตถุซ้ำ'});ids.add(o.id);});});
 export type ViewEdits=z.infer<typeof viewEditsSchema>;
@@ -74,7 +76,8 @@ export function cleanDrawingEdits(e:DrawingEdits|undefined):DrawingEdits|undefin
  for(const [k,v] of Object.entries(e.views)){
   const over=Object.fromEntries(Object.entries(v.over||{}).map(([a,o])=>[a,Object.fromEntries(Object.entries(o).filter(([,x])=>x!==undefined&&x!==0&&x!==''))]).filter(([,o])=>Object.keys(o).length));
   const objs=(v.objs||[]).filter(o=>o.kind==='dim'||o.kind==='level'||o.kind==='cloud'||o.kind==='leader'&&o.fromMark||o.lines.some(l=>l.trim()));
-  if(Object.keys(over).length||objs.length)views[k]={...(Object.keys(over).length?{over}:{}),...(objs.length?{objs}:{})};}
+  const hide=v.hide&&Object.keys(v.hide).length?v.hide:undefined;
+  if(Object.keys(over).length||objs.length||hide)views[k]={...(Object.keys(over).length?{over}:{}),...(objs.length?{objs}:{}),...(hide?{hide}:{})};}
  const details=e.details?.length?e.details:undefined,revisions=e.revisions?.length?e.revisions:undefined;
  if(!Object.keys(views).length&&!details&&!revisions)return;
  return {version:1,views,...(details?{details}:{}),...(revisions?{revisions}:{}),...(e.check?{check:e.check}:{})};

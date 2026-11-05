@@ -399,7 +399,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  /** Detail marks on this (parent) view: region (view mm), label, sheet reference */ detailMarks?:{u:number;v:number;r:number;circle?:boolean;label:string;ref?:string}[]}):Prim[]{
  const win=v.window,{u,v:vr}=win?{u:[win.u-win.r,win.u+win.r] as [number,number],v:[win.v-win.r,win.v+win.r] as [number,number]}:v;
  // Detail (window) and ISO views: no chained dims / levels / stage names (member-wide); ISO: no Mark labels either
- const hide={...opts.hide,...(win||v.iso?{dims:true,levels:true}:{}),...(v.iso?{marks:true}:{})};
+ const hide={...opts.hide,...opts.edits?.hide,...(win||v.iso?{dims:true,levels:true}:{}),...(v.iso?{marks:true}:{})};
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  // level marks sit right of the concrete: keep room for their text inside the box
  const levelList=hide.levels?[]:v.levels,lvW=levelList.length?Math.max(...levelList.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;

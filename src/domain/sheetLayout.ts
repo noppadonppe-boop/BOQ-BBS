@@ -59,7 +59,7 @@ export function templateFrom(o:{id:string;name:string;category:string;size:'A3'|
   sections:users.slice(0,12).map((s,i)=>({role:`user-${i+1}`,label:s.label,axis:s.axis,at:Math.min(1,Math.max(0,s.position/Math.max(1,extentOf(m,s.axis)))),look:s.look||'+',...(s.depth?{depth:s.depth}:{})})),
   // Drawing Edit layer by role (clouds belong to the member's revisions: left out)
   ...(()=>{const out:Record<string,ViewEdits>={};for(const [k,v] of Object.entries(edits?.views||{})){const role=r(k);if(!role)continue;const objs=(v.objs||[]).filter(o=>o.kind!=='cloud');
-   if(Object.keys(v.over||{}).length||objs.length)out[role]={...(v.over&&Object.keys(v.over).length?{over:v.over}:{}),...(objs.length?{objs}:{})};}
+   if(Object.keys(v.over||{}).length||objs.length||v.hide)out[role]={...(v.over&&Object.keys(v.over).length?{over:v.over}:{}),...(objs.length?{objs}:{}),...(v.hide?{hide:v.hide}:{})};}
    return Object.keys(out).length?{edits:out as SheetTemplate['edits']}:{};})()};
 }
 /** Template Drawing Edit layer → member view keys (roles without a view are left out); details / revisions are kept by the caller. */

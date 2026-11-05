@@ -20,7 +20,8 @@ export function drawingStatus(s:SheetData):DrawingStatus{
  for(let p=0;p<sheetPageCount(s);p++){const info=drawSheetInfo(s,p);
   for(const v of info.views){if(!v.key)continue;const set=drawn.get(v.key)||new Set<string>();for(const q of info.prims)if(q.view===v.id&&q.key)set.add(q.key);drawn.set(v.key,set);
    if(v.data)lost+=lostAnchors(v.data,e.views[v.key]).length;}}
- for(const [vk,ve] of Object.entries(e.views)){const set=drawn.get(vk);if(!set)continue;for(const [key,o] of Object.entries(ve.over||{}))if(!o.hidden&&!set.has(key))stale++;}
+ for(const [vk,ve] of Object.entries(e.views)){const set=drawn.get(vk);if(!set)continue;const g=ve.hide||{},off=(key:string)=>g.dims&&/^(dim|fdim|cover|ex):/.test(key)||g.marks&&key.startsWith('mark:')||g.levels&&key.startsWith('level:');
+  for(const [key,o] of Object.entries(ve.over||{}))if(!o.hidden&&!off(key)&&!set.has(key))stale++;}
  return {state:modelChanged||lost||stale?'check':'ok',modelChanged,lost,stale,...(e.check?{checkedAt:e.check.at}:{})};
 }
 /** Short Thai label of a status (pill text) and its details (tooltip / panel). */

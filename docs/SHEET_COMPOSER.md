@@ -145,6 +145,11 @@ The header switch “จัดหน้า | แก้ไขแบบ” turns t
 - First / last bar anchors: `anchor.pos` first | last (+ `t` 0…1 along a bar line), also on leaders (`pos`, `t`); `barExtremes()` /
   `anchorPoint(a, cb, bars)` in `elementViews.ts`; `viewSnapPoints()` labels those snaps “เส้นแรก / เส้นสุดท้าย”.
 - Re-anchor (tool `reanchor`): replaces the lost bar anchor of a leader / level (dims: one lost point per click).
+- Grouped icon toolbar (`ed-ribbon`; section / detail via `EditExtras` switch to the layout mode and start the tool).
+- Screen colours: user annotations orange, automatic grey (`tint` in `filter`, screen only); “สีพิมพ์” shows the printed colours.
+  “ที่ซ่อน” = list filter `hidden` (single overrides + whole groups, “แสดง” restores).
+- `ViewEdits.hide {dims, marks, levels}` (panel “แสดงในรูป”, `setHide`): renderView merges it into `hide` (dims include covers / EX);
+  overrides of a hidden group are not counted stale; templates carry it.
 
 ### Phase 4
 
