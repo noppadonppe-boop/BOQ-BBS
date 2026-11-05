@@ -69,7 +69,7 @@ export class Emitter{
   * regenerate dimensions still show it right. */
  private dimension(b:Block,p:DimPrim,tf:Tf,d:DimStyleDef){
   const T=(q:[number,number]):[number,number]=>[tf.ax+q[0]*tf.sc,tf.ay-q[1]*tf.sc],A=T(p.a),B=T(p.b),Lp=T(p.line),k=d.dimscale,h=p.dir==='h';
-  const measured=h?Math.abs(B[0]-A[0]):Math.abs(B[1]-A[1]);if(measured<1e-9)return;
+  const measured=h?Math.abs(B[0]-A[0]):Math.abs(B[1]-A[1]);if(measured<1e-9)return;this.doc.dimstyle(d);
   const shown=(measured*d.dimlfac).toFixed(d.precision),label=p.text?p.text.replace('<>',shown):shown;
   const blk=this.doc.dimBlock(),add=(type:string,body:Pair[],layer='0')=>this.doc.entity(blk,type,body,{layer});
   const line=(x1:number,y1:number,x2:number,y2:number)=>add('LINE',[[100,'AcDbLine'],[10,x1],[20,y1],[30,0],[11,x2],[21,y2],[31,0]]);
@@ -106,6 +106,7 @@ export class Emitter{
   if(p.arrow==='dot')for(const q of p.draw)if(q.t==='circle')this.plain(b,{...q,layer:role},x=>tf.ax+x*tf.sc,y=>tf.ay-y*tf.sc,tf.sc);
   const useBlock=this.edit.markBlock&&this.cad.mark.useBlock,ins=useBlock?this.doc.h():undefined;
   this.stats.leaders++;
+  if(pts.length>=2)this.doc.dimstyle(d);
   if(pts.length>=2)this.add(b,'LEADER',[[100,'AcDbLeader'],[3,d.name],[71,0],[72,0],[73,useBlock?2:3],[74,1],[75,0],[40,0],[41,0],[76,pts.length],...pts.flatMap(([x,y])=>[[10,x],[20,y],[30,0]] as Pair[]),...(ins?[[340,ins] as Pair]:[])],role);
   if(!useBlock||!ins){p.text.forEach((t,i)=>this.text(b,role,tx,ty-i*h*1.6,h,t,p.anchor));return;}
   const name=this.markDef(),just=p.anchor==='end'?2:p.anchor==='middle'?1:0,m=p.mark;

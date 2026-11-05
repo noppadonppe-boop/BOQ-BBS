@@ -11,12 +11,13 @@ export type Ctx={doc:DxfDoc;em:Emitter;cad:CadStandard;warnings:string[];ext:{x0
 export const pad=(n:number)=>String(n).padStart(2,'0');
 const num=(v:number)=>Number.isInteger(v)?String(v):v.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
 const style=(cad:CadStandard,name:string,dimscale:number,dimlfac:number):DimStyleDef=>({name,dimscale,dimlfac,...cad.dim});
+/** DIMSTYLE definitions (registered in the file only when a dimension / leader uses them). */
 /** DIMSTYLE of dimensions drawn at true size in model space: BBS-DIM-1-n (DIMSCALE = n, DIMLFAC = 1). */
-export const modelDim=(c:Ctx,n:number)=>c.doc.dimstyle(style(c.cad,`BBS-DIM-1-${num(n)}`,n,1));
+export const modelDim=(c:Ctx,n:number)=>style(c.cad,`BBS-DIM-1-${num(n)}`,n,1);
 /** DIMSTYLE of dimensions drawn on paper (sheet mm) for a 1:n view: BBS-DIM-1-n (DIMSCALE = 1, DIMLFAC = n). */
-export const paperDim=(c:Ctx,n:number)=>c.doc.dimstyle(style(c.cad,`BBS-DIM-1-${num(n)}`,1,n));
+export const paperDim=(c:Ctx,n:number)=>style(c.cad,`BBS-DIM-1-${num(n)}`,1,n);
 /** not to scale views: DIMLFAC = real mm per drawn unit (1 / s), DIMSCALE = size of the drawing units */
-export const ntsDim=(c:Ctx,lfac:number,dimscale=1)=>c.doc.dimstyle(style(c.cad,`BBS-DIM-NTS-${num(lfac)}${dimscale!==1?`-S${num(dimscale)}`:''}`,dimscale,lfac));
+export const ntsDim=(c:Ctx,lfac:number,dimscale=1)=>(style(c.cad,`BBS-DIM-NTS-${num(lfac)}${dimscale!==1?`-S${num(dimscale)}`:''}`,dimscale,lfac));
 /** Primitives by view id ('' = paper). */
 export function byView(prims:Prim[]){const m=new Map<string,Prim[]>();for(const p of prims){const k=p.view||'';(m.get(k)||m.set(k,[]).get(k)!).push(p);}return m;}
 /** Sheet-mm bounding box of primitives (drawing as on the PDF; text by its estimated width). */

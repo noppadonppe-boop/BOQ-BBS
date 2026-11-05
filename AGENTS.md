@@ -4,7 +4,8 @@
 - Dev server: `npm run dev` (Vite, http://127.0.0.1:5173)
 - Local Firebase: `npm run emulators`
 - Verify (typecheck + build): `npm run build`
-- No test suite is committed; `vitest` is installed for ad-hoc tests (`npx vitest run <file>`).
+- Committed tests: `npx vitest run tests` (sheet snapshot + DXF writer); `vitest` also runs ad-hoc tests (`npx vitest run <file>`).
+- DXF audit (needs `pip install ezdxf matplotlib`): `python tools/qa/dxf_audit.py` after `npx vitest run tests/dxfExport.test.ts`.
 
 ## Structure notes
 - Element input (manual / from drawing) → `src/domain/elementInput.ts`; UI `src/components/ElementInputPanel.tsx`.
@@ -164,6 +165,19 @@
   `exDims` (EX bar extents split at column faces, rows by `exDimRows()`, top above / bottom below); grid c/c chain on top.
   Test: `tmp/beamGrid.test.tsx`. Column size per grid: `support` (X, along the beam) × `supportY` (across, 0 = X);
   3D views draw the columns (display only, stub below / above) from `beamColumnBoxes()` via `contextBoxes()`.
+- Semantic drawing prims (`src/domain/drawingPrims.ts`): `dim` (linear, feature points a / b, dimension-line point, `value` real mm,
+  text with `<>`), `leader` (points from the bar, text, Mark data) and `mtext`, each with `draw` = the exact plain prims drawn
+  before; `layer` (CAD role) / `view` (sheet view id) on any prim. Renderers (`PrimsSvg`, `primsPdf.ts`, R12 `primsDxf.ts`, MCP tools)
+  call `expandPrims()` first, so SVG / PDF never change — test `tests/sheetSnapshot.test.ts` (snapshot `tests/__snapshots__/sheets.json.gz`,
+  fixtures `tests/fixtures/sheets.ts`; re-create only for an intended drawing change: `SNAP=1`). `renderView()` emits dimension chains /
+  covers / EX dims / Mark leaders semantically and reports its map (`frame`); `drawSheetInfo()` returns `views` (box, n, s, origin sheet ↔ model).
+- DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
+  `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
+  `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),
+  `layoutA` (sheet coordinates, DIMLFAC = n); `buildBbsDxf()` → text + summary. UI `DxfExportDialog.tsx` (sheet tab), steel sheet = mode A.
+  CAD standard `spec.cadStandard` (`src/domain/cadStandard.ts`, default S-* layers, spec import key `cadStandard`, UI `CadStandardEditor.tsx`
+  in General Spec). Tests `tests/dxfExport.test.ts` (writes `output/dxf-verification/`), audit `python tools/qa/dxf_audit.py` (ezdxf, test only).
+  Dev harness `tmp/preview/dxf.html#footing|custom|beam`.
 - General Spec is workspace-level (not a project menu): profiles in Firestore `${APP_NAME}/root/specProfiles`
   (`src/domain/specProfiles.ts`, `src/data/specProfiles.ts`, page `src/components/GeneralSpecPage.tsx`,
   editor `SpecEditor.tsx` + `DesignCodeLibrary.tsx`). Projects choose a profile + f'c/grade in `ProjectForm`;
