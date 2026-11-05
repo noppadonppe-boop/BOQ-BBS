@@ -5,6 +5,7 @@ import {prismAxis,prismBounds,prismPoint,prismSection} from './prismGeometry';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
 import {expandPrims,textWidth,type DimPrim,type LayerRole,type PlainPrim,type Prim} from './drawingPrims';
+import type {ViewEdits} from './drawingEdits';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
@@ -296,7 +297,9 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  /** per-view display switches of the Sheet Composer */
  hide?:{dims?:boolean;marks?:boolean;levels?:boolean};
  /** added section cut lines (plan / elevation): model axis, position, label (A-A), sheet reference, viewing side, extent */
- sectionLines?:{axis:number;at:number;label:string;ref?:string;look?:'+'|'-';extent?:[number,number]}[]}):Prim[]{
+ sectionLines?:{axis:number;at:number;label:string;ref?:string;look?:'+'|'-';extent?:[number,number]}[];
+ /** Drawing Edit layer of this view (`drawingEdits.ts`): overrides of the automatic annotations by key + user text / leaders */
+ edits?:ViewEdits}):Prim[]{
  const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  // level marks sit right of the concrete: keep room for their text inside the box
  const levelList=opts.hide?.levels?[]:v.levels,lvW=levelList.length?Math.max(...levelList.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
@@ -327,6 +330,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  opts.frame?.({s,x0:X(u[0]),y0:Y(vr[0]),u0:u[0],v0:vr[0]});
  // push with a CAD layer role (DXF export); `barLayer` = links / ties / stirrups vs main bars
  const put=(layer:LayerRole,...ps:Prim[])=>{for(const p of ps){p.layer=layer;out.push(p);}};
+ // Drawing Edit: override of an automatic annotation (stable key), paper unit (sheet mm when k = 0.26)
+ const over=(key:string)=>opts.edits?.over?.[key],pu=k/.26;
  const barLayer=(id:string):LayerRole=>/tie|stirrup|link|hoop|spiral/i.test(id)?'barLink':'barMain';
  const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},wall:{fill:'#b9c4c1',stroke:'#3d5054',width:1*k},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>put(r.kind==='context'?'concreteHidden':'concrete',r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
@@ -343,8 +348,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  if(v.ground!==undefined&&!levelList.length)put('text',{t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
  // pour stages: joint lines (red dashed) and the stage names; level marks: ▽ + text right of the concrete face
  for(const j of v.joints)put('symbol',{t:'line',x1:X(j.u0),x2:X(j.u1),y1:Y(j.v),y2:Y(j.v),stroke:'#c0392b',width:1.1*k,dash:[6*k,3*k]});
- for(const l of levelList){const x=X(l.u)+10*k,y=Y(l.v),h=5*k;
-  put('dim',{t:'line',x1:X(l.u),x2:x+textWidth(l.text,9*k*fs)+4*k,y1:y,y2:y,stroke:'#3f5459',width:.6*k},{t:'poly',pts:[[x,y],[x-h*.6,y-h],[x+h*.6,y-h]],closed:true,stroke:'#3f5459',width:.6*k});put('text',{t:'text',x:x+h,y:y-2*k,text:l.text,size:9*k*fs,color:'#3f5459',halo:true});}
+ levelList.forEach((l,i)=>{const key=`level:${i}`,o=over(key);if(o?.hidden)return;const x=X(l.u)+10*k+(o?.dx||0)*pu,y=Y(l.v),h=5*k,text=o?.text??l.text;
+  put('dim',{t:'line',x1:X(l.u),x2:x+textWidth(text,9*k*fs)+4*k,y1:y,y2:y,stroke:'#3f5459',width:.6*k,key},{t:'poly',pts:[[x,y],[x-h*.6,y-h],[x+h*.6,y-h]],closed:true,stroke:'#3f5459',width:.6*k,key});put('text',{t:'text',x:x+h,y:y-2*k,text,size:9*k*fs,color:'#3f5459',halo:true,key});});
  const cuts=opts.cuts;
  if(cuts){const cs={stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]};put('symbol',{t:'line',x1:X(u[0]),x2:X(u[1]),y1:Y(cuts.y),y2:Y(cuts.y),...cs},{t:'line',x1:X(cuts.x),x2:X(cuts.x),y1:Y(vr[0]),y2:Y(vr[1]),...cs});
   const ts={size:11*k*fs,color:'#5b6b70',bold:true};put('text',{t:'text',x:X(u[0])-6*k,y:Y(cuts.y)+4*k,text:'X',anchor:'end',...ts},{t:'text',x:X(u[1])+6*k,y:Y(cuts.y)+4*k,text:'X',...ts},{t:'text',x:X(cuts.x),y:Y(vr[1])-6*k,text:'Y',anchor:'middle',...ts},{t:'text',x:X(cuts.x),y:Y(vr[0])+14*k,text:'Y',anchor:'middle',...ts});}
@@ -376,8 +381,13 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const colorOf=(id:string)=>opts.colors.get(id)||'#167561';
  const leaderDraw=(l:{id:string;at:[number,number]},pts:[number,number][]):PlainPrim[]=>{const color=colorOf(l.id),ax=X(l.at[0]),ay=Y(l.at[1]);
   return [{t:'poly',pts:[[ax,ay],...pts],closed:false,stroke:color,width:.45*k,group:l.id},{t:'circle',cx:ax,cy:ay,r:1.1*k,fill:color,group:l.id}];};
- const leader=(l:typeof labels[number],pts:[number,number][],tx:number,ty:number,anchor:'start'|'end'|undefined,arrow:'dot'|'none',draw:PlainPrim[])=>
-  put('mark',{t:'leader',pts:[[X(l.at[0]),Y(l.at[1])],...pts],text:[l.text],at:[tx,ty],anchor,mark:l.mark,arrow,color:colorOf(l.id),size,bold:true,group:l.id,draw});
+ // Drawing Edit override `mark:<bar id>`: hidden, text moved by (dx, dy) paper mm (the arrow stays on the bar), own text
+ const leader=(l:typeof labels[number],pts:[number,number][],tx:number,ty:number,anchor:'start'|'end'|undefined,arrow:'dot'|'none',draw:PlainPrim[])=>{
+  const key=`mark:${l.id}`,o=over(key);if(o?.hidden)return;let P=pts,x=tx,y=ty,D=draw,text=[l.text];
+  if(o?.dx||o?.dy){const dx=(o.dx||0)*pu,dy=(o.dy||0)*pu,sh=(q:[number,number]):[number,number]=>[q[0]+dx,q[1]+dy];P=pts.map(sh);x+=dx;y+=dy;
+   D=draw.map(q=>q.t==='poly'?{...q,pts:q.pts.map((p,i)=>i?sh(p):p)}:q.t==='line'?{...q,x2:q.x2+dx,y2:q.y2+dy}:q.t==='text'?{...q,x:q.x+dx,y:q.y+dy}:q);}
+  if(o?.text!==undefined){text=o.text.split('\n');const t0=D.find(q=>q.t==='text');if(t0&&t0.t==='text')D=[...D.filter(q=>q!==t0),...text.map((s2,i)=>({...t0,text:s2,y:t0.y+i*step}))];}
+  put('mark',{t:'leader',pts:[[X(l.at[0]),Y(l.at[1])],...P],text,at:[x,y],anchor,...(o?.text!==undefined?{}:{mark:l.mark}),arrow,color:colorOf(l.id),size,bold:true,group:l.id,key,draw:D});};
  if(mode==='rows')for(const [list,above] of [[up,true],[down,false]] as const){
   const sorted=[...list].sort((p,q)=>p.at[0]-q.at[0]),x0=box.x+4*k,x1=box.x+box.w-4*k;let y=above?Y(vr[1])-GV:Y(vr[0])+GV+size,cursor=x0;
   for(const l of sorted){const w=tw(l);let x=Math.max(X(l.at[0])-w/2,cursor);if(x+w>x1){y+=above?-step:step;cursor=x0;x=Math.max(Math.min(X(l.at[0])-w/2,x1-w),x0);}
@@ -402,30 +412,34 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // the whole chain's drawing rides on the first segment
  const chain=(segs:Omit<DimPrim,'t'|'kind'|'draw'|'size'>[],size:number,draw:PlainPrim[],color?:string)=>segs.forEach((d,i)=>put('dim',{t:'dim',kind:'linear',...d,size,color,draw:i?[]:draw}));
  // cover C: short dimension with ticks, value beside it (right of a vertical one, above a horizontal one)
- for(const c of opts.hide?.dims?[]:v.covers){const x1=X(c.a[0]),y1=Y(c.a[1]),x2=X(c.b[0]),y2=Y(c.b[1]),vert=Math.abs(x1-x2)<.5,t=2.5*k,st={stroke:'#7a3e9d',width:.6*k};
-  chain([{a:[x1,y1],b:[x2,y2],line:[x1,y1],dir:vert?'v':'h',value:Math.hypot(c.b[0]-c.a[0],c.b[1]-c.a[1]),text:'C=<>'}],8*k*fs,[{t:'line',x1,y1,x2,y2,...st},...(vert?[{t:'line' as const,x1:x1-t,x2:x1+t,y1,y2:y1,...st},{t:'line' as const,x1:x2-t,x2:x2+t,y1:y2,y2,...st}]:[{t:'line' as const,x1,x2:x1,y1:y1-t,y2:y1+t,...st},{t:'line' as const,x1:x2,x2,y1:y2-t,y2:y2+t,...st}]),
+ for(const [ci,c] of (opts.hide?.dims?[]:v.covers).entries()){if(over(`cover:${ci}`)?.hidden)continue;const x1=X(c.a[0]),y1=Y(c.a[1]),x2=X(c.b[0]),y2=Y(c.b[1]),vert=Math.abs(x1-x2)<.5,t=2.5*k,st={stroke:'#7a3e9d',width:.6*k};
+  chain([{a:[x1,y1],b:[x2,y2],line:[x1,y1],dir:vert?'v':'h',value:Math.hypot(c.b[0]-c.a[0],c.b[1]-c.a[1]),text:'C=<>',key:`cover:${ci}`}],8*k*fs,[{t:'line',x1,y1,x2,y2,...st},...(vert?[{t:'line' as const,x1:x1-t,x2:x1+t,y1,y2:y1,...st},{t:'line' as const,x1:x2-t,x2:x2+t,y1:y2,y2,...st}]:[{t:'line' as const,x1,x2:x1,y1:y1-t,y2:y1+t,...st},{t:'line' as const,x1:x2,x2,y1:y2-t,y2:y2+t,...st}]),
    {t:'text',x:vert?x1+4*k:Math.max(x1,x2)+3*k,y:vert?(y1+y2)/2+3*k:y1-3*k,text:c.text,size:8*k*fs,color:'#7a3e9d',bold:true,halo:true}],'#7a3e9d');}
  // beam group: column faces (dashed), grid centre lines (dash-dot) with bubbles at the bottom, EX bar dimensions
  for(const c of v.beamCols){const y0=Y(c.lo),y1=Y(c.hi),cs={stroke:'#d07a2d',width:.7*k,dash:[5*k,3*k]};
   if(c.x1-c.x0>1)put('concreteHidden',{t:'line',x1:X(c.x0),x2:X(c.x0),y1:y0,y2:y1,...cs},{t:'line',x1:X(c.x1),x2:X(c.x1),y1:y0,y2:y1,...cs});
   put('symbol',{t:'line',x1:X(c.g),x2:X(c.g),y1:y0,y2:y1,stroke:'#7c8b8f',width:.5*k,dash:[10*k,3*k,2*k,3*k]});
   if(c.label){const r=5.5*k,cy=y0+r+1.5*k;put('dim',{t:'circle',cx:X(c.g),cy,r,stroke:'#4a5a66',width:.6*k,fill:'#ffffff'});put('text',{t:'text',x:X(c.g),y:cy+3*k*fs,text:c.label,size:8*k*fs,color:'#22393f',anchor:'middle'});}}
- if(v.band&&!opts.hide?.dims)for(const {d,row} of exDimRows(v.exDims)){const x0=d.stops[0],x1=d.stops.at(-1)!;
+ if(v.band&&!opts.hide?.dims)for(const {d,row} of exDimRows(v.exDims)){if(over(`ex:${d.id}`)?.hidden)continue;const x0=d.stops[0],x1=d.stops.at(-1)!;
    const color=opts.colors.get(d.id)||'#3f5459',y=d.top?Y(v.band[1])-(9+row*9)*k:Y(v.band[0])+(9+row*9)*k,st={stroke:color,width:.6*k},ds=7.5*k*fs,draw:PlainPrim[]=[];
    draw.push({t:'line',x1:X(x0),x2:X(x1),y1:y,y2:y,...st});
    for(const p of d.stops)draw.push({t:'line',x1:X(p)-2*k,x2:X(p)+2*k,y1:y+2*k,y2:y-2*k,...st});
    d.stops.slice(1).forEach((p,i)=>{const a=d.stops[i],t=fmt(p-a);if(X(p)-X(a)>textWidth(t,ds)+2*k)draw.push({t:'text',x:(X(p)+X(a))/2,y:y-1.5*k,text:t,size:ds,color,anchor:'middle',halo:true});});
-   chain(d.stops.slice(1).map((p,i)=>({a:[X(d.stops[i]),y],b:[X(p),y],line:[X(d.stops[i]),y],dir:'h' as const,value:p-d.stops[i],group:d.id})),ds,draw,color);
+   chain(d.stops.slice(1).map((p,i)=>({a:[X(d.stops[i]),y],b:[X(p),y],line:[X(d.stops[i]),y],dir:'h' as const,value:p-d.stops[i],group:d.id,key:`ex:${d.id}`})),ds,draw,color);
    put('mark',{t:'text',x:X(x0)-3*k,y:y+2.5*k,text:d.mark,size:ds,color,bold:true,anchor:'end',halo:true});}
  // Dimensions.
  const line={stroke:'#5f7378',width:.7*k},dsize=10*k*fs;
+ // Drawing Edit override `dim:<dir><side><n>` (n-th chain of that direction / side): hidden, dimension line moved (off,
+ // paper mm: +y down for horizontal chains, +x right for vertical ones), text ('<>' = measured value)
+ const dimN=new Map<string,number>();
  for(const d of opts.hide?.dims?[]:dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){
+  const kk=`${d.dir}${d.side}`,n=dimN.get(kk)||0;dimN.set(kk,n+1);const key=`dim:${kk}${n}`,o=over(key),off=(o?.off||0)*pu,tpl=o?.text,lab=(x:number)=>tpl!==undefined?tpl.replace('<>',fmt(x)):fmt(x);if(o?.hidden)continue;
   // mirrored view (look '-'): stops along the horizontal axis mirror too; a cropped view keeps the stops inside it
   const flipU=v.flip&&d.dir==='h',pts=[...new Set(d.stops.map(n=>Math.round((flipU?u[0]+u[1]-n:n)*10)/10))].filter(p=>!v.cropped||d.dir!=='h'||p>=u[0]-1&&p<=u[1]+1).sort((p,q)=>p-q);if(pts.length<2)continue;const draw:PlainPrim[]=[];
-  if(d.dir==='h'){const y=d.side==='start'?Y(vr[0])+22*k:Y(vr[1])-16*k,fy=d.side==='start'?Y(vr[0]):Y(vr[1]);for(const p of pts)draw.push({t:'line',x1:X(p),x2:X(p),y1:y-5*k,y2:y+5*k,...line});draw.push({t:'line',x1:X(pts[0]),x2:X(pts.at(-1)!),y1:y,y2:y,...line});pts.slice(1).forEach((p,i)=>{if(X(p)-X(pts[i])>textWidth(fmt(p-pts[i]),dsize)+2*k)draw.push({t:'text',x:(X(p)+X(pts[i]))/2,y:y-3*k,text:fmt(p-pts[i]),size:dsize,color:'#3f5459',anchor:'middle'});});
-   chain(pts.slice(1).map((p,i)=>({a:[X(pts[i]),fy],b:[X(p),fy],line:[X(pts[i]),y],dir:'h' as const,value:p-pts[i]})),dsize,draw);}
-  else{const x=d.side==='start'?X(u[0])-24*k:X(u[1])+24*k,fx=d.side==='start'?X(u[0]):X(u[1]);for(const p of pts)draw.push({t:'line',x1:x-5*k,x2:x+5*k,y1:Y(p),y2:Y(p),...line});draw.push({t:'line',x1:x,x2:x,y1:Y(pts[0]),y2:Y(pts.at(-1)!),...line});pts.slice(1).forEach((p,i)=>{if(Y(pts[i])-Y(p)>dsize*1.2)draw.push({t:'text',x:x+(d.side==='start'?-3*k:3*k),y:(Y(p)+Y(pts[i]))/2+3*k,text:fmt(p-pts[i]),size:dsize,color:'#3f5459',anchor:d.side==='start'?'end':'start'});});
-   chain(pts.slice(1).map((p,i)=>({a:[fx,Y(pts[i])],b:[fx,Y(p)],line:[x,Y(pts[i])],dir:'v' as const,value:p-pts[i]})),dsize,draw);}
+  if(d.dir==='h'){const y=(d.side==='start'?Y(vr[0])+22*k:Y(vr[1])-16*k)+off,fy=d.side==='start'?Y(vr[0]):Y(vr[1]);for(const p of pts)draw.push({t:'line',x1:X(p),x2:X(p),y1:y-5*k,y2:y+5*k,...line});draw.push({t:'line',x1:X(pts[0]),x2:X(pts.at(-1)!),y1:y,y2:y,...line});pts.slice(1).forEach((p,i)=>{if(X(p)-X(pts[i])>textWidth(lab(p-pts[i]),dsize)+2*k)draw.push({t:'text',x:(X(p)+X(pts[i]))/2,y:y-3*k,text:lab(p-pts[i]),size:dsize,color:'#3f5459',anchor:'middle'});});
+   chain(pts.slice(1).map((p,i)=>({a:[X(pts[i]),fy],b:[X(p),fy],line:[X(pts[i]),y],dir:'h' as const,value:p-pts[i],key,...(tpl!==undefined?{text:tpl}:{})})),dsize,draw);}
+  else{const x=(d.side==='start'?X(u[0])-24*k:X(u[1])+24*k)+off,fx=d.side==='start'?X(u[0]):X(u[1]);for(const p of pts)draw.push({t:'line',x1:x-5*k,x2:x+5*k,y1:Y(p),y2:Y(p),...line});draw.push({t:'line',x1:x,x2:x,y1:Y(pts[0]),y2:Y(pts.at(-1)!),...line});pts.slice(1).forEach((p,i)=>{if(Y(pts[i])-Y(p)>dsize*1.2)draw.push({t:'text',x:x+(d.side==='start'?-3*k:3*k),y:(Y(p)+Y(pts[i]))/2+3*k,text:lab(p-pts[i]),size:dsize,color:'#3f5459',anchor:d.side==='start'?'end':'start'});});
+   chain(pts.slice(1).map((p,i)=>({a:[fx,Y(pts[i])],b:[fx,Y(p)],line:[x,Y(pts[i])],dir:'v' as const,value:p-pts[i],key,...(tpl!==undefined?{text:tpl}:{})})),dsize,draw);}
  }
  // Stage names last: framed text at the first spot inside its stage band (spread across, stepping up / down) that
  // clears every text already on the view (Marks, levels, dimensions); else beside the concrete with a leader.
@@ -444,6 +458,15 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  }
  // walls on the footing (reference): outline again over the bars so the wall lines stay visible
  v.rects.filter(r=>r.kind==='wall').forEach(r=>put('concrete',{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,stroke:'#22393f',width:1.6*k}));
+ // Drawing Edit user objects: text (MTEXT) at a view point, leaders from a view point with the text offset in paper mm
+ for(const o of opts.edits?.objs||[]){const key=`user:${o.id}`,sz=(o.size??2.6)*pu,st2=sz*1.35,ink='#22393f',ax=X(o.at[0]),ay=Y(o.at[1]);
+  if(o.kind==='text'){const draw:PlainPrim[]=o.lines.map((t,i)=>({t:'text',x:ax,y:ay+i*st2,text:t,size:sz,color:ink,anchor:o.anchor,bold:o.bold,halo:true}));
+   put('text',{t:'mtext',x:ax,y:ay,lines:o.lines,size:sz,step:st2,anchor:o.anchor,color:ink,bold:o.bold,key,draw});continue;}
+  const ex=ax+o.dx*pu,ey=ay+o.dy*pu,dir=o.dx>=0?1:-1,sx=ex+dir*3*pu,tx=sx+dir*pu,ty=ey+sz*.35,anchor=dir>0?'start' as const:'end' as const,draw:PlainPrim[]=[{t:'poly',pts:[[ax,ay],[ex,ey],[sx,ey]],closed:false,stroke:ink,width:.45*k}];
+  if(o.arrow==='dot')draw.push({t:'circle',cx:ax,cy:ay,r:.6*pu,fill:ink});
+  else if(o.arrow==='closed'){const l=Math.hypot(ex-ax,ey-ay)||1,ux=(ex-ax)/l,uy=(ey-ay)/l,a=2*pu,b=.6*pu;draw.push({t:'poly',pts:[[ax,ay],[ax+ux*a-uy*b,ay+uy*a+ux*b],[ax+ux*a+uy*b,ay+uy*a-ux*b]],closed:true,fill:ink,stroke:ink,width:.2*k});}
+  o.lines.forEach((t,i)=>draw.push({t:'text',x:tx,y:ty+i*st2,text:t,size:sz,color:ink,anchor,halo:true}));
+  put('mark',{t:'leader',pts:[[ax,ay],[ex,ey],[sx,ey]],text:o.lines,at:[tx,ty],anchor,arrow:o.arrow,color:ink,size:sz,key,draw});}
  const axisName=['X','Y','Z'];
  put('text',{t:'text',x:box.x+box.w-6*k,y:box.y+box.h-6*k,text:`${axisName[v.axes[0]]} ${v.flip?'←':'→'} · ${axisName[v.axes[1]]} ↑`,size:9*k*fs,color:'#9aa8a6',anchor:'end'});
  return out;

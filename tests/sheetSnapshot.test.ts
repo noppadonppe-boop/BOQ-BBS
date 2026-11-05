@@ -1,5 +1,5 @@
 // PDF / SVG unchanged: the expanded sheet primitives of every fixture page must equal the snapshot taken before the
-// semantic primitives (dim / leader / mtext) were introduced. Tolerance 1e-6; `layer` / `view` tags are metadata only.
+// semantic primitives (dim / leader / mtext) were introduced. Tolerance 1e-6; `layer` / `view` / `key` tags are metadata only.
 // Re-create the snapshot (only when the drawing is meant to change): SNAP=1 npx vitest run tests/sheetSnapshot.test.ts
 import {describe,expect,it,vi} from 'vitest';
 vi.mock('../src/data/firebase',()=>({storage:{},db:{},command:async()=>({}),auth:{},emulator:true}));
@@ -12,7 +12,7 @@ import {pagesOf,sheetFixtures,steelMember} from './fixtures/sheets';
 
 const FILE='tests/__snapshots__/sheets.json.gz';
 const expand=(list:unknown[])=>('expandPrims' in prims?(prims as unknown as {expandPrims:(p:unknown[])=>unknown[]}).expandPrims(list):list);
-const strip=(v:unknown):unknown=>Array.isArray(v)?v.map(strip):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).filter(([k,x])=>k!=='layer'&&k!=='view'&&x!==undefined).map(([k,x])=>[k,strip(x)])):typeof v==='number'?Math.round(v*1e7)/1e7:v;
+const strip=(v:unknown):unknown=>Array.isArray(v)?v.map(strip):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).filter(([k,x])=>k!=='layer'&&k!=='view'&&k!=='key'&&x!==undefined).map(([k,x])=>[k,strip(x)])):typeof v==='number'?Math.round(v*1e7)/1e7:v;
 function current(){
  const out:Record<string,unknown[]>={};
  for(const [name,sets] of Object.entries(sheetFixtures()))sets.forEach((s,k)=>{for(const p of pagesOf(s))out[`${name}#${k}/${p}`]=strip(expand(drawSheet(s,p))) as unknown[];});

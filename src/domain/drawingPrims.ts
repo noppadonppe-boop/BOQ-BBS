@@ -5,8 +5,9 @@ type Stroke={stroke?:string;width?:number;dash?:number[]};
 /** CAD layer role of a primitive (DXF export: `cadStandard.ts` maps each role to a layer name / colour / linetype). */
 export type LayerRole='concrete'|'concreteHidden'|'barMain'|'barLink'|'barRef'|'dim'|'mark'|'text'|'symbol'|'titleBlock'|'viewport';
 export const layerRoles:LayerRole[]=['concrete','concreteHidden','barMain','barLink','barRef','dim','mark','text','symbol','titleBlock','viewport'];
-/** `layer` = CAD layer role, `view` = id of the sheet view the primitive belongs to (absent = paper: tables, title block). */
-type Meta={group?:string;layer?:LayerRole;view?:string};
+/** `layer` = CAD layer role, `view` = id of the sheet view the primitive belongs to (absent = paper: tables, title block),
+ * `key` = stable id of the annotation it draws (Drawing Edit overrides, `drawingEdits.ts`: mark:… / dim:… / user:…). */
+type Meta={group?:string;layer?:LayerRole;view?:string;key?:string};
 type Pt=[number,number];
 export type Prim=
  |({t:'line';x1:number;y1:number;x2:number;y2:number;cap?:'round'}&Stroke&Meta)
@@ -35,7 +36,7 @@ export const isSemantic=(p:Prim):p is SemanticPrim=>p.t==='dim'||p.t==='leader'|
 /** Plain primitives (line / poly / circle / text …) exactly as the SVG / PDF draw them. Plain lists come back unchanged. */
 export function expandPrims(prims:Prim[]):PlainPrim[]{
  if(!prims.some(isSemantic))return prims as PlainPrim[];
- const out:PlainPrim[]=[];for(const p of prims){if(!isSemantic(p)){out.push(p);continue;}for(const q of p.draw)out.push(q.layer||!p.layer?(q.view||!p.view?q:{...q,view:p.view}):{...q,layer:p.layer,...(p.view?{view:p.view}:{})});}
+ const out:PlainPrim[]=[];for(const p of prims){if(!isSemantic(p)){out.push(p);continue;}for(const q0 of p.draw){const q=q0.layer||!p.layer?(q0.view||!p.view?q0:{...q0,view:p.view}):{...q0,layer:p.layer,...(p.view?{view:p.view}:{})};out.push(p.key&&!q.key?{...q,key:p.key}:q);}}
  return out;
 }
 /** Same primitive with every text (also inside semantic primitives and their drawing) passed through `f`. */

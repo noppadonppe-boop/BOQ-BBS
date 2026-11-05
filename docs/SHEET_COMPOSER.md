@@ -92,6 +92,22 @@ auto layout = automatic sheet, unknown keys / notes / pages, template 2,100 × 1
 fraction, smaller scale + warning, bubble on the plan), restore, DXF mode B viewports at the boxes
 (`output/dxf-verification/composed-B.dxf`, audited by `tools/qa/dxf_audit.py`). Dev harness `tmp/preview/composer.html#footing|small|big`.
 
+## Drawing Edit mode (แก้ไขแบบ, phase 1)
+
+The header switch “จัดหน้า | แก้ไขแบบ” turns the canvas into an annotation editor (`components/DrawingEditLayer.tsx`):
+
+- Select an automatic annotation (Mark leader, dimension chain, level, cover C, EX dimension) by clicking it; drag / arrow keys move
+  it (Mark text and elbow, the arrow stays on the bar; dimension line perpendicular only; level sideways). Panel: own text (dims:
+  `<>` = measured value), offsets, Hide (Delete), Restore Auto. Hidden items are listed under “ซ่อนไว้” with “แสดง”.
+- Add text (T) and leaders (L: arrow point, then text point). They are stored at view model coordinates, so they follow the view when
+  it is moved or rescaled.
+- Data: `member.drawingEdits` `{version:1, views:{<ViewKey>:{over:{<key>:{hidden,dx,dy,off,text}}, objs:[text | leader]}}}`
+  (`src/domain/drawingEdits.ts`). Keys come from `renderView` (`mark:<bar id>`, `dim:<dir><side><n>`, `cover:<n>`, `ex:<id>`,
+  `level:<n>`); an override whose key no longer exists is ignored. Undo / redo and “เสร็จ” are shared with the layout mode.
+- Output: the edits are applied inside `renderView`, so preview, PDF and DXF (MTEXT / LEADER / DIMENSION) are the same; members
+  without edits draw exactly as before (`tests/sheetSnapshot.test.ts`). Test `tests/drawingEdits.test.ts`.
+
 ## Next round
 
+Drawing Edit phase 2: user dimensions (chain, snaps, add / remove point), level marks, Mark leaders picked from a bar, orphan anchors.
 Stepped sections, Detail (enlarged) views, ISO 3D on the sheet, oblique cuts (toolbar buttons shown disabled).

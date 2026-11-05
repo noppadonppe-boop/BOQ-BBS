@@ -17,9 +17,11 @@ import {HelpButton} from './HelpCenter';
 import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay} from './LabelQa';
+import {useDrawingEdit} from './DrawingEditLayer';
+import {cleanDrawingEdits,drawingEditsSchema,type DrawingEdits} from '../domain/drawingEdits';
 
 type Box={x:number;y:number;w:number;h:number};
-type Draft={layout?:SheetLayout;sections:SheetSection[]};
+type Draft={layout?:SheetLayout;sections:SheetSection[];edits?:DrawingEdits};
 type Drag={key:ViewKey;mode:'move'|'n'|'s'|'e'|'w'|'ne'|'nw'|'se'|'sw';x0:number;y0:number;box:Box;cur:Box;guides:{x?:number;y?:number;label?:string}[]};
 type CutDrag={id:string;axis:'X'|'Y';view:SheetViewInfo;pos:number};
 type Tool={step:1|2|3;view?:SheetViewInfo;p1?:[number,number];p2?:[number,number];sec?:SheetSection;size?:{w:number;h:number};at?:[number,number]};
@@ -31,19 +33,21 @@ const sameJson=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 /** Sheet Composer (full screen): views of the BBS sheet as boxes to move / crop / scale, projection lock, smart guides,
  * view list + unplaced views, sheets, automatic arrangement, undo / redo, the section tool (S: 3 clicks, snaps on bars /
  * concrete edges / centre), dragging cut lines in plans, right-click on a bar → perpendicular section, templates.
- * Writes member.sheetLayout and member.drawingViews (v2, only when the sections changed) through `onApply`. */
+ * Mode “แก้ไขแบบ” (Drawing Edit, `DrawingEditLayer.tsx`): move / hide / retext automatic annotations, add text and leaders.
+ * Writes member.sheetLayout, member.drawingViews (v2, only when the sections changed) and member.drawingEdits through `onApply`. */
 export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,onClose}:{member:Member;project:Project;readOnly:boolean;onApply?:(m:Member)=>void;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>;onClose:()=>void}){
  const base=useMemo(()=>{const q=takeoff(member,project.spec),parsed=elementInputSchema.safeParse(member.elementInput);
   return {member,rows:q.rows,input:parsed.success?parsed.data:undefined,project,quantity:sum(member.occurrences.map(o=>o.quantity)),takeoff:q,status:'DRAFT / NOT FOR CONSTRUCTION',revision:'D'+project.version,date:new Date().toISOString().slice(0,10),provisional:quantityBasisState(member)==='Provisional'} as SheetData;},[member,project]);
  const size=sheetFormat(base).size,initSections=useMemo(()=>sheetSections(base,size).sections,[base,size]);
- const withDraft=(d:Draft):SheetData=>({...base,member:{...member,sheetLayout:d.layout,drawingViews:{version:2,primaryPlane:member.drawingViews?.primaryPlane||'XY',basis:member.drawingViews?.basis||'Sheet Composer',sections:d.sections}}});
+ const withDraft=(d:Draft):SheetData=>({...base,member:{...member,sheetLayout:d.layout,drawingEdits:d.edits,drawingViews:{version:2,primaryPlane:member.drawingViews?.primaryPlane||'XY',basis:member.drawingViews?.basis||'Sheet Composer',sections:d.sections}}});
  /** editable layout: the member's own, else the template's, else the automatic arrangement written out */
  const autoLayout=(d:Draft):SheetLayout=>{const s={...withDraft({...d,layout:undefined}),member:{...withDraft(d).member,sheetLayout:undefined}},keys=new Set<string>(),sheets:SheetLayout['sheets']=[];
   for(let p=0;p<sheetPageCount(s);p++){const i=drawSheetInfo(s,p),views:PlacedView[]=i.views.filter(v=>v.key).map(v=>({view:v.key!,x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,n:'auto'}));
    if(i.notes&&!keys.has('notes')&&sheetArea(s).notes)views.push({view:'notes',...i.notes,n:'auto'});if(!views.length)continue;views.forEach(v=>keys.add(v.view));sheets.push({id:`s${sheets.length+1}`,views});}
   if(!sheets.length)sheets.push({id:'s1',views:[]});
   return {version:1,sheets,unplaced:sheetViews(s).map(v=>v.key).filter(k=>!keys.has(k))};};
- const [draft,setDraft]=useState<Draft>(()=>({layout:member.sheetLayout,sections:initSections}));
+ const [draft,setDraft]=useState<Draft>(()=>({layout:member.sheetLayout,sections:initSections,edits:member.drawingEdits}));
+ const [mode,setMode]=useState<'layout'|'edit'>('layout');
  const [undo,setUndo]=useState<Draft[]>([]),[redo,setRedo]=useState<Draft[]>([]),[sheet,setSheet]=useState(0),[sel,setSel]=useState<ViewKey>();
  const [tool,setTool]=useState<Tool|undefined>(),[opt,setOpt]=useState({lock:true,guides:true,grid:false}),[drag,setDrag]=useState<Drag>(),[cut,setCut]=useState<CutDrag>();
  const [hover,setHover]=useState<{x:number;y:number;snap?:string}>(),[menu,setMenu]=useState<{x:number;y:number;sec:SheetSection}>(),[tplOpen,setTplOpen]=useState<'save'|'apply'|undefined>(),[msg,setMsg]=useState('');
@@ -59,10 +63,12 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
   return layoutBoxProblems(boxes,area.area,area.keep).map(p=>`แผ่น ${i+1}: ${p}`);}),[layout,shown,info,page,area]);
  const qa=useMemo(()=>labelReport(info.prims,info.views,labelRulesOf(project.spec)),[info,project.spec]),[qaShow,setQaShow]=useState(true),[qaFocus,setQaFocus]=useState<LabelIssue>();
  useEffect(()=>setQaFocus(undefined),[qa]);
- const fitWarn=info.views.filter(v=>!v.fits),dirty=!sameJson(draft.layout,member.sheetLayout)||!sameJson(draft.sections,initSections);
+ const fitWarn=info.views.filter(v=>!v.fits),dirty=!sameJson(draft.layout,member.sheetLayout)||!sameJson(draft.sections,initSections)||!sameJson(cleanDrawingEdits(draft.edits),cleanDrawingEdits(member.drawingEdits));
  const unplaced=[...new Set([...layout.unplaced,...all.map(v=>v.key).filter(k=>!layout.sheets.some(s=>s.views.some(v=>v.view===k)))])].filter(k=>k!=='notes'||area.notes);
 
- const commit=(d:Draft)=>{if(readOnly)return;setUndo(u=>[...u.slice(-49),draft]);setRedo([]);setDraft(d);};
+ // partial drafts keep the other parts (e.g. a layout change keeps the drawing edits)
+ const commit=(d:Partial<Draft>)=>{if(readOnly)return;setUndo(u=>[...u.slice(-49),draft]);setRedo([]);setDraft({...draft,...d});};
+ const ed=useDrawingEdit({info,edits:draft.edits,commit:e=>commit({edits:e}),readOnly,setMsg});
  const editLayout=(f:(l:SheetLayout)=>SheetLayout)=>commit({...draft,layout:f(structuredClone(layout))});
  const editView=(k:ViewKey,patch:Partial<PlacedView>)=>editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.map(v=>v.view===k?{...v,...patch}:v)}))}));
  const editSection=(id:string,patch:Partial<SheetSection>)=>commit({layout:draft.layout||layout,sections:draft.sections.map(s=>s.id===id?{...s,...patch}:s)});
@@ -109,6 +115,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
  useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.target as HTMLElement)?.closest('input,select,textarea'))return;
    if(e.key==='Escape'){setDrag(undefined);setCut(undefined);setTool(undefined);setMenu(undefined);return;}
    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();back();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();fwd();return;}
+   if(mode==='edit'){if(!e.ctrlKey&&!e.metaKey&&!e.altKey)ed.key(e);return;}
    if(e.key==='s'||e.key==='S'){if(!readOnly)setTool({step:1});return;}if(e.key==='v'||e.key==='V'){setTool(undefined);return;}
    if(tool?.step===2&&e.key==='Tab'){e.preventDefault();setTool(t=>t?.sec?{...t,sec:{...t.sec,look:t.sec.look==='-'?'+':'-'}}:t);return;}
    if(!sel||readOnly)return;const v=placed.find(x=>x.view===sel);if(!v)return;const st=e.shiftKey?5:1;
@@ -166,7 +173,8 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
 
  const done=()=>{if(problems.length){setMsg('แก้ปัญหาการจัดหน้าก่อน (กรอบซ้อน / ออกนอกแผ่น / ทับตาราง)');return;}
   const own=draft.layout?sheetLayoutSchema.safeParse({...layout,unplaced:unplaced.filter(k=>k!=='notes'||area.notes)}):undefined;if(own&&!own.success){setMsg(own.error.issues[0]?.message||'Layout ไม่ถูกต้อง');return;}
-  const secsChanged=!sameJson(draft.sections,initSections),next:Member={...member};
+  const secsChanged=!sameJson(draft.sections,initSections),next:Member={...member},edits=cleanDrawingEdits(draft.edits);
+  if(edits){const ok=drawingEditsSchema.safeParse(edits);if(!ok.success){setMsg(`แก้ไขแบบ: ${ok.error.issues[0]?.message||'ข้อมูลไม่ถูกต้อง'}`);return;}next.drawingEdits=ok.data;}else delete next.drawingEdits;
   if(own?.data)next.sheetLayout=own.data;else delete next.sheetLayout;
   if(secsChanged)next.drawingViews={version:2,primaryPlane:member.drawingViews?.primaryPlane||'XY',basis:member.drawingViews?.basis||'Sheet Composer',sections:draft.sections};
   onApply?.(next);onClose();};
@@ -180,11 +188,15 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
   <div className="composer">
    <header className="composer-head">
     <button onClick={close}>← กลับตัวอย่าง</button>
-    <div className="composer-title"><b>{member.code} · จัดหน้าแบบ <HelpButton topic="sheet-composer"/></b><small>{size} · แผ่น {page+1} / {layout.sheets.length}{draft.layout?'':' · ตาม Template / อัตโนมัติ'}{readOnly?' · อ่านอย่างเดียว':''}</small></div>
+    <div className="segmented composer-mode" role="tablist" aria-label="โหมด">
+     <button role="tab" aria-selected={mode==='layout'} className={mode==='layout'?'active':''} onClick={()=>{setMode('layout');ed.clear();}}>จัดหน้า</button>
+     <button role="tab" aria-selected={mode==='edit'} className={mode==='edit'?'active':''} onClick={()=>{setMode('edit');setTool(undefined);setSel(undefined);}}>แก้ไขแบบ</button></div>
+    <div className="composer-title"><b>{member.code} · {mode==='edit'?'แก้ไขแบบ':'จัดหน้าแบบ'} <HelpButton topic={mode==='edit'?'drawing-edit':'sheet-composer'}/></b><small>{size} · แผ่น {page+1} / {layout.sheets.length}{draft.layout?'':' · ตาม Template / อัตโนมัติ'}{readOnly?' · อ่านอย่างเดียว':''}</small></div>
     <div className="composer-tools" role="toolbar" aria-label="เครื่องมือ">
+     {mode==='edit'?ed.toolbar:<>
      <button aria-pressed={!tool} className={!tool?'active':''} onClick={()=>setTool(undefined)}>เลือก / ย้าย <kbd>V</kbd></button>
      <button aria-pressed={!!tool} className={tool?'active':''} disabled={readOnly} onClick={()=>setTool({step:1})}>+ รูปตัด <kbd>S</kbd></button>
-     <button disabled title="เร็ว ๆ นี้">+ รูปขยาย Detail</button><button disabled title="เร็ว ๆ นี้">+ 3D ISO</button><button disabled title="เร็ว ๆ นี้">รูปตัดหักมุม / เอียง</button>
+     <button disabled title="เร็ว ๆ นี้">+ รูปขยาย Detail</button><button disabled title="เร็ว ๆ นี้">+ 3D ISO</button><button disabled title="เร็ว ๆ นี้">รูปตัดหักมุม / เอียง</button></>}
     </div>
     <div className="composer-opts">
      <label className="check"><input type="checkbox" checked={opt.lock} onChange={e=>setOpt({...opt,lock:e.target.checked})}/>Snap แนวฉาย</label>
@@ -213,9 +225,12 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
      <p className="muted composer-hint">ลากรายการลงแผ่นหรือแผ่นด้านล่าง · Delete = เอาออก · ลูกศร 1 mm · Shift 5 mm · Ctrl+Z / Ctrl+Y</p>
     </aside>
     <main className="composer-canvas" onDragOver={e=>e.preventDefault()} onDrop={e=>{const k=e.dataTransfer.getData('text/view') as ViewKey;if(!k||readOnly)return;const [x,y]=pt(e),v=layout.sheets.flatMap(s=>s.views).find(q=>q.view===k),sz=v?{w:v.w,h:v.h}:sizeFor(k,planN());place(k,{x:x-sz.w/2,y:y-sz.h/2,...sz},page,v?.n);}}>
-     <svg ref={svg} viewBox={`0 0 ${info.w} ${info.h}`} className={tool?'tool':''} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={()=>setHover(undefined)} onContextMenu={onContext}
-      onPointerDown={e=>{if(tool){const [x,y]=pt(e);toolClick(x,y);}else setSel(undefined);}} role="img" aria-label="แผ่นที่กำลังจัด" fontFamily="Sarabun, sans-serif">
-      <rect x={0} y={0} width={info.w} height={info.h} fill="#fff"/><PrimsSvg prims={info.prims}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}
+     <svg ref={svg} viewBox={`0 0 ${info.w} ${info.h}`} className={mode==='edit'?'edit':tool?'tool':''} style={mode==='edit'?{cursor:ed.cursor}:undefined}
+      onPointerMove={e=>{if(mode==='edit'){const [x,y]=pt(e);ed.move(x,y);setHover({x,y});return;}onMove(e);}} onPointerUp={()=>{if(mode==='edit'){ed.up();return;}onUp();}} onPointerLeave={()=>setHover(undefined)} onContextMenu={e=>{if(mode==='edit'){e.preventDefault();return;}onContext(e);}}
+      onPointerDown={e=>{if(mode==='edit'){(e.currentTarget as Element).setPointerCapture?.(e.pointerId);const [x,y]=pt(e);ed.down(x,y);return;}if(tool){const [x,y]=pt(e);toolClick(x,y);}else setSel(undefined);}} role="img" aria-label="แผ่นที่กำลังจัด" fontFamily="Sarabun, sans-serif">
+      <rect x={0} y={0} width={info.w} height={info.h} fill="#fff"/><PrimsSvg prims={ed.filter(info.prims)}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}
+      {mode==='edit'&&ed.overlay}
+      {mode==='layout'&&<>
       {area.keep.map((k,i)=><rect key={i} {...k} className="keepout"/>)}
       {opt.grid&&<g className="grid5">{Array.from({length:Math.floor(info.w/5)},(_,i)=><line key={'x'+i} x1={i*5} x2={i*5} y1={0} y2={info.h}/>)}{Array.from({length:Math.floor(info.h/5)},(_,i)=><line key={'y'+i} y1={i*5} y2={i*5} x1={0} x2={info.w}/>)}</g>}
       {[...placed].map(v=>{const b=drag?.key===v.view?drag.cur:boxOf(v.view)||v,on=sel===v.view;
@@ -231,10 +246,11 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
        return <line key={pv.key+s.id} className={`cutline${cut?.id===s.id?' on':''}`} x1={vert?x:b.x} x2={vert?x:b.x+b.w} y1={vert?b.y+4:y} y2={vert?b.y+b.h:y} onPointerDown={e=>{e.stopPropagation();(e.target as Element).setPointerCapture?.(e.pointerId);setCut({id:s.id,axis:s.axis as 'X'|'Y',view:pv,pos:s.position});}}><title>{`ลากแนวตัด ${s.label.replace('-','–')}`}</title></line>;}))}
       {tool?.step===2&&tool.view&&tool.p1&&tool.p2&&(()=>{const a=toSheet(tool.view,...tool.p1),b=toSheet(tool.view,...tool.p2),h=Math.abs(b[0]-a[0])>=Math.abs(b[1]-a[1]);return <line className="newcut" x1={a[0]} y1={a[1]} x2={h?b[0]:a[0]} y2={h?a[1]:b[1]}/>;})()}
       {suggested&&<rect className="suggest" {...suggested}/>}
-      {tool?.step===3&&tool.size&&tool.at&&<rect className="placing" x={tool.at[0]-tool.size.w/2} y={tool.at[1]-tool.size.h/2} width={tool.size.w} height={tool.size.h}/>}
+      {tool?.step===3&&tool.size&&tool.at&&<rect className="placing" x={tool.at[0]-tool.size.w/2} y={tool.at[1]-tool.size.h/2} width={tool.size.w} height={tool.size.h}/>}</>}
      </svg>
-     {hover&&(drag||tool)&&<div className="composer-tip">{drag?`x ${drag.cur.x.toFixed(1)} · y ${drag.cur.y.toFixed(1)} mm`:tool?.step===1?hover.snap?`Snap: ${hover.snap}`:'คลิกจุดเริ่มบนแปลน / รูปตัด':tool?.step===2?`${tool.sec?`${tool.sec.label.replace('-','–')} · ${tool.sec.axis} = ${tool.sec.position.toLocaleString()} mm · มอง ${tool.sec.look==='-'?'−':'+'}${tool.sec.axis} (Tab สลับ)`:'นอกสมาชิก'}`:'คลิกบนแผ่นเพื่อวางรูปตัด · Esc ยกเลิก'}</div>}
-     {tool&&<div className="composer-toolbox">
+     {mode==='edit'&&ed.hint&&<div className="composer-tip">{ed.hint}</div>}
+     {mode==='layout'&&hover&&(drag||tool)&&<div className="composer-tip">{drag?`x ${drag.cur.x.toFixed(1)} · y ${drag.cur.y.toFixed(1)} mm`:tool?.step===1?hover.snap?`Snap: ${hover.snap}`:'คลิกจุดเริ่มบนแปลน / รูปตัด':tool?.step===2?`${tool.sec?`${tool.sec.label.replace('-','–')} · ${tool.sec.axis} = ${tool.sec.position.toLocaleString()} mm · มอง ${tool.sec.look==='-'?'−':'+'}${tool.sec.axis} (Tab สลับ)`:'นอกสมาชิก'}`:'คลิกบนแผ่นเพื่อวางรูปตัด · Esc ยกเลิก'}</div>}
+     {mode==='layout'&&tool&&<div className="composer-toolbox">
       <b>+ รูปตัด · ขั้น {tool.step} / 3</b>
       {tool.step===1&&<p>คลิกจุดเริ่มบนแปลนหรือรูปตัด (snap: แนวเหล็ก · ขอบคอนกรีต · กึ่งกลาง)</p>}
       {tool.step===2&&<><p>คลิกจุดจบ · แนวตัดตั้งฉากแกน · Tab = สลับทิศมอง</p>
@@ -253,7 +269,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
      {problems.length>0&&<div className="notice danger"><b>บันทึกไม่ได้:</b><ul>{problems.slice(0,6).map(p=><li key={p}>{p}</li>)}</ul></div>}
      <LabelQaBar compact reports={qa} show={qaShow} onShow={setQaShow} focus={qaFocus} onFocus={i=>{setQaFocus(i);const k=i&&info.views.find(v=>v.id===i.view)?.key;if(k)setSel(k);}}/>
      {fitWarn.length>0&&<p className="notice warning">{fitWarn.map(v=>`${v.title}: ใช้ ${v.n?`1:${v.n}`:'NTS'} (มาตราส่วนที่เลือกไม่พอดีกรอบ)`).join(' · ')}</p>}
-     {!selV?<p className="muted">เลือกรูปบนแผ่นหรือในรายการ</p>:<>
+     {mode==='edit'?ed.panel:!selV?<p className="muted">เลือกรูปบนแผ่นหรือในรายการ</p>:<>
       <div className="sel-head"><small>รูปที่เลือก</small><b>{title(selV.view)}</b></div>
       {selSec&&selSec.source==='user'&&<label className="field"><span>ชื่อรูปตัด</span><input value={selSec.label} maxLength={12} disabled={readOnly} onChange={e=>{const v=e.target.value.toUpperCase();if(/^[A-Z0-9]+(?:-[A-Z0-9]*)?$/.test(v)&&!draft.sections.some(s=>s.id!==selSec.id&&s.label.toUpperCase()===v))editSection(selSec.id,{label:v});}}/></label>}
       <div className="form-grid">

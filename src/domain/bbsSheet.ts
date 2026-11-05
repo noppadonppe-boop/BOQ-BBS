@@ -220,6 +220,8 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   const data=buildView(m,s.rows,input,v.spec),isPlan=v.spec.normal===undefined;
   const opts={k,colors,cuts:v.cuts,zCut:colCut?.z,scale,gutter:!bg&&S.gutter,frame:(f:typeof frame)=>{frame=f;},
    hide:pv?.show?{dims:pv.show.dims===false,marks:pv.show.marks===false,levels:pv.show.levels===false}:undefined,
+   // Drawing Edit layer of this view (overrides of automatic annotations + user text / leaders)
+   edits:v.key?m.drawingEdits?.views[v.key]:undefined,
    sectionLines:isPlan&&userCuts.length?userCuts.map(c=>({axis:c.axis==='X'?0:1,at:c.position,label:c.label,ref:pageOfSec.has(c.id)?String(pageOfSec.get(c.id)):undefined,look:c.look,extent:c.extent})):undefined};
   const inner=(b:Box)=>({x:b.x,y:b.y+4,w:b.w,h:b.h-4});
   // projection lock: same scale and shared model axis → that axis at the same sheet x / y as the target view, else centre lines

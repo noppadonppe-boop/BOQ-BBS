@@ -182,6 +182,12 @@
   Mark label check `src/domain/labelQa.ts` (`labelReport()`: overlap / on text / crossing / outside = high, tight / on line / long = low;
   rules `spec.cadStandard.labelQa` via `labelRulesOf()`), UI `components/LabelQa.tsx` in the preview, Composer and DXF dialog; warnings
   only, the drawing never changes. Test `tests/labelQa.test.ts`.
+  Drawing Edit (Tekla-style, phase 1; Composer mode “แก้ไขแบบ”, `components/DrawingEditLayer.tsx` `useDrawingEdit`): `member.drawingEdits`
+  (`src/domain/drawingEdits.ts`, per ViewKey: `over` = overrides of automatic annotations by stable key `mark:<bar id>` / `dim:<dir><side><n>` /
+  `cover:<n>` / `ex:<id>` / `level:<n>` {hidden, dx/dy, off, text '<>'}, `objs` = user text / leaders at view model (u, v) + paper offset).
+  `renderView(…, {edits})` applies them and tags every annotation prim with `key` (Meta, passed to the drawing by `expandPrims`; the
+  snapshot test ignores it), `drawSheetInfo` passes `member.drawingEdits.views[key]`; `cleanDrawingEdits()` before saving. Mockup of the
+  later phases (dims / levels / detail / status): `docs/mockups/drawing-edit-mode.html`. Test `tests/drawingEdits.test.ts`.
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
   `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
   `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),

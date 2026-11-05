@@ -515,6 +515,18 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .composer-canvas .cutline{stroke:#ea580c;stroke-width:1.6;stroke-opacity:.25;cursor:grab}.composer-canvas .cutline:hover,.composer-canvas .cutline.on{stroke-opacity:.8}.composer-canvas .newcut{stroke:#ea580c;stroke-width:.8;stroke-dasharray:3 1.5}
 .composer-canvas .suggest{fill:#ecfdf5;fill-opacity:.6;stroke:#16a34a;stroke-width:.6;stroke-dasharray:3 2;pointer-events:none}.composer-canvas .placing{fill:#fff7ed;fill-opacity:.7;stroke:#ea580c;stroke-width:.6;pointer-events:none}
 .composer-tip{position:absolute;left:16px;top:16px;background:#18242c;color:#fff;font:12px 'JetBrains Mono',Consolas,monospace;padding:5px 9px;border-radius:6px;pointer-events:none}
+/* Drawing Edit mode (DrawingEditLayer.tsx): hover / selection boxes, user objects, leader being placed */
+.composer-mode{flex:none}
+.composer-canvas svg.edit{touch-action:none}
+.ed-layer .ed-hover{fill:#1769c2;fill-opacity:.06;stroke:#1769c2;stroke-width:.25;stroke-dasharray:1 .8}
+.ed-layer .ed-sel{fill:#1769c2;fill-opacity:.08;stroke:#1769c2;stroke-width:.4}
+.ed-layer .ed-sel.user,.ed-layer .ed-user{stroke:#c2410c}
+.ed-layer .ed-user{fill:none;stroke-width:.25;stroke-dasharray:1.2 1;stroke-opacity:.7}
+.ed-layer .ed-pend circle{fill:#c2410c}.ed-layer .ed-pend polyline{fill:none;stroke:#c2410c;stroke-width:.35;stroke-dasharray:1.5 1}
+.ed-panel .ed-label{word-break:break-word;margin:-4px 0 8px}
+.ed-panel textarea{width:100%;resize:vertical;font:inherit}
+.ed-hidden{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #e3e9e7;font-size:12.5px}
+.ed-hidden small{display:block;color:#64748b}.ed-hidden code{font-size:11px;color:#64748b}
 .composer-toolbox{position:absolute;right:16px;top:16px;width:300px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px #0002;display:flex;flex-direction:column;gap:6px;font-size:13px}.composer-preview{width:100%;background:#fbfcfd;border:1px solid #eef2f6;border-radius:6px}
 .composer-ctx{position:fixed;z-index:130;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px #0003}.composer-ctx button{border:0}
 .composer-props{width:300px;background:#fff;border-left:1px solid var(--border);padding:12px 14px;overflow:auto;display:flex;flex-direction:column;gap:10px;font-size:13px}.composer-props .sel-head{display:flex;flex-direction:column}.composer-props .sel-head small{color:#2563eb;font-weight:700;letter-spacing:.05em}.composer-props .sel-head b{font-size:16px}.composer-show{border:0;border-top:1px solid #eef2f6;padding:8px 0 0;margin:0;display:flex;flex-direction:column;gap:4px}.composer-show legend{color:#4a5a66}.composer-props ul{margin:4px 0 0 16px;padding:0}
