@@ -295,7 +295,8 @@ export function floorSystemLayout(m:Member,size:SheetSize,secX?:string,secY?:str
  const hstd=stdInCol?0:Math.min(80,Math.round(below*.35)),hsec=(below-hstd-(hstd?g:0)-g)/2;
  if(!stdInCol)views.push({view:'stddet',x:a.x,y:y2+2*(hsec+g),w:sw,h:hstd,n:'auto'});
  const fc=c?floorSectionCuts(m):undefined,depth=Math.max(0,...(c?.beams||[]).map(b=>b.depth))+300;
- const secN=(axis:0|1)=>{if(!fc)return 'auto' as const;const [lo,hi]=axis===0?fc.extentX:fc.extentY;return (hi-lo)/25+ROOM_W<=sw&&depth/25+ROOM_H+12<=hsec?25 as const:'auto' as const;};
+ // + 24 mm: level marks (T.O.S. +3.500) right of the concrete
+ const secN=(axis:0|1)=>{if(!fc)return 'auto' as const;const [lo,hi]=axis===0?fc.extentX:fc.extentY;return (hi-lo)/25+ROOM_W+24<=sw&&depth/25+ROOM_H+12<=hsec?25 as const:'auto' as const;};
  if(secX)views.push({view:`sec:${secX}` as ViewKey,x:a.x,y:y2,w:sw,h:hsec,n:secN(0)});
  if(secY)views.push({view:`sec:${secY}` as ViewKey,x:a.x,y:y2+hsec+g,w:sw,h:hsec,n:secN(1)});
  // details that do not fit sheet 1: next sheets, packed in rows at 1:20 (a detail larger than the drawing area: the largest scale that fits)
