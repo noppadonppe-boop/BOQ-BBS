@@ -73,3 +73,11 @@ export function sheetFixtures():Record<string,SheetData[]>{
  };
 }
 export const pagesOf=(s:SheetData)=>Array.from({length:sheetPageCount(s)},(_,i)=>i);
+/** Spread / pile cap footing W × L (mm) with a pedestal, as one sheet set (Sheet Composer tests). */
+export function footingData(width:number,length:number,extra:{project?:Partial<Project>;member?:Partial<Member>}={}):SheetData{
+ const i=defaultElementInput('Foundation','manual',spec) as FoundationInput;
+ i.width=width;i.length=length;i.thickness=800;i.column.type='pedestal';i.column.width=400;i.column.depth=400;i.column.height=600;i.column.columnNo='C1';
+ const m={...applyElementInput(blankMember('Foundation',`F${width}`),i,{rounding:25}).member,...extra.member};
+ return sheet(m as Member,{...project('J-005'),...extra.project} as Project,i);
+}
+export {spec as fixtureSpec};

@@ -171,6 +171,14 @@
   call `expandPrims()` first, so SVG / PDF never change — test `tests/sheetSnapshot.test.ts` (snapshot `tests/__snapshots__/sheets.json.gz`,
   fixtures `tests/fixtures/sheets.ts`; re-create only for an intended drawing change: `SNAP=1`). `renderView()` emits dimension chains /
   covers / EX dims / Mark leaders semantically and reports its map (`frame`); `drawSheetInfo()` returns `views` (box, n, s, origin sheet ↔ model).
+- Sheet Composer (docs `docs/SHEET_COMPOSER.md`): sections = `member.drawingViews` v2 (`look` / `depth` / `extent` / `source`, ≤ 12,
+  v1 still read, `migrateDrawingViews`), else `defaultSections()` (`def-x` / `def-y` / `def-z` = `defaultCuts` / `columnSectionCut`, not stored);
+  layout `member.sheetLayout` (`sheetLayoutSchema.ts`: sheets of boxes per ViewKey plan | plan-bottom | plan-top | sec:<id> | notes, n, lock,
+  fixed, show) → `resolveSheetLayout()` (member → project default template → automatic) in `sheetLayout.ts`; `bbsSheet.ts` `sheetViews()` /
+  `layout()` / `drawSheetInfo()` draw it (projection lock shifts the box, `lockNote`; notes only where placed; keep-outs `sheetArea()`).
+  Templates `project.sheetTemplates` (command `saveSheetTemplates`, restore `restoredSheetTemplates`) + `spec.sheetLayoutTemplates`
+  (import key). `buildView` ViewSpec `look` / `depth` / `extent`; `renderView` `hide`, `sectionLines` (cut bubbles letter / sheet).
+  UI `SheetComposer.tsx` (button “จัดหน้าแบบ” in `SheetA3Preview`). Test `tests/sheetComposer.test.ts`; harness `tmp/preview/composer.html`.
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
   `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
   `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),
