@@ -7,6 +7,8 @@ import type {ElementInput} from './elementInput';
 import {columnSectionCut,defaultCuts,type ViewRow,type ViewSpec} from './elementViews';
 import {boundsOf} from './solids';
 import {axisIndex,type SheetSection} from './drawingViews';
+import {floorCtx,floorSectionCuts,floorSystemLayout} from './slabFloorSheet';
+import type {SheetSize} from './drawingStandard';
 import type {PlacedView,ProjectSheetTemplates,RoleKey,SheetLayout,SheetTemplate,ViewKey} from './sheetLayoutSchema';
 
 type Src={member:Member;input?:ElementInput;rows:ViewRow[];project:{spec:{sheetLayoutTemplates?:SheetTemplate[]};sheetTemplates?:ProjectSheetTemplates|null}};
@@ -14,6 +16,9 @@ export const DEFAULT_SECTION_IDS={x:'def-x',y:'def-y',z:'def-z'} as const;
 /** Sheet sections of a member without its own: X–X (cut along Y at `defaultCuts().y`), Y–Y (along X at `.x`), and the
  * pedestal / starter plan section Z–Z at `columnSectionCut().z` — exactly what the sheet drew before the Composer. */
 export function defaultSections(m:Member,input:ElementInput|undefined,rows:ViewRow[]):SheetSection[]{
+ // slab floor: X–X / Y–Y through the representative panel of the sheet (a drop / lowered area first), cropped around it
+ const fc=floorSectionCuts(m);
+ if(fc)return [{id:DEFAULT_SECTION_IDS.x,label:'X-X',axis:'Y',position:Math.round(fc.y),extent:fc.extentX,source:'default'},{id:DEFAULT_SECTION_IDS.y,label:'Y-Y',axis:'X',position:Math.round(fc.x),extent:fc.extentY,source:'default'}];
  const cuts=defaultCuts(m,rows),col=columnSectionCut(input,rows);
  return [{id:DEFAULT_SECTION_IDS.x,label:'X-X',axis:'Y',position:cuts.y,source:'default'},{id:DEFAULT_SECTION_IDS.y,label:'Y-Y',axis:'X',position:cuts.x,source:'default'},
   ...(col?[{id:DEFAULT_SECTION_IDS.z,label:'Z-Z',axis:'Z' as const,position:col.z,source:'default' as const,columns:true}]:[])];
@@ -46,7 +51,7 @@ export function templateLayout(t:SheetTemplate,sections:SheetSection[]):SheetLay
   return [{...v,view:k,...(v.lock?(lock?{lock:{to:lock,axis:v.lock.axis}}:{lock:undefined}):{})}];})}))};
 }
 /** Member layout + its sections → template (roles; added cuts as fractions of the member size). */
-export function templateFrom(o:{id:string;name:string;category:string;size:'A3'|'A2';match?:SheetTemplate['match']},layout:SheetLayout,sections:SheetSection[],m:Member,edits?:DrawingEdits):SheetTemplate{
+export function templateFrom(o:{id:string;name:string;category:string;size:'A3'|'A2'|'A1';match?:SheetTemplate['match']},layout:SheetLayout,sections:SheetSection[],m:Member,edits?:DrawingEdits):SheetTemplate{
  const users=sections.filter(s=>!Object.values(DEFAULT_SECTION_IDS).includes(s.id as never)),role=new Map<string,RoleKey>([[`sec:${DEFAULT_SECTION_IDS.x}`,'sec-x'],[`sec:${DEFAULT_SECTION_IDS.y}`,'sec-y'],[`sec:${DEFAULT_SECTION_IDS.z}`,'col-z'],...users.map((s,i)=>[`sec:${s.id}`,`user-${i+1}`] as [string,RoleKey])]);
  // Detail views belong to the member's own edits: not in templates
  const r=(k:string)=>role.get(k)||(k.startsWith('sec:')||k.startsWith('det:')?undefined:k as RoleKey);
@@ -71,10 +76,14 @@ export function sheetSections(s:Src,size:string):{sections:SheetSection[];from:'
  return t?{sections:[...base,...templateSections(t,s.member)],from:'template'}:{sections:base,from:'default'};
 }
 /** Layout of the sheet: the member's own, else the project default template, else none (automatic arrangement). */
-export function resolveSheetLayout(s:Src,size:string):{layout?:SheetLayout;from:'member'|'template'|'auto';template?:SheetTemplate}{
+export function resolveSheetLayout(s:Src,size:string):{layout?:SheetLayout;from:'member'|'template'|'system'|'auto';template?:SheetTemplate}{
  if(!composerSupported(s.input))return {from:'auto'};
  if(s.member.sheetLayout)return {layout:s.member.sheetLayout,from:'member'};
- const t=defaultTemplate(s,size);if(!t)return {from:'auto'};
+ const t=defaultTemplate(s,size);
+ // slab floor without a layout / project template: system template “พื้น (Slab Floor)”
+ if(!t&&floorCtx(s.member)){const secs=sheetSections(s,size).sections,has=(id:string)=>secs.some(x=>x.id===id)?id:undefined;
+  return {layout:floorSystemLayout(s.member,size as SheetSize,has(DEFAULT_SECTION_IDS.x),has(DEFAULT_SECTION_IDS.y)),from:'system'};}
+ if(!t)return {from:'auto'};
  return {layout:templateLayout(t,sheetSections(s,size).sections),from:'template',template:t};
 }
 /** View spec of a section (look '-' mirrors the horizontal axis, depth / extent as stored). */

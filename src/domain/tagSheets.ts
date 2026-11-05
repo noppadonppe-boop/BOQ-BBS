@@ -5,6 +5,7 @@ import {partBox} from './partRebar';
 import {solidQuantities} from './solids';
 import {editablePlacementContext,REGION_LIMIT} from './placementContext';
 import {sheetSetupOf} from './drawingStandard';
+import {mergeFloorMarks,slabMarkOf} from './slabFloorSheet';
 
 // BBS sheets per Tag (custom elements with tagged parts / bar groups): one sheet set per tag with only the bars it owns
 // and its own concrete (other parts drawn as reference outlines), bars of untagged owners on a "general" set, then a
@@ -45,7 +46,15 @@ function tagMember(m:Member,o:Owner|null,ids:Set<string>):{member:Member;rebarOn
  * limits the tag sets (the summary always follows). */
 export function tagSheetSets(s:SheetData):SheetData[]{
  const m=s.member,sm=m.shapeModel,setup=sheetSetupOf(s.project,m);
- const owners=sheetOwners(m);if(!sm||setup.parts!=='tag'||!owners.length)return [s];
+ const owners=sheetOwners(m),fl=floorOf(m);
+ // slab floor “รวมทั้งชั้น / หลายเบอร์”: one set of the picked slab marks (all = the whole floor), optional SF- Marks across marks
+ if(fl&&sm&&owners.length&&setup.parts!=='tag'){const all=owners.map(o=>o.tag),want=new Set((m.drawingSetup?.partTags||[]).map(t=>t.toUpperCase())),pick=all.filter(t=>!want.size||want.has(t.toUpperCase())),merged=!!m.drawingSetup?.floorMerge;
+  const floor={mode:'floor' as const,marks:pick.length?pick:all,merged};
+  if(!pick.length||pick.length===all.length)return [{...s,rows:merged?mergeFloorMarks(s.rows):s.rows,floor}];
+  const os=owners.filter(o=>pick.includes(o.tag)),o:Owner={id:os[0].id,tag:pick.join('+').slice(0,40),label:`เบอร์พื้น ${pick.join(', ')}`,group:false,ids:os.flatMap(x=>x.ids)};
+  const rows0=s.rows.filter(r=>pick.includes(slabMarkOf(r))),rows=merged?mergeFloorMarks(rows0):rows0,{member}=tagMember(m,o,new Set(rows.map(r=>r.id))),q=solidQuantities(member),weight=rows.reduce((t,r)=>t+r.weight,0);
+  return [{...s,member,rows,input:undefined,takeoff:{concrete:q.volume,formwork:q.formwork,excavation:0,backfill:0,lean:0,rebar:weight},floor}];}
+ if(!sm||setup.parts!=='tag'||!owners.length)return [s];
  const pick=new Set((m.drawingSetup?.partTags||[]).map(t=>t.toUpperCase())),tagged=new Map(owners.flatMap(o=>o.ids.map(id=>[id,o] as const)));
  const ownerOf=(id:string)=>{const o=barOwner(sm,{id});return o?tagged.get(o)?.id:undefined;};
  const sets:SheetData[]=[],summary:TagSummary[]=[];
@@ -56,7 +65,7 @@ export function tagSheetSets(s:SheetData):SheetData[]{
   const weight=rows.reduce((t,r)=>t+r.weight,0),tag=o?.tag||GENERAL,label=o?.label||'เหล็กที่ไม่อยู่ใน Tag';
   summary.push({tag,label,marks:rows.length,weight,concrete:rebarOnly?null:q.volume});
   if(pick.size&&!pick.has(tag.toUpperCase()))return;
-  sets.push({...s,member,rows,input:undefined,takeoff:{concrete:q.volume,formwork:q.formwork,excavation:0,backfill:0,lean:0,rebar:weight},scope:{kind:'tag',tag,label,rebarOnly}});
+  sets.push({...s,member,rows,input:undefined,takeoff:{concrete:q.volume,formwork:q.formwork,excavation:0,backfill:0,lean:0,rebar:weight},scope:{kind:'tag',tag,label,rebarOnly},...(fl&&o?{floor:{mode:'mark' as const,marks:[o.tag],merged:false}}:{})});
  };
  for(const o of owners)add(o);
  add(null);

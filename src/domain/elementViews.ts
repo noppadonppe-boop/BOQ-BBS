@@ -8,6 +8,7 @@ import {expandPrims,textWidth,type DimPrim,type LayerRole,type PlainPrim,type Pr
 import type {Anchor,ViewEdits} from './drawingEdits';
 import {clipPrims} from './primClip';
 import {boundsOf} from './solids';
+import {floorCtx,floorFocus,floorKind,floorLayerToken,floorRowLayer,isTopExtra,slabMarkOf,type FloorCtx} from './slabFloorSheet';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
@@ -20,7 +21,9 @@ export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:b
  /** extent without the margin (pieces of a stepped section) */ exact?:boolean;
  /** Detail view: the parent view drawn around (u, v) within r mm (circle or square), cropped to it */ window?:{u:number;v:number;r:number;circle?:boolean};
  /** stepped section: from `from` (along the view's horizontal axis) the cut moves to `cut` */ steps?:{from:number;cut:number}[];
- /** isometric 3D view (concrete edges + bar centrelines) */ iso?:boolean};
+ /** isometric 3D view (concrete edges + bar centrelines) */ iso?:boolean;
+ /** slab floor plan (S2): bars of one layer (or all), one representative bar per Mark per panel, grids / beams / other marks */
+ floor?:{layer:'bottom'|'top'|'all'}};
 type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'wall'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
@@ -101,27 +104,30 @@ function isoView(m:Member,rows:ViewRow[],input:ElementInput|undefined):ViewData{
    edges.push({a:P([a[0],a[1],0]),b:P([b[0],b[1],0])},{a:P([a[0],a[1],T]),b:P([b[0],b[1],T])},{a:P([a[0],a[1],0]),b:P([a[0],a[1],T])});}}
  const solids=solidsOf(m).filter(x=>!foot||!(x.id==='main'||x.id.startsWith('footing')));
  if(solids.length)for(const x of solids)box(x.origin,x.size);else if(!foot){const b=boundsOf(m);box([0,0,0],[b[0],b[1],b[2]]);}
- let n=0;const bars=rows.map(row=>({row,lines:row.paths.slice(0,40).flatMap(p=>p.slice(1).map((q,i)=>({a:P(p[i]),b:P(q)}))).filter(()=>n++<6000),dots:[] as [number,number][],couplers:[] as [number,number][],dist:undefined}));
+ let n=0;const bars=rows.map(row=>({row,lines:row.paths.slice(0,40).flatMap(p=>p.slice(1).map((q,i)=>({a:P(p[i]),b:P(q)}))).filter(()=>n++<6000),dots:[] as [number,number][],couplers:[] as [number,number][],dist:undefined,part:undefined}));
  const pts=[...edges.flatMap(e=>[e.a,e.b]),...bars.flatMap(b=>b.lines.flatMap(l=>[l.a,l.b]))],us=pts.map(p=>p[0]),vs=pts.map(p=>p[1]);
  const base=buildViewOne(m,[],input,{axes:[0,1]});
  return {...base,rects:[],polys:[],refs:[],holes:[],edges,piles:[],guides:[],bars,joints:[],stageText:[],levels:[],covers:[],beamCols:[],exDims:[],band:undefined,ground:undefined,
   u:us.length?[Math.min(...us),Math.max(...us)]:base.u,v:vs.length?[Math.min(...vs),Math.max(...vs)]:base.v,iso:true};
 }
-function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep,tight,look,depth,extent,exact}:ViewSpec){
- if(layer&&normal===undefined)rows=rows.filter(r=>planLayerOf(m,input,r)===layer);
+function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep,tight,look,depth,extent,exact,floor:fspec,window:win}:ViewSpec){
+ const fc=floorCtx(m),fplan=!!fc&&!!fspec&&normal===undefined;
+ if(fplan&&fspec!.layer!=='all')rows=rows.filter(r=>(floorRowLayer(r)??planLayerOf(m,input,r))===fspec!.layer);
+ else if(layer&&normal===undefined)rows=rows.filter(r=>planLayerOf(m,input,r)===layer);
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
  // Footing concrete comes from the true plan outline (circle / polygons / L / U), not the bounding box.
  const only=!!columns&&input?.category==='Foundation'&&normal===2,foot=input?.category==='Foundation'&&!only?footingOutline(input):undefined,polys:Pt[][]=[],refs:Pt[][]=[],piles:Pile[]=[];
  if(only){rows=rows.filter(r=>/column-(main|tie)/.test(r.id));const fe=footingExtent(input);
   for(const c of footingColumns(input)){const {w,d}=columnExtent(c),ox=(fe.w-w)/2+c.offsetX,oy=(fe.d-d)/2+c.offsetY;(input.column.type==='pedestal'?polys:refs).push(columnOutline(c).map(([x,y])=>[ox+x,oy+y] as Pt));}}
  const isFooting=(id:string)=>!!foot&&(id==='main'||id.startsWith('footing'));
- const boxes=only?[]:[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...contextSolids(m).map(s=>({s,kind:s.id.startsWith('context_genwall')?'wall' as const:'context' as const}))];
+ const boxes=only?[]:[...solidsOf(m).filter(s=>!isFooting(s.id)).map(s=>({s,kind:'concrete' as const})),...(fplan?[]:contextSolids(m)).map(s=>({s,kind:s.id.startsWith('context_genwall')?'wall' as const:'context' as const}))];
  const sm=m.shapeModel,earth=m.category==='Foundation'||!!sm?.site,holes:Pt[][]=[],edges:Line[]=[];
  if(!only){if(m.lean.thickness>0)rects.push(...leanRect(m,a,b,normal,cut));
  rects.push(...sandRect(m,a,b,normal,cut));}
  // shape model: plan = footprint (holes white) + thin outlines of every part; section = cut rectangles per level band
  if(sm){
-  if(normal===undefined){const r=shapePlanRings(sm);polys.push(...r.outer);holes.push(...r.holes);
+  if(fplan){const on=new Set(floorFocus(m));polys.push(...fc!.panels.filter(p=>on.has(p.mark)).map(p=>p.ring));holes.push(...fc!.openings.map(o=>[[o.x0,o.y0],[o.x1,o.y0],[o.x1,o.y1],[o.x0,o.y1]] as Pt[]));}
+  else if(normal===undefined){const r=shapePlanRings(sm);polys.push(...r.outer);holes.push(...r.holes);
    for(const p of sm.parts)for(const ring of partPolygon(p))ring.forEach((q,i)=>{const n=ring[(i+1)%ring.length];edges.push({a:[q[a],q[b]],b:[n[a],n[b]]});});}
   else for(const r of shapeSectionRects(sm,a as 0|1,cut!))rects.push({u0:r.u0,u1:r.u1,v0:r.z0,v1:r.z1,kind:'concrete'});
   const p=sm.piles;if(p){const h=p.size/2,bottom=-m.lean.thickness-700,square=p.type==='square';
@@ -166,7 +172,7 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
  }
  // Bars: plan projects everything; sections show bars lying in the nearest plane and dots where bars cross it.
  let rowIndex=0;
- const bars=rows.map(r=>{
+ let bars=rows.map(r=>{
   const lines:Line[]=[],dots:[number,number][]=[];
   // representative bar: the middle bar of the row, plus a line across all bar positions at a staggered point along it
   let dist:{a:[number,number];b:[number,number];q:[number,number];spacing:number;n:number}|undefined;
@@ -202,8 +208,11 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
   if(normal!==undefined&&normal!==2&&(ce.top||ce.bottom)){const zs=r.paths.flatMap(p=>p.map(q=>q[2])),zTop=high(zs),zBot=low(zs);
    for(const l of lines){if(Math.abs(l.a[0]-l.b[0])>=.5)continue;const hi=l.a[1]>l.b[1]?l.a:l.b,lo=hi===l.a?l.b:l.a;
     if(ce.top&&Math.abs(hi[1]-zTop)<1)couplers.push(hi);if(ce.bottom&&Math.abs(lo[1]-zBot)<1)couplers.push(lo);}}
-  return {row:r,lines,dots,couplers,dist};
+  return {row:r,lines,dots,couplers,dist,part:undefined as string|undefined};
  });
+ // slab floor plan: one entry per Mark per panel (representative bar + distribution line of that panel, else every bar)
+ const fdata=fplan?floorPlanData(m,fc!,rows,a,b,!!rep,win):undefined;
+ if(fdata)bars=fdata.bars;
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
  const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
  // level (m) at v = 0 of a vertical section, when the member has a level reference (user level marks of the Drawing Edit)
@@ -249,10 +258,11 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
   for(const r of rows){const t=r.id.match(/-ex-(?:mid-)?(top|bottom)/),p=r.paths[0];if(!t||!p)continue;const xs=p.map(q=>q[0]),xa=Math.min(...xs),xb=Math.max(...xs);
    exDims.push({id:r.id,mark:r.mark,top:t[1]==='top',stops:[xa,...faces.filter(x=>x>xa+1&&x<xb-1),xb]});}
  }
- const us=[...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0]),...(x.dist?[x.dist.a[0],x.dist.b[0]]:[])])];
- const vs=[...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1]),...(x.dist?[x.dist.a[1],x.dist.b[1]]:[])])];
+ const fext=fdata?{u:[...fdata.grids.flatMap(g=>g.axis===a?[g.at]:[g.lo,g.hi]),...fdata.faded.flat().map(p=>p[0])],v:[...fdata.grids.flatMap(g=>g.axis===b?[g.at]:[g.lo,g.hi]),...fdata.faded.flat().map(p=>p[1])]}:{u:[],v:[]};
+ const us=[...fext.u,...beamCols.flatMap(c=>[c.x0,c.x1]),...rects.flatMap(r=>[r.u0,r.u1]),...[...polys,...refs].flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...guides.flatMap(g=>[g.a[0],g.b[0]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0]),...(x.dist?[x.dist.a[0],x.dist.b[0]]:[])])];
+ const vs=[...fext.v,...beamCols.flatMap(c=>[c.lo,c.hi]),...rects.flatMap(r=>[r.v0,r.v1]),...[...polys,...refs].flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...guides.flatMap(g=>[g.a[1],g.b[1]]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1]),...(x.dist?[x.dist.a[1],x.dist.b[1]]:[])])];
  let U:[number,number]=only?[low(us),high(us)]:[low(us,0),high(us,1)],V:[number,number]=only?[low(vs),high(vs)]:[low(vs,0),high(vs,1)];
- if(tight&&!beamCols.length){
+ if(tight&&!beamCols.length&&!fdata){
   const core=rects.filter(r=>r.kind!=='context'),cu=[...core.flatMap(r=>[r.u0,r.u1]),...polys.flat().map(p=>p[0]),...piles.flatMap(p=>[p.u-p.size/2,p.u+p.size/2]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[0],l.b[0]]),...x.dots.map(d=>d[0])])];
   const cv=[...core.flatMap(r=>[r.v0,r.v1]),...polys.flat().map(p=>p[1]),...piles.flatMap(p=>[p.v-p.size/2,p.v+p.size/2]),...bars.flatMap(x=>[...x.lines.flatMap(l=>[l.a[1],l.b[1]]),...x.dots.map(d=>d[1])])];
   if(cu.length&&cv.length){const pu=Math.max(300,.06*(high(cu)-low(cu))),pv=Math.max(300,.06*(high(cv)-low(cv))),cl=(x:number,r:[number,number])=>Math.min(r[1],Math.max(r[0],x));
@@ -285,18 +295,64 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
   // level marks stay right of the concrete
   const conc=rects.filter(r=>r.kind==='concrete');for(const l of levels){const at=conc.filter(r=>r.v0-1e-6<=l.v&&l.v<=r.v1+1e-6);l.u=at.length?Math.max(...at.map(r=>r.u1)):f(l.u);}
   for(const c of beamCols){const a=c.x0;c.g=f(c.g);c.x0=f(c.x1);c.x1=f(a);}for(const d of exDims)d.stops=d.stops.map(f).sort((p,q)=>p-q);}
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,window:undefined as ViewSpec['window'],stepAt:[] as number[],iso:false,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined};
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,window:undefined as ViewSpec['window'],stepAt:[] as number[],iso:false,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined,
+  floor:fdata,floorMember:!!fc,floorNote:undefined as string[]|undefined};
+}
+type FloorEntry={row:ViewRow;lines:Line[];dots:[number,number][];couplers:[number,number][];dist:{a:[number,number];b:[number,number];q:[number,number];spacing:number;n:number}|undefined;part:string|undefined};
+const pointIn=(p:[number,number],r:[number,number][])=>{let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const A=r[i],B=r[j];if((A[1]>p[1])!==(B[1]>p[1])&&p[0]<(B[0]-A[0])*(p[1]-A[1])/(B[1]-A[1])+A[0])inside=!inside;}return inside;};
+const lineLen=(l:Line)=>Math.hypot(l.b[0]-l.a[0],l.b[1]-l.a[1]);
+/** Slab floor plan data (member coordinates): bar entries per panel, grids with bubbles, reference beams, panels of other marks
+ * (faded), drops, and the dimension chains of the extra top bars (projection past the beam faces) / opening trimmers (past the
+ * opening edges). `win` (Detail view) keeps only bars near the window. */
+function floorPlanData(m:Member,c:FloorCtx,rows:ViewRow[],a:number,b:number,rep:boolean,win:ViewSpec['window']){
+ const on=new Set(floorFocus(m)),panelOf=(u:number,v:number)=>c.panels.find(p=>pointIn([u,v],p.ring)),bars:FloorEntry[]=[];let k=0;
+ const near=(p:Vec3[])=>!win||p.some(q=>Math.abs(q[a]-win.u)<=win.r*1.3&&Math.abs(q[b]-win.v)<=win.r*1.3)||p.length>1&&p.slice(1).some((q,i)=>{const s=p[i];
+  return Math.min(s[a],q[a])<=win.u+win.r&&Math.max(s[a],q[a])>=win.u-win.r&&Math.min(s[b],q[b])<=win.v+win.r&&Math.max(s[b],q[b])>=win.v-win.r;});
+ // panels a bar passes through (points along its plan segments); a continuous bar belongs to every panel it crosses
+ const panelsOn=(p:Vec3[])=>{const out=new Set<string>();for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i],L=Math.hypot(t[a]-s[a],t[b]-s[b]),n=Math.min(40,Math.max(1,Math.ceil(L/400)));
+  for(let j=0;j<=n;j++){const f=(j+.5)/(n+1),pn=panelOf(s[a]+(t[a]-s[a])*f,s[b]+(t[b]-s[b])*f);if(pn)out.add(pn.tag);}}return out.size?[...out]:[''];};
+ for(const r of rows){
+  const by=new Map<string,Vec3[][]>(),drawn=new Set<Vec3[]>();
+  for(const p of r.paths){if(!near(p))continue;for(const key of panelsOn(p))by.set(key,[...(by.get(key)||[]),p]);}
+  for(const [part,paths] of by){const d=rep&&paths.length>=3?distribution(paths,a,b):undefined,lines:Line[]=[],dots:[number,number][]=[];let dist:FloorEntry['dist'];
+   if(d){const segs=d.path.slice(1).map((q,i)=>({s:d.path[i],t:q,l:Math.hypot(q[a]-d.path[i][a],q[b]-d.path[i][b])})),main=segs.reduce((x,y)=>y.l>x.l?y:x),f0=.2+(k++*.13)%.6;
+    // distribution line inside this panel: the point of the main leg nearest the panel's centre (staggered a little per Mark)
+    const pn=c.panels.find(x=>x.tag===part),du=main.t[a]-main.s[a],dv=main.t[b]-main.s[b],L2=du*du+dv*dv||1;
+    let f=f0;if(pn){const cx=(pn.box.x0+pn.box.x1)/2,cy=(pn.box.y0+pn.box.y1)/2,span=Math.abs(du)>=Math.abs(dv)?(pn.box.x1-pn.box.x0):(pn.box.y1-pn.box.y0);
+     f=Math.min(1,Math.max(0,((cx-main.s[a])*du+(cy-main.s[b])*dv)/L2+(f0-.5)*.6*span/Math.sqrt(L2)));}
+    const q:[number,number]=[main.s[a]+du*f,main.s[b]+dv*f];dist={q,a:[q[0]+d.first[0],q[1]+d.first[1]],b:[q[0]+d.last[0],q[1]+d.last[1]],spacing:d.spacing,n:d.n};}
+   const draw=(d?[d.path]:rep&&paths.length>8?[paths[Math.floor(paths.length/2)]]:paths).filter(p=>!drawn.has(p));
+   for(const p of draw){drawn.add(p);for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i];if(Math.hypot(t[a]-s[a],t[b]-s[b])<1){if(Math.abs(t[2]-s[2])>1)dots.push([s[a],s[b]]);}else lines.push({a:[s[a],s[b]],b:[t[a],t[b]]});}}
+   bars.push({row:r,lines,dots,couplers:[],dist,part:part||undefined});}
+ }
+ const e=c.extent,pad=900,grids=c.grids.map(g=>({axis:g.axis as number,at:g.at,label:g.label,lo:(g.axis===0?e.y0:e.x0)-pad,hi:(g.axis===0?e.y1:e.x1)+pad}));
+ const beams=c.beams.map(x=>({u0:x.x0,u1:x.x1,v0:x.y0,v1:x.y1}));
+ const faded=c.panels.filter(p=>!on.has(p.mark)).map(p=>p.ring);
+ // dimension chains: extra top bars across the beam (stops at the beam faces), opening trimmers across the opening
+ const dims:{id:string;row:string;dir:'h'|'v';stops:number[];at:number;texts:(string|undefined)[]}[]=[];
+ for(const x of bars){const kind=floorKind(x.row.id),extra=isTopExtra(x.row);if(!extra&&kind!=='OP')continue;
+  const l=x.lines.reduce<Line|undefined>((best,y)=>!best||lineLen(y)>lineLen(best)?y:best,undefined);if(!l)continue;
+  const h=Math.abs(l.b[0]-l.a[0])>=Math.abs(l.b[1]-l.a[1]),s0=Math.min(h?l.a[0]:l.a[1],h?l.b[0]:l.b[1]),s1=Math.max(h?l.a[0]:l.a[1],h?l.b[0]:l.b[1]),pos=h?l.a[1]:l.a[0];
+  const obs=extra?beams.map(q=>h?{lo:q.u0,hi:q.u1,p0:q.v0,p1:q.v1}:{lo:q.v0,hi:q.v1,p0:q.u0,p1:q.u1}):c.openings.map(o=>h?{lo:o.x0,hi:o.x1,p0:o.y0-800,p1:o.y1+800}:{lo:o.y0,hi:o.y1,p0:o.x0-800,p1:o.x1+800});
+  const faces=obs.filter(q=>pos>=q.p0-1&&pos<=q.p1+1&&q.hi>s0+1&&q.lo<s1-1).flatMap(q=>[q.lo,q.hi]).filter(v=>v>s0+1&&v<s1-1);if(!faces.length)continue;
+  const stops=[...new Set([s0,...faces,s1].map(v=>Math.round(v)))].sort((p,q)=>p-q);
+  const mk=c.f.marks.find(y=>y.name===slabMarkOf(x.row)),te=mk?.rebar.topExtra,ratio=extra&&te?.length.mode==='ratio'?`L/${te.length.n}`:undefined;
+  const texts=stops.slice(1).map((_,i)=>ratio&&(i===0||i===stops.length-2)?`<> (${ratio})`:undefined);
+  dims.push({id:`${x.row.id}@${x.part||''}`,row:x.row.id,dir:h?'h':'v',stops,at:pos,texts});}
+ return {bars,grids,beams,faded,drops:c.drops.map(d=>({ring:d.ring,label:d.label,kind:d.kind})),dims,layerText:(r:ViewRow)=>floorLayerToken(r.note)};
 }
 export type ViewData=ReturnType<typeof buildViewOne>;
 
 type DimSpec={dir:'h'|'v';stops:number[];side:'start'|'end'};
 /** Chained dimensions per view from the member / input (not measured from the drawing). */
-function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number],normal?:number,columns=false):DimSpec[]{
+function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number],normal?:number,columns=false,grids?:{axis:number;at:number}[]):DimSpec[]{
  const [a,b]=axes,size=[m.x,m.y,m.z];
  // pedestal / starter section: faces of every column along each axis
  if(columns&&input?.category==='Foundation'){const fe=footingExtent(input),cols=footingColumns(input),faces=(axis:number)=>cols.flatMap(c=>{const e=columnExtent(c),size=axis?e.d:e.w,total=axis?fe.d:fe.w,off=axis?c.offsetY:c.offsetX;return [(total-size)/2+off,(total+size)/2+off];});
   return [{dir:'h',stops:faces(a),side:'start'},{dir:'v',stops:faces(b),side:'start'}];}
  const out:DimSpec[]=[{dir:'h',stops:[0,size[a]],side:'start'}];
+ // slab floor plan: overall size + grid to grid along each axis
+ if(grids&&normal===undefined){const at=(ax:number)=>[...new Set(grids.filter(g=>g.axis===ax).map(g=>Math.round(g.at)))].sort((p,q)=>p-q);return [...out,{dir:'h',stops:at(a),side:'end'},{dir:'v',stops:[0,size[b]],side:'start'},{dir:'v',stops:at(b),side:'end'}];}
  // beam group: grid to grid (c/c spans) above the beam
  if(a===0&&b!==0&&input?.category==='Beam'&&input.layout==='group'&&input.spans.length)out.push({dir:'h',stops:beamGroupLayout(input).grid,side:'end'});
  if(normal===undefined)out.push({dir:'v',stops:[0,size[b]],side:'start'});
@@ -352,7 +408,12 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // a representative bar adds count and spacing: "F01 36-DB32@250"
  const size=10*k*fs,step=size*1.15,family=(id:string)=>id.replace(/^(gen-(?:bottom|top)-[xy])-\d+$/,'$1'),labelled=new Set<string>();
  const labels:{id:string;text:string;at:[number,number];left:boolean;mark:{mark:string;n?:number;size?:string;spacing?:number}}[]=[];
- for(const {row,lines,dots,dist} of v.bars){const fam=family(row.id);if(labelled.has(fam))continue;
+ for(const {row,lines,dots,dist,part} of v.bars){
+  // slab floor plan: one label per Mark per panel, "S1-B01 DB12@200 (B1)"
+  if(v.floor){if(win&&!/^(OP|OD)$/.test(floorKind(row.id)||''))continue;const id=`${row.id}@${part||''}`,p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p||labelled.has(id))continue;labelled.add(id);
+   const sp=dist?Math.round(dist.spacing/5)*5:0,n=dist?dist.n:row.count,lay=v.floor.layerText(row);
+   labels.push({id,text:`${row.mark} ${dist?`${barName(row.diameter)}@${sp}`:`${n>1?`${n}-`:''}${barName(row.diameter)}`}${lay?` (${lay})`:''}`,at:p,left:p[0]<(u[0]+u[1])/2,mark:{mark:row.mark,size:barName(row.diameter),...(dist?{n:dist.n,spacing:sp}:{})}});continue;}
+  const fam=family(row.id);if(labelled.has(fam))continue;
   const p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p)continue;labelled.add(fam);
   const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],name=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
   labels.push({id:row.id,text:dist?`${name} ${dist.n}-${barName(row.diameter)}@${Math.round(dist.spacing/5)*5}`:name,at:p,left:p[0]<(u[0]+u[1])/2,mark:{mark:name,size:barName(row.diameter),...(dist?{n:dist.n,spacing:Math.round(dist.spacing/5)*5}:{})}});}
@@ -377,11 +438,15 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const put=(layer:LayerRole,...ps:Prim[])=>{for(const p of ps){p.layer=layer;out.push(p);}};
  // Drawing Edit: override of an automatic annotation (stable key), paper unit (sheet mm when k = 0.26)
  const over=(key:string)=>opts.edits?.over?.[key],pu=k/.26;
- const barLayer=(id:string):LayerRole=>/tie|stirrup|link|hoop|spiral/i.test(id)?'barLink':'barMain';
+ const barLayer=(id:string,row?:ViewRow):LayerRole=>{if(v.floorMember&&row){const f=floorRowLayer(row);if(f)return f==='top'?'barTop':'barBottom';}return /tie|stirrup|link|hoop|spiral/i.test(id)?'barLink':'barMain';};
  const style:Record<Rect['kind'],{fill?:string;stroke:string;width:number;dash?:number[]}>={concrete:{fill:'#e9efec',stroke:'#51706a',width:1.2*k},lean:{fill:'#dcd8cf',stroke:'#8a857a',width:.8*k},sand:{fill:'#f3e6bf',stroke:'#b39552',width:.8*k},context:{stroke:'#d07a2d',width:1*k,dash:[5*k,3*k]},wall:{fill:'#b9c4c1',stroke:'#3d5054',width:1*k},pile:{fill:'#cfc6b6',stroke:'#6b5b45',width:1*k}};
  const rect=(r:Rect)=>put(r.kind==='context'?'concreteHidden':'concrete',r.circle?{t:'ellipse',cx:X((r.u0+r.u1)/2),cy:Y((r.v0+r.v1)/2),rx:(r.u1-r.u0)/2*s,ry:(r.v1-r.v0)/2*s,...style[r.kind]}:{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,...style[r.kind]});
  v.rects.filter(r=>r.kind==='sand').forEach(rect);
  v.rects.filter(r=>r.kind==='lean').forEach(rect);
+ // slab floor plan: panels of other slab marks (faded), reference beams (dashed), grids (dash-dot + bubbles)
+ const F=v.floor;
+ if(F){for(const p of F.faded)put('concreteHidden',{t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,fill:'#f1f5f9',stroke:'#cbd5e1',width:.5*k});
+}
  for(const p of v.polys)put('concrete',{t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,...style.concrete});
  // starter bars: the column above is a reference outline (dashed), not concrete of this element
  for(const p of v.refs)put('concreteHidden',{t:'poly',pts:p.map(q=>[X(q[0]),Y(q[1])]),closed:true,...style.context});
@@ -389,6 +454,13 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  for(const g of v.edges)put('concrete',{t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#7d9690',width:.5*k});
  for(const p of v.piles){const dash=[4*k,2*k];if(p.square)put('concreteHidden',{t:'rect',x:X(p.u-p.size/2),y:Y(p.v+p.size/2),w:p.size*s,h:p.size*s,stroke:'#6b5b45',width:k,dash});else{put('concreteHidden',{t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/2*s,stroke:'#6b5b45',width:k,dash});if(p.hollow)put('concreteHidden',{t:'circle',cx:X(p.u),cy:Y(p.v),r:p.size/4*s,stroke:'#6b5b45',width:k,dash});}}
  v.rects.filter(r=>r.kind!=='lean'&&r.kind!=='sand').forEach(rect);
+ if(F){
+  for(const g of F.grids){const vert=g.axis===v.axes[0],r=6*k,cs={stroke:'#94a3b8',width:.5*k,dash:[10*k,3*k,2*k,3*k]};
+   const [x1,y1,x2,y2]=vert?[X(g.at),Y(g.hi),X(g.at),Y(g.lo)]:[X(g.lo),Y(g.at),X(g.hi),Y(g.at)];put('symbol',{t:'line',x1,y1,x2,y2,...cs});
+   const cx=vert?x1:x1-r,cy=vert?y1-r:y1;put('symbol',{t:'circle',cx,cy,r,stroke:'#334155',width:.5*k,fill:'#ffffff'});put('text',{t:'text',x:cx,y:cy+3.2*k*fs,text:g.label,size:8*k*fs,color:'#334155',anchor:'middle',bold:true});}
+  for(const b of F.beams)put('concreteHidden',{t:'rect',x:X(b.u0),y:Y(b.v1),w:(b.u1-b.u0)*s,h:(b.v1-b.v0)*s,stroke:'#475569',width:.6*k,dash:[4*k,2.4*k]});
+  for(const h of v.holes){const [p0,,p2]=h,[q0,q1]=[[X(p0[0]),Y(p0[1])],[X(p2[0]),Y(p2[1])]];put('concrete',{t:'line',x1:q0[0],y1:q0[1],x2:q1[0],y2:q1[1],stroke:'#94a3b8',width:.4*k},{t:'line',x1:q0[0],y1:q1[1],x2:q1[0],y2:q0[1],stroke:'#94a3b8',width:.4*k});}
+  for(const d of F.drops)put('concreteHidden',{t:'poly',pts:d.ring.map(q=>[X(q[0]),Y(q[1])]),closed:true,stroke:'#0f766e',width:.6*k,dash:[3*k,2*k]});}
  for(const g of v.guides)put('concreteHidden',{t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#a07b54',width:.8*k,dash:[6*k,4*k]});
  if(v.ground!==undefined&&!levelList.length)put('text',{t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
  // pour stages: joint lines (red dashed) and the stage names; level marks: ▽ + text right of the concrete face
@@ -419,7 +491,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
    put('symbol',{t:'circle',cx,cy,r,stroke:'#3f5459',width:.6*k,fill:'#ffffff'},{t:'line',x1:cx-r,x2:cx+r,y1:cy,y2:cy,stroke:'#3f5459',width:.4*k});
    put('text',{t:'text',x:cx,y:cy-1.2*k,text:letter,size:5.5*k*fs,color:'#22393f',anchor:'middle',bold:true},{t:'text',x:cx,y:cy+4.3*k,text:c.ref||'—',size:4.2*k*fs,color:'#4b6166',anchor:'middle'});}}
  for(const {row,lines,dots,couplers,dist} of v.bars){
-  const color=opts.colors.get(row.id)||'#167561',w=Math.max(k,row.diameter*s),bl=barLayer(row.id);
+  const color=opts.colors.get(row.id)||'#167561',w=Math.max(k,row.diameter*s),bl=barLayer(row.id,row);
   for(const l of lines)put(bl,{t:'line',x1:X(l.a[0]),y1:Y(l.a[1]),x2:X(l.b[0]),y2:Y(l.b[1]),stroke:color,width:w,cap:'round',group:row.id});
   for(const d of dots)put(bl,{t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max((v.columns?3:1.6)*k,row.diameter*s/2),fill:color,group:row.id});
   for(const c of couplers){const cw=Math.max(4.5*k,row.diameter*1.6*s),ch=Math.max(9*k,row.diameter*3*s);put(bl,{t:'rect',x:X(c[0])-cw/2,y:Y(c[1])-ch/2,w:cw,h:ch,fill:'#ffffff',stroke:color,width:.9*k,group:row.id},{t:'line',x1:X(c[0])-cw/2,x2:X(c[0])+cw/2,y1:Y(c[1]),y2:Y(c[1]),stroke:color,width:.6*k,group:row.id});}
@@ -430,7 +502,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  }
  // labels: gutter columns / rows (sorted so leaders do not cross), else next to the bar moving down to clear
  // (semantic leader: points from the bar, text, Mark data for the DXF Mark block; `draw` = the drawing as before)
- const colorOf=(id:string)=>opts.colors.get(id)||'#167561';
+ const colorOf=(id:string)=>opts.colors.get(id.split('@')[0])||'#167561';
  const leaderDraw=(l:{id:string;at:[number,number]},pts:[number,number][]):PlainPrim[]=>{const color=colorOf(l.id),ax=X(l.at[0]),ay=Y(l.at[1]);
   return [{t:'poly',pts:[[ax,ay],...pts],closed:false,stroke:color,width:.45*k,group:l.id},{t:'circle',cx:ax,cy:ay,r:1.1*k,fill:color,group:l.id}];};
  // Drawing Edit override `mark:<bar id>`: hidden, text moved by (dx, dy) paper mm (the arrow stays on the bar), own text
@@ -484,7 +556,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // Drawing Edit override `dim:<dir><side><n>` (n-th chain of that direction / side): hidden, dimension line moved (off,
  // paper mm: +y down for horizontal chains, +x right for vertical ones), text ('<>' = measured value)
  const dimN=new Map<string,number>();
- for(const d of hide.dims?[]:dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){
+ for(const d of hide.dims?[]:dimensionSets(v.member,v.input,v.axes,v.normal,v.columns,v.floor?.grids)){
   const kk=`${d.dir}${d.side}`,n=dimN.get(kk)||0;dimN.set(kk,n+1);const key=`dim:${kk}${n}`,o=over(key),off=(o?.off||0)*pu,tpl=o?.text,lab=(x:number)=>tpl!==undefined?tpl.replace('<>',fmt(x)):fmt(x);if(o?.hidden)continue;
   // mirrored view (look '-'): stops along the horizontal axis mirror too; a cropped view keeps the stops inside it
   const flipU=v.flip&&d.dir==='h',pts=[...new Set(d.stops.map(n=>Math.round((flipU?u[0]+u[1]-n:n)*10)/10))].filter(p=>!v.cropped||d.dir!=='h'||p>=u[0]-1&&p<=u[1]+1).sort((p,q)=>p-q);if(pts.length<2)continue;const draw:PlainPrim[]=[];
@@ -493,6 +565,18 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   else{const x=(d.side==='start'?X(u[0])-24*k:X(u[1])+24*k)+off,fx=d.side==='start'?X(u[0]):X(u[1]);for(const p of pts)draw.push({t:'line',x1:x-5*k,x2:x+5*k,y1:Y(p),y2:Y(p),...line});draw.push({t:'line',x1:x,x2:x,y1:Y(pts[0]),y2:Y(pts.at(-1)!),...line});pts.slice(1).forEach((p,i)=>{if(Y(pts[i])-Y(p)>dsize*1.2)draw.push({t:'text',x:x+(d.side==='start'?-3*k:3*k),y:(Y(p)+Y(pts[i]))/2+3*k,text:lab(p-pts[i]),size:dsize,color:'#3f5459',anchor:d.side==='start'?'end':'start'});});
    chain(pts.slice(1).map((p,i)=>({a:[fx,Y(pts[i])],b:[fx,Y(p)],line:[x,Y(pts[i])],dir:'v' as const,value:p-pts[i],key,...(tpl!==undefined?{text:tpl}:{})})),dsize,draw);}
  }
+ // slab floor: extra top bars across the beam (projection past the faces, L/n) and opening trimmers (past the opening edges);
+ // one chain per Mark (Detail view: the one nearest its centre), drawn beside the bar
+ if(F&&!opts.hide?.dims){const pick=new Map<string,typeof F.dims[number]>();
+  for(const d of F.dims){if(!d.stops.some(x=>x>=u[0]&&x<=u[1]))continue;const o=pick.get(d.row);if(!o){pick.set(d.row,d);continue;}
+   if(win){const c=(x:typeof d)=>Math.abs(x.at-(x.dir==='h'?win.v:win.u));if(c(d)<c(o))pick.set(d.row,d);}}
+  for(const d of pick.values()){const key=`fdim:${d.id}`,o=over(key);if(o?.hidden)continue;const color=colorOf(d.row),h=d.dir==='h',off=(o?.off||0)*pu,ds=8*k*fs,st={stroke:color,width:.5*k},draw:PlainPrim[]=[];
+   const pos=h?Y(d.at)-7*k+off:X(d.at)+7*k+off,P=(x:number)=>h?X(x):Y(x);
+   draw.push(h?{t:'line',x1:P(d.stops[0]),x2:P(d.stops.at(-1)!),y1:pos,y2:pos,...st}:{t:'line',x1:pos,x2:pos,y1:P(d.stops[0]),y2:P(d.stops.at(-1)!),...st});
+   for(const x of d.stops)draw.push(h?{t:'line',x1:P(x)-1.8*k,x2:P(x)+1.8*k,y1:pos+1.8*k,y2:pos-1.8*k,...st}:{t:'line',x1:pos-1.8*k,x2:pos+1.8*k,y1:P(x)+1.8*k,y2:P(x)-1.8*k,...st});
+   d.stops.slice(1).forEach((x,i)=>{const val=x-d.stops[i],t=(o?.text??d.texts[i]??'<>').replace('<>',fmt(val));if(Math.abs(P(x)-P(d.stops[i]))<textWidth(t,ds)*(h?1:.4)+2*k)return;
+    draw.push(h?{t:'text',x:(P(x)+P(d.stops[i]))/2,y:pos-1.3*k,text:t,size:ds,color,anchor:'middle',halo:true}:{t:'text',x:pos+1.5*k,y:(P(x)+P(d.stops[i]))/2+ds*.35,text:t,size:ds,color,halo:true});});
+   chain(d.stops.slice(1).map((x,i)=>({a:(h?[P(d.stops[i]),Y(d.at)]:[X(d.at),P(d.stops[i])]) as [number,number],b:(h?[P(x),Y(d.at)]:[X(d.at),P(x)]) as [number,number],line:(h?[P(d.stops[i]),pos]:[pos,P(d.stops[i])]) as [number,number],dir:d.dir,value:x-d.stops[i],key,group:d.row,...((o?.text??d.texts[i])!==undefined?{text:o?.text??d.texts[i]}:{})})),ds,draw,color);}}
  // Stage names last: framed text at the first spot inside its stage band (spread across, stepping up / down) that
  // clears every text already on the view (Marks, levels, dimensions); else beside the concrete with a leader.
  const ss=9*k*fs,pad=3*k,bh=ss+2*pad,taken=expandPrims(out).flatMap(p=>{if(p.t!=='text')return [];const w=textWidth(p.text,p.size),x=p.anchor==='middle'?p.x-w/2:p.anchor==='end'?p.x-w:p.x;return [{x0:x,x1:x+w,y0:p.y-p.size,y1:p.y+p.size*.25}];});
@@ -518,6 +602,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // Detail view: everything drawn so far is cut to the window (circle / square) + its boundary
  if(win){const sh=win.circle!==false?{kind:'circle' as const,cx:X(win.u),cy:Y(win.v),r:win.r*s}:{kind:'rect' as const,x0:X(win.u-win.r),y0:Y(win.v+win.r),x1:X(win.u+win.r),y1:Y(win.v-win.r)};
   const kept=clipPrims(out.splice(0),sh);out.push(...kept);
+  // slab floor opening detail: cut bars / trimmers / diagonals / extension under the window
+  (v.floorNote||[]).forEach((t,i)=>put('text',{t:'text',x:box.x+3*k,y:box.y+box.h-4*k-((v.floorNote!.length-1-i)*9.5*k),text:t,size:8*k*fs,color:i?'#4b6166':'#22393f',bold:!i,halo:true}));
   put('symbol',sh.kind==='circle'?{t:'circle',cx:sh.cx,cy:sh.cy,r:sh.r,stroke:'#3f5459',width:.7*k,dash:[6*k,3*k]}:{t:'rect',x:sh.x0,y:sh.y0,w:sh.x1-sh.x0,h:sh.y1-sh.y0,stroke:'#3f5459',width:.7*k,dash:[6*k,3*k]});}
  // Drawing Edit user objects: text (MTEXT) at a view point; leaders (text offset in paper mm, phase 2: Mark text from the bar);
  // dimension chains and level marks at anchors (`anchorPoint`: concrete edge / bar / point). Lost bar anchors are drawn red.
