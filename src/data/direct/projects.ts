@@ -8,6 +8,7 @@ import {drawingProfileSchema,sheetStyleSchema} from '../../domain/drawingStandar
 import {parseLocations} from '../../domain/locations';
 import {disciplines} from '../../domain/disciplines';
 import {boqChaptersSchema} from '../../domain/boqChapters';
+import {projectSheetTemplatesSchema} from '../../domain/sheetLayoutSchema';
 import {digestData} from '../snapshots';
 import {actor,directory,directoryRef,profileOperationRef,projectRef,projectTransaction,encode,must,now} from './common';
 
@@ -45,6 +46,11 @@ export async function saveDirectLocations(pid:string,data:Record<string,any>,id:
 export async function saveDirectBoqChapters(pid:string,data:Record<string,any>,id:string){
  const chapters=data.chapters===null?null:boqChaptersSchema.parse(data.chapters);
  return projectTransaction('saveBoqChapters',pid,data,id,['admin','qs'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({boqChapters:chapters?{...chapters,version:(p.boqChapters?.version||0)+1}:null,version:p.version+1}));return {version:p.version+1};});
+}
+/** Sheet Composer templates of the project + default template per category (null clears them). Layout only: no member changes. */
+export async function saveDirectSheetTemplates(pid:string,data:Record<string,any>,id:string){
+ const templates=data.templates===null?null:projectSheetTemplatesSchema.parse(data.templates);
+ return projectTransaction('saveSheetTemplates',pid,data,id,['admin','qs'],async(tx,p)=>{must(p.version===data.version,'ข้อมูลเปลี่ยนแล้ว โหลดข้อมูลล่าสุดก่อนบันทึก','aborted');tx.update(projectRef(pid),encode({sheetTemplates:templates,version:p.version+1}));return {version:p.version+1};});
 }
 /** Soft delete: the project is hidden from every list and becomes read-only; members,
  * files and history are kept so the deletion can be reviewed or reversed by an administrator. */
