@@ -497,6 +497,14 @@ export function accessoryItems(f:Floor,input:SlabInput,det:Detailing):{id:string
 export function floorMarkSummary(f:Floor){
  return f.marks.map((m:FloorMark)=>{const ps=f.panels.filter(p=>p.mark===m.name);return {mark:m.name,panels:ps.length,area:ps.reduce((n,p)=>n+polyArea(p.outline as P2[]),0)/1e6,volume:ps.reduce((n,p)=>n+polyArea(p.outline as P2[])*panelThickness(f,p),0)/1e9};});
 }
+/** Overall plan of the floor (panels + the beams' outer faces, mm), panel count and the slab marks used with their
+ * thicknesses (the 3D summary line of a floor member, instead of the single-slab size fields). */
+export function floorPlanSummary(f:Floor){
+ const pts=[...f.panels.flatMap(p=>p.outline as P2[]),...floorBeamRects(f).flatMap(r=>[[r.x0,r.y0],[r.x1,r.y1]] as P2[])];
+ const w=pts.length?Math.max(...pts.map(p=>p[0]))-Math.min(...pts.map(p=>p[0])):0,h=pts.length?Math.max(...pts.map(p=>p[1]))-Math.min(...pts.map(p=>p[1])):0;
+ const used=f.marks.filter(m=>f.panels.some(p=>p.mark===m.name));
+ return {w:Math.round(w),h:Math.round(h),panels:f.panels.length,marks:used.map(m=>m.name),thicknesses:[...new Set(f.panels.map(p=>panelThickness(f,p)))].sort((a,b)=>b-a)};
+}
 /** Empty floor (2 × 2 grid, one mark) for a new layout. */
 export function newSlabFloor(mark?:FloorMark):Floor{
  const mk=mark||{name:'S1',thickness:150,support:'elevated' as const,rebar:structuredClone(DEFAULT_SLAB_REBAR)};

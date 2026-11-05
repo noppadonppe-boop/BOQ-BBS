@@ -33,7 +33,7 @@ import {encodeStorage,decodeStorage} from '../src/domain/storageCodec';
 import {blankMember,currentStarterSpec,memberSchema,type Member,type Project,type Role,type Spec} from '../src/domain/model';
 import {applyElementInput,beamGroupLayout,defaultElementInput,plainBeamRebar,type ElementInput,type SlabInput} from '../src/domain/elementInput';
 import {takeoff} from '../src/domain/engine';
-import {autoBeams,autoPanels,newSlabFloor,polyArea,type Floor} from '../src/domain/slabFloor';
+import {autoBeams,autoPanels,floorPlanSummary,newSlabFloor,polyArea,type Floor} from '../src/domain/slabFloor';
 import {beamGeometryHash,floorBeamGroups,planFloorBeams} from '../src/domain/floorBeams';
 import {copyMemberInputs} from '../src/domain/memberCopy';
 import {footingData} from './fixtures/sheets';
@@ -140,6 +140,10 @@ describe('beams from the slab floor: generator',()=>{
   const m=floorMember(f),panels=(m.elementInput as SlabInput).floor!.panels;
   expect(panels[3].tag).toBe('S2-01');expect(panels[5].tag).toBe('TANK-A');expect(panels[0].tag).toBe('S1-01');
   expect(m.bars.some(b=>b.note.includes('S2-01'))).toBe(true);expect(m.bars.some(b=>b.note.includes('S1-04'))).toBe(false);
+ });
+ it('3D summary of a floor member: overall plan over the panels + beam faces, panel count, marks and thicknesses (not the single-slab fields)',()=>{
+  const f=floor(x=>{x.marks.push({...x.marks[0],name:'S2',thickness:120});});f.panels=f.panels.map((p,k)=>k>3?{...p,mark:'S2'}:p);
+  expect(floorPlanSummary(f)).toEqual({w:16800,h:10300,panels:6,marks:['S1','S2'],thicknesses:[150,120]});
  });
  it('backup / restore keeps placement + floorSource (ids kept); a member copy drops the floor link',()=>{
   const fl=floorMember(floor()),beam={...planFloorBeams(fl,[fl],spec).rows[0].member!,version:1};

@@ -15,6 +15,7 @@ import {applyShapeModel,shapeProblems,standardCover} from '../domain/shapeApply'
 import {normaliseShape} from '../domain/shapeGeometry';
 import {Field,number} from './EditorControls';
 import {contextBoxes,couplerMeshes} from './coupler3d';
+import {floorPlanSummary} from '../domain/slabFloor';
 
 type Row=ReturnType<typeof takeoff>['rows'][number];
 type Preview={member:Member;warnings:string[];errors:string[];q:ReturnType<typeof takeoff>};
@@ -191,7 +192,9 @@ function elementSummary(i:ElementInput){
   case 'Foundation':return `${i.shape==='circle'?`Ø${i.diameter}`:`${i.width} × ${i.length}`} × ${i.thickness} mm · cover ${i.cover.bottom}/${i.cover.top}/${i.cover.side}`;
   case 'Column':if(i.layout==='stack')return `เสาหลายชั้น ${i.stack.storeys.length} ชั้น · ${i.stack.storeys.map(s=>`${s.width}×${s.depth}`).join(' / ')} · ${i.stack.splice.type==='coupler'?'Coupler':'ทาบ'}`;return `${i.shape==='circle'?`Ø${i.diameter}`:`${i.width} × ${i.depth}`} · สูง ${i.height} mm · cover ${i.cover.side}`;
   case 'Beam':if(i.layout==='group')return `กลุ่มคาน ${i.spans.length} ช่วง · ${[...new Set(i.spans.map(s=>s.mark))].join(', ')} · cover ${i.cover.top}/${i.cover.bottom}/${i.cover.side}`;return `${i.width} × ${i.depth} · ยาว ${i.length} mm · cover ${i.cover.top}/${i.cover.bottom}/${i.cover.side}`;
-  case 'Slab':return `${i.lengthX} × ${i.lengthY} · หนา ${i.thickness} mm · cover ${i.cover.top}/${i.cover.bottom}`;
+  // slab floor: the whole floor (plan size over the panels and beams, panels, slab marks), not the single-slab fields
+  case 'Slab':if(i.layout==='floor'&&i.floor){const f=floorPlanSummary(i.floor);return `พื้นทั้งชั้น ${number(f.w,0)} × ${number(f.h,0)} mm · ${f.panels} แผง · ${f.marks.length} เบอร์พื้น${f.marks.length?` (${f.marks.join(', ')})`:''} · หนา ${f.thicknesses.join(' / ')||'–'} mm · cover ${i.cover.top}/${i.cover.bottom}`;}
+   return `${i.lengthX} × ${i.lengthY} · หนา ${i.thickness} mm · cover ${i.cover.top}/${i.cover.bottom}`;
   case 'Wall':return `ยาว ${i.length} · หนา ${i.thickness} · สูง ${i.height} mm · cover ${i.cover.face}`;
  }
 }
