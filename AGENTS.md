@@ -187,7 +187,10 @@
   `cover:<n>` / `ex:<id>` / `level:<n>` {hidden, dx/dy, off, text '<>'}, `objs` = user text / leaders at view model (u, v) + paper offset).
   `renderView(…, {edits})` applies them and tags every annotation prim with `key` (Meta, passed to the drawing by `expandPrims`; the
   snapshot test ignores it), `drawSheetInfo` passes `member.drawingEdits.views[key]`; `cleanDrawingEdits()` before saving. Mockup of the
-  later phases (dims / levels / detail / status): `docs/mockups/drawing-edit-mode.html`. Test `tests/drawingEdits.test.ts`.
+  later phases (detail / status): `docs/mockups/drawing-edit-mode.html`. Test `tests/drawingEdits.test.ts`.
+  Phase 2: user `dim` (anchors `{u,v,eu,ev,bar}`: eu / ev follow the concrete box edge `concreteBox`/`anchorPoint`, bar = Mark row id),
+  `level` (value = `ViewData.datum` + v), leaders `bar` + `fromMark` (text / DXF Mark data from the row); snaps `viewSnapPoints()` from
+  `SheetViewInfo.data`; lost bar anchors `lostAnchors()` drawn red; “แยกเป็นของผู้ใช้” turns an automatic dim into a user dim.
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
   `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
   `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),

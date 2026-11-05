@@ -5,7 +5,7 @@ import {prismAxis,prismBounds,prismPoint,prismSection} from './prismGeometry';
 import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
 import {expandPrims,textWidth,type DimPrim,type LayerRole,type PlainPrim,type Prim} from './drawingPrims';
-import type {ViewEdits} from './drawingEdits';
+import type {Anchor,ViewEdits} from './drawingEdits';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
@@ -168,6 +168,8 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
  });
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
  const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
+ // level (m) at v = 0 of a vertical section, when the member has a level reference (user level marks of the Drawing Edit)
+ let datum:number|undefined;
  if(normal!==undefined&&!only&&input?.category==='Foundation'){
   const pr=footingPour(input),conc=rects.filter(r=>r.kind==='concrete'),T=input.thickness,ord=['First','Second','Third','Fourth','Fifth','Sixth'];
   const right=(z:number)=>Math.max(...conc.filter(r=>r.v0-1e-6<=z&&z<=r.v1+1e-6).map(r=>r.u1),-Infinity);
@@ -175,14 +177,14 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    for(const J of pr.levels)for(const r of conc)if(r.v0-1e-6<=J&&J<r.v1-1e-6)joints.push({v:J,u0:r.u0,u1:r.u1});
    for(const st of pr.stages){const band=conc.filter(r=>r.v0<st.z1-1e-6&&r.v1>st.z0+1e-6);if(!band.length)continue;const wide=band.reduce((x,y)=>y.u1-y.u0>x.u1-x.u0?y:x);
     stageText.push({u0:wide.u0,u1:wide.u1,v0:Math.max(st.z0,wide.v0),v1:Math.min(st.z1,wide.v1),text:`${ord[st.stage-1]||`Stage ${st.stage}`}-stage concrete pouring`});}}
-  if(input.levels.enabled){const lv=footingLevels(input),sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`,at=(z:number,t:string)=>{const u=right(z);if(Number.isFinite(u))levels.push({u,v:z,text:`${t} ${sg(lv.bottom+z/1000)}`});};
+  if(input.levels.enabled){const lv=footingLevels(input);datum=lv.bottom;const sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`,at=(z:number,t:string)=>{const u=right(z);if(Number.isFinite(u))levels.push({u,v:z,text:`${t} ${sg(lv.bottom+z/1000)}`});};
    at(T,'T.O.F.');at(0,'B.O.F.');for(const J of pr.stages.length>1?pr.levels:[])if(Math.abs(J-T)>1)at(J,'C.J.');
    const Hp=input.column.type==='pedestal'?Math.max(0,...footingColumns(input).map(c=>c.height)):0;if(Hp>0)at(T+Hp,'T.O.P.');
    if(earth&&e.depth>0){const u=Math.max(...conc.map(r=>r.u1));levels.push({u:u+300,v:ground,text:`NGL ${sg(input.levels.ground)}`});}}
  }
  // single column poured in two stages: joint below the beam, stage names, B.O.C. / C.J. / T.O.C. levels
  if(normal!==undefined&&normal!==2&&input?.category==='Column'&&input.layout!=='stack'){const cp=columnPour(input);
-  if(cp.on){const conc=rects.filter(r=>r.kind==='concrete'),H=input.height,ord=['First','Second'],sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`;
+  if(cp.on){datum=cp.bottom;const conc=rects.filter(r=>r.kind==='concrete'),H=input.height,ord=['First','Second'],sg=(x:number)=>`${x>0?'+':x<0?'−':'±'}${Math.abs(x).toFixed(3)}`;
    const right=(z:number)=>Math.max(...conc.filter(r=>r.v0-1e-6<=z&&z<=r.v1+1e-6).map(r=>r.u1),-Infinity),at=(z:number,t:string)=>{const u=right(z);if(Number.isFinite(u))levels.push({u,v:z,text:`${t} ${sg(cp.bottom+z/1000)}`});};
    for(const r of conc)if(r.v0<cp.z&&cp.z<r.v1)joints.push({v:cp.z,u0:r.u0,u1:r.u1});
    const wide=conc.reduce<Rect|undefined>((x,y)=>!x||y.u1-y.u0>x.u1-x.u0?y:x,undefined);
@@ -245,7 +247,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   // level marks stay right of the concrete
   const conc=rects.filter(r=>r.kind==='concrete');for(const l of levels){const at=conc.filter(r=>r.v0-1e-6<=l.v&&l.v<=r.v1+1e-6);l.u=at.length?Math.max(...at.map(r=>r.u1)):f(l.u);}
   for(const c of beamCols){const a=c.x0;c.g=f(c.g);c.x0=f(c.x1);c.x1=f(a);}for(const d of exDims)d.stops=d.stops.map(f).sort((p,q)=>p-q);}
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined};
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined};
 }
 export type ViewData=ReturnType<typeof buildView>;
 
@@ -458,15 +460,37 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  }
  // walls on the footing (reference): outline again over the bars so the wall lines stay visible
  v.rects.filter(r=>r.kind==='wall').forEach(r=>put('concrete',{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,stroke:'#22393f',width:1.6*k}));
- // Drawing Edit user objects: text (MTEXT) at a view point, leaders from a view point with the text offset in paper mm
- for(const o of opts.edits?.objs||[]){const key=`user:${o.id}`,sz=(o.size??2.6)*pu,st2=sz*1.35,ink='#22393f',ax=X(o.at[0]),ay=Y(o.at[1]);
+ // Drawing Edit user objects: text (MTEXT) at a view point; leaders (text offset in paper mm, phase 2: Mark text from the bar);
+ // dimension chains and level marks at anchors (`anchorPoint`: concrete edge / bar / point). Lost bar anchors are drawn red.
+ const cbox=concreteBox(v),barIds=new Set(v.bars.map(b=>b.row.id)),lost='#c0262d';
+ const AP=(a:Anchor)=>anchorPoint(a,cbox),gone=(a:{bar?:string})=>!!a.bar&&!barIds.has(a.bar);
+ for(const o of opts.edits?.objs||[]){const key=`user:${o.id}`,ink='#22393f';
+  if(o.kind==='dim'){const pts=o.pts.map(AP),h=o.dir==='h',bad=o.pts.some(gone),col=bad?lost:'#3f5459',st={stroke:bad?lost:'#5f7378',width:.7*k},dsz=(o.size??2.6)*pu;
+   const order=pts.map((p,i)=>({p,i})).sort((a,b)=>h?a.p[0]-b.p[0]:a.p[1]-b.p[1]).map(x=>x.p).filter((p,i,a)=>!i||Math.abs(h?p[0]-a[i-1][0]:p[1]-a[i-1][1])>.5);if(order.length<2)continue;
+   const pos=h?Y(pts[0][1])+o.off*pu:X(pts[0][0])+o.off*pu,lab=(x:number)=>o.text!==undefined?o.text.replace('<>',fmt(x)):fmt(x),draw:PlainPrim[]=[],g=1.5*pu,t=1.1*pu;
+   for(const p of order){const px=X(p[0]),py=Y(p[1]);
+    if(h){const sg=pos>py?1:-1;draw.push({t:'line',x1:px,y1:py+sg*g,x2:px,y2:pos+sg*g,...st},{t:'line',x1:px-t,y1:pos+t,x2:px+t,y2:pos-t,...st,width:1.1*k});}
+    else{const sg=pos>px?1:-1;draw.push({t:'line',x1:px+sg*g,y1:py,x2:pos+sg*g,y2:py,...st},{t:'line',x1:pos-t,y1:py+t,x2:pos+t,y2:py-t,...st,width:1.1*k});}}
+   const f0=order[0],f1=order.at(-1)!;
+   draw.push(h?{t:'line',x1:X(f0[0])-g,x2:X(f1[0])+g,y1:pos,y2:pos,...st}:{t:'line',x1:pos,x2:pos,y1:Y(f0[1])+g,y2:Y(f1[1])-g,...st});
+   order.slice(1).forEach((p,i)=>{const q=order[i],val=Math.abs(h?p[0]-q[0]:p[1]-q[1]),txt=lab(val);
+    draw.push(h?{t:'text',x:(X(p[0])+X(q[0]))/2,y:pos-.9*pu,text:txt,size:dsz,color:col,anchor:'middle',halo:true}:{t:'text',x:pos-.9*pu,y:(Y(p[1])+Y(q[1]))/2+dsz*.35,text:txt,size:dsz,color:col,anchor:'end',halo:true});});
+   chain(order.slice(1).map((p,i)=>{const q=order[i];return {a:[X(q[0]),Y(q[1])] as [number,number],b:[X(p[0]),Y(p[1])] as [number,number],line:(h?[X(q[0]),pos]:[pos,Y(q[1])]) as [number,number],dir:o.dir,value:Math.abs(h?p[0]-q[0]:p[1]-q[1]),key,...(o.text!==undefined?{text:o.text}:{})};}),dsz,draw,col);continue;}
+  if(o.kind==='level'){const [lu,lv]=AP(o.at),bad=gone(o.at),col=bad?lost:'#3f5459',x0=X(lu),y=Y(lv),x=x0+o.dx*pu,hh=5*k,sz=9*k*fs,dir=o.dx>=0?1:-1;
+   const sg=(z:number)=>`${z>0?'+':z<0?'−':'±'}${Math.abs(z).toFixed(3)}`,text=`${o.label?o.label+' ':''}${sg((v.datum??0)+lv/1000)}`,tw2=textWidth(text,sz);
+   const tx=dir>0?x+hh:x-hh;put('dim',{t:'line',x1:x0,x2:dir>0?tx+tw2+2*k:tx-tw2-2*k,y1:y,y2:y,stroke:col,width:.6*k,key},{t:'poly',pts:[[x,y],[x-hh*.6,y-hh],[x+hh*.6,y-hh]],closed:true,stroke:col,width:.6*k,key},
+    {t:'text',x:tx,y:y-2*k,text,size:sz,color:col,halo:true,anchor:dir>0?'start':'end',key});continue;}
+  const sz=(o.size??2.6)*pu,st2=sz*1.35,ax=X(o.at[0]),ay=Y(o.at[1]);
   if(o.kind==='text'){const draw:PlainPrim[]=o.lines.map((t,i)=>({t:'text',x:ax,y:ay+i*st2,text:t,size:sz,color:ink,anchor:o.anchor,bold:o.bold,halo:true}));
    put('text',{t:'mtext',x:ax,y:ay,lines:o.lines,size:sz,step:st2,anchor:o.anchor,color:ink,bold:o.bold,key,draw});continue;}
-  const ex=ax+o.dx*pu,ey=ay+o.dy*pu,dir=o.dx>=0?1:-1,sx=ex+dir*3*pu,tx=sx+dir*pu,ty=ey+sz*.35,anchor=dir>0?'start' as const:'end' as const,draw:PlainPrim[]=[{t:'poly',pts:[[ax,ay],[ex,ey],[sx,ey]],closed:false,stroke:ink,width:.45*k}];
-  if(o.arrow==='dot')draw.push({t:'circle',cx:ax,cy:ay,r:.6*pu,fill:ink});
-  else if(o.arrow==='closed'){const l=Math.hypot(ex-ax,ey-ay)||1,ux=(ex-ax)/l,uy=(ey-ay)/l,a=2*pu,b=.6*pu;draw.push({t:'poly',pts:[[ax,ay],[ax+ux*a-uy*b,ay+uy*a+ux*b],[ax+ux*a+uy*b,ay+uy*a-ux*b]],closed:true,fill:ink,stroke:ink,width:.2*k});}
-  o.lines.forEach((t,i)=>draw.push({t:'text',x:tx,y:ty+i*st2,text:t,size:sz,color:ink,anchor,halo:true}));
-  put('mark',{t:'leader',pts:[[ax,ay],[ex,ey],[sx,ey]],text:o.lines,at:[tx,ty],anchor,arrow:o.arrow,color:ink,size:sz,key,draw});}
+  const bad=gone(o),row=o.bar&&!bad?v.bars.find(b=>b.row.id===o.bar):undefined,col=bad?lost:row?colorOf(row.row.id):ink;
+  const lines=o.fromMark&&row?[row.dist?`${row.row.mark} ${row.dist.n}-${barName(row.row.diameter)}@${Math.round(row.dist.spacing/5)*5}`:row.row.mark]:o.lines;
+  const ex=ax+o.dx*pu,ey=ay+o.dy*pu,dir=o.dx>=0?1:-1,sx=ex+dir*3*pu,tx=sx+dir*pu,ty=ey+sz*.35,anchor=dir>0?'start' as const:'end' as const,draw:PlainPrim[]=[{t:'poly',pts:[[ax,ay],[ex,ey],[sx,ey]],closed:false,stroke:col,width:.45*k}];
+  if(o.arrow==='dot')draw.push({t:'circle',cx:ax,cy:ay,r:.6*pu,fill:col});
+  else if(o.arrow==='closed'){const l=Math.hypot(ex-ax,ey-ay)||1,ux=(ex-ax)/l,uy=(ey-ay)/l,a=2*pu,b=.6*pu;draw.push({t:'poly',pts:[[ax,ay],[ax+ux*a-uy*b,ay+uy*a+ux*b],[ax+ux*a+uy*b,ay+uy*a-ux*b]],closed:true,fill:col,stroke:col,width:.2*k});}
+  lines.forEach((t,i)=>draw.push({t:'text',x:tx,y:ty+i*st2,text:t,size:sz,color:col,anchor,halo:true,bold:!!(o.fromMark&&row)}));
+  const mk=o.fromMark&&row?{mark:{mark:row.row.mark,size:barName(row.row.diameter),...(row.dist?{n:row.dist.n,spacing:Math.round(row.dist.spacing/5)*5}:{})}}:{};
+  put('mark',{t:'leader',pts:[[ax,ay],[ex,ey],[sx,ey]],text:lines,at:[tx,ty],anchor,arrow:o.arrow,color:col,size:sz,bold:!!(o.fromMark&&row),key,...mk,draw});}
  const axisName=['X','Y','Z'];
  put('text',{t:'text',x:box.x+box.w-6*k,y:box.y+box.h-6*k,text:`${axisName[v.axes[0]]} ${v.flip?'←':'→'} · ${axisName[v.axes[1]]} ↑`,size:9*k*fs,color:'#9aa8a6',anchor:'end'});
  return out;
@@ -492,3 +516,28 @@ export function defaultCuts(m:Member,rows:ViewRow[]){
  const top=rows.find(r=>r.id.startsWith('gen-column-main'))?.paths[0]?.at(-1);
  return {x:Math.min(m.x,Math.max(0,top?.[0]??m.x/2)),y:Math.min(m.y,Math.max(0,m.sectionY??m.y/2))};
 }
+
+/** Bounding box of the concrete of a view (rects + polygons, view mm); the whole view range when there is none. */
+export function concreteBox(v:ViewData){let u0=Infinity,u1=-Infinity,v0=Infinity,v1=-Infinity;
+ for(const r of v.rects)if(r.kind==='concrete'){u0=Math.min(u0,r.u0);u1=Math.max(u1,r.u1);v0=Math.min(v0,r.v0);v1=Math.max(v1,r.v1);}
+ for(const p of v.polys)for(const q of p){u0=Math.min(u0,q[0]);u1=Math.max(u1,q[0]);v0=Math.min(v0,q[1]);v1=Math.max(v1,q[1]);}
+ return Number.isFinite(u0)?{u0,u1,v0,v1}:{u0:v.u[0],u1:v.u[1],v0:v.v[0],v1:v.v[1]};}
+/** View point of a Drawing Edit anchor: `eu` / `ev` follow the concrete edge (min / max), else the stored point. */
+export function anchorPoint(a:Anchor,cb:ReturnType<typeof concreteBox>):[number,number]{return [a.eu?a.eu==='min'?cb.u0:cb.u1:a.u,a.ev?a.ev==='min'?cb.v0:cb.v1:a.v];}
+export type ViewSnap={u:number;v:number;kind:'corner'|'mid'|'bar';label:string;bar?:string;eu?:'min'|'max';ev?:'min'|'max'};
+/** Snap points of a drawn view (Drawing Edit tools): concrete corners / edge midpoints (flagged when on the concrete box edge),
+ * bar dots, bar line ends and midpoints (with the Mark row id). At most `max` points. */
+export function viewSnapPoints(v:ViewData,max=1500):ViewSnap[]{
+ const cb=concreteBox(v),out:ViewSnap[]=[],seen=new Set<string>(),near=(a:number,b:number)=>Math.abs(a-b)<.5;
+ const add=(s:ViewSnap)=>{const id=`${Math.round(s.u)}:${Math.round(s.v)}:${s.kind}:${s.bar||''}`;if(seen.has(id)||out.length>=max)return;seen.add(id);
+  out.push({...s,...(near(s.u,cb.u0)?{eu:'min' as const}:near(s.u,cb.u1)?{eu:'max' as const}:{}),...(s.kind!=='bar'&&near(s.v,cb.v0)?{ev:'min' as const}:s.kind!=='bar'&&near(s.v,cb.v1)?{ev:'max' as const}:{})});};
+ for(const r of v.rects)if(r.kind==='concrete'){for(const [u,w] of [[r.u0,r.v0],[r.u1,r.v0],[r.u1,r.v1],[r.u0,r.v1]])add({u,v:w,kind:'corner',label:'มุมคอนกรีต'});
+  for(const [u,w] of [[(r.u0+r.u1)/2,r.v0],[(r.u0+r.u1)/2,r.v1],[r.u0,(r.v0+r.v1)/2],[r.u1,(r.v0+r.v1)/2]])add({u,v:w,kind:'mid',label:'กึ่งกลางขอบ'});}
+ for(const p of v.polys)for(const q of p)add({u:q[0],v:q[1],kind:'corner',label:'มุมคอนกรีต'});
+ for(const b of v.bars){const l=`เหล็ก ${b.row.mark}`;let n=0;
+  for(const d of b.dots){if(n++>200)break;add({u:d[0],v:d[1],kind:'bar',label:l,bar:b.row.id});}
+  for(const ln of b.lines){if(n++>200)break;add({u:ln.a[0],v:ln.a[1],kind:'bar',label:l,bar:b.row.id});add({u:ln.b[0],v:ln.b[1],kind:'bar',label:l,bar:b.row.id});add({u:(ln.a[0]+ln.b[0])/2,v:(ln.a[1]+ln.b[1])/2,kind:'bar',label:`${l} (กลาง)`,bar:b.row.id});}}
+ return out;}
+/** Ids of the user objects of a view whose bar anchor is gone (the bar Mark is no longer drawn in that view). */
+export function lostAnchors(v:ViewData,edits:ViewEdits|undefined):string[]{const ids=new Set(v.bars.map(b=>b.row.id));
+ return (edits?.objs||[]).filter(o=>o.kind==='dim'?o.pts.some(a=>a.bar&&!ids.has(a.bar)):o.kind==='level'?!!o.at.bar&&!ids.has(o.at.bar):o.kind==='leader'?!!o.bar&&!ids.has(o.bar):false).map(o=>o.id);}

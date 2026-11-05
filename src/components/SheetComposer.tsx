@@ -113,7 +113,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
   const p=opt.lock&&drag.mode==='move'?partner(drag.key,b):undefined;
   editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.map(v=>v.view!==drag.key?v:{...v,...b,...(p?{lock:{to:p.v.key!,axis:p.ax}}:drag.mode==='move'&&!opt.lock?{lock:undefined}:{})})}))}));};
  useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.target as HTMLElement)?.closest('input,select,textarea'))return;
-   if(e.key==='Escape'){setDrag(undefined);setCut(undefined);setTool(undefined);setMenu(undefined);return;}
+   if(e.key==='Escape'&&mode!=='edit'){setDrag(undefined);setCut(undefined);setTool(undefined);setMenu(undefined);return;}
    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();back();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();fwd();return;}
    if(mode==='edit'){if(!e.ctrlKey&&!e.metaKey&&!e.altKey)ed.key(e);return;}
    if(e.key==='s'||e.key==='S'){if(!readOnly)setTool({step:1});return;}if(e.key==='v'||e.key==='V'){setTool(undefined);return;}

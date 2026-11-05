@@ -6,7 +6,7 @@ import {pourStageQuantities} from './solids';
 import type {ElementInput} from './elementInput';
 import {barCouplerEnds,footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
-import {buildView,columnSectionCut,defaultCuts,markColors,planLayerOf,renderView,type ViewRow,type ViewSpec} from './elementViews';
+import {buildView,columnSectionCut,defaultCuts,markColors,planLayerOf,renderView,type ViewData,type ViewRow,type ViewSpec} from './elementViews';
 import {mapPrimText,textWidth,wrapText,type PlainPrim,type Prim} from './drawingPrims';
 import {composeDrawingNumber,sheetSetupOf,sheetSizes,standardScales,type ViewScale} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
@@ -130,7 +130,8 @@ export type SheetViewScale={title:string;n:number;fits:boolean};
  * sheet ↔ view model coordinates (mm along the view axes `axes`): u = model[0] + (x − sheet[0]) / s, v = model[1] − (y − sheet[1]) / s.
  * Primitives drawn in the view carry `view` = id; the rest of the sheet (tables, title block, notes) is paper. */
 export type SheetViewInfo={id:string;key?:ViewKey;lockNote?:string;title:string;box:{x:number;y:number;w:number;h:number};n:number;s:number;fits:boolean;axes:[number,number];normal?:number;cut?:number;
- origin:{sheet:[number,number];model:[number,number]}};
+ origin:{sheet:[number,number];model:[number,number]};
+ /** the drawn view data (Drawing Edit snaps / anchors) */ data?:ViewData};
 /** All primitives of one sheet (mm). */
 export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page).prims;}
 /** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */
@@ -237,7 +238,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   for(const p of renderView(data,inner(box),opts)){const q=mapPrimText(p,t=>sheetPhrase(t,lang));q.view=id;out.push(q);}
   text(`${v.title} · ${used.n?`1:${used.n}`:'NTS'}`,box.x+2,box.y+4,2.8,{bold:true});
   if(v.key)frames.set(v.key,{...frame,axes:data.axes as [number,number],flip:!!data.flip,box});
-  results.push({j,scale:{title:v.title,...used},info:{id,key:v.key,...(lockNote?{lockNote}:{}),title:v.title,box,n:used.n,s:frame.s,fits:used.fits,axes:v.spec.axes,normal:v.spec.normal,cut:v.spec.cut,origin:{sheet:[frame.x0,frame.y0],model:[frame.u0,frame.v0]}}});
+  results.push({j,scale:{title:v.title,...used},info:{id,key:v.key,...(lockNote?{lockNote}:{}),title:v.title,box,n:used.n,s:frame.s,fits:used.fits,axes:v.spec.axes,normal:v.spec.normal,cut:v.spec.cut,origin:{sheet:[frame.x0,frame.y0],model:[frame.u0,frame.v0]},data}});
  }
  for(const r of results.sort((a,b)=>a.j-b.j)){scales.push(r.scale);viewInfo.push(r.info);}
  if(bg)out.push(...bg.marks);

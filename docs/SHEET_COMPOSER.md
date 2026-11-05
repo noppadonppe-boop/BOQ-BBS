@@ -107,7 +107,19 @@ The header switch “จัดหน้า | แก้ไขแบบ” turns t
 - Output: the edits are applied inside `renderView`, so preview, PDF and DXF (MTEXT / LEADER / DIMENSION) are the same; members
   without edits draw exactly as before (`tests/sheetSnapshot.test.ts`). Test `tests/drawingEdits.test.ts`.
 
+### Phase 2
+
+- Tools: + Dimension (D: snap points one by one into a chain, click empty space to place the line, Enter = standard offset; A adds
+  a point to the selected user dim, × removes one), + ระดับ (E: vertical sections), + Mark (M: click a bar, then the text point).
+- Anchors `{u, v, eu?, ev?, bar?}`: `eu` / `ev` = the coordinate follows the min / max edge of the concrete box of the view
+  (`concreteBox`, `anchorPoint`), `bar` = Mark row id. Snap points per view: `viewSnapPoints()` (concrete corners / edge midpoints,
+  bar dots / line ends / midpoints) from `SheetViewInfo.data` (the drawn ViewData).
+- Level values: `ViewData.datum` (level in m at v = 0: footing `footingLevels().bottom`, single column pour bottom), else from the
+  member base. Mark leaders `fromMark` take the text of the bar row in that view (n-DB@s) and carry the DXF Mark block data.
+- Lost anchors (`lostAnchors()`): a bar no longer drawn in the view → the object is drawn red and listed in the panel.
+- Automatic dims: “แยกเป็นของผู้ใช้” creates the user dim at the same points (edge flags set) and hides the automatic one.
+
 ## Next round
 
-Drawing Edit phase 2: user dimensions (chain, snaps, add / remove point), level marks, Mark leaders picked from a bar, orphan anchors.
-Stepped sections, Detail (enlarged) views, ISO 3D on the sheet, oblique cuts (toolbar buttons shown disabled).
+Drawing Edit phase 3: Detail (enlarged) views, stepped / oblique sections, ISO 3D on the sheet. Phase 4: drawing status
+(up to date / to check after a model change), revision clouds + revision table, annotation templates per category.

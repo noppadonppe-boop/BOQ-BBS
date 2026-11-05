@@ -19,11 +19,24 @@ export type AnnotationOverride=z.infer<typeof annotationOverrideSchema>;
 const userId=z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/);
 export const userTextSchema=z.object({id:userId,kind:z.literal('text'),at:z.tuple([model,model]),lines,size:z.number().min(1.5).max(10).optional(),
  anchor:z.enum(['start','middle','end']).optional(),bold:z.boolean().optional()}).strict();
+const barRef=z.string().regex(/^[A-Za-z0-9_.:\/+-]{1,120}$/);
 export const userLeaderSchema=z.object({id:userId,kind:z.literal('leader'),
  /** arrow point (view model mm) */ at:z.tuple([model,model]),
  /** elbow = arrow + (dx, dy) paper mm; the text follows a 3 mm shoulder on the side of dx */ dx:paper,dy:paper,lines,
- size:z.number().min(1.5).max(10).optional(),arrow:z.enum(['dot','closed','none'])}).strict();
-export const userAnnotationSchema=z.discriminatedUnion('kind',[userTextSchema,userLeaderSchema]);
+ size:z.number().min(1.5).max(10).optional(),arrow:z.enum(['dot','closed','none']),
+ /** phase 2: bar (Mark row id) the arrow points at; `fromMark` = text from that bar (Mark n-DB@s as the automatic labels),
+  * `lines` are then the fallback; a bar no longer in the view = anchor lost (drawn red, `lines`) */
+ bar:barRef.optional(),fromMark:z.literal(true).optional()}).strict();
+/** Phase 2 anchor: a view model point (u, v mm); `eu` / `ev` = the coordinate follows the min / max edge of the concrete in
+ * the view (resized members keep the dimension on the corner); `bar` = Mark row id the point lies on (lost when it is gone). */
+export const anchorSchema=z.object({u:model,v:model,eu:z.enum(['min','max']).optional(),ev:z.enum(['min','max']).optional(),bar:barRef.optional()}).strict();
+export type Anchor=z.infer<typeof anchorSchema>;
+export const userDimSchema=z.object({id:userId,kind:z.literal('dim'),pts:z.array(anchorSchema).min(2).max(20),dir:z.enum(['h','v']),
+ /** dimension line: paper mm from the first point (+y down for 'h', +x right for 'v') */ off:paper,
+ text:z.string().max(200).optional(),size:z.number().min(1.5).max(10).optional()}).strict();
+export const userLevelSchema=z.object({id:userId,kind:z.literal('level'),at:anchorSchema,
+ /** symbol: paper mm right (+) / left (−) of the point */ dx:paper,label:z.string().max(40)}).strict();
+export const userAnnotationSchema=z.discriminatedUnion('kind',[userTextSchema,userLeaderSchema,userDimSchema,userLevelSchema]);
 export type UserAnnotation=z.infer<typeof userAnnotationSchema>;
 export const viewEditsSchema=z.object({over:z.record(annotationKeySchema,annotationOverrideSchema).optional(),objs:z.array(userAnnotationSchema).max(100).optional()}).strict()
  .superRefine((v,c)=>{if(Object.keys(v.over||{}).length>300)c.addIssue({code:'custom',path:['over'],message:'แก้ annotation ได้ไม่เกิน 300 รายการต่อรูป'});
@@ -39,7 +52,7 @@ export function cleanDrawingEdits(e:DrawingEdits|undefined):DrawingEdits|undefin
  if(!e)return;const views:DrawingEdits['views']={};
  for(const [k,v] of Object.entries(e.views)){
   const over=Object.fromEntries(Object.entries(v.over||{}).map(([a,o])=>[a,Object.fromEntries(Object.entries(o).filter(([,x])=>x!==undefined&&x!==0&&x!==''))]).filter(([,o])=>Object.keys(o).length));
-  const objs=(v.objs||[]).filter(o=>o.lines.some(l=>l.trim()));
+  const objs=(v.objs||[]).filter(o=>o.kind==='dim'||o.kind==='level'||o.kind==='leader'&&o.fromMark||o.lines.some(l=>l.trim()));
   if(Object.keys(over).length||objs.length)views[k]={...(Object.keys(over).length?{over}:{}),...(objs.length?{objs}:{})};}
  return Object.keys(views).length?{version:1,views}:undefined;
 }
