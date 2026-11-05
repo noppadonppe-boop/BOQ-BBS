@@ -1,11 +1,15 @@
-import {useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
-import {Box,Plus,Redo2,Trash2,Undo2} from 'lucide-react';
-import type {Member,Project} from '../domain/model';
+import {useEffect,useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
+import {Box,FileInput,Layers,Magnet,Maximize2,Plus,Redo2,Trash2,Undo2} from 'lucide-react';
+import type {Attachment,Member,Project} from '../domain/model';
+import {insUnits,SNAP_LIMIT,UNIT_MM} from '../domain/cadEntities';
+import {alignResiduals,alignTwoPoints,crossing,PDF_1_100,SnapIndex,toFloor,toSource,type SnapKind,type Similarity} from '../domain/underlay';
+import {isUnderlayFile,loadUnderlay,type UnderlaySource} from '../data/underlaySource';
+import {FloorDxfImport,svgPoint} from './FloorDxfImport';
 import {lineRank} from '../domain/floorBeams';
 import {FloorBeamsDialog,floorLinks,linkStateLabel} from './FloorBeamsDialog';
 import {openMember} from './memberNav';
 import type {BeamInput,SlabInput} from '../domain/elementInput';
-import {DEFAULT_OPENING_TRIM,DEFAULT_SLAB_REBAR,type FloorBeam,type FloorColumn,type FloorDrop,type FloorMark,type FloorOpening,type FloorPanel,type SlabBar,type SlabFloor,type TopExtra} from '../domain/slabFloorSchema';
+import {DEFAULT_OPENING_TRIM,DEFAULT_SLAB_REBAR,type FloorImportMap,type FloorUnderlay,type FloorBeam,type FloorColumn,type FloorDrop,type FloorMark,type FloorOpening,type FloorPanel,type SlabBar,type SlabFloor,type TopExtra} from '../domain/slabFloorSchema';
 import {autoBeams,autoPanels,retagPanels,floorBars,floorBeamRects,floorMarkSummary,freeId,freeTag,gridRef,gridsFromBeamGroup,markIndex,mergePanels,openingPanel,openingRing,panelThickness,parseGridRef,polyArea,slabFloorProblems,snapLines,toggleBeamSegment} from '../domain/slabFloor';
 import {floorMarkFromTemplate,topExtraText} from '../domain/slabWallTemplates';
 import {readCollectionPages} from '../data/collections';
@@ -22,9 +26,11 @@ const colors=[['#ccfbf1','#0f766e'],['#fef3c7','#b45309'],['#e0e7ff','#4338ca'],
 const barText=(b:{diameter:number;spacing:number})=>b.spacing>0?`${b.diameter<=9?'RB':'DB'}${b.diameter}@${b.spacing}`:'–';
 const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
 const diameters=[6,9,10,12,16,20,25,28,32];
+const snapLabel:Record<string,string>={int:'จุดตัด',end:'ปลายเส้น',corner:'มุม',centre:'ศูนย์กลาง',mid:'กึ่งกลาง',near:'บนเส้น'};
 
-export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuild,buildDisabled,memberId,members,onReloadMembers}:{input:SlabInput;project:Project;readOnly:boolean;onChange:(f:SlabFloor)=>void;onView3d?:()=>void;onBuild?:()=>void;buildDisabled?:boolean;
- /** S3: this floor member and the project members (beam groups linked to the floor) */ memberId?:string;members?:Member[]|null;onReloadMembers?:()=>Promise<void>}){
+export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuild,buildDisabled,memberId,members,onReloadMembers,attachments}:{input:SlabInput;project:Project;readOnly:boolean;onChange:(f:SlabFloor)=>void;onView3d?:()=>void;onBuild?:()=>void;buildDisabled?:boolean;
+ /** S3: this floor member and the project members (beam groups linked to the floor) */ memberId?:string;members?:Member[]|null;onReloadMembers?:()=>Promise<void>;
+ /** S4a: project attachments (underlay / DXF import: the member's own files and the project's) */ attachments?:Attachment[]}){
  const f=input.floor!,spec=project.spec;
  const [tool,setTool]=useState<Tool>('select'),[sel,setSel]=useState<Sel>(null),[multi,setMulti]=useState<string[]>([]),[msg,setMsg]=useState('');
  const [hist,setHist]=useState<{past:SlabFloor[];future:SlabFloor[]}>({past:[],future:[]});
@@ -45,30 +51,75 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
  // live bar statistics (openings) from the same generator the apply uses
  const stats=useMemo(()=>{try{return problems.length?undefined:floorBars(input,input.detailing);}catch{return undefined;}},[input,problems]);
  const summary=floorMarkSummary(f);
+ // ---------- S4a underlay (background drawing) ----------
+ const files=(attachments||[]).filter(a=>(a.memberId===''||a.memberId===memberId)&&isUnderlayFile(a)&&a.sourceStatus!=='Superseded');
+ const u=f.underlay,uFile=u?(attachments||[]).find(a=>a.id===u.attachmentId):undefined;
+ const [src,setSrc]=useState<UnderlaySource|null>(null),[srcErr,setSrcErr]=useState(''),[underBusy,setUnderBusy]=useState(false);
+ useEffect(()=>{if(!uFile){setSrc(null);setSrcErr(u?'ไม่พบไฟล์ของแบบพื้นหลัง (ถูกลบหรือไม่มีสิทธิ์)':'');return;}let live=true;setSrcErr('');
+  loadUnderlay(uFile,u?.page||1).then(x=>{if(live)setSrc(x);}).catch(e=>{if(live){setSrc(null);setSrcErr(e instanceof Error?e.message:String(e));}});return ()=>{live=false;};},[uFile?.id,uFile?.version,u?.page]);// eslint-disable-line react-hooks/exhaustive-deps
+ const [snapOn,setSnapOn]=useState(true),[localHide,setLocalHide]=useState(false),[underOpen,setUnderOpen]=useState(false),[importOpen,setImportOpen]=useState(false);
+ type Pick={src:P2;x:string;y:string};
+ const [align,setAlign]=useState<{picks:Pick[];pending?:Pick}|null>(null),[hover,setHover]=useState<{p:P2;kind:string}|null>(null),[view,setView]=useState<{k:number;cx?:number;cy?:number}>({k:1});
+ const alignT=useMemo(()=>{if(align?.picks.length!==2)return undefined;try{return alignTwoPoints([align.picks[0].src,align.picks[1].src],align.picks.map(q=>crossing(f,q.x,q.y)!) as [P2,P2]);}catch{return undefined;}},[align,f]);
+ const shown=!!(u&&src?.image&&(!u.hidden||align)&&!localHide);
+ const TD:Similarity|undefined=alignT||u?.transform;
+ const savedMaps=useMemo(()=>{const own=f.importMap?[f.importMap]:[];const other=(members||[]).flatMap(m=>{const fl=(m.elementInput as {layout?:string;floor?:SlabFloor}|undefined);return m.id!==memberId&&fl?.layout==='floor'&&fl.floor?.importMap?[fl.floor.importMap]:[];}).sort((a,b)=>(b.at||'').localeCompare(a.at||''));return [...own,...other] as FloorImportMap[];},[f.importMap,members,memberId]);
 
  // ---------- plan frame (Y up) ----------
  const beams=floorBeamRects(f),xs=[...f.gridsX.map(g=>g.at),...beams.flatMap(b=>[b.x0,b.x1]),...f.panels.flatMap(p=>p.outline.map(q=>q[0]))],ys=[...f.gridsY.map(g=>g.at),...beams.flatMap(b=>[b.y0,b.y1]),...f.panels.flatMap(p=>p.outline.map(q=>q[1]))];
- const x0=Math.min(0,...xs),x1=Math.max(1000,...xs),y0=Math.min(0,...ys),y1=Math.max(1000,...ys),W=900,H=620,pad=70,s=Math.min((W-2*pad)/(x1-x0||1),(H-2*pad)/(y1-y0||1));
- const X=(x:number)=>pad+(x-x0)*s,Y=(y:number)=>H-pad-(y-y0)*s,path=(r:P2[])=>r.map((q,i)=>`${i?'L':'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join(' ')+'Z';
+ // an underlay not aligned yet is framed whole (to pick the alignment points); zoom (Ctrl + wheel) / pan (drag the background) on top
+ if(u&&src?.image&&!u.align&&TD){const b=src.image.box;for(const q of [[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]] as P2[]){const r=toFloor(TD,q);xs.push(r[0]);ys.push(r[1]);}}
+ const x0=Math.min(0,...xs),x1=Math.max(1000,...xs),y0=Math.min(0,...ys),y1=Math.max(1000,...ys),W=900,H=620,pad=70,s0=Math.min((W-2*pad)/(x1-x0||1),(H-2*pad)/(y1-y0||1));
+ const s=s0*view.k,cx=view.cx??(x0+x1)/2,cy=view.cy??(y0+y1)/2;
+ const X=(x:number)=>W/2+(x-cx)*s,Y=(y:number)=>H/2-(y-cy)*s,path=(r:P2[])=>r.map((q,i)=>`${i?'L':'M'}${X(q[0]).toFixed(1)} ${Y(q[1]).toFixed(1)}`).join(' ')+'Z';
  const svg=useRef<SVGSVGElement>(null);
- const toModel=(e:{clientX:number;clientY:number}):P2=>{const r=svg.current!.getBoundingClientRect(),px=(e.clientX-r.left)*W/r.width,py=(e.clientY-r.top)*H/r.height;return [x0+(px-pad)/s,y0+(H-pad-py)/s];};
+ const px=(e:{clientX:number;clientY:number}):P2=>svgPoint(svg.current!,e);
+ const toModel=(e:{clientX:number;clientY:number}):P2=>{const [qx,qy]=px(e);return [cx+(qx-W/2)/s,cy-(qy-H/2)/s];};
+ const geo=useRef({s,s0,cx,cy});geo.current={s,s0,cx,cy};
+ useEffect(()=>{const el=svg.current;if(!el)return;const h=(e:WheelEvent)=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();const g=geo.current,[qx,qy]=svgPoint(el,e);
+  const p:P2=[g.cx+(qx-W/2)/g.s,g.cy-(qy-H/2)/g.s];setView(v=>{const k=Math.max(0.5,Math.min(400,v.k*(e.deltaY<0?1.25:0.8))),ns=g.s0*k;return {k,cx:p[0]-(qx-W/2)/ns,cy:p[1]+(qy-H/2)/ns};});};
+  el.addEventListener('wheel',h,{passive:false});return ()=>el.removeEventListener('wheel',h);},[]);
+ const pan=useRef<{x:number;y:number;cx:number;cy:number;moved:boolean}|null>(null),panned=useRef(false);
+ // snap to the drawing (source coordinates through the underlay transform); a drawing over SNAP_LIMIT pieces: visible window only
+ const big=!!src?.doc&&src.doc.segCount>SNAP_LIMIT,Tu=u?.transform;
+ const winKey=big&&Tu?(()=>{const c=[[0,0],[W,0],[W,H],[0,H]].map(([qx,qy])=>toSource(Tu,[cx+(qx-W/2)/s,cy-(qy-H/2)/s]));const r=(v:number)=>Math.round(v*1e3)/1e3;return [Math.min(...c.map(q=>q[0])),Math.min(...c.map(q=>q[1])),Math.max(...c.map(q=>q[0])),Math.max(...c.map(q=>q[1]))].map(r).join(',');})():'';
+ const index=useMemo(()=>{const d=src?.doc;if(!d)return null;if(!big)return new SnapIndex(d);const w=winKey.split(',').map(Number) as [number,number,number,number];return w.length===4?new SnapIndex(d,w):null;},[src,big,winKey]);
+ const snapUnder=(p:P2,kinds?:SnapKind[],long=false)=>{if(!snapOn||!index||!Tu||!(shown||align))return undefined;const hit=index.snap(toSource(Tu,p),12/(s*Tu.scale),kinds,{long});return hit?{p:toFloor(Tu,hit.p),src:hit.p,kind:hit.kind}:undefined;};
+ /** grid line of the drawing under p: floor axis + coordinate (axis-parallel after the transform) */
+ const lineUnder=(p:P2)=>{if(!index||!Tu)return undefined;const q=toSource(Tu,p),l=index.line(q,12/(s*Tu.scale));if(!l)return undefined;
+  const a=toFloor(Tu,l.axis==='x'?[l.at,q[1]]:[q[0],l.at]),b=toFloor(Tu,l.axis==='x'?[l.at,q[1]+1]:[q[0]+1,l.at]),dx=Math.abs(b[0]-a[0]),dy=Math.abs(b[1]-a[1]);
+  return dx<1e-6*dy?{axis:'X' as const,at:Math.round(a[0]*10)/10}:dy<1e-6*dx?{axis:'Y' as const,at:Math.round(a[1]*10)/10}:undefined;};
+ const nearestCrossing=(p:P2)=>{let best={x:f.gridsX[0]?.label||'',y:f.gridsY[0]?.label||''},d=Infinity;for(const gx of f.gridsX)for(const gy of f.gridsY){const e=Math.hypot(gx.at-p[0],gy.at-p[1]);if(e<d){d=e;best={x:gx.label,y:gy.label};}}return best;};
+ const residuals=useMemo(()=>alignT&&index&&align?alignResiduals(f,alignT,index,300,align.picks.map(q=>`${q.x}/${q.y}`)):[],[alignT,index,align,f]);
+ /** a corner point: the drawing's snap point when there is one, else the plan snap per axis */
+ const corner=(x:number,y:number):P2=>{const h=snapUnder([x,y],['int','end','centre','mid']);return h?[Math.round(h.p[0]*10)/10,Math.round(h.p[1]*10)/10]:[snap(x,0),snap(y,1)];};
  const lines=useMemo(()=>[snapLines(f,0),snapLines(f,1)],[f]);
  const snap=(v:number,axis:0|1)=>{const tol=8/s;let best=v,d=tol;for(const l of lines[axis])if(Math.abs(l-v)<d){d=Math.abs(l-v);best=l;}return best===v?Math.round(v/25)*25:best;};
  // drag: move / resize an opening or drop (rect bbox)
  const drag=useRef<{kind:'opening'|'drop';id:string;mode:'move'|'size';start:P2;orig:SlabFloor}|null>(null);
  const onDown=(e:RPointerEvent,kind:'opening'|'drop',id:string,mode:'move'|'size')=>{e.stopPropagation();setSel({kind,id});if(readOnly||tool!=='select'&&tool!==kind)return;(e.target as Element).setPointerCapture?.(e.pointerId);drag.current={kind,id,mode,start:toModel(e),orig:f};};
- const onMove=(e:RPointerEvent)=>{const d=drag.current;if(!d)return;const p=toModel(e),dx=p[0]-d.start[0],dy=p[1]-d.start[1];
+ const onMove=(e:RPointerEvent)=>{
+  const pn=pan.current;if(pn){const [qx,qy]=px(e);if(Math.hypot(qx-pn.x,qy-pn.y)>3)pn.moved=true;if(pn.moved)setView(v=>({...v,cx:pn.cx-(qx-pn.x)/s,cy:pn.cy+(qy-pn.y)/s}));return;}
+  const d=drag.current;if(!d){if(snapOn&&index&&(tool!=='select'||align)){const p=toModel(e),h=tool==='grid'&&!align?(()=>{const l=lineUnder(p);return l?{p:(l.axis==='X'?[l.at,p[1]]:[p[0],l.at]) as P2,kind:`กริด ${l.axis}`}:undefined;})():(align?snapUnder(p,['int'],true)||snapUnder(p,['int','end','centre']):snapUnder(p));setHover(h?{p:h.p,kind:h.kind}:null);}else if(hover)setHover(null);return;}
+  const p=toModel(e),dx=p[0]-d.start[0],dy=p[1]-d.start[1];
   if(d.kind==='opening'){const o=d.orig.openings.find(x=>x.id===d.id)!;let next:FloorOpening;
-   if(d.mode==='move'){const nx=snap(o.x+dx,0),ny=snap(o.y+dy,1),rx=snap(o.x+dx+o.w,0)-o.w,ry=snap(o.y+dy+(o.shape==='circle'?o.w:o.h),1)-(o.shape==='circle'?o.w:o.h);next={...o,x:Math.abs(nx-(o.x+dx))<=Math.abs(rx-(o.x+dx))?nx:rx,y:Math.abs(ny-(o.y+dy))<=Math.abs(ry-(o.y+dy))?ny:ry};}
+   const hu=d.mode==='move'?snapUnder([o.x+dx,o.y+dy],['int','end','centre']):snapUnder([o.x+o.w+dx,o.y+dy],['int','end','centre']);
+   if(hu){const [hx,hy]=[Math.round(hu.p[0]*10)/10,Math.round(hu.p[1]*10)/10];next=d.mode==='move'?{...o,x:hx,y:hy}:o.shape==='circle'?{...o,w:Math.max(100,hx-o.x)}:{...o,w:Math.max(100,hx-o.x),h:Math.max(100,o.y+o.h-hy),y:Math.min(hy,o.y+o.h-100)};}
+   else if(d.mode==='move'){const nx=snap(o.x+dx,0),ny=snap(o.y+dy,1),rx=snap(o.x+dx+o.w,0)-o.w,ry=snap(o.y+dy+(o.shape==='circle'?o.w:o.h),1)-(o.shape==='circle'?o.w:o.h);next={...o,x:Math.abs(nx-(o.x+dx))<=Math.abs(rx-(o.x+dx))?nx:rx,y:Math.abs(ny-(o.y+dy))<=Math.abs(ry-(o.y+dy))?ny:ry};}
    else{const w=Math.max(100,snap(o.x+o.w+dx,0)-o.x),h=Math.max(100,snap(o.y+dy,1));next=o.shape==='circle'?{...o,w}:{...o,w,h:Math.max(100,o.y+o.h-h),y:Math.min(h,o.y+o.h-100)};}
    onChange({...d.orig,openings:d.orig.openings.map(x=>x.id===d.id?next:x)});}
   else{const dr=d.orig.drops.find(x=>x.id===d.id)!;const b=bbox(dr.outline as P2[]);
    const ring:P2[]=d.mode==='move'?(()=>{const ox=snap(b[0]+dx,0)-b[0],oy=snap(b[1]+dy,1)-b[1];return dr.outline.map(([x,y])=>[x+ox,y+oy] as P2);})():(()=>{const nx=Math.max(b[0]+100,snap(b[2]+dx,0)),ny=Math.min(b[3]-100,snap(b[1]+dy,1));return [[b[0],ny],[nx,ny],[nx,b[3]],[b[0],b[3]]] as P2[];})();
    onChange({...d.orig,drops:d.orig.drops.map(x=>x.id===d.id?{...x,outline:ring}:x)});}};
- const onUp=()=>{const d=drag.current;if(!d)return;drag.current=null;setHist(h=>({past:[...h.past.slice(-49),d.orig],future:[]}));};
+ const onUp=()=>{if(pan.current){panned.current=pan.current.moved;pan.current=null;return;}const d=drag.current;if(!d)return;drag.current=null;setHist(h=>({past:[...h.past.slice(-49),d.orig],future:[]}));};
  const panelUnder=(p:P2)=>f.panels.find(x=>inside(p,x.outline as P2[]));
- const onPlanClick=(e:React.MouseEvent)=>{if(readOnly)return;const p=toModel(e);
-  if(tool==='opening'){const host=panelUnder(p);if(!host){setMsg('คลิกในแผงพื้นเพื่อวางช่องเปิด');return;}const id=freeId(f,'op');const o:FloorOpening={id,label:`OP-${f.openings.length+1}`,panel:host.id,shape:'rect',x:snap(p[0]-300,0),y:snap(p[1]-300,1),w:600,h:600,trim:{...DEFAULT_OPENING_TRIM}};commit({...f,openings:[...f.openings,o]});setSel({kind:'opening',id});return;}
+ const onPlanClick=(e:React.MouseEvent)=>{if(panned.current){panned.current=false;return;}if(readOnly)return;const p=toModel(e);
+  if(align){if(align.picks.length>=2)return;const h=snapUnder(p,['int'],true)||snapUnder(p,['int','end','centre']);if(!h||!Tu){setMsg('คลิกที่จุดตัดกริดในแบบพื้นหลัง (ต้องมี snap: เปิด “Snap กับแบบ”)');return;}
+   const c=nearestCrossing(h.p),used=align.picks.map(q=>`${q.x}/${q.y}`);setAlign({...align,pending:{src:h.src,...(used.includes(`${c.x}/${c.y}`)?{x:'',y:''}:c)}});setMsg('');return;}
+  if(tool==='grid'){const l=lineUnder(p);if(!l){setMsg(index?'คลิกบนเส้นกริดในแบบพื้นหลัง (เส้นขนานแกน) เพื่อเพิ่มกริด · หรือแก้ในตารางด้านซ้าย':'แก้กริดในตารางด้านซ้าย · หรือเลือกแบบพื้นหลัง (PDF / DXF) แล้วคลิกเส้นกริดในแบบ');return;}
+   const key=l.axis==='X'?'gridsX':'gridsY',list=f[key];if(list.some(g=>Math.abs(g.at-l.at)<1)){setMsg(`มีกริด ${l.axis} ที่ ${fmt(l.at)} แล้ว`);return;}if(list.length>=30){setMsg('กริดไม่เกิน 30 เส้นต่อแนว');return;}
+   const label=nextLabel(list,l.axis==='X'?'A':'1');commit({...f,[key]:[...list,{label,at:l.at}]});setMsg(`เพิ่มกริด ${l.axis} “${label}” ที่ ${fmt(l.at)} (เปลี่ยนชื่อในตารางด้านซ้าย)`);return;}
+  if(tool==='opening'){const host=panelUnder(p);if(!host){setMsg('คลิกในแผงพื้นเพื่อวางช่องเปิด');return;}const id=freeId(f,'op'),hu=snapUnder(p,['int','end','corner']),at:P2=hu?corner(hu.p[0],hu.p[1]):[snap(p[0]-300,0),snap(p[1]-300,1)];const o:FloorOpening={id,label:`OP-${f.openings.length+1}`,panel:host.id,shape:'rect',x:at[0],y:at[1],w:600,h:600,trim:{...DEFAULT_OPENING_TRIM}};commit({...f,openings:[...f.openings,o]});setSel({kind:'opening',id});return;}
   if(tool==='drop'){const host=panelUnder(p);if(!host){setMsg('คลิกในแผงพื้นเพื่อวาง Drop / พื้นลดระดับ');return;}const id=freeId(f,'dp'),a=snap(p[0]-600,0),b=snap(p[1]-600,1);const d:FloorDrop={id,label:`D-${f.drops.length+1}`,kind:'drop',outline:[[a,b],[a+1200,b],[a+1200,b+1200],[a,b+1200]],depth:150,rebar:'separate'};commit({...f,drops:[...f.drops,d]});setSel({kind:'drop',id});return;}
   if(tool==='column'){// nearest grid crossing: add a column / remove the one there
    const tol=14/s,gxs=f.gridsX.find(g=>Math.abs(g.at-p[0])<tol),gys=f.gridsY.find(g=>Math.abs(g.at-p[1])<tol);
@@ -106,6 +157,23 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
  const addMarkFromSpec=(id:string)=>{const t=spec.slabTemplates?.find(x=>x.id===id);if(!t)return;const mk=floorMarkFromTemplate(t);if(f.marks.some(m=>m.name.toUpperCase()===mk.name.toUpperCase())){commit({...f,marks:f.marks.map(m=>m.name.toUpperCase()===mk.name.toUpperCase()?{...mk,name:m.name}:m)});setMsg(`อัปเดตเบอร์พื้น ${mk.name} ตามตารางพื้น`);return;}commit({...f,marks:[...f.marks,mk]});};
  const addMark=()=>{const used=new Set(f.marks.map(m=>m.name.toUpperCase()));let k=f.marks.length+1;while(used.has(`S${k}`))k++;commit({...f,marks:[...f.marks,{name:`S${k}`,thickness:150,support:'elevated',rebar:structuredClone(DEFAULT_SLAB_REBAR)}]});};
 
+ // ---------- S4a underlay actions ----------
+ const setUnder=(patch:Partial<FloorUnderlay>,history=true)=>{if(!u)return;const next={...f,underlay:{...u,...patch}};if(history)commit(next);else if(!readOnly)onChange(next);};
+ const chooseFile=async(id:string,page=1)=>{
+  if(!id){const {underlay:_u,...rest}=f;commit(rest as SlabFloor);setAlign(null);return;}
+  const a=files.find(x=>x.id===id);if(!a)return;setUnderBusy(true);setMsg('');
+  try{const x=await loadUnderlay(a,page),box=x.image?.box||x.doc?.bounds;if(!box)throw Error('ไฟล์นี้ไม่มีภาพหรือเส้นให้แสดง');
+   const unit=a.contentType==='image/vnd.dxf'?UNIT_MM[insUnits(x.doc?.insunits)||'mm']:a.contentType==='application/pdf'?(a.calibrations?.[String(page)]?.mmPerPoint||PDF_1_100):10;
+   const gx0=Math.min(0,...f.gridsX.map(g=>g.at)),gy0=Math.min(0,...f.gridsY.map(g=>g.at));
+   commit({...f,underlay:{attachmentId:a.id,...(a.contentType==='application/pdf'?{page:Math.min(page,x.pages)}:{}),transform:{scale:unit,rotation:0,tx:gx0-box[0]*unit,ty:gy0-box[1]*unit},opacity:0.5,locked:false,hidden:false}});
+   setView({k:1});setAlign(null);
+   setMsg(x.scanned?'ไฟล์นี้ไม่มีเส้น vector (ภาพสแกน / รูป): แสดงเป็นภาพอย่างเดียว ไม่มี snap · จัดแนว 2 จุดโดยคลิกเองได้แม่นตามภาพ':`วางแบบพื้นหลังแล้ว (มาตราส่วนเริ่มต้น ${a.contentType==='application/pdf'?(a.calibrations?.[String(page)]?'จากการ Calibrate ของหน้านี้':'1:100'):'ตามหน่วยในไฟล์'}) · กด “จัดแนว 2 จุด” ให้ตรงกริด`);}
+  catch(e){setMsg(e instanceof Error?e.message:String(e));}finally{setUnderBusy(false);}};
+ const startAlign=()=>{if(!u||u.locked)return;if(f.gridsX.length<1||f.gridsY.length<1){setMsg('ต้องมีกริด X และ Y อย่างน้อยแนวละ 1 เส้นก่อนจัดแนว');return;}setAlign({picks:[]});setUnderOpen(true);setTool('select');setMsg('');};
+ const confirmPick=()=>{if(!align?.pending)return;const q=align.pending;if(!q.x||!q.y||!crossing(f,q.x,q.y)){setMsg('เลือกจุดตัดกริดของแปลน');return;}
+  if(align.picks.some(x=>x.x===q.x&&x.y===q.y)){setMsg('เลือกจุดตัดกริดคนละจุดกับจุดแรก');return;}setAlign({picks:[...align.picks,q]});};
+ const applyAlign=()=>{if(!u||!alignT||!align)return;commit({...f,underlay:{...u,transform:alignT,align:align.picks.map(q=>({src:q.src,x:q.x,y:q.y})),hidden:false}});setAlign(null);setView({k:1});
+  setMsg(`จัดแนวแล้ว · มาตราส่วน ${alignT.scale.toPrecision(6)} mm / หน่วยในแบบ · หมุน ${(alignT.rotation*180/Math.PI).toFixed(3)}°${residuals.length?` · คลาดเคลื่อนที่จุดตัดอื่นสูงสุด ${Math.max(...residuals.map(r=>r.err)).toFixed(1)} mm (${residuals.length} จุด)`:''}`);};
  const selPanel=sel?.kind==='panel'?f.panels.find(p=>p.id===sel.id):undefined,selOpening=sel?.kind==='opening'?f.openings.find(o=>o.id===sel.id):undefined,selBeam=sel?.kind==='beam'?f.beams.find(b=>b.id===sel.id):undefined,selDrop=sel?.kind==='drop'?f.drops.find(d=>d.id===sel.id):undefined;
  const gx=[...f.gridsX].sort((a,b)=>a.at-b.at),gy=[...f.gridsY].sort((a,b)=>a.at-b.at);
  const num=(label:string,value:number,on:(v:number)=>void,opts:{min?:number;step?:string}={})=><label className="field"><span>{label}</span><NumInput type="number" step={opts.step||'any'} disabled={readOnly} value={value} onChange={e=>{const v=Number(e.target.value);on(Number.isFinite(v)?opts.min!==undefined?Math.max(opts.min,v):v:0);}}/></label>;
@@ -124,11 +192,37 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
    <button type="button" className="icon-button" title="ย้อนกลับ" disabled={readOnly||!hist.past.length} onClick={undo}><Undo2 size={15}/></button>
    <button type="button" className="icon-button" title="ทำซ้ำ" disabled={readOnly||!hist.future.length} onClick={redo}><Redo2 size={15}/></button>
    {onView3d&&<button type="button" onClick={onView3d}><Box size={14}/>ดู 3D</button>}
+   <button type="button" aria-pressed={underOpen} className={underOpen?'active':''} title="แบบพื้นหลัง: วางแบบ PDF / DXF ใต้แปลนพื้น จัดแนว 2 จุด แล้ววาดทับ (ไม่มีผลกับปริมาณ / แบบที่ส่งออก)" onClick={()=>setUnderOpen(o=>!o)}><Layers size={14}/>แบบพื้นหลัง{u?' ●':''}</button>
+   <button type="button" disabled={readOnly} title="นำเข้ากริด คาน เสา ช่องเปิด และเบอร์พื้นจากไฟล์ DXF (ตรวจก่อนใช้)" onClick={()=>setImportOpen(true)}><FileInput size={14}/>นำเข้าจาก DXF</button>
+   <button type="button" aria-pressed={snapOn} className={snapOn?'active':''} disabled={!index} title={index?'Snap กับเส้นในแบบพื้นหลัง (ปลายเส้น จุดตัด กึ่งกลาง มุม จุดศูนย์กลาง)':src?.scanned?'PDF สแกน / รูป: ไม่มีเส้นให้ snap':'ไม่มีแบบพื้นหลังแบบ vector'} onClick={()=>setSnapOn(v=>!v)}><Magnet size={14}/>Snap กับแบบ</button>
+   <button type="button" className="icon-button" title="พอดีจอ (ซูม: Ctrl + ล้อเมาส์ · เลื่อน: ลากพื้นที่ว่าง หรือปุ่มกลางเมาส์)" disabled={view.k===1&&view.cx===undefined} onClick={()=>setView({k:1})}><Maximize2 size={14}/></button>
    <HelpButton topic="slab-floor"/>
    {onBuild&&<button type="button" className="primary" disabled={readOnly||buildDisabled||problems.length>0} title="ใช้แปลนพื้นกับสมาชิก: สร้างเหล็กและปริมาณ (เหมือนปุ่ม “ใช้ข้อมูลและสร้าง Bar cut list”) แล้วกดบันทึกสมาชิก" onClick={onBuild}>สร้างเหล็ก + ใช้กับสมาชิก</button>}
-   <span className="muted sf-hint">{tool==='beam'?'คลิกบนเส้นกริดเพื่อเพิ่ม / ลบคานช่วงนั้น':tool==='column'?'คลิกที่จุดตัดกริดเพื่อวาง / ลบเสา (ขนาดตั้งที่แผงซ้าย)':tool==='opening'?'คลิกในแผงเพื่อวางช่องเปิด · ลากเพื่อย้าย · มุมขวาล่างปรับขนาด':tool==='drop'?'คลิกในแผงเพื่อวาง Drop / พื้นลดระดับ':tool==='panel'?'คลิกเลือกหลายแผงเพื่อรวม (ตัว L) / ลบ':tool==='grid'?'แก้กริดในตารางด้านซ้าย':'คลิกเลือกเพื่อแก้คุณสมบัติด้านขวา · Shift+คลิก เลือกหลายแผง'}</span>
+   <span className="muted sf-hint">{align?(align.picks.length<2?`จัดแนว: คลิกจุดตัดกริดในแบบ จุดที่ ${align.picks.length+1} แล้วเลือกว่าเป็นจุดตัดกริดไหนของแปลน`:'จัดแนว: ตรวจค่าคลาดเคลื่อนแล้วกด “ใช้การจัดแนว”'):tool==='grid'&&index?'คลิกเส้นกริดในแบบพื้นหลังเพื่อเพิ่มกริด · หรือแก้ในตารางด้านซ้าย':tool==='beam'?'คลิกบนเส้นกริดเพื่อเพิ่ม / ลบคานช่วงนั้น':tool==='column'?'คลิกที่จุดตัดกริดเพื่อวาง / ลบเสา (ขนาดตั้งที่แผงซ้าย)':tool==='opening'?'คลิกในแผงเพื่อวางช่องเปิด · ลากเพื่อย้าย · มุมขวาล่างปรับขนาด':tool==='drop'?'คลิกในแผงเพื่อวาง Drop / พื้นลดระดับ':tool==='panel'?'คลิกเลือกหลายแผงเพื่อรวม (ตัว L) / ลบ':tool==='grid'?'แก้กริดในตารางด้านซ้าย':'คลิกเลือกเพื่อแก้คุณสมบัติด้านขวา · Shift+คลิก เลือกหลายแผง'}</span>
   </div>
   {msg&&<p className="notice" role="status">{msg}</p>}
+  {underOpen&&<div className="sf-under" role="group" aria-label="แบบพื้นหลัง">
+   <label className="field inline"><span>ไฟล์</span><select disabled={readOnly||underBusy||!!u?.locked} value={u?.attachmentId||''} onChange={e=>void chooseFile(e.target.value)}><option value="">— ไม่มีแบบพื้นหลัง —</option>
+    {files.map(a=><option key={a.id} value={a.id}>{a.name}{a.memberId?'':' (โครงการ)'}</option>)}{u&&!uFile&&<option value={u.attachmentId}>(ไฟล์หายไป)</option>}</select></label>
+   {u&&uFile?.contentType==='application/pdf'&&<label className="field inline"><span>หน้า</span><NumInput type="number" min={1} max={src?.pages||9999} disabled={readOnly||underBusy||u.locked} value={u.page||1} onChange={e=>{const v=Math.max(1,Math.round(Number(e.target.value)||1));if(v!==(u.page||1))void chooseFile(u.attachmentId,v);}}/>{src?<small className="muted">/ {src.pages}</small>:null}</label>}
+   {u&&<><label className="field inline sf-opacity"><span>ความทึบ</span><input type="range" min={0.1} max={1} step={0.05} disabled={readOnly} value={u.opacity} onChange={e=>setUnder({opacity:Number(e.target.value)},false)}/></label>
+    <label className="check"><input type="checkbox" disabled={readOnly} checked={u.locked} onChange={e=>setUnder({locked:e.target.checked})}/>ล็อก</label>
+    <label className="check"><input type="checkbox" checked={readOnly?localHide:u.hidden} onChange={e=>readOnly?setLocalHide(e.target.checked):setUnder({hidden:e.target.checked})}/>ซ่อน</label>
+    <button type="button" disabled={readOnly||u.locked||!src} title={u.locked?'ปลดล็อกก่อน':'คลิกจุดตัดกริดในแบบ 2 จุด แล้วเลือกว่าเป็นจุดตัดกริดไหนของแปลน'} onClick={startAlign}>จัดแนว 2 จุด</button>
+    <small className="muted">{u.align?`จัดแนวที่ ${u.align.map(q=>`${q.x}/${q.y}`).join(' และ ')} · `:'ยังไม่จัดแนว · '}{src?.doc?`${src.doc.kind.toUpperCase()} ${src.doc.segCount.toLocaleString('en-US')} เส้น`:src?.scanned?'ภาพ (ไม่มี snap)':'กำลังอ่าน…'}{big?` · เกิน ${SNAP_LIMIT.toLocaleString('en-US')} เส้น: snap เฉพาะในหน้าจอ`:''}{src?.note?` · ${src.note}`:''}</small></>}
+   {!files.length&&<small className="muted">ยังไม่มีไฟล์ PDF / DXF / รูป ในสมาชิกนี้หรือโครงการ · แนบที่แท็บ “แบบต้นทาง”</small>}
+   {srcErr&&<small className="error">{srcErr}</small>}
+   {align&&<div className="sf-align"><b>จัดแนว 2 จุด</b>
+    {align.picks.map((q,k)=><span key={k} className="sf-align-pick">จุด {k+1} = {q.x}/{q.y}</span>)}
+    {align.pending&&align.picks.length<2&&<span className="sf-align-ask">จุดที่คลิกในแบบคือจุดตัดกริด
+     <select aria-label="กริด X" value={align.pending.x} onChange={e=>setAlign({...align,pending:{...align.pending!,x:e.target.value}})}><option value="">X</option>{gx.map(g=><option key={g.label}>{g.label}</option>)}</select> /
+     <select aria-label="กริด Y" value={align.pending.y} onChange={e=>setAlign({...align,pending:{...align.pending!,y:e.target.value}})}><option value="">Y</option>{gy.map(g=><option key={g.label}>{g.label}</option>)}</select>
+     <button type="button" className="primary" onClick={confirmPick}>ยืนยันจุด {align.picks.length+1}</button></span>}
+    {alignT&&<span>มาตราส่วน {alignT.scale.toPrecision(6)} · หมุน {(alignT.rotation*180/Math.PI).toFixed(3)}° · {residuals.length?<>คลาดเคลื่อนที่จุดตัดอื่น สูงสุด <b>{Math.max(...residuals.map(r=>r.err)).toFixed(1)} mm</b> เฉลี่ย {(residuals.reduce((n,r)=>n+r.err,0)/residuals.length).toFixed(1)} mm ({residuals.length} จุด)</>:'ไม่พบจุดตัดกริดอื่นในแบบให้ตรวจ'}
+     <button type="button" className="primary" onClick={applyAlign}>ใช้การจัดแนว</button></span>}
+    <button type="button" onClick={()=>setAlign({picks:[]})}>เริ่มใหม่</button><button type="button" onClick={()=>setAlign(null)}>ยกเลิก</button></div>}
+  </div>}
+  {importOpen&&<FloorDxfImport floor={f} project={project} files={files} initialFile={u?.attachmentId} saved={savedMaps} readOnly={readOnly} onApply={next=>{commit(next);setMsg('นำเข้าจาก DXF แล้ว (ย้อนกลับได้ 1 ครั้ง) · ตรวจแปลนแล้วกด “สร้างเหล็ก + ใช้กับสมาชิก”');setView({k:1});}} onClose={()=>setImportOpen(false)}/>}
   {beamsOpen&&memberId&&<FloorBeamsDialog project={project} floorId={memberId} editedInput={input} readOnly={readOnly} members={members||null} onReload={async()=>{await onReloadMembers?.();}} onClose={()=>setBeamsOpen(false)}/>}
   {problems.length>0&&<div className="notice warning"><b>ต้องแก้ก่อนสร้างเหล็ก ({problems.length})</b><ul>{problems.slice(0,8).map(p=><li key={p}>{p}</li>)}</ul></div>}
   <div className="sf-body">
@@ -154,8 +248,12 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
     <ul className="sf-list">{summary.map(m=>{const [bg,fg]=colors[markIndex(f,m.mark)%colors.length];return <li key={m.mark}><span className="sf-swatch" style={{background:bg,borderColor:fg}}/><b>{m.mark}</b> หนา {f.marks.find(x=>x.name===m.mark)?.thickness} · {m.panels} แผง · {m.area.toFixed(2)} m² · {m.volume.toFixed(2)} m³</li>;})}</ul>
    </aside>
    <div className="sf-plan">
-    <svg ref={svg} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="แปลนพื้น: กริด คานอ้างอิง แผงพื้นตามเบอร์ ช่องเปิด และ Drop" onClick={onPlanClick} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp} className={`tool-${tool}`}>
+    <svg ref={svg} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="แปลนพื้น: กริด คานอ้างอิง แผงพื้นตามเบอร์ ช่องเปิด และ Drop" onClick={onPlanClick} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={e=>{onUp();setHover(null);void e;}} className={`tool-${tool}${align?' aligning':''}`}
+     onPointerDown={e=>{if(e.button===1||e.button===0&&(e.target as Element).classList.contains('sf-bg')&&tool==='select'&&!align){const [qx,qy]=px(e);pan.current={x:qx,y:qy,cx,cy,moved:false};(e.currentTarget as Element).setPointerCapture?.(e.pointerId);if(e.button===1)e.preventDefault();}}}>
      <rect x={0} y={0} width={W} height={H} className="sf-bg"/>
+     {shown&&TD&&src?.image&&(()=>{const c=Math.cos(TD.rotation)*TD.scale,sn=Math.sin(TD.rotation)*TD.scale,b=src.image.box;
+      return <g transform={`matrix(${s*c} ${-s*sn} ${-s*sn} ${-s*c} ${W/2+s*(TD.tx-cx)} ${H/2-s*(TD.ty-cy)})`} opacity={u!.opacity} className="sf-underlay" pointerEvents="none">
+       <image href={src.image.href} x={b[0]} y={-b[3]} width={b[2]-b[0]} height={b[3]-b[1]} transform="scale(1,-1)" preserveAspectRatio="none"/></g>;})()}
      {gx.map(g=><g key={`gx${g.label}`}><line x1={X(g.at)} x2={X(g.at)} y1={H-pad+30} y2={pad-30} className="sf-grid"/><circle cx={X(g.at)} cy={H-pad+44} r={13} className="sf-bubble"/><text x={X(g.at)} y={H-pad+48} className="sf-bubble-t">{g.label}</text></g>)}
      {gy.map(g=><g key={`gy${g.label}`}><line y1={Y(g.at)} y2={Y(g.at)} x1={pad-30} x2={W-pad+30} className="sf-grid"/><circle cx={pad-44} cy={Y(g.at)} r={13} className="sf-bubble"/><text x={pad-44} y={Y(g.at)+4} className="sf-bubble-t">{g.label}</text></g>)}
      {gx.slice(1).map((g,k)=><text key={`dx${k}`} x={(X(g.at)+X(gx[k].at))/2} y={H-pad+66} className="sf-dim">{fmt(g.at-gx[k].at)}</text>)}
@@ -175,6 +273,8 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
        {on&&<>{host&&(()=>{const gl=[...gx].reverse().find(g=>g.at<=bx)||gx[0];return gl?<g className="sf-odim"><line x1={X(gl.at)} x2={X(bx)} y1={Y(by+bh)-14} y2={Y(by+bh)-14}/><text x={(X(gl.at)+X(bx))/2} y={Y(by+bh)-18}>{gridRef(f.gridsX,bx)}</text></g>:null;})()}
         <text x={X(bx+bw/2)} y={Y(by)+16} className="sf-odim-t">{o.shape==='circle'?`Ø${bw}`:`${bw}×${bh}`}</text>
         {!readOnly&&<rect x={X(bx+bw)-5} y={Y(by)-5} width={10} height={10} className="sf-grip" onPointerDown={e=>onDown(e,'opening',o.id,'size')}/>}</>}</g>;})}
+     {align&&Tu&&[...align.picks,...(align.pending?[align.pending]:[])].map((q,k)=>{const p=toFloor(Tu,q.src);return <g key={k} className="sf-apick"><circle cx={X(p[0])} cy={Y(p[1])} r={9}/><text x={X(p[0])+12} y={Y(p[1])-10}>{k+1}{q.x&&q.y?` = ${q.x}/${q.y}`:''}</text></g>;})}
+     {hover&&<g className="sf-snap" pointerEvents="none"><rect x={X(hover.p[0])-6} y={Y(hover.p[1])-6} width={12} height={12}/><text x={X(hover.p[0])+10} y={Y(hover.p[1])+16}>{snapLabel[hover.kind]||hover.kind}</text></g>}
     </svg>
     {tool==='panel'&&<div className="sf-actions"><span className="muted">เลือก {multi.length} แผง</span><button type="button" disabled={readOnly||multi.length<2} onClick={merge}>รวมแผง (ตัว L / หลายเหลี่ยม)</button><button type="button" disabled={readOnly||!multi.length} onClick={()=>{commit({...f,panels:f.panels.filter(p=>!multi.includes(p.id))});setMulti([]);}}><Trash2 size={13}/>ลบแผงที่เลือก</button>
      <label className="field inline"><span>ตั้งเบอร์พื้น</span><select disabled={readOnly||!multi.length} value="" onChange={e=>{if(e.target.value)commit(retagPanels({...f,panels:f.panels.map(p=>multi.includes(p.id)?{...p,mark:e.target.value}:p)}));}}><option value="">—</option>{f.marks.map(m=><option key={m.name}>{m.name}</option>)}</select></label></div>}
