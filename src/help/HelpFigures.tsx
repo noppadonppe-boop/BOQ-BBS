@@ -14,6 +14,9 @@ const figures:Record<FigureId,()=>ReactNode>={
  workflow:()=>{const s=['Spec','WBS','สมาชิก','ตรวจ BBS','BOQ','แบบ A3','ตัดเหล็ก'];return <>{s.map((l,i)=>{const x=8+(i%4)*78,y=i<4?30:110;return <Box key={l} x={i<4?x:8+((6-i)+0.5)*78} y={y} w={66} h={34} label={`${i+1}. ${l}`} tone={i===2?'hl':''}/>;})}
   <Arrow d="M74 47h10"/><Arrow d="M152 47h10"/><Arrow d="M230 47h10"/><Arrow d="M281 64 v20 q0 8 -8 8 h-10 v18"/><Arrow d="M203 127h-10"/><Arrow d="M125 127h-10"/>
   <T x={160} y={172} s>ส่งตรวจ → Checked → IFC ก่อนออกแบบและตัดเหล็ก</T></>;},
+ 'slab-floor-sheet':()=><><rect x={6} y={8} width={308} height={164} className="node"/>
+  {[[12,14,94,70,'แปลนเหล็กล่าง'],[110,14,94,70,'แปลนเหล็กบน'],[208,14,100,70,'ตารางพื้น · สัญลักษณ์ · Key plan'],[12,88,94,40,'รูปตัด X–X'],[110,88,94,40,'รูปตัด Y–Y'],[12,132,60,34,'D1 ช่องเปิด'],[76,132,128,34,'รายละเอียดมาตรฐาน'],[208,88,100,78,'แผ่น 2+ : BBS']].map(([x,y,w,h,t],k)=><g key={k}><rect x={x as number} y={y as number} width={w as number} height={h as number} className={k===7?'node hl':'c'}/><T x={(x as number)+4} y={(y as number)+11} s>{t as string}</T></g>)}
+  {[34,48,62,76].map(y=><line key={y} x1={20} x2={98} y1={y} y2={y} className="b2"/>)}{[30,58].map(y=><line key={y} x1={140} x2={176} y1={y+12} y2={y+12} className="b"/>)}</>,
  'slab-floor':()=><>{[30,130,230,290].map(x=><line key={x} x1={x} x2={x} y1={14} y2={166} className="d dash"/>)}{[24,96,156].map(y=><line key={y} y1={y} y2={y} x1={14} x2={306} className="d dash"/>)}
   {[[34,28,92,64],[134,28,92,64],[234,28,52,64],[34,100,92,52],[134,100,92,52],[234,100,52,52]].map(([x,y,w,h],k)=><rect key={k} x={x} y={y} width={w} height={h} className={k===4?'c sel':'c'}/>)}
   {[30,130,230,290].map(x=><rect key={x} x={x-4} y={20} width={8} height={140} className="l"/>)}{[24,96,156].map(y=><rect key={y} x={26} y={y-4} width={268} height={8} className="l"/>)}

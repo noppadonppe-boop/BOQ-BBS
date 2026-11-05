@@ -280,7 +280,14 @@
   laps at beams ≤ stock, cranks 1:6 ≤ 75, extra top bars, U bars, opening trimmers / diagonals, drops), `groupFloorBars` (Marks
   `S1-B01` / `S1-T01` / `S1-OP1` / `S1-OD1`, owner = group `g<mark>` or the panel, ids `gen-<owner>-…`; `barOwner` accepts `gen-`),
   `applySlabFloor` (called by `applyElementInput`; placement regions `genfb<k>` per beam; `REGION_LIMIT` 64, shape parts ≤ 160).
-  Sheets per slab mark: `tagSheetSets` / `sheetOwners` floor branch. UI `components/SlabFloorEditor.tsx` in the Slab input panel;
+  Sheets (S2, `src/domain/slabFloorSheet.ts`): A2 (whole floor A1 when large), drawing sheet first then BBS (`layout()` `firstView`),
+  system layout `floorSystemLayout` (via `resolveSheetLayout` `from:'system'`): `plan-bottom` / `plan-top` (`ViewSpec.floor`, rows by
+  `floorRowLayer`, one entry per Mark per panel, grids / beams / faded marks, `fdim:` L/n dims), sections via `floorSectionCuts`, auto
+  opening details `det:op-<id>` (`floorDetails`), paper ViewKeys `schedule|legend|keyplan|stddet` (`drawFloorPaper`); sets per mark
+  (`floor {mode:'mark'}`) or whole floor / picked marks (`partTags`, grouped BBS `floorTableItems` + summary page, `floorMerge` → SF-
+  Marks `mergeFloorMarks`); Excel “Slab BBS” / “Slab Summary” (`data/slabFloorExcel.ts`); CAD roles `barBottom` / `barTop` (fallback
+  barMain); `spec.slabAccessories` → detailing → site items `gen-slab-chair|chair-kg|spacer`. Test: `tests/slabFloorSheet.test.ts`.
+  UI `components/SlabFloorEditor.tsx` in the Slab input panel;
   floor members hide the shape / rebar tabs (`isSlabFloorMember`). Slab List column “บนเสริม” (`topExtra`, `TopExtraCell`).
   Test: `tests/slabFloor.test.ts` (+ DXF `output/dxf-verification/slabFloor-*.dxf`).
 - Slab / wall templates (Slab List / RC Wall List marks): `spec.slabTemplates` (thickness, support, bars 1 / 2 = short span

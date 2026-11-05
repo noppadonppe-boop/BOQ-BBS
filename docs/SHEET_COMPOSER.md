@@ -34,7 +34,9 @@ A view appears once. Unknown keys are skipped when drawing; views not in the lay
   the automatic arrangement (“จัดอัตโนมัติ”) draws the same views (test).
 - Beam groups and column stacks keep their own paging (Composer disabled).
 
-Resolution (`resolveSheetLayout`): member layout → project default template of the category (foundation type) → automatic.
+Resolution (`resolveSheetLayout`): member layout → project default template of the category (foundation type) → slab floor
+system layout “พื้น” (`from:'system'`, docs/SLAB_FLOOR.md) → automatic. Slab floors add the paper ViewKeys
+`schedule | legend | keyplan | stddet` (and template roles of the same names) and automatic opening details `det:op-<id>`.
 
 **Projection lock** (`lock`): rendered after its target; same scale and the shared model axis (x: horizontal axis, y:
 vertical axis, no mirrored view) → the box is shifted so that the same model coordinate lies on the same sheet x / y

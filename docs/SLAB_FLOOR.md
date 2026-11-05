@@ -1,4 +1,4 @@
-# Slab floor (พื้นทั้งชั้น · Slab layout `floor`) — round S1
+# Slab floor (พื้นทั้งชั้น · Slab layout `floor`) — rounds S1 + S2
 
 One Slab member holds a whole floor on a grid: grids → reference beams → panels cut at the beam faces → slab marks
 (เบอร์พื้น) from the slab list → openings / drops / lowered areas placed by grid + distance → bars and quantities.
@@ -78,11 +78,52 @@ side of the panel's bounding box.
 - **Owner**: bar id `gen-<owner>-<kind><nn>`; owner = shape-model bar group `g<mark>` (tag = mark) when the mark has ≥ 2
   panels, else the panel. `barOwner()` accepts `gen-<id>-` ids.
 
-## Sheets
+## Sheets (round S2, `src/domain/slabFloorSheet.ts`)
 
-`tagSheetSets()` groups owners by slab mark for a floor (`sheetOwners`: one owner per mark with the ids of its panels +
-its group): with “แยกตาม Tag” each mark gets its own set (its panels' concrete, every bar of the mark), then the summary.
-The sheet itself is the existing A3 layout (S2 adds the dedicated slab sheet).
+Floor members get their own sheet; single slabs and every other category draw exactly as before (snapshot test).
+
+- **Paper / paging** (`sheetFormat`): A2 unless the member chooses a size; a whole-floor set whose plan does not fit A2 at
+  1:100 goes on **A1** (`floorPaperSize`; A1 = 841 × 594 added to `sheetSizes`). The layout is always split with the **drawing
+  sheet(s) first**, then the BBS table pages (`layout()` → `firstView` / `firstTable` / `viewPages`), + one steel summary page
+  for whole-floor sets.
+- **System layout “พื้น (Slab Floor)”** (`floorSystemLayout`, used by `resolveSheetLayout` → `from:'system'` when the member
+  has no layout and the project no default template): bottom plan | top plan | schedule + legend + key plan / sections X–X,
+  Y–Y / opening details + standard details. Details that do not fit go to the next layout sheets; they ask for 1:20 when the
+  window fits the slot, else 'auto'. Editable in the Composer like any layout (writes `member.sheetLayout`).
+- **Plans** `plan-bottom` / `plan-top` (`ViewSpec.floor {layer}` → `buildViewOne` floor branch, `floorPlanData`): rows filtered
+  by `floorRowLayer()` (kind from the id: B → bottom, T → top, OP / OD by the layer token of the note); focused panels =
+  concrete, other marks faded (`floorFocus()` = panels still solid in the set's shape model); grids + bubbles; reference beams
+  dashed; openings crossed; drops dashed. Representative mode: per Mark one entry **per panel it crosses** (the bar drawn once,
+  a distribution line inside each panel, label `S1-B01 DB12@200 (B1)`, Drawing Edit key `mark:<bar id>@<panel tag>`).
+  Colours by layer (`floorRoleColors`: B1 / B2 / T / OP / OD). Extra top bars get a semantic dimension chain across the beam
+  (`fdim:<id>@<panel>`, projection text `<> (L/4)` in ratio mode); opening trimmers across the opening (details). Plan
+  dimensions = overall + grid to grid.
+- **Sections** `def-x` / `def-y` (`defaultSections` floor branch, `floorSectionCuts`): through the representative panel of the
+  set — a panel with a drop first, then a lowered panel, else the largest — cropped (`extent`) to that panel ± 1,500; the
+  titles say what they pass through.
+- **Opening details**: one automatic Detail view per opening of the focused panels (`floorDetails()`, id `op-<opening id>`,
+  label D1, D2 …, parent `plan-top`, square window = opening + extension + 300) drawing every bar of both layers near the
+  opening, labels of the OP / OD Marks only, the trimmer dimensions and a note (`openingDetailNote`: cut bars X / Y, trimmers,
+  extension, diagonals, kg). Not stored; user details (`drawingEdits.details`) are drawn too; D bubbles on the top plan.
+- **Paper views** (ViewKeys `schedule` / `legend` / `keyplan` / `stddet`, `drawFloorPaper`): slab schedule of the set's marks
+  (thickness with lowered levels, bottom / top short / long, extra top bars), legend + warnings (marks without top bars,
+  openings cutting more than half of a panel, views off their scale), key plan (whole floor, set marks highlighted — by mark
+  colour in whole-floor sets), standard details drawn from the project values (edge bend / U, lap at the beam, drop, lowered
+  slab). Placed / moved in the Composer; drawn on paper (no viewport) in DXF.
+- **Presentations** (sheet toolbar, `setup.parts`): “เฉพาะเบอร์พื้น” (`tag`) = one set per slab mark (`tagSheetSets`, set
+  `floor {mode:'mark'}`, title “แบบเหล็กเสริมพื้น S1 · ชั้น 2”) + the summary set; “รวมทั้งชั้น / หลายเบอร์” (`model`) = one
+  set of the picked marks (`drawingSetup.partTags`, none = all) with the BBS **grouped by slab mark** (`floorTableItems`: a
+  header row per mark) and a summary page kg per mark × size + totals (`floorSteelSummary`). `drawingSetup.floorMerge`: equal
+  bars across marks (shape code, Ø, grade, cut length, legs) share one Mark `SF-nn` (`mergeFloorMarks`: ids kept, `slab` /
+  `uses` on the rows, table note “ใช้ใน S1 × 24 · S2 × 12”).
+- **Excel**: sheets “Slab BBS” (bars by slab mark: layer, Mark, size, shape, cut length, counts, kg) and “Slab Summary”
+  (mark × size) appended after every existing sheet (`src/data/slabFloorExcel.ts`).
+- **CAD layers**: roles `barBottom` / `barTop` (defaults S-REBR-BOTM / S-REBR-TOPP) for floor bars in plans and sections;
+  stored standards without them fall back to the barMain layer (`cadStandardOf`).
+- **Chairs / spacers** (`spec.slabAccessories`, General Spec “พื้นทั้งชั้น · Chair และลูกปูน”, spec import key
+  `slabAccessories`; default off): copied into the slab detailing by `detailingFromSpec` (key only when enabled), then
+  `applySlabFloor` adds site items `gen-slab-chair` (pcs per m² of panels with top bars), `gen-slab-chair-kg` and
+  `gen-slab-spacer` (pcs per m² of every panel). Bars and concrete are unchanged.
 
 ## UI
 
@@ -101,7 +142,7 @@ Orthogonal grids only; beams are references (no beam concrete / bars, no beam-to
 member; ground layers without projections; drops / sunken areas must lie inside one panel; slab templates are copied
 into marks (not re-synced by the spec-change job yet).
 
-## For S2 (slab BBS sheet)
+## S2 inputs (done)
 
 - Bars carry layer in `note` (`B1 · …`), kind in the id (`-b`, `-t`, `-op`, `-od`) and Mark; panels per Mark in the note,
   owner per mark (`g<mark>` / panel) via `barOwner`; `floorBars(input, det).raw` gives every bar with `panels`, `layer`, `kind`.
@@ -120,6 +161,11 @@ into marks (not re-synced by the spec-change job yet).
 - Beam depth is “including the slab” (top = floor level); lowered panels do not lower the beam.
 
 ## Tests
+
+`tests/slabFloorSheet.test.ts` (S2): system layout / paging / boxes, layer-filtered plans with one entry per Mark per panel,
+L/4 dimensions, sections through the lowered panel / drop, opening detail + note, schedule / legend warnings, detail
+overflow, per-mark and whole-floor sets (grouping, summary page, picked marks, SF- merge), A1 / A2 / A3 paper, DXF A / B / C
+(`output/dxf-verification/slabFloorSheet-*.dxf`), CAD standard fallback, chairs / spacers, Excel sheets.
 
 `tests/slabFloor.test.ts`: schema / grid refs / blockers, 4 × 3 grid (6 panels, concrete = Σ panels, soffit only), L panel,
 opening 800 × 600 (cuts, trimmers, Ld, diagonals, deviate), extra top bars (face / centre / L/4 / L/3 / bend / U), continuous
