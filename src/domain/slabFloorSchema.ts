@@ -30,8 +30,14 @@ export const floorBeamSchema=z.object({id,mark:z.string().trim().min(1).max(20),
  /** grid line the beam lies on (a Y grid for a beam along X) and the grids it runs between (other direction) */
  line:label,from:label,to:label,width:mm,depth:mm,
  /** centre offset from the grid line (mm, + = toward larger coordinates) */
- offset:coord.optional()}).strict();
+ offset:coord.optional(),
+ /** S3: at a crossing the primary beam runs through, the secondary stops at its faces (absent = auto: deeper, else along X) */
+ rank:z.enum(['primary','secondary']).optional()}).strict();
 export type FloorBeam=z.infer<typeof floorBeamSchema>;
+/** S3: column at a grid crossing — reference only (no member), size X × Y (mm); gives the beam supports. */
+export const floorColumnSchema=z.object({id,x:label,y:label,sx:mm,sy:mm,
+ /** spec.columnTemplates id the size came from */ template:z.string().max(40).optional()}).strict();
+export type FloorColumn=z.infer<typeof floorColumnSchema>;
 export const floorMarkSchema=z.object({name:z.string().trim().min(1).max(12).regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/,'เบอร์พื้นใช้ A–Z 0–9 และ -'),thickness:mm,support:z.enum(['elevated','ground']),rebar:slabRebarSpecSchema,
  /** spec.slabTemplates id the mark came from */
  template:z.string().max(40).optional()}).strict();
@@ -74,6 +80,8 @@ export const slabFloorSchema=z.object({version:z.literal(1),
  panels:z.array(floorPanelSchema).max(100),
  openings:z.array(floorOpeningSchema).max(40),
  drops:z.array(floorDropSchema).max(30),
+ /** S3: reference columns at grid crossings (beam supports) */
+ columns:z.array(floorColumnSchema).max(300).optional(),
 }).strict();
 export type SlabFloor=z.infer<typeof slabFloorSchema>;
 /** Slab floor accessories as BOQ items (General Spec `spec.slabAccessories`, copied into the slab detailing; default off):
