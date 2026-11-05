@@ -18,8 +18,8 @@ import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay} from './LabelQa';
 import {useDrawingEdit} from './DrawingEditLayer';
-import {cleanDrawingEdits,drawingEditsSchema,drawingModelHash,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
-import {drawingStatus,drawingStatusText} from '../domain/drawingStatus';
+import {cleanDrawingEdits,drawingEditsSchema,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
+import {drawingStatus,drawingStatusText,memberDrawingHash} from '../domain/drawingStatus';
 
 type Box={x:number;y:number;w:number;h:number};
 type Draft={layout?:SheetLayout;sections:SheetSection[];edits?:DrawingEdits};
@@ -209,7 +209,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
   if(own?.data)next.sheetLayout=own.data;else delete next.sheetLayout;
   if(secsChanged)next.drawingViews={version:2,primaryPlane:member.drawingViews?.primaryPlane||'XY',basis:member.drawingViews?.basis||'Sheet Composer',sections:draft.sections};
   // saving the edited drawing = checked against this model (status “ตรงกับโมเดล” until the model changes)
-  if(next.drawingEdits)next.drawingEdits={...next.drawingEdits,check:{hash:drawingModelHash(next as unknown as Record<string,unknown>),at:new Date().toISOString()}};
+  if(next.drawingEdits)next.drawingEdits={...next.drawingEdits,check:{hash:memberDrawingHash(next),at:new Date().toISOString()}};
   if(secsChanged&&!onApply){setMsg('แก้รูปตัดต้องมีสิทธิ์แก้สมาชิก (Admin / QS)');return;}
   if(!secsChanged&&onSaveDrawing&&(!memberDirty||!onApply)){onSaveDrawing({sheetLayout:next.sheetLayout,drawingEdits:next.drawingEdits}).then(onClose,e=>setMsg(e instanceof Error?e.message:String(e)));return;}
   onApply?.(next);onClose();};

@@ -182,7 +182,7 @@ describe('phase 3 · Detail / ISO / stepped section',()=>{
 
 // ---- phase 4: drawing status, revisions / clouds, templates with the edit layer
 import {drawingModelHash,nextRevision} from '../src/domain/drawingEdits';
-import {drawingStatus} from '../src/domain/drawingStatus';
+import {drawingStatus,memberDrawingHash} from '../src/domain/drawingStatus';
 import {templateEdits,templateFrom,defaultSections} from '../src/domain/sheetLayout';
 import {sheetTemplateSchema} from '../src/domain/sheetLayoutSchema';
 describe('phase 4 · status / revisions / templates',()=>{
@@ -195,7 +195,7 @@ describe('phase 4 · status / revisions / templates',()=>{
  it('status: auto without edits, ok when saved with this model, check after a model change / stale override',()=>{
   const s=footingData(2400,2400),mk=(e:DrawingEdits)=>({...s,member:{...s.member,drawingEdits:e}});
   expect(drawingStatus(s).state).toBe('auto');
-  const ok:DrawingEdits={version:1,views:{plan:{over:{'mark:gen-bottom-x':{dx:2}}}},check:{hash:H(s.member),at:'2026-11-05'}};
+  const ok:DrawingEdits={version:1,views:{plan:{over:{'mark:gen-bottom-x':{dx:2}}}},check:{hash:memberDrawingHash(s.member),at:'2026-11-05'}};
   expect(drawingStatus(mk(ok))).toMatchObject({state:'ok',modelChanged:false,stale:0});
   expect(drawingStatus(mk({...ok,check:{hash:'x',at:'2026-11-01'}}))).toMatchObject({state:'check',modelChanged:true});
   expect(drawingStatus(mk({...ok,views:{plan:{over:{'mark:gone':{dx:2}}}}}))).toMatchObject({state:'check',stale:1});

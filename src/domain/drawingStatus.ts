@@ -1,6 +1,11 @@
 import {drawSheetInfo,sheetPageCount,type SheetData} from './bbsSheet';
 import {drawingModelHash} from './drawingEdits';
 import {lostAnchors} from './elementViews';
+import {memberSchema,type Member} from './model';
+
+/** Model fingerprint of a member as stored: the schema normalizes it on save (e.g. element input defaults / key order), so the
+ * hash is taken of the normalized member — the same value before and after `saveMember` / `saveMemberDrawing`. */
+export function memberDrawingHash(m:Member){const p=memberSchema.safeParse(m);return drawingModelHash((p.success?p.data:m) as unknown as Record<string,unknown>);}
 
 /** Status of a member's edited drawing (Drawing Edit P4, Tekla "drawing up to date"):
  * - `auto`: no Drawing Edit layer (the sheet is fully automatic, always up to date)
@@ -10,7 +15,7 @@ import {lostAnchors} from './elementViews';
 export type DrawingStatus={state:'auto'|'ok'|'check';modelChanged:boolean;lost:number;stale:number;checkedAt?:string};
 export function drawingStatus(s:SheetData):DrawingStatus{
  const e=s.member.drawingEdits;if(!e)return {state:'auto',modelChanged:false,lost:0,stale:0};
- const modelChanged=!e.check||e.check.hash!==drawingModelHash(s.member as unknown as Record<string,unknown>);
+ const modelChanged=!e.check||e.check.hash!==memberDrawingHash(s.member);
  let lost=0,stale=0;const drawn=new Map<string,Set<string>>();
  for(let p=0;p<sheetPageCount(s);p++){const info=drawSheetInfo(s,p);
   for(const v of info.views){if(!v.key)continue;const set=drawn.get(v.key)||new Set<string>();for(const q of info.prims)if(q.view===v.id&&q.key)set.add(q.key);drawn.set(v.key,set);
