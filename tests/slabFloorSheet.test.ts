@@ -190,7 +190,11 @@ describe('slab floor sheet S2.1: readable plans, sections and details',()=>{
   const {s}=member(),set=tagSheetSets(s)[0],i=sheet1(set),all=[...planLeaders(i,'plan-bottom'),...planLeaders(i,'plan-top')].map(l=>l.text[0]);
   const full=all.filter(t=>t.includes(' '));expect(full.length).toBeGreaterThan(10);
   for(const t of full){if(/-O[PD]\d/.test(t))expect(t).toMatch(/^S\d-O[PD]\d+ \d+-DB12 \(/);else expect(t).toMatch(/^S\d-[BT]\d+ DB12@200 \([BT][12/BT]*\)( TYP\.)?$/);}
-  expect(full.some(t=>/^S1-OP\d 4-DB12/.test(t))).toBe(true);expect(full.some(t=>/^S1-OD\d 2-DB12/.test(t))).toBe(true);
+  // S3 task 0: trimmers / diagonals are left to the opening detail (D1 bubble on both plans); “ป้ายทุกแผง” labels them by count
+  expect(full.some(t=>/-O[PD]\d/.test(t))).toBe(false);
+  for(const k of ['plan-bottom','plan-top']){const id=i.views.find(v=>v.key===k)!.id;expect(expandPrims(i.prims).some(p=>p.view===id&&p.t==='text'&&p.text==='D1')).toBe(true);}
+  const ia=sheet1(tagSheetSets(member(floor(),{floorLabels:'all'}).s)[0]),fa=[...planLeaders(ia,'plan-bottom'),...planLeaders(ia,'plan-top')].map(l=>l.text[0]);
+  expect(fa.some(t=>/^S1-OP\d 4-DB12/.test(t))).toBe(true);expect(fa.some(t=>/^S1-OD\d 2-DB12/.test(t))).toBe(true);
   // short codes elsewhere (default 'typ'): Mark number only
   expect(all.filter(t=>!t.includes(' ')).every(t=>/^(B|T|OP|OD)\d+$/.test(t))).toBe(true);
   const tables=pagesOf(set).slice(1).flatMap(p=>texts(p.prims)).join('\n');expect(tables).toMatch(/ระยะจริง @19\d \(แบบ @200\)/);

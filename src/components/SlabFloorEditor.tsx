@@ -3,7 +3,7 @@ import {Box,Plus,Redo2,Trash2,Undo2} from 'lucide-react';
 import type {Project} from '../domain/model';
 import type {BeamInput,SlabInput} from '../domain/elementInput';
 import {DEFAULT_OPENING_TRIM,DEFAULT_SLAB_REBAR,type FloorBeam,type FloorDrop,type FloorMark,type FloorOpening,type FloorPanel,type SlabBar,type SlabFloor,type TopExtra} from '../domain/slabFloorSchema';
-import {autoBeams,autoPanels,floorBars,floorBeamRects,floorMarkSummary,freeId,freeTag,gridRef,gridsFromBeamGroup,markIndex,mergePanels,openingPanel,openingRing,panelThickness,parseGridRef,polyArea,slabFloorProblems,snapLines,toggleBeamSegment} from '../domain/slabFloor';
+import {autoBeams,autoPanels,retagPanels,floorBars,floorBeamRects,floorMarkSummary,freeId,freeTag,gridRef,gridsFromBeamGroup,markIndex,mergePanels,openingPanel,openingRing,panelThickness,parseGridRef,polyArea,slabFloorProblems,snapLines,toggleBeamSegment} from '../domain/slabFloor';
 import {floorMarkFromTemplate,topExtraText} from '../domain/slabWallTemplates';
 import {readCollectionPages} from '../data/collections';
 import {HelpButton} from './HelpCenter';
@@ -73,11 +73,12 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
  const regenerate=(what:'beams'|'panels')=>{if(what==='beams'){if(f.beams.length&&!confirm('สร้างคานอ้างอิงใหม่ทุกแนวกริด (แทนคานเดิม)?'))return;const nf={...f,beams:autoBeams(f,beamSize)};commit(nf);return;}
   if(f.panels.length&&!confirm('สร้างแผงพื้นใหม่จากช่องกริด (แทนแผงเดิม · ช่องเปิดที่อ้างแผงเดิมจะหาแผงจากตำแหน่ง)?'))return;
   const mark=f.marks[0]?.name||'S1';commit({...f,panels:autoPanels(f,mark),openings:f.openings.map(({panel:_p,...o})=>o)});};
- const setPanel=(id:string,patch:Partial<FloorPanel>)=>commit({...f,panels:f.panels.map(p=>p.id===id?{...p,...patch}:p)});
+ // a new slab mark renames automatic tags to <mark>-nn (`retagPanels`); a typed tag is kept (`tagCustom`)
+ const setPanel=(id:string,patch:Partial<FloorPanel>)=>commit(retagPanels({...f,panels:f.panels.map(p=>p.id===id?{...p,...patch}:p)}));
  const setOpening=(id:string,patch:Partial<FloorOpening>)=>commit({...f,openings:f.openings.map(o=>o.id===id?{...o,...patch}:o)});
  const setBeam=(id:string,patch:Partial<FloorBeam>)=>commit({...f,beams:f.beams.map(b=>b.id===id?{...b,...patch}:b)});
  const setDrop=(id:string,patch:Partial<FloorDrop>)=>commit({...f,drops:f.drops.map(d=>d.id===id?{...d,...patch}:d)});
- const setMark=(name:string,patch:Partial<FloorMark>)=>{const renamed=patch.name&&patch.name!==name?patch.name:undefined;commit({...f,marks:f.marks.map(m=>m.name===name?{...m,...patch}:m),panels:renamed?f.panels.map(p=>p.mark===name?{...p,mark:renamed}:p):f.panels});};
+ const setMark=(name:string,patch:Partial<FloorMark>)=>{const renamed=patch.name&&patch.name!==name?patch.name:undefined;commit(retagPanels({...f,marks:f.marks.map(m=>m.name===name?{...m,...patch}:m),panels:renamed?f.panels.map(p=>p.mark===name?{...p,mark:renamed}:p):f.panels}));};
  const remove=()=>{if(!sel)return;const k=sel.kind;commit({...f,panels:k==='panel'?f.panels.filter(p=>p.id!==sel.id):f.panels,openings:k==='opening'?f.openings.filter(o=>o.id!==sel.id):f.openings,beams:k==='beam'?f.beams.filter(b=>b.id!==sel.id):f.beams,drops:k==='drop'?f.drops.filter(d=>d.id!==sel.id):f.drops});setSel(null);};
  const merge=()=>{const r=mergePanels(f,multi);if('error' in r){setMsg(r.error);return;}commit(r.floor);setMulti([]);setMsg('รวมแผงแล้ว');};
  const loadGroups=async()=>{setLoading(true);setMsg('');try{const all=await readCollectionPages(project.id,'members');
@@ -148,12 +149,12 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
         {!readOnly&&<rect x={X(bx+bw)-5} y={Y(by)-5} width={10} height={10} className="sf-grip" onPointerDown={e=>onDown(e,'opening',o.id,'size')}/>}</>}</g>;})}
     </svg>
     {tool==='panel'&&<div className="sf-actions"><span className="muted">เลือก {multi.length} แผง</span><button type="button" disabled={readOnly||multi.length<2} onClick={merge}>รวมแผง (ตัว L / หลายเหลี่ยม)</button><button type="button" disabled={readOnly||!multi.length} onClick={()=>{commit({...f,panels:f.panels.filter(p=>!multi.includes(p.id))});setMulti([]);}}><Trash2 size={13}/>ลบแผงที่เลือก</button>
-     <label className="field inline"><span>ตั้งเบอร์พื้น</span><select disabled={readOnly||!multi.length} value="" onChange={e=>{if(e.target.value)commit({...f,panels:f.panels.map(p=>multi.includes(p.id)?{...p,mark:e.target.value}:p)});}}><option value="">—</option>{f.marks.map(m=><option key={m.name}>{m.name}</option>)}</select></label></div>}
+     <label className="field inline"><span>ตั้งเบอร์พื้น</span><select disabled={readOnly||!multi.length} value="" onChange={e=>{if(e.target.value)commit(retagPanels({...f,panels:f.panels.map(p=>multi.includes(p.id)?{...p,mark:e.target.value}:p)}));}}><option value="">—</option>{f.marks.map(m=><option key={m.name}>{m.name}</option>)}</select></label></div>}
    </div>
    <aside className="sf-right">
     {selPanel&&<div className="sf-props"><span className="sf-kicker">แผงพื้นที่เลือก</span><b>{selPanel.tag} · {selPanel.mark}</b>
      <label className="field"><span>เบอร์พื้น</span><select disabled={readOnly} value={selPanel.mark} onChange={e=>setPanel(selPanel.id,{mark:e.target.value})}>{[...new Set([selPanel.mark,...f.marks.map(m=>m.name)])].map(n=><option key={n}>{n}</option>)}</select></label>
-     <label className="field"><span>Tag (ห้ามซ้ำ)</span><input disabled={readOnly} value={selPanel.tag} maxLength={16} onChange={e=>setPanel(selPanel.id,{tag:e.target.value.replace(/[^A-Za-z0-9-]/g,'')})}/></label>
+     <label className="field"><span>Tag (ห้ามซ้ำ)</span><input disabled={readOnly} value={selPanel.tag} maxLength={16} onChange={e=>setPanel(selPanel.id,{tag:e.target.value.replace(/[^A-Za-z0-9-]/g,''),tagCustom:true})}/></label>
      {num(`หนา (0 = ตามเบอร์ ${panelThickness({...f},{...selPanel,thickness:0})})`,selPanel.thickness,v=>setPanel(selPanel.id,{thickness:v}),{min:0})}
      {num('ระดับหลังพื้นเทียบระดับชั้น (mm, − = ลด)',selPanel.top,v=>setPanel(selPanel.id,{top:v}))}
      <p className="muted">พื้นที่ {(polyArea(selPanel.outline as P2[])/1e6).toFixed(2)} m² · {selPanel.outline.length} จุดยอด</p>

@@ -719,6 +719,9 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   put('text',{t:'text',x:bx,y:by-1.2*k,text:d.label,size:5*k*fs,color:'#22393f',anchor:'middle',bold:true},{t:'text',x:bx,y:by+4.3*k,text:d.ref||'—',size:4.2*k*fs,color:'#4b6166',anchor:'middle'});}
  // slab floor plan labels: inside their panel next to the representative bar, short leader, clear of each other, grids,
  // dimensions and texts (fallback: anywhere in the view)
+ // 'typ' plans: trimmers / diagonals inside a Detail mark are left to the detail (D1 bubble on the plan, full labels there)
+ if(F&&!win&&F.labels==='typ'&&opts.detailMarks?.length)for(let i=flabels.length-1;i>=0;i--){const l=flabels[i];
+  if(/^(OP|OD)$/.test(floorKind(l.row)||'')&&opts.detailMarks.some(d=>Math.abs(l.at[0]-d.u)<=d.r&&Math.abs(l.at[1]-d.v)<=d.r))flabels.splice(i,1);}
  if(F&&flabels.length){
   if(F.labels==='typ')typFloorLabels(flabels,F.panels);
   const winBox=win?{x0:X(win.u-win.r),x1:X(win.u+win.r),y0:Y(win.v+win.r),y1:Y(win.v-win.r)}:undefined;
@@ -734,7 +737,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // Drawing Edit user objects: text (MTEXT) at a view point; leaders (text offset in paper mm, phase 2: Mark text from the bar);
  // dimension chains and level marks at anchors (`anchorPoint`: concrete edge / bar / point). Lost bar anchors are drawn red.
  const cbox=concreteBox(v),barIds=new Set(v.bars.map(b=>b.row.id)),lost='#c0262d';
- const AP=(a:Anchor)=>anchorPoint(a,cbox),gone=(a:{bar?:string})=>!!a.bar&&!barIds.has(a.bar);
+ const AP=(a:Anchor)=>anchorPoint(a,cbox,v.bars),gone=(a:{bar?:string})=>!!a.bar&&!barIds.has(a.bar);
  for(const o of opts.edits?.objs||[]){const key=`user:${o.id}`,ink='#22393f';
   if(o.kind==='cloud'){const P=o.pts.map(q=>[X(q[0]),Y(q[1])] as [number,number]),arc=3*pu,pts:[number,number][]=[],red='#b03a2e';
    // scallops: each edge split into arcs of about 3 mm bulging outwards (polygon drawn counter-clockwise on paper → left normal)
@@ -759,7 +762,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
    const sg=(z:number)=>`${z>0?'+':z<0?'−':'±'}${Math.abs(z).toFixed(3)}`,text=`${o.label?o.label+' ':''}${sg((v.datum??0)+lv/1000)}`,tw2=textWidth(text,sz);
    const tx=dir>0?x+hh:x-hh;put('dim',{t:'line',x1:x0,x2:dir>0?tx+tw2+2*k:tx-tw2-2*k,y1:y,y2:y,stroke:col,width:.6*k,key},{t:'poly',pts:[[x,y],[x-hh*.6,y-hh],[x+hh*.6,y-hh]],closed:true,stroke:col,width:.6*k,key},
     {t:'text',x:tx,y:y-2*k,text,size:sz,color:col,halo:true,anchor:dir>0?'start':'end',key});continue;}
-  const sz=(o.size??2.6)*pu,st2=sz*1.35,ax=X(o.at[0]),ay=Y(o.at[1]);
+  const at0=o.kind==='leader'&&o.pos&&o.bar?AP({u:o.at[0],v:o.at[1],bar:o.bar,pos:o.pos,...(o.t!==undefined?{t:o.t}:{})}):o.at,sz=(o.size??2.6)*pu,st2=sz*1.35,ax=X(at0[0]),ay=Y(at0[1]);
   if(o.kind==='text'){const draw:PlainPrim[]=o.lines.map((t,i)=>({t:'text',x:ax,y:ay+i*st2,text:t,size:sz,color:ink,anchor:o.anchor,bold:o.bold,halo:true}));
    put('text',{t:'mtext',x:ax,y:ay,lines:o.lines,size:sz,step:st2,anchor:o.anchor,color:ink,bold:o.bold,key,draw});continue;}
   const bad=gone(o),row=o.bar&&!bad?v.bars.find(b=>b.row.id===o.bar):undefined,col=bad?lost:row?colorOf(row.row.id):ink;
@@ -801,9 +804,27 @@ export function concreteBox(v:ViewData){let u0=Infinity,u1=-Infinity,v0=Infinity
  for(const r of v.rects)if(r.kind==='concrete'){u0=Math.min(u0,r.u0);u1=Math.max(u1,r.u1);v0=Math.min(v0,r.v0);v1=Math.max(v1,r.v1);}
  for(const p of v.polys)for(const q of p){u0=Math.min(u0,q[0]);u1=Math.max(u1,q[0]);v0=Math.min(v0,q[1]);v1=Math.max(v1,q[1]);}
  return Number.isFinite(u0)?{u0,u1,v0,v1}:{u0:v.u[0],u1:v.u[1],v0:v.v[0],v1:v.v[1]};}
-/** View point of a Drawing Edit anchor: `eu` / `ev` follow the concrete edge (min / max), else the stored point. */
-export function anchorPoint(a:Anchor,cb:ReturnType<typeof concreteBox>):[number,number]{return [a.eu?a.eu==='min'?cb.u0:cb.u1:a.u,a.ev?a.ev==='min'?cb.v0:cb.v1:a.v];}
-export type ViewSnap={u:number;v:number;kind:'corner'|'mid'|'bar';label:string;bar?:string;eu?:'min'|'max';ev?:'min'|'max'};
+type BarItem={kind:'dot';p:[number,number]}|{kind:'line';a:[number,number];b:[number,number]};
+/** First / last bar of a Mark in a view (Drawing Edit anchors `pos`): bar dots ordered along their wider spread; bar lines =
+ * the segments parallel to the longest one, ordered across it (the longest at an equal offset), ends ordered along it.
+ * Undefined when the Mark shows fewer than 2 bars there. */
+export function barExtremes(b:{dots:[number,number][];lines:Line[]}):{first:BarItem;last:BarItem}|undefined{
+ if(b.dots.length>=2){const us=b.dots.map(d=>d[0]),vs=b.dots.map(d=>d[1]),ax=Math.max(...us)-Math.min(...us)>=Math.max(...vs)-Math.min(...vs)?0:1;
+  const s=[...b.dots].sort((p,q)=>p[ax]-q[ax]||p[1-ax]-q[1-ax]);return {first:{kind:'dot',p:s[0]},last:{kind:'dot',p:s.at(-1)!}};}
+ if(b.dots.length||b.lines.length<2)return;
+ const len=(l:Line)=>Math.hypot(l.b[0]-l.a[0],l.b[1]-l.a[1]),ref=b.lines.reduce((m,l)=>len(l)>len(m)?l:m),L=len(ref);if(L<1)return;
+ const dx=(ref.b[0]-ref.a[0])/L,dy=(ref.b[1]-ref.a[1])/L,along=(p:[number,number])=>p[0]*dx+p[1]*dy,across=(p:[number,number])=>-p[0]*dy+p[1]*dx;
+ const par=b.lines.filter(l=>len(l)>=1&&Math.abs((l.b[0]-l.a[0])*dy-(l.b[1]-l.a[1])*dx)/len(l)<.02).map(l=>{const [a,c]=along(l.a)<=along(l.b)?[l.a,l.b]:[l.b,l.a];return {kind:'line' as const,a,b:c,o:across(l.a),n:len(l)};});
+ const os=par.map(l=>l.o),lo=Math.min(...os),hi=Math.max(...os);if(hi-lo<1)return;
+ const pick=(o:number)=>par.filter(l=>Math.abs(l.o-o)<.5).reduce((m,l)=>l.n>m.n?l:m);const f=pick(lo),l=pick(hi);
+ return {first:{kind:'line',a:f.a,b:f.b},last:{kind:'line',a:l.a,b:l.b}};}
+const itemPoint=(i:BarItem,t=0):[number,number]=>i.kind==='dot'?i.p:[i.a[0]+(i.b[0]-i.a[0])*t,i.a[1]+(i.b[1]-i.a[1])*t];
+/** View point of a Drawing Edit anchor: on the first / last bar of its Mark (`pos`, needs the view `bars`), else `eu` / `ev`
+ * follow the concrete edge (min / max), else the stored point. */
+export function anchorPoint(a:Anchor,cb:ReturnType<typeof concreteBox>,bars?:{row:{id:string};dots:[number,number][];lines:Line[]}[]):[number,number]{
+ if(a.pos&&a.bar&&bars){const b=bars.find(x=>x.row.id===a.bar),e=b&&barExtremes(b);if(e)return itemPoint(e[a.pos],a.t);}
+ return [a.eu?a.eu==='min'?cb.u0:cb.u1:a.u,a.ev?a.ev==='min'?cb.v0:cb.v1:a.v];}
+export type ViewSnap={u:number;v:number;kind:'corner'|'mid'|'bar';label:string;bar?:string;eu?:'min'|'max';ev?:'min'|'max';pos?:'first'|'last';t?:number};
 /** Snap points of a drawn view (Drawing Edit tools): concrete corners / edge midpoints (flagged when on the concrete box edge),
  * bar dots, bar line ends and midpoints (with the Mark row id). At most `max` points. */
 export function viewSnapPoints(v:ViewData,max=1500):ViewSnap[]{
@@ -813,9 +834,14 @@ export function viewSnapPoints(v:ViewData,max=1500):ViewSnap[]{
  for(const r of v.rects)if(r.kind==='concrete'){for(const [u,w] of [[r.u0,r.v0],[r.u1,r.v0],[r.u1,r.v1],[r.u0,r.v1]])add({u,v:w,kind:'corner',label:'มุมคอนกรีต'});
   for(const [u,w] of [[(r.u0+r.u1)/2,r.v0],[(r.u0+r.u1)/2,r.v1],[r.u0,(r.v0+r.v1)/2],[r.u1,(r.v0+r.v1)/2]])add({u,v:w,kind:'mid',label:'กึ่งกลางขอบ'});}
  for(const p of v.polys)for(const q of p)add({u:q[0],v:q[1],kind:'corner',label:'มุมคอนกรีต'});
- for(const b of v.bars){const l=`เหล็ก ${b.row.mark}`;let n=0;
-  for(const d of b.dots){if(n++>200)break;add({u:d[0],v:d[1],kind:'bar',label:l,bar:b.row.id});}
-  for(const ln of b.lines){if(n++>200)break;add({u:ln.a[0],v:ln.a[1],kind:'bar',label:l,bar:b.row.id});add({u:ln.b[0],v:ln.b[1],kind:'bar',label:l,bar:b.row.id});add({u:(ln.a[0]+ln.b[0])/2,v:(ln.a[1]+ln.b[1])/2,kind:'bar',label:`${l} (กลาง)`,bar:b.row.id});}}
+ for(const b of v.bars){const l=`เหล็ก ${b.row.mark}`,bar=b.row.id;let n=0;
+  // first / last bar of the Mark first: those snaps keep `pos` (the anchor follows the edge bar when the count changes)
+  const e=barExtremes(b),PN={first:'เส้นแรก',last:'เส้นสุดท้าย'};
+  if(e)for(const pos of ['first','last'] as const){const it=e[pos];
+   if(it.kind==='dot')add({u:it.p[0],v:it.p[1],kind:'bar',label:`${l} (${PN[pos]})`,bar,pos});
+   else for(const t of [0,.5,1]){const [u,w]=itemPoint(it,t);add({u,v:w,kind:'bar',label:`${l} (${PN[pos]}${t===.5?' กลาง':''})`,bar,pos,t});}}
+  for(const d of b.dots){if(n++>200)break;add({u:d[0],v:d[1],kind:'bar',label:l,bar});}
+  for(const ln of b.lines){if(n++>200)break;add({u:ln.a[0],v:ln.a[1],kind:'bar',label:l,bar});add({u:ln.b[0],v:ln.b[1],kind:'bar',label:l,bar});add({u:(ln.a[0]+ln.b[0])/2,v:(ln.a[1]+ln.b[1])/2,kind:'bar',label:`${l} (กลาง)`,bar});}}
  return out;}
 /** Ids of the user objects of a view whose bar anchor is gone (the bar Mark is no longer drawn in that view). */
 export function lostAnchors(v:ViewData,edits:ViewEdits|undefined):string[]{const ids=new Set(v.bars.map(b=>b.row.id));

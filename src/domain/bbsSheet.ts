@@ -15,7 +15,7 @@ import type {SheetScope} from './tagSheets';
 import {DEFAULT_SECTION_IDS,resolveSheetLayout,sectionSpec,sheetSections} from './sheetLayout';
 import type {PlacedView,SheetLayout,ViewKey} from './sheetLayoutSchema';
 import type {SheetSection} from './drawingViews';
-import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSpacingNote,floorSteelSummary,floorTableItems,floorTitle,isFloorPaper,openingDetailFocus,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
+import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSpacingNote,floorSteelSummary,floorTableItems,floorTitle,isAutoDetail,isFloorPaper,openingDetailFocus,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -265,7 +265,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
    edits:v.key?m.drawingEdits?.views[v.key]:undefined,
    sectionLines:isPlan&&userCuts.length?userCuts.map(c=>({axis:c.axis==='X'?0:1,at:c.position,label:c.label,ref:pageOfSec.has(c.id)?String(pageOfSec.get(c.id)):undefined,look:c.look,extent:c.extent,...(c.steps?.length?{steps:c.steps.map(x=>({from:x.from,at:x.position}))}:{})})):undefined,
    // Detail marks of the placed Detail views on their parent view
-   detailMarks:v.key?details.filter(d=>d.parent===v.key&&pageOfDet.has(d.id)).map(d=>({u:d.u,v:d.v,r:d.r,circle:d.circle!==false,label:d.label,ref:String(pageOfDet.get(d.id))})):undefined};
+   detailMarks:v.key?details.filter(d=>(d.parent===v.key||floorCtx(m)&&isAutoDetail(d.id)&&v.key==='plan-bottom')&&pageOfDet.has(d.id)).map(d=>({u:d.u,v:d.v,r:d.r,circle:d.circle!==false,label:d.label,ref:String(pageOfDet.get(d.id))})):undefined};
   const inner=(b:Box)=>({x:b.x,y:b.y+4,w:b.w,h:b.h-4});
   // projection lock: same scale and shared model axis → that axis at the same sheet x / y as the target view, else centre lines
   if(pv?.lock){const t=frames.get(pv.lock.to);

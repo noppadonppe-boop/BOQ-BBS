@@ -6,7 +6,7 @@ import {emptySiteWork,withSiteWork} from './siteWork';
 import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
 import {slabAccessoriesSchema,slabFloorSchema} from './slabFloorSchema';
-import {applySlabFloor,slabFloorProblems} from './slabFloor';
+import {applySlabFloor,retagPanels,slabFloorProblems} from './slabFloor';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
 // single per-category pattern; applyElementInput() converts it to the existing
@@ -2091,6 +2091,8 @@ export type AppliedElement={member:Member;warnings:string[];generated:Bar[]};
 /** Converts the structured input to the existing member pattern. Manual bars and
  * manual deductions are kept; previously generated bars/deductions are replaced. */
 export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:number;withBars?:boolean}={}):AppliedElement{
+ // slab floor: panel tags follow their slab mark (S3 task 0, also migrates floors saved before)
+ if(input.category==='Slab'&&input.layout==='floor'&&input.floor){const f=retagPanels(input.floor);if(f!==input.floor)input={...input,floor:f};}
  const rounding=opts.rounding&&opts.rounding>0?opts.rounding:25,warnings:string[]=[],warn=(s:string)=>warnings.push(s),det=input.detailing;
  const deductions=m.deductions.filter(d=>!d.reason.startsWith(AUTO));
  const {geometry:_g,prismGeometry:_p,beamAssembly:_b,...plain}=m;

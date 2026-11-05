@@ -83,6 +83,14 @@ export function autoPanels(f:Floor,mark:string):FloorPanel[]{
  }
  return out;
 }
+/** Tags follow the slab mark (S3 task 0): a panel whose tag is automatic (`<anything>-nn`, not `tagCustom`) but does not start
+ * with `<mark>-` gets the next free `<mark>-nn`; typed tags (`tagCustom`, or not of that form) stay. Also the migration of
+ * floors saved before (S2 panels re-marked S2 kept `S1-04`). Same object back when nothing changes. */
+export function retagPanels(f:Floor):Floor{
+ const auto=(p:FloorPanel)=>!p.tagCustom&&/^.+-\d{2,}$/.test(p.tag),wrong=f.panels.filter(p=>auto(p)&&!p.tag.toUpperCase().startsWith(`${p.mark.toUpperCase()}-`));
+ if(!wrong.length)return f;const used=new Set(f.panels.filter(p=>!wrong.includes(p)).map(p=>p.tag.toUpperCase()));
+ return {...f,panels:f.panels.map(p=>{if(!wrong.includes(p))return p;const tag=nextNo(used,`${p.mark}-`);used.add(tag.toUpperCase());return {...p,tag};})};
+}
 /** Drops collinear / duplicate vertices. */
 export function simplify(r:P2[]):P2[]{
  let pts=r.filter((p,i)=>{const q=r[(i+1)%r.length];return Math.hypot(q[0]-p[0],q[1]-p[1])>0.5;});

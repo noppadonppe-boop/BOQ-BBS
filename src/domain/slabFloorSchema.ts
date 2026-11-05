@@ -40,6 +40,8 @@ const partialRebar=z.object({shortBottom:slabBarSchema,longBottom:slabBarSchema,
 export const floorPanelSchema=z.object({id,mark:z.string().trim().min(1).max(12),
  /** Tag no. of the panel (unique, e.g. S1-01): names its shape part and sheet */
  tag:z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,15}$/),
+ /** the user typed the tag: it stays when the slab mark changes (else the tag follows the mark: `<mark>-nn`) */
+ tagCustom:z.boolean().optional(),
  /** plan polygon (floor mm), already cut at the beam faces */
  outline:z.array(pt).min(3).max(64),
  /** 0 = thickness of the slab mark */
