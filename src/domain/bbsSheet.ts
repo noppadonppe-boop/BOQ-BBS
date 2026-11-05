@@ -15,7 +15,7 @@ import type {SheetScope} from './tagSheets';
 import {DEFAULT_SECTION_IDS,resolveSheetLayout,sectionSpec,sheetSections} from './sheetLayout';
 import type {PlacedView,SheetLayout,ViewKey} from './sheetLayoutSchema';
 import type {SheetSection} from './drawingViews';
-import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSteelSummary,floorTableItems,floorTitle,isFloorPaper,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
+import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSpacingNote,floorSteelSummary,floorTableItems,floorTitle,isFloorPaper,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -322,7 +322,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   for(const t of part){x=tx;[t.tag,t.label,String(t.marks),t.concrete===null?'—':fmt(t.concrete*s.quantity,3),fmt(t.weight*s.quantity)].forEach((v,i)=>{cell(v,x,y,sw[i],rowH,2.3*fz,i>1?'end':'start',ink,i!==1);x+=sw[i];});line(tx,y+rowH,tr,y+rowH);y+=rowH;}
   x=tx;for(const w of sw.slice(0,-1)){x+=w;line(x,top,x,y);}
  }
- for(const it of subset){x=tx;if('head' in it){out.push({t:'rect',x:tx,y,w:tw,h:rowH,fill:'#e8f0eb'});cell(it.head,tx,y,tw*.5,rowH,2.6*fz,'start',ink,true);cell(it.sub,tx+tw*.5,y,tw*.5,rowH,2.3*fz,'end','#4b6166',true);line(tx,y+rowH,tr,y+rowH);y+=rowH;continue;}const r=it.row,values=[r.mark,r.note||'',`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
+ for(const it of subset){x=tx;if('head' in it){out.push({t:'rect',x:tx,y,w:tw,h:rowH,fill:'#e8f0eb'});cell(it.head,tx,y,tw*.5,rowH,2.6*fz,'start',ink,true);cell(it.sub,tx+tw*.5,y,tw*.5,rowH,2.3*fz,'end','#4b6166',true);line(tx,y+rowH,tr,y+rowH);y+=rowH;continue;}const r=it.row,sn=floorSpacingNote(s.member,r),values=[r.mark,`${r.note||''}${sn?` · ${sn}`:''}`,`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
   const bar=r as unknown as Bar,raw=bar.shape&&!['arc','helix'].includes(bar.shape)?barPaths(m,bar)[0]||[]:[];
   cols.forEach((c,i)=>{if(i===3){const n0=out.length;sketch(out,r.paths[0]||[],raw,r.diameter,x+5*fz,y+2.6*fz,c.w-10*fz,rowH-5*fz,colors.get(r.id)||ink,barCouplerEnds(input,r.id));for(const q of out.slice(n0))q.layer=q.t==='text'?'dim':'barMain';text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+rowH-.8,1.8*fz,{color:'#4b6166'});}else cell(values[i],x,y,c.w,rowH,(i===1?1.9:i===0&&r.mark.length>5?Math.max(1.5,Math.min(2.3,(c.w/fz-1.6)/(r.mark.length*.56))):2.3)*fz,c.align||'start');x+=c.w;});
   line(tx,y+rowH,tr,y+rowH);y+=rowH;}

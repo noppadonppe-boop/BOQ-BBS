@@ -66,6 +66,18 @@ export function floorDesignSpacing(m:Pick<Member,'elementInput'|'category'>):Map
  if(!spacings.has(raw)){const map=new Map<string,number>();try{groupFloorBars(c.input,c.input.detailing,st.raw,c.shift,map);}catch{/* labels fall back to the drawn spacing */}spacings.set(raw,map);}
  return spacings.get(raw)!;
 }
+/** Spread spacing of a floor bar set as drawn (evenly spaced bars along one plan axis), else undefined. */
+export function floorActualSpacing(r:{paths:Vec3[][]}){
+ const pts=r.paths.map(p=>p[0]).filter(Boolean);if(pts.length<2)return;
+ const ax=[0,1].map(k=>Math.max(...pts.map(p=>p[k]))-Math.min(...pts.map(p=>p[k]))),k=ax[0]>=ax[1]?0:1,o=1-k;
+ if(ax[o]>2)return;const vs=pts.map(p=>p[k]).sort((a,b)=>a-b),s=(vs.at(-1)!-vs[0])/(vs.length-1);
+ return vs.every((v,i)=>!i||Math.abs(v-vs[i-1]-s)<2)?s:undefined;
+}
+/** BBS note when bars are spread closer than designed (count rounded up over the span): “ระยะจริง @195 (แบบ @200)”. */
+export function floorSpacingNote(m:Pick<Member,'elementInput'|'category'>,r:{id:string;paths:Vec3[][]}){
+ const d=floorDesignSpacing(m).get(r.id),a=floorActualSpacing(r);
+ return d&&a&&d-a>=1?`ระยะจริง @${Math.floor(a)} (แบบ @${d})`:undefined;
+}
 export type FloorKind='B'|'T'|'OP'|'OD';
 export type FloorRole='B1'|'B2'|'T'|'OP'|'OD';
 /** Kind of a generated floor bar from its id (`gen-<owner>-b01` / `-t01` / `-op01` / `-od01`). */
