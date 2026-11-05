@@ -19,7 +19,7 @@ type P2=[number,number];type V3=[number,number,number];
 type Rect={x0:number;y0:number;x1:number;y1:number};
 export type Floor=SlabFloor;
 const EPS=1e-6;
-const sortGrids=(g:{label:string;at:number}[])=>[...g].sort((a,b)=>a.at-b.at);
+export const sortGrids=(g:{label:string;at:number}[])=>[...g].sort((a,b)=>a.at-b.at);
 export const gridAt=(list:{label:string;at:number}[],label:string)=>list.find(g=>g.label===label)?.at;
 const fmt=(v:number)=>Math.round(Math.abs(v)).toLocaleString('en-US');
 /** Position as “grid + distance” (nearest grid at or below the value): `B +1,200`; below the first grid `A −300`. */
