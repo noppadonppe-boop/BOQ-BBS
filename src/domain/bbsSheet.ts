@@ -12,6 +12,9 @@ import {composeDrawingNumber,sheetSetupOf,sheetSizes,standardScales,type ViewSca
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
 import {concreteNote,memberConcrete} from './concreteMixes';
 import type {SheetScope} from './tagSheets';
+import {DEFAULT_SECTION_IDS,resolveSheetLayout,sectionSpec,sheetSections} from './sheetLayout';
+import type {PlacedView,SheetLayout,ViewKey} from './sheetLayoutSchema';
+import type {SheetSection} from './drawingViews';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -64,17 +67,26 @@ function steelLines(s:SheetData,out:BoqLine[],B:typeof sheetText['th']['boq']){
 }
 /** Rows of the sheet's table: bars, or the tags of a summary set. */
 const tableCount=(s:SheetData)=>s.scope?.kind==='summary'?s.scope.tags.length:s.rows.length;
-type SheetView={title:string;spec:Parameters<typeof buildView>[3];cuts?:ReturnType<typeof defaultCuts>;plan:boolean};
+type SheetView={key:ViewKey;title:string;spec:ViewSpec;cuts?:{x:number;y:number};plan:boolean;sec?:SheetSection};
 const lying=(r:SheetRow)=>r.paths.some(p=>p.some((q,i)=>i>0&&Math.hypot(q[0]-p[i-1][0],q[1]-p[i-1][1])>=1));
-/** Views of a member on the drawing sheets of the split layout: plan (or bottom / top plans), sections X–X / Y–Y and
- * the pedestal / starter section. */
-function sheetViews(s:SheetData):SheetView[]{
- const S=sheetFormat(s),m=s.member,input=s.input,T=sheetText[sheetLangOf(s.project)],cuts=defaultCuts(m,s.rows),colCut=columnSectionCut(input,s.rows),rep=S.bars==='representative';
+/** Title of a section view: the default X–X / Y–Y / Z–Z titles as before, added cuts by their label. */
+function sectionTitle(T:typeof sheetText['th'],lang:string,sec:SheetSection,colKind:'pedestal'|'starter'){
+ const pos=Math.round(sec.position);
+ if(sec.id===DEFAULT_SECTION_IDS.x)return T.sectionX(pos);if(sec.id===DEFAULT_SECTION_IDS.y)return T.sectionY(pos);if(sec.id===DEFAULT_SECTION_IDS.z)return T.columnSection(colKind,pos);
+ const label=sec.label.replace('-','–');return `${lang==='zh'?'剖面':lang==='en'?'Section':'รูปตัด'} ${label} (${sec.axis} = ${pos})${sec.look==='-'?' ↶':''}`;
+}
+/** Sections of a sheet + the plan cut positions drawn as X / Y lines (default sections, else the old default cuts). */
+function sheetCuts(s:SheetData){
+ const S=sheetFormat(s),secs=sheetSections(s,S.size).sections,d=defaultCuts(s.member,s.rows),pos=(id:string)=>secs.find(x=>x.id===id)?.position;
+ return {secs,cuts:{x:pos(DEFAULT_SECTION_IDS.y)??d.x,y:pos(DEFAULT_SECTION_IDS.x)??d.y}};
+}
+/** Every view a sheet can show: plan (or bottom / top plans) and the sections (plan section Z–Z of pedestal / starter bars). */
+export function sheetViews(s:SheetData):SheetView[]{
+ const S=sheetFormat(s),m=s.member,input=s.input,lang=sheetLangOf(s.project),T=sheetText[lang],{secs,cuts}=sheetCuts(s),colCut=columnSectionCut(input,s.rows),rep=S.bars==='representative';
  const split=S.split&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='bottom')&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='top');
- const plan=(title:string,layer?:'bottom'|'top'):SheetView=>({title,spec:{axes:[0,1],rep,layer,tight:true},cuts,plan:true});
- return [...(split?[plan(T.planBottom,'bottom'),plan(T.planTop,'top')]:[plan(T.plan)]),
-  {title:T.sectionX(Math.round(cuts.y)),spec:{axes:[0,2],normal:1,cut:cuts.y,tight:true},plan:false},{title:T.sectionY(Math.round(cuts.x)),spec:{axes:[1,2],normal:0,cut:cuts.x,tight:true},plan:false},
-  ...(colCut?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),spec:{axes:[0,1],normal:2,cut:colCut.z,columns:true},plan:false} as SheetView]:[])];
+ const plan=(key:ViewKey,title:string,layer?:'bottom'|'top'):SheetView=>({key,title,spec:{axes:[0,1],rep,layer,tight:true},cuts,plan:true});
+ return [...(split?[plan('plan-bottom',T.planBottom,'bottom'),plan('plan-top',T.planTop,'top')]:[plan('plan',T.plan)]),
+  ...secs.map(sec=>({key:`sec:${sec.id}`,title:sectionTitle(T,lang,sec,colCut?.kind||'pedestal'),spec:{...sectionSpec(sec),...(sec.columns?{}:{tight:true})},plan:false,sec}) as SheetView)];
 }
 type Box={x:number;y:number;w:number;h:number};
 /** Boxes of the views of a drawing sheet: the arrangement (side by side, stacked, large + two, top + two, rows, 2 × 2)
@@ -97,24 +109,32 @@ function layout(s:SheetData){
  // split layout (not for beam groups / column stacks, which page their own views): BBS table over the left area of the
  // first sheet(s) (bigger rows), notes + BOQ + title block on the right; then sheets of large views with a title strip
  const own=s.input?.category==='Beam'&&s.input.layout==='group'||s.input?.category==='Column'&&s.input.layout==='stack';
- if(S.layout!=='split'||own)return {...base,split:false,tablePages:0,groups:[] as number[][],tRow:0,tHead:0,tTop:0,tPer:0,pages:Math.max(1,Math.ceil(tableCount(s)/perPage),beamSheetPages(s.input))};
+ // Sheet Composer layout (member's own or the project default template): one sheet per layout sheet
+ const custom:SheetLayout|undefined=own?undefined:resolveSheetLayout(s,S.size).layout;
+ if(S.layout!=='split'||own)return {...base,split:false,tablePages:0,groups:[] as number[][],tRow:0,tHead:0,tTop:0,tPer:0,custom,pages:Math.max(1,Math.ceil(tableCount(s)/perPage),beamSheetPages(s.input),custom?.sheets.length||0)};
  const tRow=S.bbsRow*1.35,tHead=S.bbsHead*1.2,tTop=S.margin+22,tPer=Math.max(1,Math.floor((S.h-S.margin-9-tTop-tHead)/tRow)),tablePages=Math.max(1,Math.ceil(tableCount(s)/tPer));
  const views=sheetViews(s),idx=views.map((_,i)=>i),n=Math.min(4,S.perPage);
  const groups=n?Array.from({length:Math.ceil(idx.length/n)},(_,k)=>idx.slice(k*n,(k+1)*n)):[idx.filter(i=>views[i].plan),idx.filter(i=>!views[i].plan)].filter(g=>g.length);
- return {...base,split:true,tablePages,groups,tRow,tHead,tTop,tPer,pages:tablePages+groups.length};
+ return {...base,split:true,tablePages,groups:custom?[]:groups,tRow,tHead,tTop,tPer,custom,pages:tablePages+(custom?custom.sheets.length:groups.length)};
 }
 export function sheetPageCount(s:SheetData){return layout(s).pages;}
+/** Page of a layout sheet (split layout: after the table pages) and the drawing area / keep-out boxes of a view sheet. */
+export function layoutPage(s:SheetData,sheet:number){const L=layout(s);return (L.split?L.tablePages:0)+sheet;}
+export function sheetArea(s:SheetData){
+ const S=sheetFormat(s),L=layout(s),sx=S.w-S.margin-S.strip,area={x:S.left,y:S.margin,w:S.w-S.left-S.margin,h:S.h-2*S.margin},head={x:S.left,y:S.margin,w:area.w,h:15};
+ return {area,keep:L.split?[head,{x:S.left,y:S.h-S.margin-12,w:area.w,h:12}]:[head,{x:sx,y:S.margin,w:S.w-S.margin-sx,h:S.h-2*S.margin}],split:L.split,notes:!L.split};
+}
 
 export type SheetViewScale={title:string;n:number;fits:boolean};
 /** A view on a sheet: its box (sheet mm), scale 1:n (0 = not to scale, `s` = sheet mm per model mm) and the linear map
  * sheet ↔ view model coordinates (mm along the view axes `axes`): u = model[0] + (x − sheet[0]) / s, v = model[1] − (y − sheet[1]) / s.
  * Primitives drawn in the view carry `view` = id; the rest of the sheet (tables, title block, notes) is paper. */
-export type SheetViewInfo={id:string;title:string;box:{x:number;y:number;w:number;h:number};n:number;s:number;fits:boolean;axes:[number,number];normal?:number;cut?:number;
+export type SheetViewInfo={id:string;key?:ViewKey;lockNote?:string;title:string;box:{x:number;y:number;w:number;h:number};n:number;s:number;fits:boolean;axes:[number,number];normal?:number;cut?:number;
  origin:{sheet:[number,number];model:[number,number]}};
 /** All primitives of one sheet (mm). */
 export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page).prims;}
 /** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */
-export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];views:SheetViewInfo[];size:keyof typeof sheetSizes;w:number;h:number}{
+export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];views:SheetViewInfo[];notes?:{x:number;y:number;w:number;h:number};size:keyof typeof sheetSizes;w:number;h:number}{
  const S=sheetFormat(s),L=layout(s),{sx}=L,out:Prim[]=[],ink='#22393f',grid='#9fb2ad',k=.26,lang=sheetLangOf(s.project),T=sheetText[lang];
  // 'one' = views + tables; split layout: 'tables' sheets (BBS on the left) then 'views' sheets (views + title strip)
  const kind=!L.split?'one':page<L.tablePages?'tables':'views',right=S.w-S.margin;
@@ -129,7 +149,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  out.push({t:'rect',x:S.left,y:S.margin,w:S.w-S.left-S.margin,h:S.h-2*S.margin,stroke:ink,width:.7,layer:'titleBlock'});
  if(kind!=='views')line(sx,S.margin,sx,S.h-S.margin,.45,ink);
  // Left: heading, views and notes.
- const m=s.member,input=s.input,colors=markColors(s.rows),cuts=defaultCuts(m,s.rows);
+ const m=s.member,input=s.input,colors=markColors(s.rows),{secs,cuts}=sheetCuts(s),secOf=(id:string)=>secs.find(x=>x.id===id);
  text(`${m.code} · ${s.scope?.kind==='tag'?`${s.scope.label} · `:s.scope?.kind==='summary'?'SUMMARY · ':''}${T.category[m.category]} · ${lang==='zh'?'配筋详图':'REINFORCEMENT DETAIL'}`,S.left+4,S.margin+6,4.2,{bold:true});
  text(`${s.project.code} · ${s.project.name}`,S.left+4,S.margin+10.5,2.6,{color:'#4b6166',raw:true});
  line(S.left,S.margin+13,kind==='views'?right:sx,S.margin+13,.3,ink);
@@ -157,7 +177,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   T.dashes,
  ].filter(Boolean);
  // footing pedestal / starter plan section: under the notes when they leave room, else beside section Y–Y
- const colCut=bg?undefined:columnSectionCut(input,s.rows),noteH=9+notes.reduce((h,n)=>h+wrapText(`• ${n}`,2.3,colW-4,3).length*2.9+.6,0)+5.6+Math.ceil(s.rows.length/2)*3.4+2;
+ const colCut0=bg?undefined:columnSectionCut(input,s.rows),secZ=secOf(DEFAULT_SECTION_IDS.z),colCut=colCut0&&secZ?{...colCut0,z:secZ.position}:undefined,noteH=9+notes.reduce((h,n)=>h+wrapText(`• ${n}`,2.3,colW-4,3).length*2.9+.6,0)+5.6+Math.ceil(s.rows.length/2)*3.4+2;
  const under=!!colCut&&botH-noteH-2>=48,secW=colCut&&!under?colW*.58:colW;
  // split plans (bottom / top bars) when the member has bars lying in both layers: three columns,
  // top row plan bottom | plan top | section X–X, bottom row section Y–Y (| column section) | notes
@@ -165,29 +185,65 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  const c3=(sx-S.left-8)/3,col3=(i:number)=>left+i*(c3+2);
  const colBox=!colCut?undefined:split?{x:col3(1),y:botY,w:c3,h:botH}:under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH};
  const rep=S.bars==='representative',planSpec=(layer?:'bottom'|'top')=>({axes:[0,1] as [number,number],rep,layer});
- const sheetBox={x:left,y:topY,w:right-2-left,h:S.h-S.margin-14-topY},group=kind==='views'?L.groups[page-L.tablePages]:[],all=kind==='views'?sheetViews(s):[];
+ const sheetBox={x:left,y:topY,w:right-2-left,h:S.h-S.margin-14-topY},all=kind==='views'||L.custom?sheetViews(s):[],group=kind==='views'&&!L.custom?L.groups[page-L.tablePages]:[];
  const built=group.map(i=>buildView(m,s.rows,input,all[i].spec));
- const views=kind==='tables'?[]:kind==='views'?placeViews(built.map(v=>[v.u[1]-v.u[0],v.v[1]-v.v[0]]),sheetBox,48*k).map((box,j)=>({...all[group[j]],box})):bg?bg.views:[...(split?[{title:T.planBottom,box:{x:col3(0),y:topY,w:c3,h:topH},spec:planSpec('bottom'),cuts},{title:T.planTop,box:{x:col3(1),y:topY,w:c3,h:topH},spec:planSpec('top'),cuts}]:[{title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:planSpec(),cuts}]),
-  {title:T.sectionX(Math.round(cuts.y)),box:split?{x:col3(2),y:topY,w:c3,h:topH}:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{axes:[0,2] as [number,number],normal:1,cut:cuts.y}},
-  {title:T.sectionY(Math.round(cuts.x)),box:split?{x:left,y:botY,w:colCut?c3:2*c3+2,h:botH}:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
-  ...(colCut&&colBox?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{axes:[0,1] as [number,number],normal:2,cut:colCut.z,columns:true}}]:[])];
+ const secX=secOf(DEFAULT_SECTION_IDS.x),secY=secOf(DEFAULT_SECTION_IDS.y);
+ type Item={key?:ViewKey;title:string;box:Box;spec:ViewSpec;cuts?:{x:number;y:number};pv?:PlacedView};
+ // Sheet Composer layout: the boxes as placed (sheet `page` of the layout); notes only where placed
+ const lsheet=L.custom&&kind!=='tables'?L.custom.sheets[page-(L.split?L.tablePages:0)]:undefined;
+ const byKey=new Map(all.map(v=>[v.key,v]));
+ const views:Item[]=L.custom?kind==='tables'?[]:(lsheet?.views||[]).flatMap(pv=>{const v=byKey.get(pv.view);if(!v)return [];const allBars=pv.show?.allBars;
+   // 'one' page layout draws its views without the tight crop (as the automatic sheet), split view sheets with it
+   const {tight:_t,...loose}=v.spec,spec=L.split?v.spec:loose;
+   return [{key:v.key,title:v.title,box:{x:pv.x,y:pv.y,w:pv.w,h:pv.h},spec:allBars!==undefined&&v.plan?{...spec,rep:!allBars}:spec,cuts:v.cuts,pv}];}):
+  kind==='tables'?[]:kind==='views'?placeViews(built.map(v=>[v.u[1]-v.u[0],v.v[1]-v.v[0]]),sheetBox,48*k).map((box,j)=>({...all[group[j]],box})):bg?bg.views:[...(split?[{key:'plan-bottom' as ViewKey,title:T.planBottom,box:{x:col3(0),y:topY,w:c3,h:topH},spec:planSpec('bottom'),cuts},{key:'plan-top' as ViewKey,title:T.planTop,box:{x:col3(1),y:topY,w:c3,h:topH},spec:planSpec('top'),cuts}]:[{key:'plan' as ViewKey,title:T.plan,box:{x:left,y:topY,w:colW,h:topH},spec:planSpec(),cuts}]),
+  ...(secX?[{key:`sec:${secX.id}` as ViewKey,title:T.sectionX(Math.round(secX.position)),box:split?{x:col3(2),y:topY,w:c3,h:topH}:{x:left+colW+2,y:topY,w:colW,h:topH},spec:{...sectionSpec(secX)}}]:[]),
+  ...(secY?[{key:`sec:${secY.id}` as ViewKey,title:T.sectionY(Math.round(secY.position)),box:split?{x:left,y:botY,w:colCut?c3:2*c3+2,h:botH}:{x:left,y:botY,w:secW,h:botH},spec:{...sectionSpec(secY)}}]:[]),
+  ...(colCut&&colBox&&secZ?[{key:`sec:${secZ.id}` as ViewKey,title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{...sectionSpec(secZ)}}]:[])];
+ const notesBox=L.custom&&kind==='one'?(lsheet?.views||[]).find(v=>v.view==='notes'):undefined;
+ // sheet number of each section view (cut-line bubbles in plans): Composer layout, else auto pages
+ const pageOfSec=new Map<string,number>(),allViews=L.split&&!L.custom?sheetViews(s):[];
+ if(L.custom)L.custom.sheets.forEach((sh,i)=>sh.views.forEach(v=>{if(v.view.startsWith('sec:'))pageOfSec.set(v.view.slice(4),(L.split?L.tablePages:0)+i+1);}));
+ else if(L.split)L.groups.forEach((g,i)=>g.forEach(j=>{const v=allViews[j];if(v?.sec)pageOfSec.set(v.sec.id,L.tablePages+i+1);}));
+ const userCuts=secs.filter(x=>!Object.values(DEFAULT_SECTION_IDS).includes(x.id as never)&&x.axis!=='Z');
+ // render order: projection-locked views after the view they are locked to
+ const order=views.map((_,i)=>i),depth=(i:number,n=0):number=>{const to=views[i].pv?.lock?.to,j=to?views.findIndex(x=>x.key===to):-1;return j<0||n>4?n:depth(j,n+1);};
+ order.sort((a,b)=>depth(a)-depth(b)||a-b);
+ const frames=new Map<string,{x0:number;y0:number;u0:number;v0:number;s:number;axes:[number,number];flip:boolean;box:Box}>();
  // beam-group marks are placed for the fitted views: those views stay not to scale
  const scales:SheetViewScale[]=[],viewInfo:SheetViewInfo[]=[];
- views.forEach((v,j)=>{
-  out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2,layer:'titleBlock'});
-  let used={n:0,fits:true},frame={s:1,x0:0,y0:0,u0:0,v0:0};const id=`V${j+1}`;
-  const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,S.scale);used=r;return r.s;};
+ const results:{j:number;scale:SheetViewScale;info:SheetViewInfo}[]=[];
+ for(const j of order){const v=views[j];
+  let used={n:0,fits:true},frame={s:1,x0:0,y0:0,u0:0,v0:0},box=v.box,lockNote:string|undefined;const id=`V${j+1}`,pv=v.pv;
+  const want=pv?(pv.n==='auto'?S.scale:pv.n):S.scale;
+  const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,want);used=r;return r.s;};
+  const data=buildView(m,s.rows,input,v.spec),isPlan=v.spec.normal===undefined;
+  const opts={k,colors,cuts:v.cuts,zCut:colCut?.z,scale,gutter:!bg&&S.gutter,frame:(f:typeof frame)=>{frame=f;},
+   hide:pv?.show?{dims:pv.show.dims===false,marks:pv.show.marks===false,levels:pv.show.levels===false}:undefined,
+   sectionLines:isPlan&&userCuts.length?userCuts.map(c=>({axis:c.axis==='X'?0:1,at:c.position,label:c.label,ref:pageOfSec.has(c.id)?String(pageOfSec.get(c.id)):undefined,look:c.look,extent:c.extent})):undefined};
+  const inner=(b:Box)=>({x:b.x,y:b.y+4,w:b.w,h:b.h-4});
+  // projection lock: same scale and shared model axis → that axis at the same sheet x / y as the target view, else centre lines
+  if(pv?.lock){const t=frames.get(pv.lock.to);
+   if(!t)lockNote='ไม่พบรูปที่ล็อกแนวฉาย';
+   else{renderView(data,inner(box),opts);const ax=pv.lock.axis==='x'?0:1,own={...frame,axes:data.axes as [number,number],flip:!!data.flip};
+    const shared=t.axes[ax]===own.axes[ax]&&Math.abs(t.s-own.s)<1e-9&&(ax===1||!t.flip&&!own.flip);
+    const d=shared?(ax===0?(t.x0-t.u0*t.s)-(own.x0-own.u0*own.s):(t.y0+t.v0*t.s)-(own.y0+own.v0*own.s)):(ax===0?(t.box.x+t.box.w/2)-(box.x+box.w/2):(t.box.y+t.box.h/2)-(box.y+box.h/2));
+    if(!shared)lockNote=Math.abs(t.s-own.s)>=1e-9?'มาตราส่วนต่างจากรูปที่ล็อก: ล็อกเส้นกึ่งกลางแทน':'ไม่มีแกนร่วมกับรูปที่ล็อก: ล็อกเส้นกึ่งกลางแทน';
+    box=ax===0?{...box,x:box.x+d}:{...box,y:box.y+d};}}
+  out.push({t:'rect',x:box.x,y:box.y,w:box.w,h:box.h,stroke:'#c8d5d0',width:.2,layer:'titleBlock'});
   // one view of a large member has more prims than a spread call takes as arguments
-  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z,scale,gutter:!bg&&S.gutter,frame:f=>{frame=f;}})){const q=mapPrimText(p,t=>sheetPhrase(t,lang));q.view=id;out.push(q);}
-  text(`${v.title} · ${used.n?`1:${used.n}`:'NTS'}`,v.box.x+2,v.box.y+4,2.8,{bold:true});
-  scales.push({title:v.title,...used});
-  viewInfo.push({id,title:v.title,box:v.box,n:used.n,s:frame.s,fits:used.fits,axes:v.spec.axes,normal:(v.spec as ViewSpec).normal,cut:(v.spec as ViewSpec).cut,origin:{sheet:[frame.x0,frame.y0],model:[frame.u0,frame.v0]}});
- });
+  for(const p of renderView(data,inner(box),opts)){const q=mapPrimText(p,t=>sheetPhrase(t,lang));q.view=id;out.push(q);}
+  text(`${v.title} · ${used.n?`1:${used.n}`:'NTS'}`,box.x+2,box.y+4,2.8,{bold:true});
+  if(v.key)frames.set(v.key,{...frame,axes:data.axes as [number,number],flip:!!data.flip,box});
+  results.push({j,scale:{title:v.title,...used},info:{id,key:v.key,...(lockNote?{lockNote}:{}),title:v.title,box,n:used.n,s:frame.s,fits:used.fits,axes:v.spec.axes,normal:v.spec.normal,cut:v.spec.cut,origin:{sheet:[frame.x0,frame.y0],model:[frame.u0,frame.v0]}}});
+ }
+ for(const r of results.sort((a,b)=>a.j-b.j)){scales.push(r.scale);viewInfo.push(r.info);}
  if(bg)out.push(...bg.marks);
- // Notes and Mark legend.
- if(kind!=='views'){
- const nb=kind==='tables'?{x:sx,y:S.margin,w:S.strip,h:L.boqTop-4-S.margin}:bg?bg.notes:split?{x:col3(2),y:botY,w:c3,h:botH}:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
- text(T.notes,nb.x+2,nb.y+4.5,3,{bold:true});
+ // Notes and Mark legend (Composer layout: only where the notes box is placed).
+ let notesNb:Box|undefined;
+ if(kind!=='views'&&(!L.custom||kind==='tables'||notesBox)){
+ const nb=notesBox?{x:notesBox.x,y:notesBox.y,w:notesBox.w,h:notesBox.h}:kind==='tables'?{x:sx,y:S.margin,w:S.strip,h:L.boqTop-4-S.margin}:bg?bg.notes:split?{x:col3(2),y:botY,w:c3,h:botH}:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
+ notesNb=nb;text(T.notes,nb.x+2,nb.y+4.5,3,{bold:true});
  let ny=nb.y+9;for(const n of notes){const ls=wrapText(`• ${n}`,2.3,nb.w-4,3),y0=ny,draw:PlainPrim[]=[];for(const l of ls){draw.push(textPrim(l,nb.x+2,ny,2.3));ny+=2.9;}if(ls.length)out.push({t:'mtext',x:nb.x+2,y:y0,w:nb.w-4,lines:draw.map(d=>d.t==='text'?d.text:''),size:2.3,step:2.9,color:ink,layer:'text',draw});ny+=.6;}
  ny+=2;text(T.legend,nb.x+2,ny,2.6,{bold:true});ny+=3.6;
  const per=2,cw=(nb.w-4)/per;s.rows.forEach((r,i)=>{const cx=nb.x+2+(i%per)*cw,cy=ny+Math.floor(i/per)*3.4;if(cy>nb.y+nb.h-2)return;out.push({t:'rect',x:cx,y:cy-2,w:2.4,h:2.4,fill:colors.get(r.id),stroke:colors.get(r.id),width:.1,layer:'mark'});text(T.perPiece(`${r.mark} ${barName(r.diameter)}`,r.count),cx+3.4,cy,2.2);});
@@ -250,7 +306,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  }
  // remaining sheet primitives: text on the text layer, lines / frames / fills on the title block layer
  for(const p of out)if(!p.layer)p.layer=p.t==='text'||p.t==='mtext'?'text':'titleBlock';
- return {prims:out,scales,views:viewInfo,size:S.size,w:S.w,h:S.h};
+ return {prims:out,scales,views:viewInfo,...(notesNb?{notes:notesNb}:{}),size:S.size,w:S.w,h:S.h};
 }
 /** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
  * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */
