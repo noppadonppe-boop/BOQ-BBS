@@ -540,3 +540,10 @@ export const markIndex=(f:Floor,mark:string)=>Math.max(0,f.marks.findIndex(m=>m.
 export const isSlabFloorMember=(m:Pick<Member,'elementInput'|'category'>)=>{const i=m.elementInput as {category?:string;layout?:string}|undefined;return m.category==='Slab'&&i?.category==='Slab'&&i.layout==='floor';};
 export {DEFAULT_OPENING_TRIM};
 export type {FloorDrop,FloorOpening,FloorPanel,FloorBeam,FloorMark};
+
+/** Restore: the floor underlay points at the restored copy of its attachment (new id). Patch for the member, {} when none. */
+export function remapUnderlay(m:{elementInput?:unknown},ids:Record<string,string>):{elementInput?:any}{
+ const i=m.elementInput as {category?:string;layout?:string;floor?:Floor}|undefined,u=i?.floor?.underlay;
+ if(i?.category!=='Slab'||!u||!ids[u.attachmentId])return {};
+ return {elementInput:{...i,floor:{...i.floor!,underlay:{...u,attachmentId:ids[u.attachmentId]}}}};
+}

@@ -1,4 +1,5 @@
 import {provisionalQuantityBasis} from './quantityBasis';
+import {remapUnderlay} from './slabFloor';
 import {memberSchema,attachmentSchema,specSchema,type SnapshotBundle,type Attachment} from './model';
 import {drawingProfileSchema,titleBlockSchema} from './drawingStandard';
 import {encodeStorage} from './storageCodec';
@@ -14,7 +15,7 @@ export function buildRestorePlan(bundle:SnapshotBundle,attachments:Attachment[],
   if(!/^[a-zA-Z0-9_-]{1,80}$/.test(id)||ids.has(collection+'/'+id))throw Error('รหัสกู้คืนซ้ำหรือไม่ถูกต้อง');ids.add(collection+'/'+id);
   if(new TextEncoder().encode(JSON.stringify(encodeStorage(value))).length>=900000)throw Error('แบ่งข้อมูลกู้คืน: เอกสารเกิน900KB');entries.push({collection,id,data:JSON.parse(JSON.stringify(value))});
  };
- for(const value of bundle.members){const m=memberSchema.parse(value);add('members',m.id,{...m,...(m.quantityBasis?{quantityBasis:provisionalQuantityBasis(m.quantityBasis.reference)}:{}),...(m.sourceSchedule?{sourceSchedule:{...m.sourceSchedule,attachmentId:attachmentIds[m.sourceSchedule.attachmentId]||m.sourceSchedule.attachmentId}}:{}),status:'Draft',version:1,updatedAt:at,bars:m.bars.map(b=>({...b,placementConfirmed:false,...(b.bsDimensionsConfirmed!==undefined?{bsDimensionsConfirmed:false}:{})}))});}
+ for(const value of bundle.members){const m=memberSchema.parse(value);add('members',m.id,{...m,...(m.quantityBasis?{quantityBasis:provisionalQuantityBasis(m.quantityBasis.reference)}:{}),...(m.sourceSchedule?{sourceSchedule:{...m.sourceSchedule,attachmentId:attachmentIds[m.sourceSchedule.attachmentId]||m.sourceSchedule.attachmentId}}:{}),...remapUnderlay(m,attachmentIds),status:'Draft',version:1,updatedAt:at,bars:m.bars.map(b=>({...b,placementConfirmed:false,...(b.bsDimensionsConfirmed!==undefined?{bsDimensionsConfirmed:false}:{})}))});}
  for(const value of attachments){const a=attachmentSchema.parse(value),next={...a,version:1};if(next.sourceIntake)next.sourceIntake={...next.sourceIntake,review:undefined};if(next.sourceRevision)next.sourceRevision={...next.sourceRevision,review:undefined};add('attachments',a.id,next);}
  const mappedFiles=entries.filter(e=>e.collection==='attachments').map(e=>e.data as Attachment);
  for(const e of entries.filter(e=>e.collection==='members')){const errors=sourceScheduleFileProblems(memberSchema.parse(e.data),mappedFiles);if(errors.length)throw Error(errors.join(' · '));}

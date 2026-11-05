@@ -87,7 +87,9 @@ export function cleanDrawingEdits(e:DrawingEdits|undefined):DrawingEdits|undefin
 export function drawingModelHash(m:Record<string,unknown>):string{
  const skip=new Set(['sheetLayout','drawingEdits','drawingSetup','review','version','status','updatedAt','inputEpoch','pricing','copySource','occurrences','quantityBasis','description','code']);
  const keys=Object.keys(m).filter(k=>!skip.has(k)).sort(),bars=(m.bars as {placementConfirmed?:boolean;bsDimensionsConfirmed?:boolean}[]|undefined)?.map(b=>({...b,placementConfirmed:undefined,bsDimensionsConfirmed:undefined}));
- const text=JSON.stringify(keys.map(k=>[k,k==='bars'?bars:m[k]]));let h=0x811c9dc5;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0;}
+ // S4a: the slab-floor underlay / import map are display aids, not drawing content (absent → the hash is unchanged)
+ const ei=m.elementInput as {floor?:{underlay?:unknown;importMap?:unknown}}|undefined,input=ei?.floor&&(ei.floor.underlay||ei.floor.importMap)?{...ei,floor:(({underlay:_u,importMap:_i,...f})=>f)(ei.floor)}:ei;
+ const text=JSON.stringify(keys.map(k=>[k,k==='bars'?bars:k==='elementInput'?input:m[k]]));let h=0x811c9dc5;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0;}
  return h.toString(16).padStart(8,'0')+'-'+text.length.toString(36);
 }
 /** Next revision letter (A, B … Z, then numbers). */

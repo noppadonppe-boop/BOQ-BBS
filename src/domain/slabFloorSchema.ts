@@ -71,6 +71,20 @@ export const floorDropSchema=z.object({id,label:z.string().max(40).default(''),k
  /** drop: extra thickness below the panel; sunken: how far the area is lowered (mm, > 0) */
  depth:mm,rebar:z.enum(['crank','separate'])}).strict();
 export type FloorDrop=z.infer<typeof floorDropSchema>;
+/** S4a: background drawing under the floor plan (display / snap only: no quantities, never exported). Source coordinates =
+ * DXF drawing units or PDF page points (y up); floor mm = scale · R(rotation) · source + (tx, ty). */
+export const floorUnderlaySchema=z.object({attachmentId:z.string().min(1).max(80),page:z.number().int().min(1).max(9999).optional(),
+ transform:z.object({scale:z.number().finite().positive().max(1e7),rotation:z.number().finite().min(-10).max(10),tx:z.number().finite().min(-1e9).max(1e9),ty:z.number().finite().min(-1e9).max(1e9)}).strict(),
+ opacity:z.number().finite().min(0.05).max(1),locked:z.boolean(),hidden:z.boolean(),
+ /** the two alignment pairs (source point → grid crossing labels) the transform came from */
+ align:z.array(z.object({src:z.tuple([z.number().finite(),z.number().finite()]),x:label,y:label}).strict()).max(2).optional()}).strict();
+export type FloorUnderlay=z.infer<typeof floorUnderlaySchema>;
+/** Import roles of DXF layers (S4a). */
+export const IMPORT_ROLES=['grid','gridLabel','beam','column','opening','slabMark','text'] as const;
+export type ImportRole=typeof IMPORT_ROLES[number];
+/** S4a: DXF layer → role mapping used by the last import (the project's floors are read to guess the next file's layers). */
+export const floorImportMapSchema=z.object({layers:z.partialRecord(z.enum(IMPORT_ROLES),z.array(z.string().max(255)).max(60)),units:z.enum(['mm','cm','m','inch']).optional(),at:z.string().max(40).optional()}).strict();
+export type FloorImportMap=z.infer<typeof floorImportMapSchema>;
 export const slabFloorSchema=z.object({version:z.literal(1),
  /** top of slab reference level (m) */
  level:z.number().finite().min(-1000).max(1000),
@@ -82,6 +96,10 @@ export const slabFloorSchema=z.object({version:z.literal(1),
  drops:z.array(floorDropSchema).max(30),
  /** S3: reference columns at grid crossings (beam supports) */
  columns:z.array(floorColumnSchema).max(300).optional(),
+ /** S4a: background drawing (PDF / DXF / image attachment) */
+ underlay:floorUnderlaySchema.optional(),
+ /** S4a: layer roles of the last DXF import */
+ importMap:floorImportMapSchema.optional(),
 }).strict();
 export type SlabFloor=z.infer<typeof slabFloorSchema>;
 /** Slab floor accessories as BOQ items (General Spec `spec.slabAccessories`, copied into the slab detailing; default off):

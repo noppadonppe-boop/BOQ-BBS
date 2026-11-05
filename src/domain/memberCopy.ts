@@ -39,5 +39,7 @@ export function copyMemberInputs(source:Member,input:Pick<MemberCopyRequest,'mem
  delete m.drawingSetup;delete m.review;delete m.scheduleSetup;delete m.copySource;delete m.pricing;delete m.noRebar;
  // S3: a copied beam group is not the one the slab floor generated: no floor link (it keeps its geometry and placement)
  const ei=m.elementInput as {category?:string;floorSource?:unknown}|undefined;if(ei?.category==='Beam'&&ei.floorSource)delete ei.floorSource;
+ // S4a: the underlay points at a file of the source member / project (like sourceSchedule): not copied
+ const fl=(m.elementInput as {category?:string;floor?:{underlay?:unknown}}|undefined);if(fl?.category==='Slab'&&fl.floor?.underlay)delete fl.floor.underlay;
  return memberSchema.parse(m);
 }
