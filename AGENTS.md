@@ -253,6 +253,18 @@
   spec import key `buildings` merged by code). Template groups equal to a code are headed / ordered by `groupLabel()` /
   `orderGroups()`; WBS page button “เพิ่มอาคารจาก General Spec” adds missing roots (same code). Template names stay unique
   across buildings (prefix e.g. `ISB-F1`). Test: `tmp/specBuildings.test.tsx`.
+- Slab floor (Slab layout `floor`, docs `docs/SLAB_FLOOR.md`): `slabSchema.layout` single | floor (default single) + `floor`
+  (`src/domain/slabFloorSchema.ts`: grids X / Y, reference beams, slab marks with `SlabRebarSpec` incl. `topExtra` fixed face|centre /
+  L/3 · L/4, edge bend | ubar, bottomAtBeam continuous | stop; panels = polygons cut at the beam faces, tag unique; openings with
+  trim cut | deviate | none; drops / sunken). `src/domain/slabFloor.ts`: `gridRef` / `parseGridRef` (B +1,200), `autoBeams`,
+  `autoPanels` (cell − beams), `mergePanels`, `toggleBeamSegment`, `slabFloorProblems` (blockers), `floorShapeModel` (panels solid,
+  beams `reference` + `castWith` = no quantity / no formwork against them, `shapeModel.soffit`), `floorBars` (B1/B2/T1/T2 runs,
+  laps at beams ≤ stock, cranks 1:6 ≤ 75, extra top bars, U bars, opening trimmers / diagonals, drops), `groupFloorBars` (Marks
+  `S1-B01` / `S1-T01` / `S1-OP1` / `S1-OD1`, owner = group `g<mark>` or the panel, ids `gen-<owner>-…`; `barOwner` accepts `gen-`),
+  `applySlabFloor` (called by `applyElementInput`; placement regions `genfb<k>` per beam; `REGION_LIMIT` 64, shape parts ≤ 160).
+  Sheets per slab mark: `tagSheetSets` / `sheetOwners` floor branch. UI `components/SlabFloorEditor.tsx` in the Slab input panel;
+  floor members hide the shape / rebar tabs (`isSlabFloorMember`). Slab List column “บนเสริม” (`topExtra`, `TopExtraCell`).
+  Test: `tests/slabFloor.test.ts` (+ DXF `output/dxf-verification/slabFloor-*.dxf`).
 - Slab / wall templates (Slab List / RC Wall List marks): `spec.slabTemplates` (thickness, support, bars 1 / 2 = short span
   top / bottom, 3 / 4 = long span top / bottom) and `spec.wallTemplates` (thickness, layers, V / H) in
   `src/domain/slabWallTemplates.ts` (`applySlabTemplate` puts short-span bars along the shorter side, `applyWallTemplate`);
