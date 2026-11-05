@@ -2,7 +2,7 @@ import {useEffect,useMemo,useRef,useState,type ReactNode} from 'react';
 import {expandPrims,textWidth,type Prim} from '../domain/drawingPrims';
 import type {SheetViewInfo} from '../domain/bbsSheet';
 import {anchorPoint,concreteBox,lostAnchors,viewSnapPoints,type ViewSnap} from '../domain/elementViews';
-import {annotationKind,type Anchor,type AnnotationOverride,type DrawingEdits,type UserAnnotation,type ViewEdits} from '../domain/drawingEdits';
+import {annotationKind,nextRevision,type Anchor,type AnnotationOverride,type DrawingEdits,type DrawingRevision,type UserAnnotation,type ViewEdits} from '../domain/drawingEdits';
 import type {ViewKey} from '../domain/sheetLayoutSchema';
 import {PrimsSvg} from './PrimsSvg';
 
@@ -13,9 +13,9 @@ import {PrimsSvg} from './PrimsSvg';
  * `member.drawingEdits` (`drawingEdits.ts`) through `commit`; `renderView` draws it, so SVG / PDF / DXF stay identical. */
 type Info={prims:Prim[];views:SheetViewInfo[]};
 type Box={x0:number;y0:number;x1:number;y1:number};
-type Kind='mark'|'dim'|'cover'|'ex'|'level'|'text'|'leader';
+type Kind='mark'|'dim'|'cover'|'ex'|'level'|'text'|'leader'|'cloud';
 export type Ann={id:string;view:SheetViewInfo;vk:ViewKey;key:string;user:boolean;kind:Kind;label:string;box:Box;prims:Prim[];dir?:'h'|'v'};
-const KIND:Record<Kind,string>={mark:'ป้าย Mark',dim:'Dimension',cover:'ระยะหุ้ม C',ex:'Dimension EX',level:'ระดับ',text:'ข้อความ',leader:'Leader'};
+const KIND:Record<Kind,string>={mark:'ป้าย Mark',dim:'Dimension',cover:'ระยะหุ้ม C',ex:'Dimension EX',level:'ระดับ',text:'ข้อความ',leader:'Leader',cloud:'Revision cloud'};
 const uid=()=>Math.random().toString(36).slice(2,9);
 const r1=(v:number)=>Math.round(v*10)/10;
 const SNAP_TOL=2.5;
@@ -59,12 +59,13 @@ const anchorOf=(s:ViewSnap|{u:number;v:number}):Anchor=>({u:r1(s.u),v:r1(s.v),..
 /** Mark label of a bar row in a view (as the automatic labels), for the fallback text of Mark leaders. */
 const markText=(view:SheetViewInfo,bar:string)=>{const b=view.data?.bars.find(x=>x.row.id===bar);if(!b)return bar;const d=b.row.diameter;return b.dist?`${b.row.mark} ${b.dist.n}-${d<=9?'RB':'DB'}${d}@${Math.round(b.dist.spacing/5)*5}`:b.row.mark;};
 
-type Tool='select'|'text'|'leader'|'dim'|'level'|'mark'|'addpt';
+type Tool='select'|'text'|'leader'|'dim'|'level'|'mark'|'addpt'|'cloud';
 type Snap={view:SheetViewInfo;s:ViewSnap;x:number;y:number};
-type Pend={kind:'leader'|'mark';view:SheetViewInfo;at:[number,number];bar?:string}|{kind:'dim';view:SheetViewInfo;pts:Anchor[]};
+type Pend={kind:'leader'|'mark'|'cloud';view:SheetViewInfo;at:[number,number];bar?:string}|{kind:'dim';view:SheetViewInfo;pts:Anchor[]};
 type Drag={ann:Ann;x0:number;y0:number;dx:number;dy:number;moved:boolean};
 const SNAP_TOOLS:Tool[]=['dim','level','mark','addpt','leader'];
-export function useDrawingEdit({info,edits,commit,readOnly,setMsg}:{info:Info;edits:DrawingEdits|undefined;commit:(e:DrawingEdits)=>void;readOnly:boolean;setMsg:(m:string)=>void}){
+export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status}:{info:Info;edits:DrawingEdits|undefined;commit:(e:DrawingEdits)=>void;readOnly:boolean;setMsg:(m:string)=>void;
+ /** drawing status (P4) shown in the panel */ status?:{state:string;label:string;detail:string}}){
  const [tool,setTool0]=useState<Tool>('select'),[sel,setSel]=useState<string>(),[hover,setHover]=useState<{x:number;y:number;ann?:string;snap?:Snap}>();
  const [pend,setPend]=useState<Pend>(),[drag,setDrag0]=useState<Drag>(),[focusText,setFocusText]=useState(0);
  // the drag also lives in a ref: the release may come from the window (outside the sheet) and must be applied once
@@ -95,6 +96,7 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg}:{info:Info;ed
   if(u){if(u.kind==='text')commit(setUserObject(edits,a.vk,u.id,{...u,at:[r1(u.at[0]+dx/a.view.s),r1(u.at[1]-dy/a.view.s)]}));
    else if(u.kind==='leader')commit(setUserObject(edits,a.vk,u.id,{...u,dx:r1(u.dx+dx),dy:r1(u.dy+dy)}));
    else if(u.kind==='dim')commit(setUserObject(edits,a.vk,u.id,{...u,off:r1(u.off+(u.dir==='v'?dx:dy))}));
+   else if(u.kind==='cloud')commit(setUserObject(edits,a.vk,u.id,{...u,pts:u.pts.map(q=>[r1(q[0]+dx/a.view.s),r1(q[1]-dy/a.view.s)] as [number,number])}));
    else commit(setUserObject(edits,a.vk,u.id,{...u,dx:r1(u.dx+dx)}));return;}
   if(a.kind==='mark')commit(setOverride(edits,a.vk,a.key,{dx:r1((o.dx||0)+dx)||undefined,dy:r1((o.dy||0)+dy)||undefined}));
   else if(a.kind==='dim')commit(setOverride(edits,a.vk,a.key,{off:r1((o.off||0)+(a.dir==='v'?dx:dy))||undefined}));
@@ -125,6 +127,14 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg}:{info:Info;ed
    if(pend.pts.length>=2)placeDim(pend,x,y);return;}
   if(tool==='level'){if(!snap){setMsg('ระดับ: คลิกจุด snap บนรูปตัดแนวดิ่ง');return;}if(!vertical(snap.view)){setMsg('ระดับใช้ได้ในรูปตัดแนวดิ่งเท่านั้น');return;}
    created(snap.view,{id:`e${uid()}`,kind:'level',at:anchorOf(snap.s),dx:x>=snap.x?8:-8,label:'EL.'});return;}
+  if(tool==='cloud'){const v=pend?.kind==='cloud'?pend.view:viewAt(x,y);if(!v){setMsg('Revision cloud: คลิกมุมแรกในรูป');return;}
+   if(pend?.kind!=='cloud'){setPend({kind:'cloud',view:v,at:toModel(v,x,y)});return;}
+   const [u0,v0]=pend.at,[u1,v1]=toModel(v,x,y);if(Math.abs(u1-u0)*v.s<2||Math.abs(v1-v0)*v.s<2){setMsg('ก้อนเมฆเล็กเกินไป');return;}
+   // revision of the cloud: the latest one; a first cloud creates revision A (today)
+   const revs=edits?.revisions||[],rev=revs.at(-1)?.rev||nextRevision(revs),id=`c${uid()}`;
+   let next=setUserObject(edits,v.key!,id,{id,kind:'cloud',pts:[[u0,v0],[u1,v0],[u1,v1],[u0,v1]],rev});
+   if(!revs.length)next={...next,revisions:[{rev,date:new Date().toISOString().slice(0,10),desc:'แก้ไขแบบ',by:''}]};
+   commit(next);setSel(`${v.key}|user:${id}`);setTool('select');return;}
   if(tool==='addpt'){const u=selAnn&&obj(selAnn);if(!u||u.kind!=='dim'||!selAnn){setTool('select');return;}const s2=findSnap(x,y,selAnn.view);if(!s2){setMsg('คลิกจุด snap ในรูปเดียวกับ Dimension');return;}
    if(u.pts.length>=20){setMsg('Dimension ได้ไม่เกิน 20 จุด');return;}commit(setUserObject(edits,selAnn.vk,u.id,{...u,pts:[...u.pts,anchorOf(s2.s)]}));setTool('select');return;}
   const a=hit(x,y);setSel(a?.id);if(a&&!readOnly&&movable(a))setDrag({ann:a,x0:x,y0:y,dx:0,dy:0,moved:false});};
@@ -139,7 +149,7 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg}:{info:Info;ed
  const key=(e:KeyboardEvent)=>{const k=e.key.toLowerCase();
   if(e.key==='Escape'){if(pend)setPend(undefined);else if(tool!=='select')setTool('select');else setSel(undefined);return true;}
   if(e.key==='Enter'&&pend?.kind==='dim'&&pend.pts.length>=2){const p=pend,[fx,fy]=anchorSheet(p.view,p.pts[0]),dir=dimDir(p.pts);placeDim(p,fx+(dir==='v'?-8:0),fy+(dir==='h'?-8:0));return true;}
-  const tk:Record<string,Tool>={v:'select',t:'text',l:'leader',d:'dim',e:'level',m:'mark',a:'addpt'};
+  const tk:Record<string,Tool>={v:'select',t:'text',l:'leader',d:'dim',e:'level',m:'mark',a:'addpt',c:'cloud'};
   if(tk[k]){if(tk[k]==='select'||!readOnly){if(tk[k]==='addpt'){const u=selAnn&&obj(selAnn);if(u?.kind==='dim')setTool('addpt');else setMsg('เลือก Dimension ที่เพิ่มเองก่อน แล้วกด A');}else setTool(tk[k]);}return true;}
   if(!selAnn)return false;
   if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(selAnn);return true;}
@@ -166,21 +176,22 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg}:{info:Info;ed
   {(pend?.kind==='leader'||pend?.kind==='mark')&&hover&&(()=>{const [ax,ay]=toSheet(pend.view,...pend.at);return <g className="ed-pend"><circle cx={ax} cy={ay} r={.8}/><polyline points={`${ax},${ay} ${hover.x},${hover.y} ${hover.x+(hover.x>=ax?3:-3)},${hover.y}`}/>
    {pend.kind==='mark'&&pend.bar&&<text x={hover.x+(hover.x>=ax?4:-4)} y={hover.y+.9} fontSize={2.6} textAnchor={hover.x>=ax?'start':'end'}>{markText(pend.view,pend.bar)}</text>}</g>;})()}
   {dimPreview()}
+  {pend?.kind==='cloud'&&hover&&(()=>{const [ax,ay]=toSheet(pend.view,...pend.at);return <rect className="ed-cloud" x={Math.min(ax,hover.x)} y={Math.min(ay,hover.y)} width={Math.abs(hover.x-ax)} height={Math.abs(hover.y-ay)}/>;})()}
   {hover?.snap&&marker(hover.snap.s,hover.snap.x,hover.snap.y,'ed-snaph',1.3)}
  </g>;
- const hint=tool==='text'?'คลิกในรูปเพื่อวางข้อความ':tool==='leader'?pend?'คลิกตำแหน่งข้อความ':'คลิกจุดหัวลูกศร (snap เหล็ก = ยึดกับเหล็กนั้น)':
+ const hint=tool==='cloud'?pend?'คลิกมุมตรงข้าม':'Revision cloud: คลิกมุมแรก (ใช้ Rev ล่าสุด)':tool==='text'?'คลิกในรูปเพื่อวางข้อความ':tool==='leader'?pend?'คลิกตำแหน่งข้อความ':'คลิกจุดหัวลูกศร (snap เหล็ก = ยึดกับเหล็กนั้น)':
   tool==='mark'?pend?'คลิกตำแหน่งป้าย':'คลิกที่เหล็ก ○ เพื่อทำป้าย Mark':tool==='dim'?!pend?'Dimension: คลิกจุดแรก (□ มุม · △ กึ่งกลาง · ○ เหล็ก)':pend.kind==='dim'&&pend.pts.length<2?'คลิกจุดที่สอง':'คลิกจุด snap เพื่อต่อ chain · คลิกที่ว่างเพื่อวางเส้น · Enter = วางระยะมาตรฐาน':
   tool==='level'?'ระดับ: คลิกจุด snap บนรูปตัดแนวดิ่ง':tool==='addpt'?'คลิกจุด snap ที่จะเพิ่มเข้า Dimension ที่เลือก':drag?.moved?`ย้าย ${drag.dx.toFixed(1)} · ${drag.dy.toFixed(1)} mm`:hov?`${KIND[hov.kind]}${hov.user?' (เพิ่มเอง)':''} · ${hov.label}`:'';
  const snapHint=hover?.snap?` · Snap: ${hover.snap.s.label}${hover.snap.s.eu||hover.snap.s.ev?' (ขอบคอนกรีต)':''}`:'';
  const tb=(t:Tool,label:string,k:string,dis=readOnly)=><button key={t} aria-pressed={tool===t} className={tool===t?'active':''} disabled={dis} onClick={()=>setTool(t)}>{label} <kbd>{k}</kbd></button>;
- const toolbar:ReactNode=<>{tb('select','เลือก / ย้าย','V',false)}{tb('dim','+ Dimension','D')}{tb('level','+ ระดับ','E')}{tb('mark','+ Mark','M')}{tb('text','+ ข้อความ','T')}{tb('leader','+ Leader','L')}</>;
+ const toolbar:ReactNode=<>{tb('select','เลือก / ย้าย','V',false)}{tb('dim','+ Dimension','D')}{tb('level','+ ระดับ','E')}{tb('mark','+ Mark','M')}{tb('text','+ ข้อความ','T')}{tb('leader','+ Leader','L')}{tb('cloud','+ ก้อนเมฆ Rev','C')}</>;
  const lostList=anns.filter(a=>lost.has(a.id));
- const panel:ReactNode=<EditPanel ann={selAnn} edits={edits} readOnly={readOnly} info={info} commit={commit} focusText={focusText} over={selAnn?over(selAnn):undefined} obj={selAnn?obj(selAnn):undefined}
+ const panel:ReactNode=<EditPanel status={status} ann={selAnn} edits={edits} readOnly={readOnly} info={info} commit={commit} focusText={focusText} over={selAnn?over(selAnn):undefined} obj={selAnn?obj(selAnn):undefined}
   lost={!!selAnn&&lost.has(selAnn.id)} lostList={lostList} onPick={setSel} onRemove={()=>selAnn&&remove(selAnn)} onAddPoint={()=>setTool('addpt')} onDetach={()=>selAnn&&detachDim(selAnn)}/>;
  return {tool,down,move,up,key,filter,overlay,toolbar,panel,hint:hint+snapHint,cursor:tool!=='select'?'crosshair':drag?.moved?'grabbing':hov?'pointer':'default',clear:()=>{setSel(undefined);setPend(undefined);setDrag(undefined);}};
 }
 
-function EditPanel({ann,edits,readOnly,info,commit,focusText,over,obj,lost,lostList,onPick,onRemove,onAddPoint,onDetach}:{ann?:Ann;edits:DrawingEdits|undefined;readOnly:boolean;info:Info;commit:(e:DrawingEdits)=>void;focusText:number;over?:AnnotationOverride;obj?:UserAnnotation;
+function EditPanel({status,ann,edits,readOnly,info,commit,focusText,over,obj,lost,lostList,onPick,onRemove,onAddPoint,onDetach}:{status?:{state:string;label:string;detail:string};ann?:Ann;edits:DrawingEdits|undefined;readOnly:boolean;info:Info;commit:(e:DrawingEdits)=>void;focusText:number;over?:AnnotationOverride;obj?:UserAnnotation;
  lost:boolean;lostList:Ann[];onPick:(id:string)=>void;onRemove:()=>void;onAddPoint:()=>void;onDetach:()=>void}){
  const keys=new Set(info.views.map(v=>v.key).filter(Boolean) as string[]);
  const hidden=Object.entries(edits?.views||{}).filter(([vk])=>keys.has(vk)).flatMap(([vk,v])=>Object.entries(v.over||{}).filter(([,o])=>o.hidden).map(([key])=>({vk,key,title:info.views.find(x=>x.key===vk)?.title||vk})));
@@ -192,6 +203,7 @@ function EditPanel({ann,edits,readOnly,info,commit,focusText,over,obj,lost,lostL
  const ptLabel=(a:Anchor)=>`${a.eu?`${a.eu==='min'?'ขอบซ้าย':'ขอบขวา'}`:Math.round(a.u).toLocaleString()} , ${a.ev?`${a.ev==='min'?'ขอบล่าง':'ขอบบน'}`:Math.round(a.v).toLocaleString()}${a.bar?' · เหล็ก':''}`;
  const datum=ann?.view.data?.datum;
  return <div className="ed-panel">
+  {status&&status.state!=='auto'&&<p className={`notice ${status.state==='ok'?'':'warning'}`}><b>{status.label}</b>{status.detail?` · ${status.detail}`:''}{status.state==='check'?' · ตรวจแล้วกด “เสร็จ” เพื่อยืนยัน':''}</p>}
   {lostList.length>0&&<div className="notice danger"><b>หลุดจุดยึด {lostList.length} รายการ</b> — เหล็กที่ยึดไว้ไม่อยู่ในรูปแล้ว (แสดงสีแดง) · ลบหรือวางใหม่
    <div className="ed-lost">{lostList.slice(0,8).map(a=><button key={a.id} onClick={()=>onPick(a.id)}>{a.view.title} · {KIND[a.kind]} · {a.label.slice(0,24)}</button>)}</div></div>}
   {!ann?<><p className="muted">คลิก Dimension, ป้าย Mark, ระดับ หรือข้อความบนแผ่นเพื่อแก้ · ลากเพื่อย้าย · Delete = ซ่อน / ลบ · ลูกศร 0.5 mm (Shift 2 mm)</p>
@@ -218,6 +230,8 @@ function EditPanel({ann,edits,readOnly,info,commit,focusText,over,obj,lost,lostL
      <label className="field"><span>ขนาดตัวอักษร (mm)</span><input type="number" min={1.5} max={10} step={.1} disabled={readOnly} value={obj.size??2.6} onChange={e=>{const n=Number(e.target.value);if(n>=1.5&&n<=10)setU({...obj,size:n});}}/></label></div>
     <div className="field"><span>จุดวัด ({obj.pts.length}) · ขอบ = ตามขอบคอนกรีตเมื่อขนาดเปลี่ยน</span><div className="ed-pts">{obj.pts.map((p,i)=><div key={i}><code>{ptLabel(p)}</code>{obj.pts.length>2&&<button disabled={readOnly} aria-label="ลบจุด" onClick={()=>setU({...obj,pts:obj.pts.filter((_,j)=>j!==i)})}>×</button>}</div>)}</div></div>
     <div className="actions"><button disabled={readOnly||obj.pts.length>=20} onClick={onAddPoint}>+ เพิ่มจุด (A)</button></div></>}
+   {obj?.kind==='cloud'&&<label className="field"><span>Revision</span><select disabled={readOnly} value={obj.rev} onChange={e=>setU({...obj,rev:e.target.value})}>
+    {[...new Set([obj.rev,...(edits?.revisions||[]).map(r=>r.rev)])].map(r=><option key={r} value={r}>{r}{(edits?.revisions||[]).find(x=>x.rev===r)?` · ${(edits?.revisions||[]).find(x=>x.rev===r)!.desc}`:' (ไม่มีในตาราง)'}</option>)}</select></label>}
    {obj?.kind==='level'&&<>
     <div className="field"><span>ระดับ{datum===undefined?' (นับจากฐานสมาชิก: ไม่มีระดับอ้างอิง)':''}</span><code>{(()=>{const z=(datum??0)+(obj.at.v)/1000;return `${z>0?'+':z<0?'−':'±'}${Math.abs(z).toFixed(3)} m`;})()}</code></div>
     <div className="form-grid"><label className="field"><span>ชื่อ</span><input disabled={readOnly} maxLength={40} value={obj.label} onChange={e=>setU({...obj,label:e.target.value})}/></label>
@@ -235,8 +249,23 @@ function EditPanel({ann,edits,readOnly,info,commit,focusText,over,obj,lost,lostL
      <button disabled={readOnly||!over} onClick={()=>setO(null)}>คืนค่า Auto</button>
      {ann.kind==='dim'&&<button disabled={readOnly} title="สร้าง Dimension ของผู้ใช้จากเส้นนี้ (เพิ่ม / ลบจุดได้) แล้วซ่อนเส้นเดิม" onClick={onDetach}>แยกเป็นของผู้ใช้</button>}</>}
    </div></>}
+  {!ann&&<Revisions revs={edits?.revisions||[]} readOnly={readOnly} onChange={revisions=>commit({...(edits||{version:1,views:{}}),revisions})}/>}
   {hidden.length>0&&<fieldset className="composer-show"><legend>ซ่อนไว้ ({hidden.length})</legend>
    {hidden.map(h=><div key={h.vk+h.key} className="ed-hidden"><span><small>{h.title}</small>{KIND[annotationKind(h.key)]||h.key} <code>{h.key.split(':').slice(1).join(':')}</code></span>
     <button disabled={readOnly} onClick={()=>commit(setOverride(edits,h.vk,h.key,{hidden:undefined}))}>แสดง</button></div>)}</fieldset>}
  </div>;
+}
+
+/** Revision table of the drawing (P4): rev / date / description / by; newest last (the table on the sheet shows newest first). */
+function Revisions({revs,readOnly,onChange}:{revs:DrawingRevision[];readOnly:boolean;onChange:(r:DrawingRevision[])=>void}){
+ const set=(i:number,p:Partial<DrawingRevision>)=>onChange(revs.map((r,j)=>j===i?{...r,...p}:r));
+ return <fieldset className="composer-show"><legend>Revision ({revs.length})</legend>
+  {revs.map((r,i)=><div key={i} className="ed-rev">
+   <input aria-label="Rev" value={r.rev} maxLength={3} disabled={readOnly} onChange={e=>{const v=e.target.value.toUpperCase();if(/^[A-Z0-9]{1,3}$/.test(v)&&!revs.some((x,j)=>j!==i&&x.rev===v))set(i,{rev:v});}}/>
+   <input aria-label="วันที่" type="date" value={r.date} disabled={readOnly} onChange={e=>set(i,{date:e.target.value})}/>
+   <input aria-label="รายละเอียด" value={r.desc} maxLength={200} disabled={readOnly} onChange={e=>set(i,{desc:e.target.value})}/>
+   <input aria-label="โดย" value={r.by} maxLength={60} disabled={readOnly} placeholder="โดย" onChange={e=>set(i,{by:e.target.value})}/>
+   <button className="danger-text" aria-label="ลบ Revision" disabled={readOnly} onClick={()=>onChange(revs.filter((_,j)=>j!==i))}>×</button></div>)}
+  <button disabled={readOnly||revs.length>=20} onClick={()=>onChange([...revs,{rev:nextRevision(revs),date:new Date().toISOString().slice(0,10),desc:'',by:''}])}>+ เพิ่ม Revision</button>
+  <p className="muted">ก้อนเมฆ (C) ใช้ Rev ล่าสุด · วาง “ตาราง Revision” บนแผ่นได้จากโหมดจัดหน้า (รายการ “ยังไม่ได้วาง”)</p></fieldset>;
 }

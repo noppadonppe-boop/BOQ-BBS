@@ -141,7 +141,7 @@ export type SheetViewInfo={id:string;key?:ViewKey;lockNote?:string;title:string;
 /** All primitives of one sheet (mm). */
 export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page).prims;}
 /** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */
-export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];views:SheetViewInfo[];notes?:{x:number;y:number;w:number;h:number};size:keyof typeof sheetSizes;w:number;h:number}{
+export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];views:SheetViewInfo[];notes?:{x:number;y:number;w:number;h:number};revs?:{x:number;y:number;w:number;h:number};size:keyof typeof sheetSizes;w:number;h:number}{
  const S=sheetFormat(s),L=layout(s),{sx}=L,out:Prim[]=[],ink='#22393f',grid='#9fb2ad',k=.26,lang=sheetLangOf(s.project),T=sheetText[lang];
  // 'one' = views + tables; split layout: 'tables' sheets (BBS on the left) then 'views' sheets (views + title strip)
  const kind=!L.split?'one':page<L.tablePages?'tables':'views',right=S.w-S.margin;
@@ -251,6 +251,13 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  for(const r of results.sort((a,b)=>a.j-b.j)){scales.push(r.scale);viewInfo.push(r.info);}
  if(bg)out.push(...bg.marks);
  // Notes and Mark legend (Composer layout: only where the notes box is placed).
+ // Revision table (Drawing Edit P4): box `revs` of a composed layout, newest revision first
+ const revsBox=L.custom&&kind!=='tables'?(lsheet?.views||[]).find(v=>v.view==='revs'):undefined;let revsNb:Box|undefined;
+ if(revsBox){const rb={x:revsBox.x,y:revsBox.y,w:revsBox.w,h:revsBox.h},revs=[...(m.drawingEdits?.revisions||[])].reverse(),cw=[.12,.2,.48,.2].map(f=>f*rb.w),rh=5;revsNb=rb;
+  out.push({t:'rect',x:rb.x,y:rb.y,w:rb.w,h:rb.h,stroke:ink,width:.3,layer:'titleBlock'},{t:'rect',x:rb.x,y:rb.y,w:rb.w,h:rh,fill:'#203940',layer:'titleBlock'});
+  let cx=rb.x;['REV','DATE',lang==='th'?'รายละเอียด':'DESCRIPTION','BY'].forEach((t,i)=>{cell(t,cx,rb.y,cw[i],rh,2.1,'start','#ffffff',true);cx+=cw[i];});
+  revs.forEach((r,j)=>{const y=rb.y+rh*(j+1);if(y+rh>rb.y+rb.h+.01)return;cx=rb.x;[r.rev,r.date,r.desc,r.by].forEach((t,i)=>{cell(t,cx,y,cw[i],rh,2.1,'start',ink,true);cx+=cw[i];});line(rb.x,y+rh,rb.x+rb.w,y+rh,.2,ink);});
+  cx=rb.x;for(const w of cw.slice(0,-1)){cx+=w;line(cx,rb.y,cx,rb.y+rh*(1+revs.length),.2,ink);}}
  let notesNb:Box|undefined;
  if(kind!=='views'&&(!L.custom||kind==='tables'||notesBox)){
  const nb=notesBox?{x:notesBox.x,y:notesBox.y,w:notesBox.w,h:notesBox.h}:kind==='tables'?{x:sx,y:S.margin,w:S.strip,h:L.boqTop-4-S.margin}:bg?bg.notes:split?{x:col3(2),y:botY,w:c3,h:botH}:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
@@ -317,7 +324,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  }
  // remaining sheet primitives: text on the text layer, lines / frames / fills on the title block layer
  for(const p of out)if(!p.layer)p.layer=p.t==='text'||p.t==='mtext'?'text':'titleBlock';
- return {prims:out,scales,views:viewInfo,...(notesNb?{notes:notesNb}:{}),size:S.size,w:S.w,h:S.h};
+ return {prims:out,scales,views:viewInfo,...(notesNb?{notes:notesNb}:{}),...(revsNb?{revs:revsNb}:{}),size:S.size,w:S.w,h:S.h};
 }
 /** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
  * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */

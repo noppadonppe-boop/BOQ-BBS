@@ -524,6 +524,14 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  const cbox=concreteBox(v),barIds=new Set(v.bars.map(b=>b.row.id)),lost='#c0262d';
  const AP=(a:Anchor)=>anchorPoint(a,cbox),gone=(a:{bar?:string})=>!!a.bar&&!barIds.has(a.bar);
  for(const o of opts.edits?.objs||[]){const key=`user:${o.id}`,ink='#22393f';
+  if(o.kind==='cloud'){const P=o.pts.map(q=>[X(q[0]),Y(q[1])] as [number,number]),arc=3*pu,pts:[number,number][]=[],red='#b03a2e';
+   // scallops: each edge split into arcs of about 3 mm bulging outwards (polygon drawn counter-clockwise on paper → left normal)
+   const area=P.reduce((a,p,i)=>{const q=P[(i+1)%P.length];return a+p[0]*q[1]-q[0]*p[1];},0),sg=area>0?-1:1;
+   P.forEach((a,i)=>{const b=P[(i+1)%P.length],len=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.max(1,Math.round(len/arc)),ux=(b[0]-a[0])/len,uy=(b[1]-a[1])/len,nx=-uy*sg,ny=ux*sg;
+    for(let j=0;j<n;j++)for(let t=0;t<6;t++){const f=(j+t/6)/n,h=Math.sin(Math.PI*t/6)*len/n*.45;pts.push([a[0]+(b[0]-a[0])*f+nx*h,a[1]+(b[1]-a[1])*f+ny*h]);}});
+   put('symbol',{t:'poly',pts,closed:true,stroke:red,width:.5*k,key});
+   const [tx,ty]=P.reduce((m2,p)=>p[1]<m2[1]?p:m2,P[0]),tr=2.6*pu;put('symbol',{t:'poly',pts:[[tx,ty-tr*1.6],[tx-tr,ty+tr*.2-tr*1.6+tr*1.4],[tx+tr,ty+tr*.2-tr*1.6+tr*1.4]],closed:true,stroke:red,width:.5*k,fill:'#ffffff',key},{t:'text',x:tx,y:ty-tr*.25,text:o.rev,size:2.4*pu,color:red,anchor:'middle',bold:true,key});
+   continue;}
   if(o.kind==='dim'){const pts=o.pts.map(AP),h=o.dir==='h',bad=o.pts.some(gone),col=bad?lost:'#3f5459',st={stroke:bad?lost:'#5f7378',width:.7*k},dsz=(o.size??2.6)*pu;
    const order=pts.map((p,i)=>({p,i})).sort((a,b)=>h?a.p[0]-b.p[0]:a.p[1]-b.p[1]).map(x=>x.p).filter((p,i,a)=>!i||Math.abs(h?p[0]-a[i-1][0]:p[1]-a[i-1][1])>.5);if(order.length<2)continue;
    const pos=h?Y(pts[0][1])+o.off*pu:X(pts[0][0])+o.off*pu,lab=(x:number)=>o.text!==undefined?o.text.replace('<>',fmt(x)):fmt(x),draw:PlainPrim[]=[],g=1.5*pu,t=1.1*pu;

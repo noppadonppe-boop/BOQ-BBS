@@ -195,6 +195,9 @@
   ISO `iso` (`isoView`), stepped sections `section.steps` (pieces merged in `buildView`); extras only in composed layouts
   (`sheetViews(s, extras)`). Drawing-only save `saveMemberDrawing` (direct/members.ts: sheetLayout + drawingEdits, status kept) for
   roles admin / qs / detailer (new project role `detailer`); sections still go through saveMember (→ Draft).
+  Phase 4: status `drawingStatus()` (`drawingStatus.ts`: auto / ok / check from `drawingEdits.check.hash` vs `drawingModelHash()`,
+  lost anchors, stale overrides; Composer save writes check), revisions `drawingEdits.revisions` + table box ViewKey `revs`, user
+  `cloud` objects (tool C), templates carry `edits` per role (`templateFrom(…, edits)`, `templateEdits()`).
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
   `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
   `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),

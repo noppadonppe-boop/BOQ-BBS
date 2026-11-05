@@ -1,8 +1,9 @@
 import {z} from 'zod';
+import {viewEditsSchema} from './drawingEdits';
 
 /** Sheet Composer data (zod only, no runtime imports: `model.ts` imports it).
  * ViewKey = plan | plan-bottom | plan-top | sec:<section id> | notes. Boxes are sheet mm (frame of the view incl. its title band). */
-export const viewKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|iso|sec:[a-zA-Z0-9_-]{1,80}|det:[a-zA-Z0-9_-]{1,40})$/,'รหัสรูปไม่ถูกต้อง');
+export const viewKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|revs|iso|sec:[a-zA-Z0-9_-]{1,80}|det:[a-zA-Z0-9_-]{1,40})$/,'รหัสรูปไม่ถูกต้อง');
 export type ViewKey=z.infer<typeof viewKeySchema>;
 export const viewScaleNSchema=z.union([z.literal('auto'),z.number().int().min(1).max(1000)]);
 const showSchema=z.object({dims:z.boolean().optional(),marks:z.boolean().optional(),levels:z.boolean().optional(),allBars:z.boolean().optional()}).strict();
@@ -21,14 +22,16 @@ export const sheetLayoutSchema=z.object({version:z.literal(1),sheets:sheetsOf(pl
 export type SheetLayout=z.infer<typeof sheetLayoutSchema>;
 
 /** Template roles: plan views / notes as is, sections by role (sec-x = X–X, sec-y = Y–Y, col-z = Z–Z, user-1 … = added cuts). */
-export const roleKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|iso|sec-x|sec-y|col-z|user-[0-9]{1,2})$/,'role ไม่ถูกต้อง');
+export const roleKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|revs|iso|sec-x|sec-y|col-z|user-[0-9]{1,2})$/,'role ไม่ถูกต้อง');
 export type RoleKey=z.infer<typeof roleKeySchema>;
 export const sheetTemplateSchema=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),name:z.string().trim().min(1).max(80),category:z.string().min(1).max(40),
  match:z.object({foundationType:z.string().max(20).optional(),layout:z.string().max(20).optional()}).strict().optional(),size:z.enum(['A3','A2']),
  sheets:sheetsOf(placed(roleKeySchema)),
  /** added cuts: position = at × member size along the axis */
  sections:z.array(z.object({role:z.string().regex(/^user-[0-9]{1,2}$/),label:z.string().trim().regex(/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?$/).max(12),axis:z.enum(['X','Y','Z']),at:z.number().min(0).max(1),
-  look:z.enum(['+','-']),depth:z.number().positive().max(100000).optional()}).strict()).max(12)}).strict();
+  look:z.enum(['+','-']),depth:z.number().positive().max(100000).optional()}).strict()).max(12),
+ /** Drawing Edit layer per view role (overrides of automatic annotations + user objects), applied with the template */
+ edits:z.record(roleKeySchema,viewEditsSchema).optional()}).strict();
 export type SheetTemplate=z.infer<typeof sheetTemplateSchema>;
 export const sheetTemplatesSchema=z.array(sheetTemplateSchema).max(60);
 /** Project templates + default template per category (and foundation type) for members without their own layout. */

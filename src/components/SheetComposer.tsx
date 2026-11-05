@@ -9,7 +9,7 @@ import {buildView,markColors,renderView} from '../domain/elementViews';
 import {standardScales} from '../domain/drawingStandard';
 import {boundsOf} from '../domain/solids';
 import {axisIndex,nextSectionLabel,type SheetSection} from '../domain/drawingViews';
-import {DEFAULT_SECTION_IDS,boxesOverlap,composerSupported,freeSpot,layoutBoxProblems,resolveSheetLayout,sectionSpec,sheetSections,sheetTemplatesOf,sectionSnaps,snapModelPoint,templateFrom,templateLayout,templateSections,defaultSections} from '../domain/sheetLayout';
+import {DEFAULT_SECTION_IDS,boxesOverlap,composerSupported,freeSpot,layoutBoxProblems,resolveSheetLayout,sectionSpec,sheetSections,sheetTemplatesOf,sectionSnaps,snapModelPoint,templateEdits,templateFrom,templateLayout,templateSections,defaultSections} from '../domain/sheetLayout';
 import {sheetLayoutSchema,type PlacedView,type ProjectSheetTemplates,type SheetLayout,type ViewKey} from '../domain/sheetLayoutSchema';
 import {sheetLangOf} from '../domain/sheetText';
 import {PrimsSvg} from './PrimsSvg';
@@ -18,7 +18,8 @@ import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay} from './LabelQa';
 import {useDrawingEdit} from './DrawingEditLayer';
-import {cleanDrawingEdits,drawingEditsSchema,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
+import {cleanDrawingEdits,drawingEditsSchema,drawingModelHash,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
+import {drawingStatus,drawingStatusText} from '../domain/drawingStatus';
 
 type Box={x:number;y:number;w:number;h:number};
 type Draft={layout?:SheetLayout;sections:SheetSection[];edits?:DrawingEdits};
@@ -61,19 +62,21 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const layout=useMemo(()=>draft.layout||resolveSheetLayout(data,size).layout||autoLayout(draft),[draft,data]);
  const shown=useMemo(()=>({...data,member:{...data.member,sheetLayout:layout}}),[data,layout]);
  const area=useMemo(()=>sheetArea(shown),[shown]),page=Math.min(sheet,layout.sheets.length-1),info=useMemo(()=>drawSheetInfo(shown,layoutPage(shown,page)),[shown,page]);
- const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':all.find(v=>v.key===k)?.title||k;
+ const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':all.find(v=>v.key===k)?.title||k;
  const placed=layout.sheets[page]?.views||[],boxOf=(k:ViewKey)=>info.views.find(v=>v.key===k)?.box||placed.find(v=>v.view===k);
  const problems=useMemo(()=>layout.sheets.flatMap((sh,i)=>{const inf=i===page?info:drawSheetInfo(shown,layoutPage(shown,i));
-  const boxes=[...inf.views.filter(v=>v.key).map(v=>({view:v.key!,title:v.title,...v.box})),...(inf.notes?[{view:'notes',title:'หมายเหตุ',...inf.notes}]:[])];
+  const boxes=[...inf.views.filter(v=>v.key).map(v=>({view:v.key!,title:v.title,...v.box})),...(inf.notes?[{view:'notes',title:'หมายเหตุ',...inf.notes}]:[]),...(inf.revs?[{view:'revs',title:'ตาราง Revision',...inf.revs}]:[])];
   return layoutBoxProblems(boxes,area.area,area.keep).map(p=>`แผ่น ${i+1}: ${p}`);}),[layout,shown,info,page,area]);
  const qa=useMemo(()=>labelReport(info.prims,info.views,labelRulesOf(project.spec)),[info,project.spec]),[qaShow,setQaShow]=useState(true),[qaFocus,setQaFocus]=useState<LabelIssue>();
  useEffect(()=>setQaFocus(undefined),[qa]);
  const fitWarn=info.views.filter(v=>!v.fits),dirty=!sameJson(draft.layout,member.sheetLayout)||!sameJson(draft.sections,initSections)||!sameJson(cleanDrawingEdits(draft.edits),cleanDrawingEdits(member.drawingEdits));
- const unplaced=[...new Set([...layout.unplaced,...all.map(v=>v.key).filter(k=>!layout.sheets.some(s=>s.views.some(v=>v.view===k)))])].filter(k=>k!=='notes'||area.notes);
+ const unplaced=[...new Set([...layout.unplaced,...[...all.map(v=>v.key),...(draft.edits?.revisions?.length?['revs' as ViewKey]:[])].filter(k=>!layout.sheets.some(s=>s.views.some(v=>v.view===k)))])].filter(k=>k!=='notes'||area.notes);
 
  // partial drafts keep the other parts (e.g. a layout change keeps the drawing edits)
  const commit=(d:Partial<Draft>)=>{if(readOnly)return;setUndo(u=>[...u.slice(-49),draft]);setRedo([]);setDraft({...draft,...d});};
- const ed=useDrawingEdit({info,edits:draft.edits,commit:e=>commit({edits:e}),readOnly,setMsg});
+ // drawing status (P4): model changed since the last save / confirmation, lost anchors, overrides without target
+ const dstat=useMemo(()=>{const d=drawingStatus(shown);return {...d,...drawingStatusText(d)};},[shown]);
+ const ed=useDrawingEdit({info,edits:draft.edits,commit:e=>commit({edits:e}),readOnly,setMsg,status:dstat});
  const editLayout=(f:(l:SheetLayout)=>SheetLayout)=>commit({...draft,layout:f(structuredClone(layout))});
  const editView=(k:ViewKey,patch:Partial<PlacedView>)=>editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.map(v=>v.view===k?{...v,...patch}:v)}))}));
  const editSection=(id:string,patch:Partial<SheetSection>)=>commit({layout:draft.layout||layout,sections:draft.sections.map(s=>s.id===id?{...s,...patch}:s)});
@@ -82,7 +85,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const unplace=(k:ViewKey)=>editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k)})),unplaced:[...l.unplaced.filter(x=>x!==k),k]}));
  const place=(k:ViewKey,box:Box,on=page,n:PlacedView['n']='auto')=>editLayout(l=>{const sheets=l.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k)}));while(sheets.length<=on)sheets.push({id:`s${uid()}`,views:[]});sheets[on].views.push({view:k,...box,n});return {...l,sheets,unplaced:l.unplaced.filter(x=>x!==k)};});
  const moveTo=(k:ViewKey,to:number)=>{const v=layout.sheets.flatMap(s=>s.views).find(x=>x.view===k);if(v)place(k,{x:v.x,y:v.y,w:v.w,h:v.h},to,v.n);};
- const sizeFor=(k:ViewKey,n:number):{w:number;h:number}=>{if(k==='notes')return {w:120,h:80};const v=all.find(x=>x.key===k);if(!v)return {w:120,h:90};const d=buildView(base.member,base.rows,base.input,v.spec);
+ const sizeFor=(k:ViewKey,n:number):{w:number;h:number}=>{if(k==='notes')return {w:120,h:80};if(k==='revs')return {w:110,h:Math.min(110,5*((draft.edits?.revisions?.length||0)+1)+3)};const v=all.find(x=>x.key===k);if(!v)return {w:120,h:90};const d=buildView(base.member,base.rows,base.input,v.spec);
   return {w:Math.min(area.area.w-4,(d.u[1]-d.u[0])/n*1.25+30),h:Math.min(area.area.h-30,(d.v[1]-d.v[0])/n+30)};};
  const planN=()=>info.views.find(v=>v.key?.startsWith('plan'))?.n||50;
  const placeFree=(k:ViewKey,sz=sizeFor(k,planN()))=>{const taken=[...info.views.map(v=>v.box),...(info.notes?[info.notes]:[]),...area.keep],spot=freeSpot(sz,area.area,taken);
@@ -186,15 +189,17 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const selDet=sel?.startsWith('det:')?details.find(d=>`det:${d.id}`===sel):undefined;
  // ---- templates
  const templates=sheetTemplatesOf(project).filter(t=>t.size===size&&t.category===member.category);
- const [tplName,setTplName]=useState(''),[tplDefault,setTplDefault]=useState(false),[tplMatch,setTplMatch]=useState(false);
+ const [tplName,setTplName]=useState(''),[tplDefault,setTplDefault]=useState(false),[tplMatch,setTplMatch]=useState(false),[tplEdits,setTplEdits]=useState(true);
  const ftype=base.input?.category==='Foundation'?base.input.foundationType:undefined;
  const saveTemplate=async()=>{if(!onSaveTemplates||!tplName.trim())return;const cur=project.sheetTemplates||{version:0,templates:[],defaults:[]},old=cur.templates.find(t=>t.name.toUpperCase()===tplName.trim().toUpperCase());
-  const tpl=templateFrom({id:old?.id||`t${uid()}`,name:tplName.trim(),category:member.category,size,...(tplMatch&&ftype?{match:{foundationType:ftype}}:{})},layout,draft.sections,base.member);
+  const tpl=templateFrom({id:old?.id||`t${uid()}`,name:tplName.trim(),category:member.category,size,...(tplMatch&&ftype?{match:{foundationType:ftype}}:{})},layout,draft.sections,base.member,tplEdits?draft.edits:undefined);
   const defaults=tplDefault?[...cur.defaults.filter(d=>!(d.category===member.category&&(d.foundationType||'')===(tplMatch&&ftype?ftype:''))),{category:member.category,...(tplMatch&&ftype?{foundationType:ftype}:{}),id:tpl.id}]:cur.defaults;
   try{await onSaveTemplates({version:cur.version+1,templates:[...cur.templates.filter(t=>t.id!==tpl.id),tpl],defaults});setTplOpen(undefined);setMsg(`บันทึก Template “${tpl.name}” แล้ว${tplDefault?' · ตั้งเป็นค่าเริ่มต้นของโครงการ':''}`);}catch(e){setMsg(e instanceof Error?e.message:String(e));}};
  const applyTemplate=(id:string)=>{const t=templates.find(x=>x.id===id);if(!t)return;const secs=[...defaultSections(base.member,base.input,base.rows),...templateSections(t,base.member)],l=templateLayout(t,secs),keys=new Set(l.sheets.flatMap(s=>s.views.map(v=>v.view)));
   const warn=t.sections.filter(x=>!secs.some(s=>s.id===`tpl-${x.role.slice(5)}`)).length;
-  commit({sections:secs,layout:{...l,unplaced:sheetViews(withDraft({sections:secs})).map(v=>v.key).filter(k=>!keys.has(k))}});setTplOpen(undefined);setSheet(0);setMsg(`ใช้ Template “${t.name}”${warn?` · ข้าม ${warn} รูปตัด`:''}`);};
+  // the template's Drawing Edit layer replaces the views' edits; details / revisions of this member stay
+  const edits=t.edits?{...(draft.edits||{version:1 as const,views:{}}),views:templateEdits(t,secs)}:draft.edits;
+  commit({sections:secs,layout:{...l,unplaced:sheetViews(withDraft({sections:secs})).map(v=>v.key).filter(k=>!keys.has(k))},edits});setTplOpen(undefined);setSheet(0);setMsg(`ใช้ Template “${t.name}”${warn?` · ข้าม ${warn} รูปตัด`:''}${t.edits?' · รวมการแก้ไขแบบ':''}`);};
  const revert=()=>{commit({layout:undefined,sections:member.drawingViews?.version===2?draft.sections:initSections});setMsg('กลับไปใช้ Template ของโครงการ / จัดอัตโนมัติ');};
 
  const done=()=>{if(problems.length){setMsg('แก้ปัญหาการจัดหน้าก่อน (กรอบซ้อน / ออกนอกแผ่น / ทับตาราง)');return;}
@@ -203,6 +208,8 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
   if(edits){const ok=drawingEditsSchema.safeParse(edits);if(!ok.success){setMsg(`แก้ไขแบบ: ${ok.error.issues[0]?.message||'ข้อมูลไม่ถูกต้อง'}`);return;}next.drawingEdits=ok.data;}else delete next.drawingEdits;
   if(own?.data)next.sheetLayout=own.data;else delete next.sheetLayout;
   if(secsChanged)next.drawingViews={version:2,primaryPlane:member.drawingViews?.primaryPlane||'XY',basis:member.drawingViews?.basis||'Sheet Composer',sections:draft.sections};
+  // saving the edited drawing = checked against this model (status “ตรงกับโมเดล” until the model changes)
+  if(next.drawingEdits)next.drawingEdits={...next.drawingEdits,check:{hash:drawingModelHash(next as unknown as Record<string,unknown>),at:new Date().toISOString()}};
   if(secsChanged&&!onApply){setMsg('แก้รูปตัดต้องมีสิทธิ์แก้สมาชิก (Admin / QS)');return;}
   if(!secsChanged&&onSaveDrawing&&(!memberDirty||!onApply)){onSaveDrawing({sheetLayout:next.sheetLayout,drawingEdits:next.drawingEdits}).then(onClose,e=>setMsg(e instanceof Error?e.message:String(e)));return;}
   onApply?.(next);onClose();};
@@ -219,7 +226,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
     <div className="segmented composer-mode" role="tablist" aria-label="โหมด">
      <button role="tab" aria-selected={mode==='layout'} className={mode==='layout'?'active':''} onClick={()=>{setMode('layout');ed.clear();}}>จัดหน้า</button>
      <button role="tab" aria-selected={mode==='edit'} className={mode==='edit'?'active':''} onClick={()=>{setMode('edit');setTool(undefined);setSel(undefined);}}>แก้ไขแบบ</button></div>
-    <div className="composer-title"><b>{member.code} · {mode==='edit'?'แก้ไขแบบ':'จัดหน้าแบบ'} <HelpButton topic={mode==='edit'?'drawing-edit':'sheet-composer'}/></b><small>{size} · แผ่น {page+1} / {layout.sheets.length}{draft.layout?'':' · ตาม Template / อัตโนมัติ'}{readOnly?' · อ่านอย่างเดียว':''}</small></div>
+    <div className="composer-title"><b>{member.code} · {mode==='edit'?'แก้ไขแบบ':'จัดหน้าแบบ'} <HelpButton topic={mode==='edit'?'drawing-edit':'sheet-composer'}/></b><small>{size} · แผ่น {page+1} / {layout.sheets.length}{draft.layout?'':' · ตาม Template / อัตโนมัติ'}{readOnly?' · อ่านอย่างเดียว':''} <span className={`ds-pill ${dstat.state}`} title={dstat.detail}>{dstat.label}</span></small></div>
     <div className="composer-tools" role="toolbar" aria-label="เครื่องมือ">
      {mode==='edit'?ed.toolbar:<>
      <button aria-pressed={!tool} className={!tool?'active':''} onClick={()=>setTool(undefined)}>เลือก / ย้าย <kbd>V</kbd></button>
@@ -351,6 +358,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
     <label className="field"><span>ชื่อ</span><input value={tplName} maxLength={80} onChange={e=>setTplName(e.target.value)}/></label>
     <p className="muted">ใช้กับ: {member.category} · {size} · รูปตัดที่เพิ่มเก็บเป็นสัดส่วนตามขนาดสมาชิก</p>
     {ftype&&<label className="check"><input type="checkbox" checked={tplMatch} onChange={e=>setTplMatch(e.target.checked)}/>เฉพาะ foundation type “{ftype}”</label>}
+    <label className="check"><input type="checkbox" checked={tplEdits} onChange={e=>setTplEdits(e.target.checked)}/>รวมการแก้ไขแบบ (ป้าย / Dimension / ข้อความที่แก้หรือเพิ่ม)</label>
     <label className="check"><input type="checkbox" checked={tplDefault} onChange={e=>setTplDefault(e.target.checked)}/>ตั้งเป็นค่าเริ่มต้นของโครงการ (สมาชิกที่ไม่ได้จัดหน้าเองใช้ Template นี้)</label>
     <div className="actions"><button onClick={()=>setTplOpen(undefined)}>ยกเลิก</button><button className="primary" disabled={!tplName.trim()} onClick={()=>void saveTemplate()}>บันทึก Template</button></div></div>}
    {tplOpen==='apply'&&<div className="composer-dialog"><h3>ใช้ Template</h3>

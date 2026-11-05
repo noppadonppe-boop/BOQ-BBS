@@ -1,6 +1,7 @@
 /** Sheet Composer logic: sections of the BBS sheet (member.drawingViews v2, else the defaults equal to `defaultCuts` /
  * `columnSectionCut`, plus a template's added cuts), the custom layout of a member (own → project default template →
  * none = automatic), templates (roles ↔ keys, proportional cut positions) and layout checks. Docs: docs/SHEET_COMPOSER.md. */
+import type {DrawingEdits,ViewEdits} from './drawingEdits';
 import type {Member} from './model';
 import type {ElementInput} from './elementInput';
 import {columnSectionCut,defaultCuts,type ViewRow,type ViewSpec} from './elementViews';
@@ -45,12 +46,22 @@ export function templateLayout(t:SheetTemplate,sections:SheetSection[]):SheetLay
   return [{...v,view:k,...(v.lock?(lock?{lock:{to:lock,axis:v.lock.axis}}:{lock:undefined}):{})}];})}))};
 }
 /** Member layout + its sections → template (roles; added cuts as fractions of the member size). */
-export function templateFrom(o:{id:string;name:string;category:string;size:'A3'|'A2';match?:SheetTemplate['match']},layout:SheetLayout,sections:SheetSection[],m:Member):SheetTemplate{
+export function templateFrom(o:{id:string;name:string;category:string;size:'A3'|'A2';match?:SheetTemplate['match']},layout:SheetLayout,sections:SheetSection[],m:Member,edits?:DrawingEdits):SheetTemplate{
  const users=sections.filter(s=>!Object.values(DEFAULT_SECTION_IDS).includes(s.id as never)),role=new Map<string,RoleKey>([[`sec:${DEFAULT_SECTION_IDS.x}`,'sec-x'],[`sec:${DEFAULT_SECTION_IDS.y}`,'sec-y'],[`sec:${DEFAULT_SECTION_IDS.z}`,'col-z'],...users.map((s,i)=>[`sec:${s.id}`,`user-${i+1}`] as [string,RoleKey])]);
  // Detail views belong to the member's own edits: not in templates
  const r=(k:string)=>role.get(k)||(k.startsWith('sec:')||k.startsWith('det:')?undefined:k as RoleKey);
  return {...o,sheets:layout.sheets.map(sh=>({id:sh.id,views:sh.views.flatMap(v=>{const k=r(v.view);if(!k)return [];const to=v.lock&&r(v.lock.to);const {lock:_l,...rest}=v;return [{...rest,view:k,...(to?{lock:{to,axis:v.lock!.axis}}:{})}];})})),
-  sections:users.slice(0,12).map((s,i)=>({role:`user-${i+1}`,label:s.label,axis:s.axis,at:Math.min(1,Math.max(0,s.position/Math.max(1,extentOf(m,s.axis)))),look:s.look||'+',...(s.depth?{depth:s.depth}:{})}))};
+  sections:users.slice(0,12).map((s,i)=>({role:`user-${i+1}`,label:s.label,axis:s.axis,at:Math.min(1,Math.max(0,s.position/Math.max(1,extentOf(m,s.axis)))),look:s.look||'+',...(s.depth?{depth:s.depth}:{})})),
+  // Drawing Edit layer by role (clouds belong to the member's revisions: left out)
+  ...(()=>{const out:Record<string,ViewEdits>={};for(const [k,v] of Object.entries(edits?.views||{})){const role=r(k);if(!role)continue;const objs=(v.objs||[]).filter(o=>o.kind!=='cloud');
+   if(Object.keys(v.over||{}).length||objs.length)out[role]={...(v.over&&Object.keys(v.over).length?{over:v.over}:{}),...(objs.length?{objs}:{})};}
+   return Object.keys(out).length?{edits:out as SheetTemplate['edits']}:{};})()};
+}
+/** Template Drawing Edit layer → member view keys (roles without a view are left out); details / revisions are kept by the caller. */
+export function templateEdits(t:SheetTemplate,sections:SheetSection[]):DrawingEdits['views']{
+ const ids=new Set(sections.map(s=>s.id)),user=(n:string)=>ids.has(`tpl-${n}`)?`tpl-${n}`:undefined,out:DrawingEdits['views']={};
+ for(const [role,v] of Object.entries(t.edits||{})){const k=roleToKey(role as RoleKey,user);if(k&&(!k.startsWith('sec:')||ids.has(k.slice(4))))out[k]=structuredClone(v);}
+ return out;
 }
 /** Sections of the sheet: member v2 sections, else defaults (+ the default template's added cuts). */
 export function sheetSections(s:Src,size:string):{sections:SheetSection[];from:'member'|'template'|'default'}{

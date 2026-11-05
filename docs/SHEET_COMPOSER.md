@@ -134,7 +134,18 @@ The header switch “จัดหน้า | แก้ไขแบบ” turns t
   when the sections are unchanged and the member editor has nothing unsaved; else the member edit (`saveMember` → Draft).
   Project role `detailer` (ผู้เขียนแบบ): drawing only.
 
+### Phase 4
+
+- Drawing status (`src/domain/drawingStatus.ts`): `auto` (no edits) · `ok` · `check` = the model changed since the drawing was saved
+  (`drawingEdits.check.hash` vs `drawingModelHash(member)`: everything except the drawing layer, review / version data, occurrences),
+  lost bar anchors, or overrides whose key is no longer drawn (hidden ones excluded). Saving in the Composer writes `check`.
+  Pills in the Composer header / edit panel and next to “จัดหน้าแบบ” in the sheet preview.
+- Revisions `drawingEdits.revisions` [{rev, date, desc, by}] (≤ 20, unique rev), table box ViewKey `revs` in composed layouts
+  (newest first, `drawSheetInfo().revs`); clouds = user objects `cloud` {pts, rev} (scalloped polygon + rev triangle, symbol layer).
+  Edit mode tool C (2 corners; a first cloud creates rev A), revision editor in the idle panel.
+- Templates: `sheetTemplate.edits` (per role, `templateFrom(…, edits)` / `templateEdits()`): overrides + user objects except clouds;
+  details / revisions stay with the member. Save dialog “รวมการแก้ไขแบบ”.
+
 ## Next round
 
-Oblique sections. Phase 4: drawing status
-(up to date / to check after a model change), revision clouds + revision table, annotation templates per category.
+Oblique (non axis-parallel) sections; beam groups / column stacks in the Composer.

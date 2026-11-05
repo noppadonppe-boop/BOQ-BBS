@@ -179,3 +179,41 @@ describe('phase 3 · Detail / ISO / stepped section',()=>{
   expect(projectRoles).toContain('detailer');
  });
 });
+
+// ---- phase 4: drawing status, revisions / clouds, templates with the edit layer
+import {drawingModelHash,nextRevision} from '../src/domain/drawingEdits';
+import {drawingStatus} from '../src/domain/drawingStatus';
+import {templateEdits,templateFrom,defaultSections} from '../src/domain/sheetLayout';
+import {sheetTemplateSchema} from '../src/domain/sheetLayoutSchema';
+describe('phase 4 · status / revisions / templates',()=>{
+ const H=(m:object)=>drawingModelHash(m as Record<string,unknown>);
+ it('model hash: changes with the model, not with the drawing layer / status / version',()=>{
+  const m=footingData(2400,2400).member;
+  expect(H({...m,sheetLayout:undefined,drawingEdits:{version:1,views:{}},status:'Checked',version:9})).toBe(H(m));
+  expect(H({...m,x:m.x+100})).not.toBe(H(m));expect(H({...m,bars:m.bars.slice(1)})).not.toBe(H(m));
+ });
+ it('status: auto without edits, ok when saved with this model, check after a model change / stale override',()=>{
+  const s=footingData(2400,2400),mk=(e:DrawingEdits)=>({...s,member:{...s.member,drawingEdits:e}});
+  expect(drawingStatus(s).state).toBe('auto');
+  const ok:DrawingEdits={version:1,views:{plan:{over:{'mark:gen-bottom-x':{dx:2}}}},check:{hash:H(s.member),at:'2026-11-05'}};
+  expect(drawingStatus(mk(ok))).toMatchObject({state:'ok',modelChanged:false,stale:0});
+  expect(drawingStatus(mk({...ok,check:{hash:'x',at:'2026-11-01'}}))).toMatchObject({state:'check',modelChanged:true});
+  expect(drawingStatus(mk({...ok,views:{plan:{over:{'mark:gone':{dx:2}}}}}))).toMatchObject({state:'check',stale:1});
+ });
+ it('revision cloud: scalloped polygon + rev tag on the symbol layer; revision table in a placed box',()=>{
+  const s=footingData(2400,2400),e:DrawingEdits={version:1,views:{plan:{objs:[{id:'c1',kind:'cloud',pts:[[200,200],[900,200],[900,800],[200,800]],rev:'A'}]}},revisions:[{rev:'A',date:'2026-11-05',desc:'เพิ่ม Dimension',by:'NP'}]};
+  const d={...s,member:{...s.member,drawingEdits:e,sheetLayout:{version:1,unplaced:[],sheets:[{id:'s1',views:[{view:'plan',x:30,y:30,w:170,h:120,n:'auto'},{view:'revs',x:30,y:160,w:110,h:20,n:'auto'}]}]} as SheetLayout}};
+  const info=drawSheetInfo(d),cloud=info.prims.filter(p=>p.key==='user:c1');
+  expect(cloud.some(p=>p.t==='poly'&&p.pts.length>20&&p.layer==='symbol')).toBe(true);expect(cloud.some(p=>p.t==='text'&&p.text==='A')).toBe(true);
+  expect(info.revs).toMatchObject({x:30,y:160});expect(expandPrims(info.prims).some(p=>p.t==='text'&&p.text==='เพิ่ม Dimension')).toBe(true);
+  expect(nextRevision(e.revisions)).toBe('B');
+  expect(drawingEditsSchema.safeParse({...e,revisions:[...e.revisions!,{rev:'A',date:'',desc:'',by:''}]}).success).toBe(false);
+ });
+ it('template carries the edit layer by role (clouds left out) and maps it back to view keys',()=>{
+  const s=footingData(2400,2400),secs=defaultSections(s.member,s.input,s.rows),layout:SheetLayout={version:1,unplaced:[],sheets:[{id:'s1',views:[{view:'plan',x:30,y:30,w:170,h:120,n:'auto'},{view:'sec:def-x',x:30,y:160,w:170,h:100,n:'auto'}]}]};
+  const e:DrawingEdits={version:1,views:{plan:{over:{'mark:gen-bottom-x':{dx:3}},objs:[{id:'c1',kind:'cloud',pts:[[0,0],[1,0],[1,1]],rev:'A'}]},'sec:def-x':{objs:[{id:'t',kind:'text',at:[0,0],lines:['x']}]}}};
+  const t=templateFrom({id:'t1',name:'T',category:'Foundation',size:'A3'},layout,secs,s.member,e);
+  expect(sheetTemplateSchema.safeParse(t).success).toBe(true);expect(t.edits?.plan?.objs).toBeUndefined();expect(t.edits?.['sec-x']?.objs).toHaveLength(1);
+  expect(templateEdits(t,secs)).toEqual({plan:{over:{'mark:gen-bottom-x':{dx:3}}},'sec:def-x':{objs:[{id:'t',kind:'text',at:[0,0],lines:['x']}]}});
+ });
+});

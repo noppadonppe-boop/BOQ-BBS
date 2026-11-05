@@ -15,6 +15,7 @@ import {SheetComposer} from './SheetComposer';
 import {composerSupported} from '../domain/sheetLayout';
 import type {ProjectSheetTemplates,SheetLayout} from '../domain/sheetLayoutSchema';
 import type {DrawingEdits} from '../domain/drawingEdits';
+import {drawingStatus,drawingStatusText} from '../domain/drawingStatus';
 import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay,zoomBox} from './LabelQa';
@@ -31,6 +32,8 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
  useEffect(()=>{let live=true;setLogo(undefined);loadProjectLogo(project).then(l=>{if(live)setLogo(l);}).catch(()=>{});return()=>{live=false;};},[project.logo?.path]);
  const data=useMemo<SheetData>(()=>{const q=takeoff(member,project.spec),parsed=elementInputSchema.safeParse(member.elementInput),shown={...project,titleBlock:{...project.titleBlock,sheetLanguage:lang}};
   return {member,rows:q.rows,input:parsed.success?parsed.data:undefined,project:shown,quantity:sum(member.occurrences.map(o=>o.quantity)),takeoff:q,status:dirty?sheetText[lang].unsaved:'DRAFT / NOT FOR CONSTRUCTION',revision:'D'+project.version,date:new Date().toISOString().slice(0,10),provisional:quantityBasisState(member)==='Provisional',logo};},[member,project,dirty,logo,lang]);
+ // Drawing Edit status (P4): the edited drawing vs the current model
+ const dstat=useMemo(()=>{const d=drawingStatus(data);return {...d,...drawingStatusText(d)};},[data]);
  // custom elements with tagged parts may be split into sheet sets per Tag (+ summary): pages run across the sets
  const sets=useMemo(()=>tagSheetSets(data),[data]),flat=useMemo(()=>sets.flatMap(d=>Array.from({length:sheetPageCount(d)},(_,i)=>({d,i}))),[sets]);
  const pages=flat.length,safe=Math.min(page,pages-1),cur=flat[safe],info=useMemo(()=>drawSheetInfo(cur.d,cur.i),[cur]),prims=info.prims,F=sheetFormat(data);
@@ -57,6 +60,7 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
    {lang!==saved&&<small className="muted">{saving?'กำลังบันทึกภาษา…':'ภาษานี้แสดงบนจอเท่านั้น · PDF ใช้ภาษาที่บันทึกในโครงการ'}</small>}
    {pages>1&&<span className="actions"><button disabled={!safe} onClick={()=>setPage(safe-1)}>แผ่นก่อนหน้า</button><span>แผ่น {safe+1}/{pages}{sets.length>1&&cur.d.scope?` · ${cur.d.scope.kind==='tag'?cur.d.scope.tag:'สรุป'}`:''}</span><button disabled={safe+1>=pages} onClick={()=>setPage(safe+1)}>แผ่นถัดไป</button></span>}
    <button disabled={!composerSupported(data.input)} title={composerSupported(data.input)?`จัดรูปบนแผ่นเอง · เพิ่มรูปตัด · Template${member.sheetLayout?' (จัดหน้าเองแล้ว)':''}`:'กลุ่มคาน / เสาหลายชั้นจัดหน้าตามช่วง / ชั้น'} onClick={()=>setCompose(true)}>จัดหน้าแบบ{member.sheetLayout?' ✓':''}</button>
+   {dstat.state!=='auto'&&<button className={`ds-pill ${dstat.state}`} title={dstat.detail} onClick={()=>setCompose(true)}>{dstat.label}</button>}
    <button disabled={dirty||saving} title={dirty?'บันทึกสมาชิกก่อนส่งออก':'ไฟล์ CAD DXF 2018 (แก้ไขได้: Dimension / Leader / MTEXT / Block Mark) ทุกแผ่นของสมาชิกนี้'} onClick={()=>setDxfOpen(true)}><FileDown size={14}/>ส่งออก DXF</button>
    <button className="primary" disabled={dirty||saving} title={dirty?'บันทึกสมาชิกก่อนส่งออก':undefined} onClick={onExport}><Download size={14}/>ส่งออก PDF {F.size}</button></div>
   {misfit.length>0&&<p className="notice warning" role="status">{misfit.map(v=>v.title).join(', ')}: {viewScaleLabel(F.scale)} ไม่พอดีกรอบบน {F.size} · ใช้ {[...new Set(misfit.map(v=>v.n?`1:${v.n}`:'NTS'))].join(' / ')} แทน · เลือกมาตราส่วนเล็กลงหรือใช้กระดาษ A2</p>}
