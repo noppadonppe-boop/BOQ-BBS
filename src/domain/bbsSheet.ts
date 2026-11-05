@@ -108,7 +108,7 @@ export function sheetViews(s:SheetData,extras=true):SheetView[]{
  // slab floor (S2): plans of the bottom / top bars (grids, beams, other marks faded), sections through the representative panel,
  // one Detail view per opening (automatic, `det:op-<id>`, + the user's details)
  if(floorCtx(m)){const th=lang==='th',fc=floorSectionCuts(m);
-  const fp=(key:ViewKey,title:string,layer:'bottom'|'top'):SheetView=>({key,title,spec:{axes:[0,1],rep,floor:{layer}},cuts,plan:true});
+  const labels=m.drawingSetup?.floorLabels==='all'?'all' as const:'typ' as const,fp=(key:ViewKey,title:string,layer:'bottom'|'top'):SheetView=>({key,title,spec:{axes:[0,1],rep,floor:{layer,labels}},cuts,plan:true});
   const base=[fp('plan-bottom',th?'แปลนเหล็กล่าง (BOTTOM)':'BOTTOM BARS PLAN','bottom'),fp('plan-top',th?'แปลนเหล็กบน (TOP)':'TOP BARS PLAN','top'),
    ...secs.map(sec=>({key:`sec:${sec.id}`,title:`${sectionTitle(T,lang,sec,'pedestal')}${fc&&sec.source==='default'&&sec.id!==DEFAULT_SECTION_IDS.z?` · ${th?'ผ่าน':'through'} ${fc.through}`:''}`,spec:{...sectionSpec(sec)},plan:false,sec}) as SheetView)];
   const auto=floorDetails(m),user=m.drawingEdits?.details||[],ops=new Map((floorCtx(m)?.openings||[]).map(o=>[`op-${o.id}`.slice(0,40),o.label]));

@@ -170,7 +170,8 @@ export function floorShapeModel(input:SlabInput):ShapeModel{
 }
 
 // ---------- bars ----------
-type Raw={kind:'B'|'T'|'OP'|'OD';layer:string;d:number;pts:V3[];panels:string[];mark:string;what:string};
+type Raw={kind:'B'|'T'|'OP'|'OD';layer:string;d:number;pts:V3[];panels:string[];mark:string;what:string;
+ /** design spacing (mm) of the layer the bar comes from (labels of the slab sheet; not stored) */ s?:number};
 export type OpeningStat={cut:{X:number;Y:number};trim:number;diag:number;kg:number;deviated:boolean;fallback?:string};
 export type FloorBarsResult={raw:Raw[];openings:Map<string,OpeningStat>;warnings:string[]};
 const kgOf=(r:Raw)=>{let L=0;for(let i=1;i<r.pts.length;i++){const a=r.pts[i-1],b=r.pts[i];L+=Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]);}return L/1000*r.d*r.d/162.2;};
@@ -278,16 +279,16 @@ function layerBars(c:Ctx,D:Dir,which:'bottom'|'top'){
    if(k===0&&s0.down>0)q=[P3(D,a,first.v,first.z-s0.down),...q];
    if(k===cuts.length-1&&s1.down>0)q=[...q,P3(D,b,first.v,last.z-s1.down)];
    const panels=[...new Set(run.items.filter(pc=>pc.b>a-EPS&&pc.a<b+EPS).map(pc=>pc.panel.id))];
-   const lay=which==='bottom'?levels(c,first.panel).bottom(D).layer:levels(c,first.panel).top(D).layer;
-   c.raw.push({kind:top?'T':'B',layer:lay,d,pts:q,panels,mark:first.panel.mark,what:`${top?'เหล็กบน':'เหล็กล่าง'} แนว ${D}${run.cranks?` · คอม้า 1:6 ${run.cranks} จุด`:''}${cuts.length>1?` · ท่อน ${k+1}/${cuts.length} ทาบ ${Math.round(lap)}`:''}`});});
+   const ly=which==='bottom'?levels(c,first.panel).bottom(D):levels(c,first.panel).top(D),lay=ly.layer;
+   c.raw.push({kind:top?'T':'B',layer:lay,d,s:ly.bar.spacing,pts:q,panels,mark:first.panel.mark,what:`${top?'เหล็กบน':'เหล็กล่าง'} แนว ${D}${run.cranks?` · คอม้า 1:6 ${run.cranks} จุด`:''}${cuts.length>1?` · ท่อน ${k+1}/${cuts.length} ทาบ ${Math.round(lap)}`:''}`});});
   // U bars closing the outer edge (top bars stop straight there)
-  for(const [e,dir,pc] of [[s0,-1,first],[s1,1,last]] as const)if(e.ubar)uBar(c,D,pc,e.u,dir,d);
+  for(const [e,dir,pc] of [[s0,-1,first],[s1,1,last]] as const)if(e.ubar)uBar(c,D,pc,e.u,dir,d,(which==='bottom'?levels(c,pc.panel).bottom(D):levels(c,pc.panel).top(D)).bar.spacing);
  }
 }
 /** U bar at an outer edge: vertical at u (edge − cover), legs into the slab along −dir. */
-function uBar(c:Ctx,D:Dir,pc:Piece,u:number,dir:-1|1,d:number){
+function uBar(c:Ctx,D:Dir,pc:Piece,u:number,dir:-1|1,d:number,sp?:number){
  const L=levels(c,pc.panel),[zt,zb]=uLevels(c,pc.panel,d),leg=Math.max(lapLength(c.det,d),300);
- c.raw.push({kind:'T',layer:`${L.top(D).layer}/${L.bottom(D).layer}`,d,pts:[P3(D,u-dir*leg,pc.v,zt),P3(D,u,pc.v,zt),P3(D,u,pc.v,zb),P3(D,u-dir*leg,pc.v,zb)],panels:[pc.panel.id],mark:pc.panel.mark,what:`เหล็ก U ปิดขอบพื้น แนว ${D}`});
+ c.raw.push({kind:'T',layer:`${L.top(D).layer}/${L.bottom(D).layer}`,d,s:sp,pts:[P3(D,u-dir*leg,pc.v,zt),P3(D,u,pc.v,zt),P3(D,u,pc.v,zb),P3(D,u-dir*leg,pc.v,zb)],panels:[pc.panel.id],mark:pc.panel.mark,what:`เหล็ก U ปิดขอบพื้น แนว ${D}`});
 }
 /** Extra top bars over each beam (perpendicular to it). */
 function extraTop(c:Ctx){
@@ -309,27 +310,27 @@ function extraTop(c:Ctx){
     if(mate&&joined){
      const far=s<0?hi:lo,olen=len(mate.L,mate.e,l.L),end=far-s*olen,dz=mate.p.top-l.p.top,z1=lay.z+dz,mid=(lo+hi)/2;
      let q:[number,number][]=[[start,lay.z],[end,z1]];if(Math.abs(dz)>EPS)q=[[start,lay.z],[mid+s*3*Math.abs(dz),lay.z],[mid-s*3*Math.abs(dz),z1],[end,z1]];
-     cutRaw(c,D,v,q,d,l.p,[l.p.id,mate.p.id],`เหล็กบนเสริมที่คาน ${B.beam.mark} แนว ${B.beam.line}${Math.abs(dz)>EPS?' · คอม้า 1:6':''}`,lay.layer,true);continue;}
+     cutRaw(c,D,v,q,d,l.p,[l.p.id,mate.p.id],`เหล็กบนเสริมที่คาน ${B.beam.mark} แนว ${B.beam.line}${Math.abs(dz)>EPS?' · คอม้า 1:6':''}`,lay.layer,true,0,e.spacing);continue;}
     // edge beam / separate levels: run to the far face, turn down into the beam (or U bar at the edge)
     const farU=(s<0?hi:lo)+s*(ce+d/2),edge=!mate&&!panelAt(c,P3(D,(s<0?hi:lo)-s*2,v,0).slice(0,2) as P2);
-    if(edge&&l.L.r.edge==='ubar'){const pc:Piece={panel:l.p,a:start,b:farU,v,z:lay.z,d,layer:lay.layer,sA:{kind:'free',at:start},sB:{kind:'free',at:farU},cont:true};uBarAt(c,D,pc,farU,s as -1|1,d,own+Math.abs(farU-(s<0?lo:hi)));continue;}
+    if(edge&&l.L.r.edge==='ubar'){const pc:Piece={panel:l.p,a:start,b:farU,v,z:lay.z,d,layer:lay.layer,sA:{kind:'free',at:start},sB:{kind:'free',at:farU},cont:true};uBarAt(c,D,pc,farU,s as -1|1,d,own+Math.abs(farU-(s<0?lo:hi)),e.spacing);continue;}
     const down=leg(c,d,lay.z+B.beam.depth-cv.bottom-d/2),pts:[number,number][]=[[start,lay.z],[farU,lay.z]];
-    cutRaw(c,D,v,pts,d,l.p,[l.p.id],`เหล็กบนเสริมที่คาน${edge?'ริม':''} ${B.beam.mark} แนว ${B.beam.line}${mate?' · แยกต่างระดับ งอฉากยึดในคาน':' · งอฉากลงในคาน'}`,lay.layer,true,down);}}}
+    cutRaw(c,D,v,pts,d,l.p,[l.p.id],`เหล็กบนเสริมที่คาน${edge?'ริม':''} ${B.beam.mark} แนว ${B.beam.line}${mate?' · แยกต่างระดับ งอฉากยึดในคาน':' · งอฉากลงในคาน'}`,lay.layer,true,down,e.spacing);}}}
 }
 /** U bars wrap the edge outermost: top / bottom at the covers. */
 const uLevels=(c:Ctx,p:FloorPanel,d:number)=>[p.top-c.input.cover.top-d/2,p.top-panelThickness(c.f,p)+c.input.cover.bottom+d/2];
-function uBarAt(c:Ctx,D:Dir,pc:Piece,u:number,dir:-1|1,d:number,legLen:number){
+function uBarAt(c:Ctx,D:Dir,pc:Piece,u:number,dir:-1|1,d:number,legLen:number,sp?:number){
  const L=levels(c,pc.panel),[zt,zb]=uLevels(c,pc.panel,d);
- c.raw.push({kind:'T',layer:`${L.top(D).layer}/${L.bottom(D).layer}`,d,pts:[P3(D,u+dir*legLen,pc.v,zt),P3(D,u,pc.v,zt),P3(D,u,pc.v,zb),P3(D,u+dir*legLen,pc.v,zb)],panels:[pc.panel.id],mark:pc.panel.mark,what:'เหล็ก U ปิดขอบพื้น (บนเสริมที่คานริม)'});
+ c.raw.push({kind:'T',layer:`${L.top(D).layer}/${L.bottom(D).layer}`,d,s:sp,pts:[P3(D,u+dir*legLen,pc.v,zt),P3(D,u,pc.v,zt),P3(D,u,pc.v,zb),P3(D,u+dir*legLen,pc.v,zb)],panels:[pc.panel.id],mark:pc.panel.mark,what:'เหล็ก U ปิดขอบพื้น (บนเสริมที่คานริม)'});
 }
 /** Straight-ish bar along D at v (u, z points) cut at openings of the panel; `down` = 90° leg at the end (into the beam). */
-function cutRaw(c:Ctx,D:Dir,v:number,pts:[number,number][],d:number,p:FloorPanel,panels:string[],what:string,layer:string,top:boolean,down=0){
+function cutRaw(c:Ctx,D:Dir,v:number,pts:[number,number][],d:number,p:FloorPanel,panels:string[],what:string,layer:string,top:boolean,down=0,sp?:number){
  const sorted=pts[0][0]<=pts.at(-1)![0],q=sorted?pts:[...pts].reverse(),hs=c.f.panels.filter(x=>panels.includes(x.id)).flatMap(x=>holes(c,D,v,d,x));
  const parts=cutSpan(q[0][0],q.at(-1)![0],hs,Math.max(12*d,150));
  parts.forEach(([a,b])=>{let r=clip(q,a,b).map(([u,z])=>P3(D,u,v,z));
   // the leg is at the last given point (the beam end)
   if(down>0){const tip=pts.at(-1)!;if(sorted&&Math.abs(b-tip[0])<EPS)r=[...r,P3(D,b,v,tip[1]-down)];else if(!sorted&&Math.abs(a-tip[0])<EPS)r=[P3(D,a,v,tip[1]-down),...r];}
-  c.raw.push({kind:top?'T':'B',layer,d,pts:r,panels,mark:p.mark,what:parts.length>1?`${what} (ตัดที่ช่องเปิด)`:what});});
+  c.raw.push({kind:top?'T':'B',layer,d,s:sp,pts:r,panels,mark:p.mark,what:parts.length>1?`${what} (ตัดที่ช่องเปิด)`:what});});
 }
 /** Trimmers / diagonals around each opening; cut statistics for the panel. */
 function openingBars(c:Ctx){
@@ -357,7 +358,8 @@ function openingBars(c:Ctx){
     const off=(ce+d)/Math.SQRT2,mx=cx+sx*off,my=cy+sy*off,ux=sx/Math.SQRT2,uy=-sy/Math.SQRT2,ring=p.outline as P2[];
     const inside=(t:number)=>{const q:P2=[mx+ux*t,my+uy*t];return inRing(q,ring)&&!c.f.openings.some(x=>inRing(q,openingRing(x)));};
     let h=ext;while(h>150&&!(inside(h+ce)&&inside(-h-ce)))h-=25;if(h<=150)return;
-    c.raw.push({kind:'OD',layer:s.top?'T':'B',d,pts:[[mx-ux*h,my-uy*h,z],[mx+ux*h,my+uy*h,z]],panels:[p.id],mark:p.mark,what:`เหล็กทแยงมุมช่องเปิด ${o.label||o.id} ${s.top?'(บน)':'(ล่าง)'} ยาว ${Math.round(2*h)}`});st.diag++;st.kg+=kgOf(c.raw.at(-1)!);});}
+    // drawn left → right: diagonals of opposite corners are the same bar (one Mark, "2-DB12")
+    const sg=ux<0?-1:1;c.raw.push({kind:'OD',layer:s.top?'T':'B',d,pts:[[mx-sg*ux*h,my-sg*uy*h,z],[mx+sg*ux*h,my+sg*uy*h,z]],panels:[p.id],mark:p.mark,what:`เหล็กทแยงมุมช่องเปิด ${o.label||o.id} ${s.top?'(บน)':'(ล่าง)'} ยาว ${Math.round(2*h)}`});st.diag++;st.kg+=kgOf(c.raw.at(-1)!);});}
  }
 }
 /** Drops (extra bottom mesh or cranked bottom bars) and sunken areas (cranked or separate meshes + Ld anchors). */
@@ -380,7 +382,7 @@ function dropBars(c:Ctx){
    const lay=L.bottom(D),d=lay.bar.diameter,o2=D==='X'?1:0,lo=o2===0?bx.x0:bx.y0,hi=o2===0?bx.x1:bx.y1;if(!(lay.bar.spacing>0))continue;
    const zb=L.bb-dr.depth+cv.bottom+(lay.layer==='B1'?d/2:L.r.shortBottom.diameter+d/2);
    for(const v of spreadAt(lo+ce+d/2,hi-ce-d/2,lay.bar.spacing))for(const [a,b] of multiIntervals([[ring]],ax(D) as 0|1,v)){if(b-a-2*(ce+d/2)<300)continue;
-    c.raw.push({kind:'B',layer:lay.layer,d,pts:[P3(D,a+ce+d/2,v,zb),P3(D,b-ce-d/2,v,zb)],panels:[host.id],mark:host.mark,what:`เหล็กล่าง${name} แนว ${D} (แยก)`});}
+    c.raw.push({kind:'B',layer:lay.layer,d,s:lay.bar.spacing,pts:[P3(D,a+ce+d/2,v,zb),P3(D,b-ce-d/2,v,zb)],panels:[host.id],mark:host.mark,what:`เหล็กล่าง${name} แนว ${D} (แยก)`});}
    if(dr.kind==='sunken'){
     // bars of the panel cut around the lowered area; lowered top mesh runs Ld past the edge into the slab (anchor)
     const tl=L.top(D),bar=tl.bar.spacing>0?tl.bar:L.r.topExtra&&L.r.topExtra.spacing>0?L.r.topExtra:lay.bar,dt=bar.diameter,zt=host.top-dr.depth-cv.top-(tl.layer==='T1'?dt/2:dt*1.5);
@@ -392,7 +394,7 @@ function dropBars(c:Ctx){
      c.raw.splice(c.raw.indexOf(r),1,...keep.map(([s,e])=>({...r,pts:[P3(D,s,v,z),P3(D,e,v,z)],what:`${r.what} (ตัดที่${name})`})));}
     for(const v of spreadAt(lo+ce+dt/2,hi-ce-dt/2,bar.spacing))for(const [a,b] of multiIntervals([[ring]],ax(D) as 0|1,v)){const iv=multiIntervals([[host.outline as P2[]]],ax(D) as 0|1,v)[0];if(!iv)continue;
      const s0=Ld?Math.max(iv[0]+ce+dt/2,a-Ld):a+ce+dt/2,s1=Ld?Math.min(iv[1]-ce-dt/2,b+Ld):b-ce-dt/2;if(s1-s0<300)continue;
-     c.raw.push({kind:'T',layer:tl.layer,d:dt,pts:[P3(D,s0,v,zt),P3(D,s1,v,zt)],panels:[host.id],mark:host.mark,what:`เหล็กบน${name} แนว ${D} (แยก${Ld?` · ยึด Ld ${Ld}`:''})`});}}
+     c.raw.push({kind:'T',layer:tl.layer,d:dt,s:bar.spacing,pts:[P3(D,s0,v,zt),P3(D,s1,v,zt)],panels:[host.id],mark:host.mark,what:`เหล็กบน${name} แนว ${D} (แยก${Ld?` · ยึด Ld ${Ld}`:''})`});}}
   }}
 }
 /** Every bar of the floor (floor coordinates) + opening statistics. */
@@ -415,7 +417,8 @@ const shapeOf=(pts:V3[]):{code:string;bent:boolean}=>{
 };
 const kindOrder={B:0,T:1,OP:2,OD:3} as const;
 /** Raw bars → Mark sets: equal bars (same shape, size, layer) of one slab mark share a Mark placed by spacing or offsets. */
-export function groupFloorBars(input:SlabInput,det:Detailing,raw:Raw[],shift:Vec3):GenBar[]{
+export function groupFloorBars(input:SlabInput,det:Detailing,raw:Raw[],shift:Vec3,
+ /** set id → design spacing of its bars (most common), for the sheet labels */ spacing?:Map<string,number>):GenBar[]{
  const f=input.floor!,count=new Map<string,number>();for(const p of f.panels)count.set(p.mark,(count.get(p.mark)||0)+1);
  const owner=(mark:string,panels:string[])=>(count.get(mark)||0)>=2?groupId(mark):panels[0];
  const keyOf=(r:Raw)=>{const o=r.pts[0];return [r.mark,r.kind,r.layer,r.d,r.pts.map(p=>p.map((v,k)=>Math.round(v-o[k])).join(',')).join(';')].join('|');};
@@ -433,6 +436,7 @@ export function groupFloorBars(input:SlabInput,det:Detailing,raw:Raw[],shift:Vec
    const tags=panels.map(id=>f.panels.find(p=>p.id===id)?.tag).filter(Boolean);
    const base={id:`gen-${own}-${r.kind.toLowerCase()}${String(no).padStart(2,'0')}`,mark,role:`${own}-${r.kind}${no}`,note:`${r.layer} · ${r.what} · ${tags.length>3?`${tags.length} แผง`:tags.join(', ')}`,diameter:r.d,grade:gradeFor(det,r.d,det.mainGrade),count:g.length,points:pts,
     axis:(Math.abs(pts.at(-1)![0]-pts[0][0])>=Math.abs(pts.at(-1)![1]-pts[0][1])?'X':'Y') as 'X'|'Y',face:(r.kind==='T'||r.layer.startsWith('T')?'top':'bottom') as 'top'|'bottom',radius:bent?bendRadius(r.d,det):0,shapeCode:code};
+   if(spacing){const by=new Map<number,number>();for(const x of g)if(x.s)by.set(x.s,(by.get(x.s)||0)+1);const best=[...by].sort((p,q)=>q[1]-p[1])[0];if(best)spacing.set(base.id,best[0]);}
    if(g.length===1)out.push({...base,distributionAxis:base.axis==='X'?'Y':'X',from:base.axis==='X'?pts[0][1]:pts[0][0],to:base.axis==='X'?pts[0][1]:pts[0][0]});
    else if(even&&axis!==undefined)out.push({...base,distributionAxis:axis===0?'X':'Y',from:pts[0][axis],to:pts[0][axis]+offs.at(-1)![axis]});
    else out.push({...base,offsets:offs});}

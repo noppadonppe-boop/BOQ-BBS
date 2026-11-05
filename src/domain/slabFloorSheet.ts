@@ -1,6 +1,6 @@
 import type {Member,Vec3} from './model';
 import {elementInputSchema,lapLength,type SlabInput} from './elementInput';
-import {devLength,floorBars,floorBeamRects,floorShapeModel,inRing,panelThickness,polyArea,type Floor,type OpeningStat} from './slabFloor';
+import {devLength,floorBars,floorBeamRects,floorShapeModel,groupFloorBars,inRing,panelThickness,polyArea,type Floor,type OpeningStat} from './slabFloor';
 import {normaliseShape} from './shapeGeometry';
 import {shapeModelSchema} from './shapeModelSchema';
 import {sheetSizes,type SheetSize} from './drawingStandard';
@@ -57,6 +57,14 @@ export function floorStats(m:Pick<Member,'elementInput'|'category'>){
  const input=floorInputOf(m);if(!input?.detailing)return;const raw=m.elementInput as object;
  if(!stats.has(raw)){try{stats.set(raw,floorBars(input,input.detailing));}catch{stats.set(raw,null);}}
  return stats.get(raw)||undefined;
+}
+const spacings=new WeakMap<object,Map<string,number>>();
+/** Design spacing (mm, as specified) of each generated floor bar set (id → spacing); the drawn spacing can be smaller
+ * (bars spread evenly, count rounded up: the same rule as a single slab). Labels show this value. */
+export function floorDesignSpacing(m:Pick<Member,'elementInput'|'category'>):Map<string,number>{
+ const raw=m.elementInput as object|undefined,c=floorCtx(m),st=floorStats(m);if(!raw||!c||!st||!c.input.detailing)return new Map();
+ if(!spacings.has(raw)){const map=new Map<string,number>();try{groupFloorBars(c.input,c.input.detailing,st.raw,c.shift,map);}catch{/* labels fall back to the drawn spacing */}spacings.set(raw,map);}
+ return spacings.get(raw)!;
 }
 export type FloorKind='B'|'T'|'OP'|'OD';
 export type FloorRole='B1'|'B2'|'T'|'OP'|'OD';

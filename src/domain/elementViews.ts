@@ -8,7 +8,7 @@ import {expandPrims,textWidth,type DimPrim,type LayerRole,type PlainPrim,type Pr
 import type {Anchor,ViewEdits} from './drawingEdits';
 import {clipPrims} from './primClip';
 import {boundsOf} from './solids';
-import {floorCtx,floorFocus,floorKind,floorLayerToken,floorRowLayer,isTopExtra,slabMarkOf,type FloorCtx} from './slabFloorSheet';
+import {floorCtx,floorDesignSpacing,floorFocus,floorKind,floorLayerToken,floorRowLayer,isTopExtra,slabMarkOf,type FloorCtx} from './slabFloorSheet';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
@@ -23,7 +23,8 @@ export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:b
  /** stepped section: from `from` (along the view's horizontal axis) the cut moves to `cut` */ steps?:{from:number;cut:number}[];
  /** isometric 3D view (concrete edges + bar centrelines) */ iso?:boolean;
  /** slab floor plan (S2): bars of one layer (or all), one representative bar per Mark per panel, grids / beams / other marks */
- floor?:{layer:'bottom'|'top'|'all'}};
+ floor?:{layer:'bottom'|'top'|'all';
+  /** Mark labels inside the panels: 'typ' (default) full label once per Mark + TYP., short code elsewhere; 'all' = every panel */ labels?:'typ'|'all'}};
 type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'wall'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
@@ -39,7 +40,8 @@ export function planLayerOf(m:Member,input:ElementInput|undefined,r:ViewRow):'bo
 }
 /** Bars of one Mark laid side by side at even spacing (translated copies in plan): the middle bar, the bar centres
  * at both ends and the spacing. Undefined when the bars are not a straight row (radial, single, mixed shapes). */
-function distribution(paths:Vec3[][],a:number,b:number){
+/** `pick` (0..1) = which bar of the set is the representative one (default the middle one). */
+function distribution(paths:Vec3[][],a:number,b:number,pick?:number){
  if(paths.length<3)return;
  const c=paths.map((p,i)=>({i,u:p.reduce((t,q)=>t+q[a],0)/p.length,v:p.reduce((t,q)=>t+q[b],0)/p.length}));
  const ru=Math.max(...c.map(q=>q.u))-Math.min(...c.map(q=>q.u)),rv=Math.max(...c.map(q=>q.v))-Math.min(...c.map(q=>q.v));
@@ -49,7 +51,7 @@ function distribution(paths:Vec3[][],a:number,b:number){
  if(c.some(q=>Math.abs((q.u-f.u)*dv-(q.v-f.v)*du)/len>Math.max(20,len*.02)))return;
  const plan=(p:Vec3[])=>p.slice(1).reduce((t,q,i)=>t+Math.hypot(q[a]-p[i][a],q[b]-p[i][b]),0),L0=plan(paths[0]);
  if(paths.some(p=>Math.abs(plan(p)-L0)>Math.max(5,L0*.02)))return;
- const mid=c[Math.floor(c.length/2)];
+ const mid=c[pick===undefined?Math.floor(c.length/2):Math.min(c.length-1,Math.max(0,Math.round(pick*(c.length-1))))];
  return {path:paths[mid.i],first:[f.u-mid.u,f.v-mid.v] as [number,number],last:[l.u-mid.u,l.v-mid.v] as [number,number],spacing:len/(c.length-1),n:c.length};
 }
 
@@ -211,7 +213,7 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
   return {row:r,lines,dots,couplers,dist,part:undefined as string|undefined};
  });
  // slab floor plan: one entry per Mark per panel (representative bar + distribution line of that panel, else every bar)
- const fdata=fplan?floorPlanData(m,fc!,rows,a,b,!!rep,win):undefined;
+ const fdata=fplan?floorPlanData(m,fc!,rows,a,b,!!rep,win,fspec!.labels||'typ'):undefined;
  if(fdata)bars=fdata.bars;
  // footing sections: construction joints between pour stages, stage names, level marks (T.O.F. / B.O.F. / C.J. / NGL)
  const joints:{v:number;u0:number;u1:number}[]=[],stageText:{u0:number;u1:number;v0:number;v1:number;text:string}[]=[],levels:{u:number;v:number;text:string}[]=[];
@@ -298,33 +300,49 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
  return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,window:undefined as ViewSpec['window'],stepAt:[] as number[],iso:false,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined,
   floor:fdata,floorMember:!!fc,floorNote:undefined as string[]|undefined};
 }
-type FloorEntry={row:ViewRow;lines:Line[];dots:[number,number][];couplers:[number,number][];dist:{a:[number,number];b:[number,number];q:[number,number];spacing:number;n:number}|undefined;part:string|undefined};
+type FloorEntry={row:ViewRow;lines:Line[];dots:[number,number][];couplers:[number,number][];dist:{a:[number,number];b:[number,number];q:[number,number];spacing:number;n:number}|undefined;part:string|undefined;
+ /** bars of the Mark in this panel */ n:number};
 const pointIn=(p:[number,number],r:[number,number][])=>{let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const A=r[i],B=r[j];if((A[1]>p[1])!==(B[1]>p[1])&&p[0]<(B[0]-A[0])*(p[1]-A[1])/(B[1]-A[1])+A[0])inside=!inside;}return inside;};
 const lineLen=(l:Line)=>Math.hypot(l.b[0]-l.a[0],l.b[1]-l.a[1]);
 /** Slab floor plan data (member coordinates): bar entries per panel, grids with bubbles, reference beams, panels of other marks
  * (faded), drops, and the dimension chains of the extra top bars (projection past the beam faces) / opening trimmers (past the
  * opening edges). `win` (Detail view) keeps only bars near the window. */
-function floorPlanData(m:Member,c:FloorCtx,rows:ViewRow[],a:number,b:number,rep:boolean,win:ViewSpec['window']){
+function floorPlanData(m:Member,c:FloorCtx,rows:ViewRow[],a:number,b:number,rep:boolean,win:ViewSpec['window'],labels:'typ'|'all'){
  const on=new Set(floorFocus(m)),panelOf=(u:number,v:number)=>c.panels.find(p=>pointIn([u,v],p.ring)),bars:FloorEntry[]=[];let k=0;
  const near=(p:Vec3[])=>!win||p.some(q=>Math.abs(q[a]-win.u)<=win.r*1.3&&Math.abs(q[b]-win.v)<=win.r*1.3)||p.length>1&&p.slice(1).some((q,i)=>{const s=p[i];
   return Math.min(s[a],q[a])<=win.u+win.r&&Math.max(s[a],q[a])>=win.u-win.r&&Math.min(s[b],q[b])<=win.v+win.r&&Math.max(s[b],q[b])>=win.v-win.r;});
  // panels a bar passes through (points along its plan segments); a continuous bar belongs to every panel it crosses
  const panelsOn=(p:Vec3[])=>{const out=new Set<string>();for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i],L=Math.hypot(t[a]-s[a],t[b]-s[b]),n=Math.min(40,Math.max(1,Math.ceil(L/400)));
   for(let j=0;j<=n;j++){const f=(j+.5)/(n+1),pn=panelOf(s[a]+(t[a]-s[a])*f,s[b]+(t[b]-s[b])*f);if(pn)out.add(pn.tag);}}return out.size?[...out]:[''];};
+ // entries per (Mark, panel); each panel spreads its Marks' anchors (representative bar + point on it) over a grid of
+ // slots (k-th Mark of N: bar at (k+1)/(N+1) across the set, point at a staggered fraction along the panel) away from openings
+ const groups:{r:ViewRow;part:string;paths:Vec3[][];counted:boolean;drawn:Set<Vec3[]>}[]=[];
  for(const r of rows){
   const by=new Map<string,Vec3[][]>(),drawn=new Set<Vec3[]>();
   for(const p of r.paths){if(!near(p))continue;for(const key of panelsOn(p))by.set(key,[...(by.get(key)||[]),p]);}
-  for(const [part,paths] of by){const d=rep&&paths.length>=3?distribution(paths,a,b):undefined,lines:Line[]=[],dots:[number,number][]=[];let dist:FloorEntry['dist'];
-   if(d){const segs=d.path.slice(1).map((q,i)=>({s:d.path[i],t:q,l:Math.hypot(q[a]-d.path[i][a],q[b]-d.path[i][b])})),main=segs.reduce((x,y)=>y.l>x.l?y:x),f0=.2+(k++*.13)%.6;
-    // distribution line inside this panel: the point of the main leg nearest the panel's centre (staggered a little per Mark)
-    const pn=c.panels.find(x=>x.tag===part),du=main.t[a]-main.s[a],dv=main.t[b]-main.s[b],L2=du*du+dv*dv||1;
-    let f=f0;if(pn){const cx=(pn.box.x0+pn.box.x1)/2,cy=(pn.box.y0+pn.box.y1)/2,span=Math.abs(du)>=Math.abs(dv)?(pn.box.x1-pn.box.x0):(pn.box.y1-pn.box.y0);
-     f=Math.min(1,Math.max(0,((cx-main.s[a])*du+(cy-main.s[b])*dv)/L2+(f0-.5)*.6*span/Math.sqrt(L2)));}
-    const q:[number,number]=[main.s[a]+du*f,main.s[b]+dv*f];dist={q,a:[q[0]+d.first[0],q[1]+d.first[1]],b:[q[0]+d.last[0],q[1]+d.last[1]],spacing:d.spacing,n:d.n};}
-   const draw=(d?[d.path]:rep&&paths.length>8?[paths[Math.floor(paths.length/2)]]:paths).filter(p=>!drawn.has(p));
-   for(const p of draw){drawn.add(p);for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i];if(Math.hypot(t[a]-s[a],t[b]-s[b])<1){if(Math.abs(t[2]-s[2])>1)dots.push([s[a],s[b]]);}else lines.push({a:[s[a],s[b]],b:[t[a],t[b]]});}}
-   bars.push({row:r,lines,dots,couplers:[],dist,part:part||undefined});}
- }
+  // trimmers / diagonals are counted bars ("4-DB12"): every bar drawn, no distribution line
+  const counted=/^(OP|OD)$/.test(floorKind(r.id)||'');
+  for(const [part,paths] of by)groups.push({r,part,paths,counted,drawn});}
+ const slots=new Map<string,number>(),slotOf=new Map<typeof groups[number],[number,number]>();
+ for(const g of groups)if(!g.counted&&rep&&g.paths.length>=3){const k=slots.get(g.part)||0;slots.set(g.part,k+1);slotOf.set(g,[k,0]);}
+ for(const [g,v] of slotOf)v[1]=slots.get(g.part)||1;
+ const opBox=c.openings.map(o=>({x0:o.x0-500,x1:o.x1+500,y0:o.y0-500,y1:o.y1+500}));
+ const clear=(q:[number,number],pn?:FloorCtx['panels'][number])=>(!pn||pointIn(q,pn.ring))&&!opBox.some(o=>q[0]>o.x0&&q[0]<o.x1&&q[1]>o.y0&&q[1]<o.y1);
+ const along=[.5,.3,.7,.4,.6,.2,.8,.35,.65];
+ for(const g of groups){const {r,part,paths,counted,drawn}=g,slot=slotOf.get(g),pn=c.panels.find(x=>x.tag===part),lines:Line[]=[],dots:[number,number][]=[];let dist:FloorEntry['dist'];
+  let d=rep&&!counted&&paths.length>=3?distribution(paths,a,b):undefined;
+  if(d){const K=slot?slot[0]:k++,N=slot?slot[1]:1,picks=[(K+1)/(N+1),.5,.25,.75,.15,.85],fs=[along[K%along.length],...along];
+   let found:{d:NonNullable<typeof d>;q:[number,number]}|undefined,first:{d:NonNullable<typeof d>;q:[number,number]}|undefined;
+   for(const pk of picks){const dd=distribution(paths,a,b,pk);if(!dd)continue;
+    const segs=dd.path.slice(1).map((q,i)=>({s:dd.path[i],t:q,l:Math.hypot(q[a]-dd.path[i][a],q[b]-dd.path[i][b])})),main=segs.reduce((x,y)=>y.l>x.l?y:x);
+    const du=main.t[a]-main.s[a],dv=main.t[b]-main.s[b],hx=Math.abs(du)>=Math.abs(dv);
+    for(const f0 of fs){let f=f0;if(pn){const lo=hx?pn.box.x0:pn.box.y0,hi=hx?pn.box.x1:pn.box.y1,t=lo+(hi-lo)*f0;f=Math.min(1,Math.max(0,(t-(hx?main.s[a]:main.s[b]))/((hx?du:dv)||1)));}
+     const q:[number,number]=[main.s[a]+du*f,main.s[b]+dv*f];first??={d:dd,q};if(clear(q,pn)){found={d:dd,q};break;}}
+    if(found)break;}
+   const pickd=found||first;if(pickd){d=pickd.d;const q=pickd.q;dist={q,a:[q[0]+d.first[0],q[1]+d.first[1]],b:[q[0]+d.last[0],q[1]+d.last[1]],spacing:d.spacing,n:d.n};}else d=undefined;}
+  const draw=(d?[d.path]:rep&&paths.length>8?[paths[Math.floor(paths.length/2)]]:paths).filter(p=>!drawn.has(p));
+  for(const p of draw){drawn.add(p);for(let i=1;i<p.length;i++){const s=p[i-1],t=p[i];if(Math.hypot(t[a]-s[a],t[b]-s[b])<1){if(Math.abs(t[2]-s[2])>1)dots.push([s[a],s[b]]);}else lines.push({a:[s[a],s[b]],b:[t[a],t[b]]});}}
+  bars.push({row:r,lines,dots,couplers:[],dist,part:part||undefined,n:paths.length});}
  const e=c.extent,pad=900,grids=c.grids.map(g=>({axis:g.axis as number,at:g.at,label:g.label,lo:(g.axis===0?e.y0:e.x0)-pad,hi:(g.axis===0?e.y1:e.x1)+pad}));
  const beams=c.beams.map(x=>({u0:x.x0,u1:x.x1,v0:x.y0,v1:x.y1}));
  const faded=c.panels.filter(p=>!on.has(p.mark)).map(p=>p.ring);
@@ -339,7 +357,8 @@ function floorPlanData(m:Member,c:FloorCtx,rows:ViewRow[],a:number,b:number,rep:
   const mk=c.f.marks.find(y=>y.name===slabMarkOf(x.row)),te=mk?.rebar.topExtra,ratio=extra&&te?.length.mode==='ratio'?`L/${te.length.n}`:undefined;
   const texts=stops.slice(1).map((_,i)=>ratio&&(i===0||i===stops.length-2)?`<> (${ratio})`:undefined);
   dims.push({id:`${x.row.id}@${x.part||''}`,row:x.row.id,dir:h?'h':'v',stops,at:pos,texts});}
- return {bars,grids,beams,faded,drops:c.drops.map(d=>({ring:d.ring,label:d.label,kind:d.kind})),dims,layerText:(r:ViewRow)=>floorLayerToken(r.note)};
+ const panels=c.panels.filter(p=>on.has(p.mark)).map(p=>({tag:p.tag,ring:p.ring}));
+ return {bars,grids,beams,faded,drops:c.drops.map(d=>({ring:d.ring,label:d.label,kind:d.kind})),dims,layerText:(r:ViewRow)=>floorLayerToken(r.note),panels,labels,spacing:floorDesignSpacing(m)};
 }
 export type ViewData=ReturnType<typeof buildViewOne>;
 
@@ -380,6 +399,85 @@ function dimensionSets(m:Member,input:ElementInput|undefined,axes:[number,number
  return out;
 }
 
+type FloorLabel={id:string;row:string;text:string;short:string;full:boolean;at:[number,number];panel?:string;mark:{mark:string;n?:number;size?:string;spacing?:number}};
+/** 'typ' labels: the first panel of a set of panels with the same Marks gets the full labels + "TYP.", the others short codes
+ * ("B01"); elsewhere a Mark gets its full label once (first panel, top-left first), short codes in the other panels. */
+function typFloorLabels(L:FloorLabel[],panels:{tag:string;ring:[number,number][]}[]){
+ const pos=new Map(panels.map(p=>{const xs=p.ring.map(q=>q[0]),ys=p.ring.map(q=>q[1]);return [p.tag,[Math.max(...ys),Math.min(...xs)]];}));
+ const by=new Map<string,FloorLabel[]>();for(const l of L)by.set(l.panel||'',[...(by.get(l.panel||'')||[]),l]);
+ const order=[...by.keys()].sort((a,b)=>{const p=pos.get(a),q=pos.get(b);if(!p||!q)return p?-1:q?1:0;return Math.abs(p[0]-q[0])>1?q[0]-p[0]:p[1]-q[1];});
+ const seen=new Set<string>(),first=new Map<string,string>(),typ=new Set<string>();
+ for(const tag of order){const list=by.get(tag)!,sig=list.map(l=>l.row).sort().join('|');
+  if(tag&&first.has(sig)){for(const l of list)l.full=false;typ.add(first.get(sig)!);continue;}
+  if(tag)first.set(sig,tag);for(const l of list){l.full=!seen.has(l.row);seen.add(l.row);}}
+ for(const l of L)if(l.full&&l.panel&&typ.has(l.panel))l.text+=' TYP.';
+}
+type SB={x0:number;x1:number;y0:number;y1:number};
+type Seg=[number,number,number,number];
+const segsOfPrim=(p:PlainPrim):Seg[]=>{
+ if(p.t==='line')return [[p.x1,p.y1,p.x2,p.y2]];
+ if(p.t==='rect')return [[p.x,p.y,p.x+p.w,p.y],[p.x+p.w,p.y,p.x+p.w,p.y+p.h],[p.x+p.w,p.y+p.h,p.x,p.y+p.h],[p.x,p.y+p.h,p.x,p.y]];
+ if(p.t==='poly'){const out:Seg[]=[];for(let i=1;i<p.pts.length;i++)out.push([p.pts[i-1][0],p.pts[i-1][1],p.pts[i][0],p.pts[i][1]]);if(p.closed&&p.pts.length>2)out.push([p.pts.at(-1)![0],p.pts.at(-1)![1],p.pts[0][0],p.pts[0][1]]);return out;}
+ return [];};
+/** segment touches the box (Liang–Barsky) */
+function segBox(s:Seg,b:SB){
+ const [x1,y1,x2,y2]=s;let t0=0,t1=1;const dx=x2-x1,dy=y2-y1;
+ for(const [p,q] of [[-dx,x1-b.x0],[dx,b.x1-x1],[-dy,y1-b.y0],[dy,b.y1-y1]]){if(p===0){if(q<0)return false;continue;}const r=q/p;if(p<0){if(r>t1)return false;if(r>t0)t0=r;}else{if(r<t0)return false;if(r<t1)t1=r;}}
+ return true;}
+const segCross=(a:Seg,b:Seg)=>{
+ const o=(px:number,py:number,qx:number,qy:number,rx:number,ry:number)=>Math.sign((qx-px)*(ry-py)-(qy-py)*(rx-px));
+ return o(a[0],a[1],a[2],a[3],b[0],b[1])*o(a[0],a[1],a[2],a[3],b[2],b[3])<0&&o(b[0],b[1],b[2],b[3],a[0],a[1])*o(b[0],b[1],b[2],b[3],a[2],a[3])<0;};
+const boxHit=(a:SB,b:SB,g=0)=>a.x0<b.x1+g&&b.x0<a.x1+g&&a.y0<b.y1+g&&b.y0<a.y1+g;
+const segBB=(s:Seg):SB=>({x0:Math.min(s[0],s[2]),x1:Math.max(s[0],s[2]),y0:Math.min(s[1],s[3]),y1:Math.max(s[1],s[3])});
+/** Places the slab floor labels (paper units): candidates around the bar point, inside its panel (Detail: the window) first,
+ * then anywhere in the view box; never on another label / text / grid / dimension / opening, leaders never cross; fewest bar
+ * lines under the text, then the shortest leader. Text boxes as the Mark label check measures them (`labelQa.textBox`). */
+function placeFloorLabels(L:FloorLabel[],drawn:PlainPrim[],o:{X:(x:number)=>number;Y:(y:number)=>number;size:number;pu:number;box:{x:number;y:number;w:number;h:number};win?:SB;
+ panels:{tag:string;ring:[number,number][]}[];holes:[number,number][][]}){
+ const {X,Y,size,pu}=o,gap=1.6*pu,asc=size*.8,desc=size*.2,H=asc+desc;
+ const tb=(x:number,y:number,t:string,sz:number,anchor?:'start'|'middle'|'end'):SB=>{const w=textWidth(t,sz),x0=anchor==='middle'?x-w/2:anchor==='end'?x-w:x;return {x0,x1:x0+w,y0:y-sz*.8,y1:y+sz*.2};};
+ const hardB:SB[]=[],hardS:Seg[]=[],soft:Seg[]=[];
+ for(const p of drawn){
+  if(p.t==='text'){hardB.push(tb(p.x,p.y,p.text,p.size,p.anchor));continue;}
+  if(p.t==='circle'){if(p.layer==='symbol'||p.layer==='text')hardB.push({x0:p.cx-p.r,x1:p.cx+p.r,y0:p.cy-p.r,y1:p.cy+p.r});continue;}
+  const sg=segsOfPrim(p);if(!sg.length)continue;
+  if(p.layer==='barTop'||p.layer==='barBottom'||p.layer==='barMain'||p.layer==='barLink'||p.layer==='concreteHidden')soft.push(...sg);else hardS.push(...sg);}
+ for(const h of o.holes){const xs=h.map(q=>X(q[0])),ys=h.map(q=>Y(q[1]));hardB.push({x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys)});}
+ const anchors=L.map(l=>({x:X(l.at[0]),y:Y(l.at[1])})),rings=new Map(o.panels.map(p=>[p.tag,p.ring.map(q=>[X(q[0]),Y(q[1])] as [number,number])]));
+ const vb={x0:o.box.x+2*pu,x1:o.box.x+o.box.w-2*pu,y0:o.box.y+8*pu,y1:o.box.y+o.box.h-2*pu};
+ const inside=(b:SB,R:SB)=>b.x0>=R.x0&&b.x1<=R.x1&&b.y0>=R.y0&&b.y1<=R.y1;
+ type Out={label:FloorLabel;text:string;x:number;y:number;pts:[number,number][]};
+ // full labels first (longer), then short codes; within, panel by panel. A label that finds no free spot is moved to the
+ // front and the whole view is placed again (≤ 6 rounds, the round with the fewest misses wins).
+ let order=L.map((_,i)=>i).sort((a,b)=>Number(L[b].full)-Number(L[a].full)||(L[a].panel||'').localeCompare(L[b].panel||'')||a-b),best0:{out:Out[];miss:number}|undefined;
+ for(let round=0;round<6;round++){const r=placeRound(order);if(!best0||r.miss.length<best0.miss)best0={out:r.out,miss:r.miss.length};if(!r.miss.length)break;order=[...r.miss,...order.filter(i=>!r.miss.includes(i))];}
+ return best0!.out;
+ function placeRound(order:number[]){
+ const placedB:SB[]=[],placedS:Seg[]=[],out:Out[]=[],miss:number[]=[];
+ for(const i of order){const l=L[i],text=l.full?l.text:l.short,w=textWidth(text,size),{x:ax,y:ay}=anchors[i],ring=l.panel?rings.get(l.panel):undefined;
+  let best:{s:number;x:number;y:number;px:number;py:number;b:SB}|undefined;
+  for(const pass of [0,1]){
+   const R=pass===0?o.win??(ring?{x0:Math.min(...ring.map(q=>q[0]))+1.5*pu,x1:Math.max(...ring.map(q=>q[0]))-1.5*pu,y0:Math.min(...ring.map(q=>q[1]))+1.5*pu,y1:Math.max(...ring.map(q=>q[1]))-1.5*pu}:vb):vb;
+   const reach=(pass?70:45)*pu,near=(b:SB)=>b.x0<ax+reach+w&&b.x1>ax-reach-w&&b.y0<ay+reach+H&&b.y1>ay-reach-H;
+   const hb=[...hardB,...placedB].filter(near),hs=[...hardS,...placedS].filter(s=>near(segBB(s))),ss=soft.filter(s=>near(segBB(s)));
+   const others=anchors.filter((_,j)=>j!==i).map(a=>({x0:a.x-1.2*pu,x1:a.x+1.2*pu,y0:a.y-1.2*pu,y1:a.y+1.2*pu})).filter(near);
+   const stepX=3*pu,stepY=H*.75,nx=Math.ceil((reach+w)/stepX),ny=Math.ceil(reach/stepY);
+   for(let jy=-ny;jy<=ny;jy++)for(const base of [ax+1.2*pu,ax-1.2*pu-w,ax-w/2])for(let jx=-nx;jx<=nx;jx++){
+    const x0=base+jx*stepX,yb=ay+jy*stepY+H/2-desc,b={x0,x1:x0+w,y0:yb-asc,y1:yb+desc};
+    const px=Math.min(Math.max(ax,b.x0),b.x1),py=Math.min(Math.max(ay,b.y0),b.y1),dist=Math.hypot(px-ax,py-ay);
+    if(dist>reach||best&&dist>=best.s)continue;
+    if(!inside(b,R)||!inside(b,vb)||dist<.6*pu)continue;
+    if(pass===0&&ring&&!o.win&&![[b.x0,b.y0],[b.x1,b.y0],[b.x1,b.y1],[b.x0,b.y1]].every(q=>pointIn(q as [number,number],ring)))continue;
+    if(hb.some(q=>boxHit(b,q,gap))||others.some(q=>boxHit(b,q))||hs.some(q=>segBox(q,b)))continue;
+    const lead:Seg=[ax,ay,px,py];
+    if(placedS.some(q=>segCross(q,lead))||placedB.some(q=>segBox(lead,{x0:q.x0-.3*pu,x1:q.x1+.3*pu,y0:q.y0-.3*pu,y1:q.y1+.3*pu})))continue;
+    const sc=dist+5*pu*ss.filter(q=>segBox(q,b)).length;
+    if(!best||sc<best.s)best={s:sc,x:x0,y:yb,px,py,b};}
+   if(best)break;}
+  if(!best){miss.push(i);const b={x0:ax+2*pu,x1:ax+2*pu+w,y0:ay-2*pu-asc,y1:ay-2*pu+desc};best={s:0,x:b.x0,y:ay-2*pu,px:b.x0,py:b.y1,b};}
+  placedB.push(best.b);placedS.push([ax,ay,best.px,best.py]);out.push({label:l,text,x:best.x,y:best.y,pts:[[best.px,best.py]]});}
+ return {out,miss};}
+}
 /** Height that keeps the view's aspect for a given width (screen layout, px). */
 export function viewHeight(v:ViewData,width:number,maxHeight:number,k=1){
  const M=48*k,s=Math.min((width-2*M)/(v.u[1]-v.u[0]),(maxHeight-2*M+20*k)/(v.v[1]-v.v[0]));
@@ -408,17 +506,21 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // a representative bar adds count and spacing: "F01 36-DB32@250"
  const size=10*k*fs,step=size*1.15,family=(id:string)=>id.replace(/^(gen-(?:bottom|top)-[xy])-\d+$/,'$1'),labelled=new Set<string>();
  const labels:{id:string;text:string;at:[number,number];left:boolean;mark:{mark:string;n?:number;size?:string;spacing?:number}}[]=[];
- for(const {row,lines,dots,dist,part} of v.bars){
-  // slab floor plan: one label per Mark per panel, "S1-B01 DB12@200 (B1)"
-  if(v.floor){if(win&&!/^(OP|OD)$/.test(floorKind(row.id)||''))continue;const id=`${row.id}@${part||''}`,p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p||labelled.has(id))continue;labelled.add(id);
-   const sp=dist?Math.round(dist.spacing/5)*5:0,n=dist?dist.n:row.count,lay=v.floor.layerText(row);
-   labels.push({id,text:`${row.mark} ${dist?`${barName(row.diameter)}@${sp}`:`${n>1?`${n}-`:''}${barName(row.diameter)}`}${lay?` (${lay})`:''}`,at:p,left:p[0]<(u[0]+u[1])/2,mark:{mark:row.mark,size:barName(row.diameter),...(dist?{n:dist.n,spacing:sp}:{})}});continue;}
+ // slab floor plan: labels inside the panels (placed last, around the other annotations), see `placeFloorLabels`
+ const flabels:FloorLabel[]=[];
+ for(const e of v.bars){const {row,lines,dots,dist,part}=e;
+  // slab floor plan: one entry per Mark per panel, "S1-B01 DB12@200 (B1)" = spacing as designed (the drawn spacing can be
+  // smaller: bars spread evenly, count rounded up); trimmers / diagonals by count "4-DB12"
+  if(v.floor){const kind=floorKind(row.id),counted=kind==='OP'||kind==='OD';if(win&&!counted)continue;const id=`${row.id}@${part||''}`,p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p||labelled.has(id))continue;labelled.add(id);
+   const n=(e as {n?:number}).n??row.count,bar=barName(row.diameter),lay=v.floor.layerText(row),sp=counted?undefined:v.floor.spacing.get(row.id)??(dist?Math.round(dist.spacing/5)*5:undefined);
+   flabels.push({id,row:row.id,text:`${row.mark} ${sp?`${bar}@${sp}`:`${n>1||counted?`${n}-`:''}${bar}`}${lay?` (${lay})`:''}`,short:row.mark.replace(/^.*-(?=(?:B|T|OP|OD)\d+$)/,''),full:true,at:p,panel:part,
+    mark:{mark:row.mark,size:bar,...(sp?{spacing:sp}:{n})}});continue;}
   const fam=family(row.id);if(labelled.has(fam))continue;
   const p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p)continue;labelled.add(fam);
   const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],name=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
   labels.push({id:row.id,text:dist?`${name} ${dist.n}-${barName(row.diameter)}@${Math.round(dist.spacing/5)*5}`:name,at:p,left:p[0]<(u[0]+u[1])/2,mark:{mark:name,size:barName(row.diameter),...(dist?{n:dist.n,spacing:Math.round(dist.spacing/5)*5}:{})}});}
- if(hide.marks)labels.length=0;
- if(win)for(let i=labels.length-1;i>=0;i--){const [a,b]=labels[i].at;if(win.circle?Math.hypot(a-win.u,b-win.v)>win.r:Math.abs(a-win.u)>win.r||Math.abs(b-win.v)>win.r)labels.splice(i,1);}
+ if(hide.marks){labels.length=0;flabels.length=0;}
+ if(win)for(const L of [labels,flabels] as {at:[number,number]}[][])for(let i=L.length-1;i>=0;i--){const [a,b]=L[i].at;if(win.circle?Math.hypot(a-win.u,b-win.v)>win.r:Math.abs(a-win.u)>win.r||Math.abs(b-win.v)>win.r)L.splice(i,1);}
  // gutter: labels just outside the dimension lines, in columns left / right of the drawing ('side') or in rows
  // above / below it ('rows'). Use the direction the drawing leaves spare (no shrinking); else shrink by at most a
  // third of the view; else labels next to the bars ('near').
@@ -599,6 +701,14 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   put('symbol',d.circle===false?{t:'rect',x:cx-rr,y:cy-rr,w:2*rr,h:2*rr,...ds}:{t:'circle',cx,cy,r:rr,...ds});
   const bx=cx+rr*.72+br*1.6,by=cy-rr*.72-br*1.6;put('symbol',{t:'line',x1:cx+rr*.72,y1:cy-rr*.72,x2:bx-br*.7,y2:by+br*.7,stroke:'#3f5459',width:.5*k},{t:'circle',cx:bx,cy:by,r:br,stroke:'#3f5459',width:.6*k,fill:'#ffffff'},{t:'line',x1:bx-br,x2:bx+br,y1:by,y2:by,stroke:'#3f5459',width:.4*k});
   put('text',{t:'text',x:bx,y:by-1.2*k,text:d.label,size:5*k*fs,color:'#22393f',anchor:'middle',bold:true},{t:'text',x:bx,y:by+4.3*k,text:d.ref||'—',size:4.2*k*fs,color:'#4b6166',anchor:'middle'});}
+ // slab floor plan labels: inside their panel next to the representative bar, short leader, clear of each other, grids,
+ // dimensions and texts (fallback: anywhere in the view)
+ if(F&&flabels.length){
+  if(F.labels==='typ')typFloorLabels(flabels,F.panels);
+  const winBox=win?{x0:X(win.u-win.r),x1:X(win.u+win.r),y0:Y(win.v+win.r),y1:Y(win.v-win.r)}:undefined;
+  for(const p of placeFloorLabels(flabels,expandPrims(out),{X,Y,size,pu,box,win:winBox,panels:F.panels,holes:v.holes})){const l=p.label;
+   const draw:PlainPrim[]=[...leaderDraw(l,p.pts),{t:'text',x:p.x,y:p.y,text:p.text,size,color:colorOf(l.id),bold:true,halo:true,group:l.id}];
+   leader({...l,text:p.text,left:false},p.pts,p.x,p.y,'start','dot',draw);}}
  // Detail view: everything drawn so far is cut to the window (circle / square) + its boundary
  if(win){const sh=win.circle!==false?{kind:'circle' as const,cx:X(win.u),cy:Y(win.v),r:win.r*s}:{kind:'rect' as const,x0:X(win.u-win.r),y0:Y(win.v+win.r),x1:X(win.u+win.r),y1:Y(win.v-win.r)};
   const kept=clipPrims(out.splice(0),sh);out.push(...kept);
