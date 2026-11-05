@@ -6,7 +6,7 @@ import {isCoverQuestion,proposalGaps,proposalToShape,type ElementInventory,type 
 import {aiShapeConfigured,analyseShapeWithAI,inventoryWithAI} from '../data/aiShapeAnalysis';
 import {prepareDrawing} from '../data/drawingViews';
 import {isModelFile,modelFileLabel} from '../domain/fileTypes';
-import {partPurposeLabels,partPurposes,shapeKindLabels,type PartPurpose,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
+import {SHAPE_EDITOR_PARTS,partPurposeLabels,partPurposes,shapeKindLabels,type PartPurpose,type ShapeModel,type ShapePart} from '../domain/shapeModelSchema';
 import {applyPartPresets,defaultPartRebar,detailingFor,guessPurpose,moveOwnedSketchBars} from '../domain/partRebar';
 import {normaliseShape,partPolygon,shapeFootprint,shapePileQuantities} from '../domain/shapeGeometry';
 import {modelTags,nextTag,pruneGroups,tagLetter,withAutoTags} from '../domain/partTags';
@@ -116,7 +116,7 @@ export function ShapeModelEditor({member,project,attachments=[],readOnly,onApply
     <div className="shape-parts-head"><h4>ชิ้นส่วน ({draft.parts.length}/40) <HelpButton topic="tags"/></h4>{!readOnly&&draft.parts.some(p=>!p.tag)&&<button type="button" className="link-button" title="ตั้ง Tag no. ให้ชิ้นที่ยังไม่มี ตามหน้าที่ (F ฐานราก · C เสา · B คาน · S พื้น · W ผนัง · R อ้างอิง · P บ่อ · X อื่น) · Mark ของเหล็กจะขึ้นต้นด้วย Tag เมื่อกดใช้รูปทรง" onClick={()=>edit(d=>withAutoTags(d,p=>guessPurpose(p,d)))}>ตั้ง Tag อัตโนมัติ</button>}</div>
     {draft.parts.map((p,i)=><button key={p.id} type="button" className={`shape-part ${p.id===sel?'active':''} ${p.role}`} onClick={()=>setSel(p.id)}>
      <i className={`stage-${Math.min(p.stage,3)}`}/><span><b>{p.tag?<em className="part-tag">{p.tag}</em>:`${i+1}. `}{p.label}</b><small>{p.role==='void'?'ช่องเปิด · ':p.role==='reference'?'อ้างอิง · ':''}{shapeKindLabels[p.shape]} · สูง {fmt(p.height)} · Stage {p.stage}</small></span></button>)}
-    {!readOnly&&<div className="shape-add">{adders.map(([l,f])=><button key={l} type="button" disabled={draft.parts.length>=40} onClick={()=>add(f())}><Plus size={12}/>{l}</button>)}</div>}
+    {!readOnly&&<div className="shape-add">{adders.map(([l,f])=><button key={l} type="button" disabled={draft.parts.length>=SHAPE_EDITOR_PARTS} onClick={()=>add(f())}><Plus size={12}/>{l}</button>)}</div>}
     <PilesPanel draft={draft} readOnly={readOnly} onChange={piles=>edit(d=>({...d,confirmed:false,piles}))}/>
     <SitePanel draft={draft} readOnly={readOnly} onChange={site=>edit(d=>({...d,site}))}/>
    </aside>

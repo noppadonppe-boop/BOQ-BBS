@@ -14,6 +14,14 @@ const figures:Record<FigureId,()=>ReactNode>={
  workflow:()=>{const s=['Spec','WBS','สมาชิก','ตรวจ BBS','BOQ','แบบ A3','ตัดเหล็ก'];return <>{s.map((l,i)=>{const x=8+(i%4)*78,y=i<4?30:110;return <Box key={l} x={i<4?x:8+((6-i)+0.5)*78} y={y} w={66} h={34} label={`${i+1}. ${l}`} tone={i===2?'hl':''}/>;})}
   <Arrow d="M74 47h10"/><Arrow d="M152 47h10"/><Arrow d="M230 47h10"/><Arrow d="M281 64 v20 q0 8 -8 8 h-10 v18"/><Arrow d="M203 127h-10"/><Arrow d="M125 127h-10"/>
   <T x={160} y={172} s>ส่งตรวจ → Checked → IFC ก่อนออกแบบและตัดเหล็ก</T></>;},
+ 'slab-floor':()=><>{[30,130,230,290].map(x=><line key={x} x1={x} x2={x} y1={14} y2={166} className="d dash"/>)}{[24,96,156].map(y=><line key={y} y1={y} y2={y} x1={14} x2={306} className="d dash"/>)}
+  {[[34,28,92,64],[134,28,92,64],[234,28,52,64],[34,100,92,52],[134,100,92,52],[234,100,52,52]].map(([x,y,w,h],k)=><rect key={k} x={x} y={y} width={w} height={h} className={k===4?'c sel':'c'}/>)}
+  {[30,130,230,290].map(x=><rect key={x} x={x-4} y={20} width={8} height={140} className="l"/>)}{[24,96,156].map(y=><rect key={y} x={26} y={y-4} width={268} height={8} className="l"/>)}
+  <rect x={160} y={114} width={30} height={22} className="l"/><path d="M160 114l30 22M190 114l-30 22" className="d"/>
+  {[110,140].map(y=><line key={y} x1={150} x2={200} y1={y} y2={y} className="b2"/>)}{[156,194].map(x=><line key={x} x1={x} x2={x} y1={104} y2={146} className="b2"/>)}
+  {[40,52,64,76].map(y=><line key={y} x1={108} x2={152} y1={y} y2={y} className="b"/>)}
+  <T x={80} y={64}>S1</T><T x={180} y={64}>S1</T><T x={262} y={64}>S2</T><T x={80} y={130}>S1</T><T x={262} y={130}>S1</T>
+  <T x={130} y={176} s>บนเสริมคร่อมคาน · ช่องเปิดตัดเหล็ก + เหล็กเสริมขอบ</T></>,
  status:()=><><Box x={10} y={60} w={80} h={40} label="Draft"/><Box x={120} y={60} w={80} h={40} label="Checked" tone="warn"/><Box x={230} y={60} w={80} h={40} label="IFC · R0" tone="ok"/>
   <Arrow d="M90 80h28"/><Arrow d="M200 80h28"/><T x={105} y={120} s>ส่งตรวจ</T><T x={215} y={120} s>อนุมัติ</T>
   <path d="M270 100 v34 h-220 v-32" className="d dash" markerEnd="url(#hf-arrow)"/><T x={160} y={154} s>แก้หลัง IFC → กลับ Draft → อนุมัติใหม่ได้ R1</T>
