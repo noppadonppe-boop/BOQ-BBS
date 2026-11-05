@@ -20,6 +20,7 @@ import {LabelQaBar,LabelQaOverlay} from './LabelQa';
 import {useDrawingEdit} from './DrawingEditLayer';
 import {cleanDrawingEdits,drawingEditsSchema,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
 import {drawingStatus,drawingStatusText,memberDrawingHash} from '../domain/drawingStatus';
+import {FLOOR_PAPER,floorCtx,floorPaperTitles,isFloorPaper} from '../domain/slabFloorSheet';
 
 type Box={x:number;y:number;w:number;h:number};
 type Draft={layout?:SheetLayout;sections:SheetSection[];edits?:DrawingEdits};
@@ -62,15 +63,17 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const layout=useMemo(()=>draft.layout||resolveSheetLayout(data,size).layout||autoLayout(draft),[draft,data]);
  const shown=useMemo(()=>({...data,member:{...data.member,sheetLayout:layout}}),[data,layout]);
  const area=useMemo(()=>sheetArea(shown),[shown]),page=Math.min(sheet,layout.sheets.length-1),info=useMemo(()=>drawSheetInfo(shown,layoutPage(shown,page)),[shown,page]);
- const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':all.find(v=>v.key===k)?.title||k;
+ const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':isFloorPaper(k)?floorPaperTitles[k]:all.find(v=>v.key===k)?.title||k;
+ // slab floor: paper views (slab schedule, legend, key plan, standard details)
+ const paperKeys=useMemo(()=>floorCtx(member)?[...FLOOR_PAPER] as ViewKey[]:[],[member]);
  const placed=layout.sheets[page]?.views||[],boxOf=(k:ViewKey)=>info.views.find(v=>v.key===k)?.box||placed.find(v=>v.view===k);
  const problems=useMemo(()=>layout.sheets.flatMap((sh,i)=>{const inf=i===page?info:drawSheetInfo(shown,layoutPage(shown,i));
-  const boxes=[...inf.views.filter(v=>v.key).map(v=>({view:v.key!,title:v.title,...v.box})),...(inf.notes?[{view:'notes',title:'หมายเหตุ',...inf.notes}]:[]),...(inf.revs?[{view:'revs',title:'ตาราง Revision',...inf.revs}]:[])];
+  const boxes=[...inf.views.filter(v=>v.key).map(v=>({view:v.key!,title:v.title,...v.box})),...(inf.notes?[{view:'notes',title:'หมายเหตุ',...inf.notes}]:[]),...(inf.revs?[{view:'revs',title:'ตาราง Revision',...inf.revs}]:[]),...(inf.paper||[]).map(p=>({view:p.key,title:title(p.key),...p.box}))];
   return layoutBoxProblems(boxes,area.area,area.keep).map(p=>`แผ่น ${i+1}: ${p}`);}),[layout,shown,info,page,area]);
  const qa=useMemo(()=>labelReport(info.prims,info.views,labelRulesOf(project.spec)),[info,project.spec]),[qaShow,setQaShow]=useState(true),[qaFocus,setQaFocus]=useState<LabelIssue>();
  useEffect(()=>setQaFocus(undefined),[qa]);
  const fitWarn=info.views.filter(v=>!v.fits),dirty=!sameJson(draft.layout,member.sheetLayout)||!sameJson(draft.sections,initSections)||!sameJson(cleanDrawingEdits(draft.edits),cleanDrawingEdits(member.drawingEdits));
- const unplaced=[...new Set([...layout.unplaced,...[...all.map(v=>v.key),...(draft.edits?.revisions?.length?['revs' as ViewKey]:[])].filter(k=>!layout.sheets.some(s=>s.views.some(v=>v.view===k)))])].filter(k=>k!=='notes'||area.notes);
+ const unplaced=[...new Set([...layout.unplaced,...[...all.map(v=>v.key),...paperKeys,...(draft.edits?.revisions?.length?['revs' as ViewKey]:[])].filter(k=>!layout.sheets.some(s=>s.views.some(v=>v.view===k)))])].filter(k=>k!=='notes'||area.notes);
 
  // partial drafts keep the other parts (e.g. a layout change keeps the drawing edits)
  const commit=(d:Partial<Draft>)=>{if(readOnly)return;setUndo(u=>[...u.slice(-49),draft]);setRedo([]);setDraft({...draft,...d});};
@@ -85,16 +88,16 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const unplace=(k:ViewKey)=>editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k)})),unplaced:[...l.unplaced.filter(x=>x!==k),k]}));
  const place=(k:ViewKey,box:Box,on=page,n:PlacedView['n']='auto')=>editLayout(l=>{const sheets=l.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k)}));while(sheets.length<=on)sheets.push({id:`s${uid()}`,views:[]});sheets[on].views.push({view:k,...box,n});return {...l,sheets,unplaced:l.unplaced.filter(x=>x!==k)};});
  const moveTo=(k:ViewKey,to:number)=>{const v=layout.sheets.flatMap(s=>s.views).find(x=>x.view===k);if(v)place(k,{x:v.x,y:v.y,w:v.w,h:v.h},to,v.n);};
- const sizeFor=(k:ViewKey,n:number):{w:number;h:number}=>{if(k==='notes')return {w:120,h:80};if(k==='revs')return {w:110,h:Math.min(110,5*((draft.edits?.revisions?.length||0)+1)+3)};const v=all.find(x=>x.key===k);if(!v)return {w:120,h:90};const d=buildView(base.member,base.rows,base.input,v.spec);
+ const sizeFor=(k:ViewKey,n:number):{w:number;h:number}=>{if(k==='notes')return {w:120,h:80};if(k==='revs')return {w:110,h:Math.min(110,5*((draft.edits?.revisions?.length||0)+1)+3)};if(isFloorPaper(k))return k==='stddet'?{w:200,h:90}:{w:150,h:k==='keyplan'?110:80};const v=all.find(x=>x.key===k);if(!v)return {w:120,h:90};const d=buildView(base.member,base.rows,base.input,v.spec);
   return {w:Math.min(area.area.w-4,(d.u[1]-d.u[0])/n*1.25+30),h:Math.min(area.area.h-30,(d.v[1]-d.v[0])/n+30)};};
  const planN=()=>info.views.find(v=>v.key?.startsWith('plan'))?.n||50;
- const placeFree=(k:ViewKey,sz=sizeFor(k,planN()))=>{const taken=[...info.views.map(v=>v.box),...(info.notes?[info.notes]:[]),...area.keep],spot=freeSpot(sz,area.area,taken);
+ const placeFree=(k:ViewKey,sz=sizeFor(k,planN()))=>{const taken=[...info.views.map(v=>v.box),...(info.notes?[info.notes]:[]),...(info.paper||[]).map(p=>p.box),...area.keep],spot=freeSpot(sz,area.area,taken);
   if(spot)place(k,spot);else{place(k,{x:area.area.x+4,y:area.area.y+20,...sz},layout.sheets.length);setSheet(layout.sheets.length);setMsg('แผ่นนี้เต็ม · วางในแผ่นใหม่');}};
  const autoArrange=()=>commit({...draft,layout:autoLayout(draft)});
 
  // pointer → sheet mm
  const pt=(e:{clientX:number;clientY:number}):[number,number]=>{const s=svg.current!,m=s.getScreenCTM()!.inverse(),p=new DOMPoint(e.clientX,e.clientY).matrixTransform(m);return [p.x,p.y];};
- const others=(k:ViewKey)=>[...info.views.filter(v=>v.key&&v.key!==k).map(v=>v.box),...(info.notes&&k!=='notes'?[info.notes]:[])];
+ const others=(k:ViewKey)=>[...info.views.filter(v=>v.key&&v.key!==k).map(v=>v.box),...(info.notes&&k!=='notes'?[info.notes]:[]),...(info.paper||[]).filter(p=>p.key!==k).map(p=>p.box)];
  // projection lock partner: a view sharing the horizontal (x) / vertical (y) model axis whose box overlaps across that direction
  const partner=(k:ViewKey,b:Box)=>{const me=info.views.find(v=>v.key===k);if(!me||k==='notes')return;
   const c=info.views.filter(v=>v.key&&v.key!==k).map(v=>{const ax=v.axes[0]===me.axes[0]&&b.x<v.box.x+v.box.w&&v.box.x<b.x+b.w?'x' as const:v.axes[1]===me.axes[1]&&b.y<v.box.y+v.box.h&&v.box.y<b.y+b.h?'y' as const:undefined;return ax&&{v,ax};}).filter(Boolean) as {v:SheetViewInfo;ax:'x'|'y'}[];
@@ -315,7 +318,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
       <div className="sel-head"><small>รูปที่เลือก</small><b>{title(selV.view)}</b></div>
       {selSec&&selSec.source==='user'&&<label className="field"><span>ชื่อรูปตัด</span><input value={selSec.label} maxLength={12} disabled={secRO} onChange={e=>{const v=e.target.value.toUpperCase();if(/^[A-Z0-9]+(?:-[A-Z0-9]*)?$/.test(v)&&!draft.sections.some(s=>s.id!==selSec.id&&s.label.toUpperCase()===v))editSection(selSec.id,{label:v});}}/></label>}
       <div className="form-grid">
-       {selV.view!=='notes'&&<label className="field"><span>มาตราส่วน</span><select value={String(selV.n)} disabled={readOnly} onChange={e=>editView(selV.view,{n:e.target.value==='auto'?'auto':Number(e.target.value)})}><option value="auto">Auto{selInfo?.n?` (1:${selInfo.n})`:''}</option>{[...new Set([...PREF,...standardScales.filter(n=>n>=5&&n<=500)])].sort((a,b)=>a-b).map(n=><option key={n} value={n}>1:{n}</option>)}</select></label>}
+       {selV.view!=='notes'&&!isFloorPaper(selV.view)&&<label className="field"><span>มาตราส่วน</span><select value={String(selV.n)} disabled={readOnly} onChange={e=>editView(selV.view,{n:e.target.value==='auto'?'auto':Number(e.target.value)})}><option value="auto">Auto{selInfo?.n?` (1:${selInfo.n})`:''}</option>{[...new Set([...PREF,...standardScales.filter(n=>n>=5&&n<=500)])].sort((a,b)=>a-b).map(n=><option key={n} value={n}>1:{n}</option>)}</select></label>}
        {selSec&&<label className="field"><span>ตำแหน่งตัด {selSec.axis} (mm)</span><input type="number" min={0} max={boundsOf(base.member)[axisIndex(selSec.axis)]} value={selSec.position} disabled={secRO} onChange={e=>{const v=Number(e.target.value);if(Number.isFinite(v)&&v>=0&&v<=boundsOf(base.member)[axisIndex(selSec.axis)])editSection(selSec.id,{position:v});}}/></label>}
       </div>
       {selSec&&!selSec.columns&&<><div className="field"><span>ทิศที่มอง</span><div className="segmented">{(['+','-'] as const).map(l=><button key={l} type="button" disabled={secRO} className={(selSec.look||'+')===l?'active':''} onClick={()=>editSection(selSec.id,{look:l})}>มอง {l==='+'?'+':'−'}{selSec.axis}</button>)}</div></div>
@@ -334,11 +337,11 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
        <div className="segmented">{([true,false] as const).map(c=><button key={String(c)} type="button" disabled={readOnly} className={(selDet.circle!==false)===c?'active':''} onClick={()=>editDetail(selDet.id,{circle:c})}>{c?'วงกลม':'สี่เหลี่ยม'}</button>)}</div>
        <p className="muted">จาก {title(selDet.parent as ViewKey)} · ศูนย์กลาง ({selDet.u.toLocaleString()}, {selDet.v.toLocaleString()}) mm · วงรอบ + ป้าย {selDet.label} แสดงบนรูปต้นทาง</p>
        <button className="danger-text" disabled={readOnly} onClick={()=>removeDetail(selDet.id)}>ลบ Detail</button></fieldset>}
-      {selV.view!=='notes'&&<fieldset className="composer-show"><legend>แสดงในรูป</legend>
+      {selV.view!=='notes'&&!isFloorPaper(selV.view)&&<fieldset className="composer-show"><legend>แสดงในรูป</legend>
        {([['dims','Dimension อัตโนมัติ'],['marks','ป้าย Mark'],['levels','ระดับ T.O.F. / B.O.F.']] as const).map(([k,t])=><label key={k} className="check"><input type="checkbox" disabled={readOnly} checked={selV.show?.[k]!==false} onChange={e=>editView(selV.view,{show:{...selV.show,[k]:e.target.checked}})}/>{t}</label>)}
        {selV.view.startsWith('plan')&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!selV.show?.allBars} onChange={e=>editView(selV.view,{show:{...selV.show,allBars:e.target.checked}})}/>เหล็กทุกเส้น (ปิด = ตัวแทน)</label>}</fieldset>}
       <fieldset className="composer-show"><legend>การจัดวาง</legend>
-       {selV.view!=='notes'&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!selV.lock} onChange={e=>{const p=partner(selV.view,selV);editView(selV.view,{lock:e.target.checked&&p?{to:p.v.key!,axis:p.ax}:undefined});if(e.target.checked&&!p)setMsg('ไม่มีรูปที่ใช้แกนเดียวกันในแนวเดียวกัน');}}/>ล็อกแนวฉาย{selV.lock?` กับ ${title(selV.lock.to)} (แกน ${selV.lock.axis})`:''}</label>}
+       {selV.view!=='notes'&&!isFloorPaper(selV.view)&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!selV.lock} onChange={e=>{const p=partner(selV.view,selV);editView(selV.view,{lock:e.target.checked&&p?{to:p.v.key!,axis:p.ax}:undefined});if(e.target.checked&&!p)setMsg('ไม่มีรูปที่ใช้แกนเดียวกันในแนวเดียวกัน');}}/>ล็อกแนวฉาย{selV.lock?` กับ ${title(selV.lock.to)} (แกน ${selV.lock.axis})`:''}</label>}
        {selInfo?.lockNote&&<p className="notice warning">{selInfo.lockNote}</p>}
        <label className="check"><input type="checkbox" disabled={readOnly} checked={!!selV.fixed} onChange={e=>editView(selV.view,{fixed:e.target.checked||undefined})}/>ล็อกตำแหน่ง</label>
        <p className="muted">x {selV.x.toFixed(1)} · y {selV.y.toFixed(1)} · {selV.w.toFixed(0)} × {selV.h.toFixed(0)} mm</p></fieldset>
