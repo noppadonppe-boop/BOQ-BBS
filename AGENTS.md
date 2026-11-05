@@ -303,6 +303,13 @@
   (not `source`), geometry locked in `BeamGroupEditor` while linked; `openMember()` (`components/memberNav.ts`) opens a member.
   Panel tags follow the mark (`retagPanels`, `panel.tagCustom`). Test: `tests/floorBeams.test.ts`. UI check on separate
   emulators: `tmp/s3emu/` (ports 9399 / 8380 / 9599, demo-boq-s3, `node tmp/s3emu/dev.mjs` on 5181), seed `tmp/s3seed.test.ts`.
+  S4a tracing / import (no AI): `floor.underlay` (PDF / DXF / image attachment under the plan, similarity transform, two-point
+  alignment `alignTwoPoints` + `alignResiduals`, `SnapIndex` in `src/domain/underlay.ts`; readers `dxfDoc` / `pdfDoc` in
+  `src/domain/cadEntities.ts`, browser loader `src/data/underlaySource.ts`; display only: not in sheets / quantities / drawing
+  hash, dropped on copy, `remapUnderlay` on restore) and “นำเข้าจาก DXF” (`components/FloorDxfImport.tsx`: layer roles saved in
+  `floor.importMap` → `readFloorPlan` / `proposalDiff` / `applyProposal` in `src/domain/slabPlanImport.ts`, `FloorProposal` =
+  contract for S4b AI). Zoom Ctrl + wheel, pan by dragging the background. Test: `tests/slabTrace.test.ts` (fixtures
+  `tests/fixtures/slabPlan.ts`, files `tests/fixtures/slab-plan/`); UI seed `tmp/s4seed.test.ts` (project s4proj on `tmp/s3emu/`).
   UI `components/SlabFloorEditor.tsx` in the Slab input panel;
   floor members hide the shape / rebar tabs (`isSlabFloorMember`). Slab List column “บนเสริม” (`topExtra`, `TopExtraCell`).
   Test: `tests/slabFloor.test.ts` (+ DXF `output/dxf-verification/slabFloor-*.dxf`).

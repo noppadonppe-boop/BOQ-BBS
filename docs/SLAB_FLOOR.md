@@ -229,7 +229,94 @@ width, depth, offset), columns (size) and panels into `elementInput.floor`, then
 the Beam Templates (read the beam schedule into `spec.beamTemplates` by mark). Beams off the grid lines need grids (the
 generator works on grid labels). Columns are references only — column members are still to come.
 
+## Tracing / Import (round S4a)
+
+A real plan becomes the floor in two ways, without AI: draw over a background drawing, or read a DXF.
+
+**Underlay** (`floor.underlay = {attachmentId, page?, transform {scale, rotation, tx, ty}, opacity, locked, hidden, align?}`,
+`src/domain/underlay.ts`): one PDF / DXF / PNG / JPEG attachment of the member or the project (`memberId ''`) under the plan.
+Source coordinates = DXF drawing units or PDF page points (y up, `page.view`); floor mm = scale · R(rotation) · source + t.
+The first placement uses the file's units (DXF `$INSUNITS`), the page calibration (`attachment.calibrations[page].mmPerPoint`)
+or 1:100 (`PDF_1_100`), lower-left corner at the first grids. **Two-point alignment** (`alignTwoPoints`): click two grid
+crossings in the drawing (snap = intersections of the longest lines near the click, `snap(…, {long:true})`), pick the plan
+crossing (X / Y) for each → similarity (scale + rotation + shift; within 0.01° of a right angle it is squared); the error at
+every other plan crossing that has a drawn crossing within 300 mm is shown before “ใช้การจัดแนว” (`alignResiduals`).
+Display only: no quantities, never in the sheets / PDF / DXF, left out of the drawing-status hash (`drawingModelHash`), not
+copied with the member (`copyMemberInputs`), restore points it at the restored file (`remapUnderlay`). Viewers see it and can
+hide it for themselves.
+
+Readers (`src/domain/cadEntities.ts`, pure; browser loading + raster in `src/data/underlaySource.ts`): `dxfDoc()` = dxf-parser
+model space with INSERT blocks expanded (layer 0 in a block takes the INSERT's layer, bulges as arcs), `pdfDoc()` = pdf.js
+`getOperatorList()` painting `constructPath` operators with the current transform (cm, q / Q, form XObjects) → polylines in
+page points; a page with fewer than 20 pieces is a scan (picture only, no snap). **Snap** (`SnapIndex`, toolbar “Snap กับแบบ”):
+hash grid over the pieces → intersection / end / centre / middle / nearest within 12 px; over `SNAP_LIMIT` (200,000) pieces
+only the visible window is indexed (rebuilt on zoom / pan). Plan tools that use it: alignment picks, the grid tool (click a
+drawing line → a grid X / Y at it), opening placement / move / resize corners. Zoom = Ctrl + wheel, pan = drag the background
+(select tool) or the middle button.
+
+**Import from DXF** (`components/FloorDxfImport.tsx`, 3 steps): 1 layer roles (`grid`, `gridLabel`, `beam`, `column`,
+`opening`, `slabMark`, `text`) guessed from the project's earlier imports (`floor.importMap` of this and the other floors) and
+then from the layer names (`roleFromName`: GRID / AXIS, BUBBLE / TEXT, BEAM / BM, COL, OPEN / HOLE / VOID, SLAB, TEXT / ANNO);
+2 units (`$INSUNITS`, else asked) and a window dragged on the drawing (one plan of a sheet); 3 the proposal over the drawing,
+one row per item with add / edit / remove / same against the current floor, tick and “ใช้กับแปลนพื้น” = one commit (one undo).
+The import stores the layer map on the floor and, when the floor has no other underlay, sets the DXF as the underlay at the
+imported origin.
+
+Rules (`src/domain/slabPlanImport.ts`, `readFloorPlan(ents in mm, roles, {source, floor, slabMarks, beamSizes})`):
+- grids: axis-parallel lines on grid layers (or CENTER / DASHDOT linetype when no grid layer) ≥ 25 % of the longest, grouped
+  within 2 mm; label = text inside a bubble circle at a line end, else a grid-label text beyond the end, else A, B … / 1, 2 …
+  (warned); oblique grid lines are counted and warned (not read). Origin: grids with the labels of the current floor keep
+  their place (median shift), else the first grid of each direction = 0.
+- beams: pairs of parallel lines 150–1,000 apart overlapping ≥ 50 % with nothing parallel between them, or closed rectangles
+  2.5 × longer than wide → pieces; pieces on one line with the same width joined across gaps ≤ 1,200 (columns, crossing
+  beams) unless their marks differ; line = nearest grid within width / 2 + 600 (offset = centre − grid), ends = nearest grids
+  within 1,500. Mark / size text `B1`, `B1 (300x600)`, `2B3 250x500` (letters with B + number, count ignored) beside the
+  piece (≤ 1,200 from its face, matching direction preferred); width from the lines (a different text width is warned), depth
+  from the text, the same mark elsewhere, the Beam Template, else 600 (warned, low confidence).
+- columns: closed outlines / circles on column layers 100–3,000 at a grid crossing (± half the size) → size X × Y, mark `C1`
+  nearby; off-crossing columns skipped, offsets not kept (warned), round = square (warned).
+- openings: closed outlines on opening layers, circles there (round), or any closed rectangle crossed corner to corner;
+  label `OP-1` / `H1` nearby, else OP-n.
+- slab marks: texts `S1`, `S-1`, `FS1`, `S1 (t=150)` on slab / text layers → label point; the panel holding it takes the mark
+  (existing names matched ignoring case and “-”; a new mark comes from `spec.slabTemplates`, else the default bars and the
+  label thickness); marks missing from the project's slab list are warned.
+- apply (`applyProposal`): ticked rows only; grid / beam rows rebuild the panels (`autoPanels`) and every label is re-applied;
+  beams keep their id / rank when the same line is edited; nothing ticked = the same floor object.
+
+**`FloorProposal` (contract for S4b / AI)** — every coordinate in floor mm (origin applied), grids by label:
+```ts
+type Evidence={handles:string[];at?:[number,number];text?:string};      // DXF entity handles / position / text read
+type Item={id:string;confidence:number;evidence:Evidence};               // confidence 0..1
+type FloorProposal={
+ grids:(Item&{axis:'X'|'Y';label:string;at:number})[];
+ beams:(Item&{mark:string;along:'X'|'Y';line:string;from:string;to:string;width:number;depth:number;offset:number})[];
+ columns:(Item&{x:string;y:string;sx:number;sy:number;mark?:string})[];
+ openings:(Item&{shape:'rect'|'circle';x:number;y:number;w:number;h:number;label:string})[];   // lower-left corner
+ panelMarks:(Item&{at:[number,number];mark:string;thickness?:number})[];
+ warnings:string[];source:{kind:'dxf'|'pdf'|'ai';attachmentId:string;page?:number};origin:[number,number]};
+```
+Ids: `g:X:A`, `b:X:1:A-D`, `c:A/1`, `o:1`, `m:1`. S4b fills the same object (evidence = page + position / quoted text
+instead of handles) and reuses `proposalDiff` / `applyProposal` and the review step unchanged.
+
+Accuracy (fixtures, `tests/slabTrace.test.ts`): DXF import exact (grids ±0 mm, sizes / offsets exact); two-point alignment of
+the m drawing turned 90°: scale 1,000.000, −90°, < 1 mm at the 10 other crossings; vector PDF A3 1:100: snap at all 12
+crossings ≤ 50 mm (0.5 mm × 100), measured < 1 mm. Real J-074 PDFs (`Referrence/J-074 Standard`): vector, 116–221,491 pieces
+per page, operator list ≤ 0.5 s, reading + index < 0.1 s (ad-hoc `tmp/s4real.test.ts`); no DXF / ground truth there.
+
+Limits: no AI (S4b), no schedule / table reading, DWG = Save As DXF, oblique grids not read, columns only at crossings
+(no offset), one underlay per floor, PDF text not used for snap, HATCH not read (dxf-parser), images (PNG / JPEG) without snap.
+
 ## Tests
+
+`tests/slabTrace.test.ts` (S4a): layer-name roles / beam + slab texts, DXF fixture (mm) → grids, 7 beam lines with mark /
+size / offset, 12 columns, opening, S1 × 4 / S2 × 2 = the hand floor (`tests/fixtures/slabPlan.ts` `handFloor()`) with equal
+S1 bars / quantities and S3 beam groups, m file = mm file, no $INSUNITS → ask, two plans + window, saved layer map guessed for
+a file with other layer names, nothing ticked = same floor / ticked rows only, two-point alignment turned 90° in m (< 1 mm),
+vector PDF A3 1:100 (jsPDF) segments + snap ≤ 0.5 mm × scale, snap kinds + window index, underlay without effect on bars /
+quantities / sheets / DXF / drawing hash, backup restore remaps the underlay file, copy drops it. Fixture files:
+`tests/fixtures/slab-plan/` (written by the ad-hoc seed `tmp/s4seed.test.ts`). UI check on the separate emulators
+(`tmp/s3emu/`, project `s4proj`): images in `output/slab-trace-verification/`.
+
 
 `tests/floorBeams.test.ts` (S3): 7 groups from the 4 × 3 floor with columns, beam + slab = hand total without overlap,
 secondary stops at the primary face and ranks swap, deeper = primary, 14 spans → 2 groups, Beam Templates / defaults +
