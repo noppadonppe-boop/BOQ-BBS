@@ -2,9 +2,9 @@ import {z} from 'zod';
 import type {Member,Project,SnapshotBundle,DrawingLayout} from './model';
 const text=(n:number)=>z.string().trim().max(n);
 // BBS sheet paper (landscape, mm) and view scale: 'auto' = largest standard 1:N that fits, a number = fixed 1:N
-export const sheetSizes={A3:{w:420,h:297},A2:{w:594,h:420}} as const;
+export const sheetSizes={A3:{w:420,h:297},A2:{w:594,h:420},A1:{w:841,h:594}} as const;
 export type SheetSize=keyof typeof sheetSizes;
-export const sheetSizeSchema=z.enum(['A3','A2']);
+export const sheetSizeSchema=z.enum(['A3','A2','A1']);
 export const viewScaleSchema=z.union([z.literal('auto'),z.number().int().min(1).max(1000)]);
 export type ViewScale=z.infer<typeof viewScaleSchema>;
 // plan drawing style: one representative bar per Mark + distribution line, or every bar; split = separate bottom / top
@@ -25,7 +25,9 @@ export const viewScaleChoices=[20,25,50,75,100];
 // sheetSize / viewScale = this member's override of the project default (titleBlock.sheetSize / viewScale)
 export const drawingSetupSchema=z.object({number:text(80),revision:text(16),title:text(120),numberKey:text(200).optional(),run:z.number().int().min(1).max(999).optional(),rev:z.number().int().min(0).max(9).optional(),...sheetStyle,
  /** per-Tag sheets: only these tags (empty / absent = every tag) */
- partTags:z.array(z.string().max(16)).max(60).optional()});
+ partTags:z.array(z.string().max(16)).max(60).optional(),
+ /** slab floor whole-floor sets: equal bars across slab marks share one Mark SF-nn */
+ floorMerge:z.boolean().optional()});
 export type DrawingSetup=z.infer<typeof drawingSetupSchema>;
 export const drawingProfileSchema=z.object({template:z.literal('owner-v1'),language:z.enum(['th','en']),projectName:text(80).min(1),company:text(80),owner:text(80),location:text(80),contract:text(50),discipline:text(50),preparedBy:text(60),checkedBy:text(60),indexNumber:text(80),indexRevision:text(16)});
 export type DrawingProfile=z.infer<typeof drawingProfileSchema>;

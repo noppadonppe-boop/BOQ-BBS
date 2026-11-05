@@ -3,8 +3,8 @@
  * caller's (px on screen, mm on sheets). `group` tags primitives of one bar Mark. */
 type Stroke={stroke?:string;width?:number;dash?:number[]};
 /** CAD layer role of a primitive (DXF export: `cadStandard.ts` maps each role to a layer name / colour / linetype). */
-export type LayerRole='concrete'|'concreteHidden'|'barMain'|'barLink'|'barRef'|'dim'|'mark'|'text'|'symbol'|'titleBlock'|'viewport';
-export const layerRoles:LayerRole[]=['concrete','concreteHidden','barMain','barLink','barRef','dim','mark','text','symbol','titleBlock','viewport'];
+export type LayerRole='concrete'|'concreteHidden'|'barMain'|'barBottom'|'barTop'|'barLink'|'barRef'|'dim'|'mark'|'text'|'symbol'|'titleBlock'|'viewport';
+export const layerRoles:LayerRole[]=['concrete','concreteHidden','barMain','barBottom','barTop','barLink','barRef','dim','mark','text','symbol','titleBlock','viewport'];
 /** `layer` = CAD layer role, `view` = id of the sheet view the primitive belongs to (absent = paper: tables, title block),
  * `key` = stable id of the annotation it draws (Drawing Edit overrides, `drawingEdits.ts`: mark:… / dim:… / user:…). */
 type Meta={group?:string;layer?:LayerRole;view?:string;key?:string};
