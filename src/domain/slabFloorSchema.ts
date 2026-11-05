@@ -74,3 +74,10 @@ export const slabFloorSchema=z.object({version:z.literal(1),
  drops:z.array(floorDropSchema).max(30),
 }).strict();
 export type SlabFloor=z.infer<typeof slabFloorSchema>;
+/** Slab floor accessories as BOQ items (General Spec `spec.slabAccessories`, copied into the slab detailing; default off):
+ * chairs under the top bars per m² of panels with top bars (size, shape U / Z / continuous), concrete spacers per m² of panel. */
+export const slabAccessoriesSchema=z.object({
+ chair:z.object({enabled:z.boolean(),diameter:dia,shape:z.enum(['U','Z','continuous']),perM2:z.number().finite().min(0).max(50)}).strict(),
+ spacer:z.object({enabled:z.boolean(),perM2:z.number().finite().min(0).max(50)}).strict()}).strict();
+export type SlabAccessories=z.infer<typeof slabAccessoriesSchema>;
+export const DEFAULT_SLAB_ACCESSORIES:SlabAccessories={chair:{enabled:false,diameter:12,shape:'U',perM2:1},spacer:{enabled:false,perM2:4}};

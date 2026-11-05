@@ -8,6 +8,7 @@ import {SpecBuildingList} from './SpecBuildingList';
 import {FoundationTemplateList} from './FoundationTemplateList';
 import {BeamTemplateList} from './BeamTemplateList';
 import {SlabWallTemplateList} from './SlabWallTemplateList';
+import {SlabAccessoriesEditor} from './SlabAccessoriesEditor';
 import {FinishLibrary} from './FinishLibrary';
 import {CadStandardEditor} from './CadStandardEditor';
 import {FlatEndCoverPolicy} from './FlatEndCover';
@@ -38,6 +39,7 @@ export function SpecEditor({spec:s,readOnly,onChange,onSave}:{spec:Spec;readOnly
    <FoundationTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
    <BeamTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
    <SlabWallTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
+   <SlabAccessoriesEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <FinishLibrary spec={s} disabled={readOnly} onChange={onChange}/>
    <CadStandardEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <ProjectMaterialsEditor spec={s} disabled={readOnly} onChange={onChange}/>

@@ -461,8 +461,25 @@ export function applySlabFloor(m:Member,input:SlabInput,det:Detailing,warn:(s:st
   if(input.ground.lean.projection>0||input.ground.sand.projection>0)warn('พื้นบนดิน (ทั้งชั้น): ชั้นรองพื้นคิดเท่าพื้นที่แผงบนดิน ไม่รวมระยะยื่น');}
  const r=floorBars(input,det);r.warnings.forEach(warn);
  const bars=groupFloorBars(input,det,r.raw,shift);
+ // chairs / spacers (General Spec, default off): site items gen-slab-chair / -chair-kg / -spacer, rebuilt on every apply
+ const acc=accessoryItems(f,input,det),old=(next.siteWork?.items||[]).filter(it=>!/^gen-slab-/.test(it.id));
+ if(acc.length||(next.siteWork?.items||[]).some(it=>/^gen-slab-/.test(it.id)))next=withSiteWork(next,{...(next.siteWork||emptySiteWork()),items:[...old,...acc].slice(0,30)});
  if(bars.length>300)warn(`ชุดเหล็ก ${bars.length} Mark เกิน 300 ต่อสมาชิก · แบ่งพื้นเป็นหลายสมาชิก`);
  return {member:next,bars};
+}
+/** Chair / spacer BOQ items: chairs per m² of panels with top bars (count + kg: height = thickness − covers − 2 bottom − 2 top
+ * bars, U = 2 legs + 200 top + 2 × 100 feet, Z = leg + 2 × 150, continuous = 1 m per chair), spacers per m² of every panel. */
+export function accessoryItems(f:Floor,input:SlabInput,det:Detailing):{id:string;label:string;unit:string;quantity:number}[]{
+ const a=det.slabAccessories;if(!a)return [];const out:{id:string;label:string;unit:string;quantity:number}[]=[];
+ const area=(ps:FloorPanel[])=>ps.reduce((n,p)=>n+polyArea(p.outline as P2[]),0)/1e6;
+ if(a.chair.enabled&&a.chair.perM2>0&&a.chair.diameter>0){
+  const top=f.panels.filter(p=>{const r=panelSpec(f,p);return r.shortTop.spacing>0||r.longTop.spacing>0||!!(r.topExtra&&r.topExtra.spacing>0);}),A=area(top);
+  if(A>0){const n=Math.ceil(A*a.chair.perM2),d=a.chair.diameter,cv=input.cover,h=Math.max(50,Math.round(Math.max(...top.map(p=>{const r=panelSpec(f,p);return panelThickness(f,p)-cv.top-cv.bottom-2*Math.max(r.shortBottom.diameter,r.longBottom.diameter)-2*Math.max(r.shortTop.diameter,r.longTop.diameter,r.topExtra?.diameter||0);}))));
+   const len=a.chair.shape==='U'?2*h+200+200:a.chair.shape==='Z'?h+300:1000,kg=n*len/1000*d*d/162.2,name=`${d<=9?'RB':'DB'}${d}`;
+   out.push({id:'gen-slab-chair',label:`เหล็กรองเหล็กบน (Chair) ${name} แบบ ${a.chair.shape==='continuous'?'ต่อเนื่อง':a.chair.shape} สูง ${h} · ${a.chair.perM2} ตัว/m² × ${A.toFixed(2)} m²`.slice(0,120),unit:'ตัว',quantity:n},
+    {id:'gen-slab-chair-kg',label:`น้ำหนักเหล็กรองเหล็กบน (Chair) ${name}`,unit:'kg',quantity:Math.round(kg*100)/100});}}
+ if(a.spacer.enabled&&a.spacer.perM2>0){const A=area(f.panels);if(A>0)out.push({id:'gen-slab-spacer',label:`ลูกปูนรองเหล็ก · ${a.spacer.perM2} ก้อน/m² × ${A.toFixed(2)} m²`,unit:'ก้อน',quantity:Math.ceil(A*a.spacer.perM2)});}
+ return out;
 }
 /** Summary per slab mark (plan list): panels, area, concrete. */
 export function floorMarkSummary(f:Floor){

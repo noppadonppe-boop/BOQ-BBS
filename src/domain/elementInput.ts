@@ -5,7 +5,7 @@ import {detailingFromSpec} from './specDetailing';
 import {emptySiteWork,withSiteWork} from './siteWork';
 import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
-import {slabFloorSchema} from './slabFloorSchema';
+import {slabAccessoriesSchema,slabFloorSchema} from './slabFloorSchema';
 import {applySlabFloor,slabFloorProblems} from './slabFloor';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
@@ -137,6 +137,8 @@ export const detailingSchema=z.object({
  lapTable:z.array(z.object({bar:dia,length:mm,top:mm.optional(),ldh:mm.optional()}).strict()).max(20).optional(),
  /** Spec the defaults were taken from (display only). */
  specRef:z.string().max(200).optional(),
+ /** slab floor chairs / spacers as BOQ items (from the General Spec; absent = off) */
+ slabAccessories:slabAccessoriesSchema.optional(),
  /** Beam top-bar extensions (× clear span) from the spec's typical beam details: end (discontinuous) / continuous support. */
  /** Steel grade per bar size from the project spec (e.g. Y12–Y20 SD40, Y25–Y32 SD50); overrides main / tie grade. */
  grades:z.array(z.object({bar:z.number().int().min(1).max(60),grade:z.string().trim().min(1).max(40)}).strict()).max(30).optional(),
