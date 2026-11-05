@@ -1,4 +1,4 @@
-# Slab floor (พื้นทั้งชั้น · Slab layout `floor`) — rounds S1 + S2 + S2.1
+# Slab floor (พื้นทั้งชั้น · Slab layout `floor`) — rounds S1 + S2 + S2.1 + S3
 
 One Slab member holds a whole floor on a grid: grids → reference beams → panels cut at the beam faces → slab marks
 (เบอร์พื้น) from the slab list → openings / drops / lowered areas placed by grid + distance → bars and quantities.
@@ -140,6 +140,9 @@ Floor members get their own sheet; single slabs and every other category draw ex
   away from openings (`floorPlanData` slots). Default `drawingSetup.floorLabels` 'typ': the full label once per Mark (first
   panel, top-left first), “TYP.” on the first of panels with exactly the same Marks, short code (`B01`) elsewhere; toolbar
   “ป้ายทุกแผง” = 'all'. The Mark label check (`labelReport`) finds nothing on the plans of the test floor.
+- **Panel tags follow the slab mark** (S3 task 0): `retagPanels()` gives automatic tags `<mark>-nn` (editor + every apply =
+  migration of saved floors); typed tags keep (`panel.tagCustom`). 'typ' plans leave trimmers / diagonals to the opening
+  detail (D bubble on both plans).
 - **Label text** = design spacing (`S1-B01 DB12@200 (B1)`); trimmers / diagonals by count (`S1-OP1 4-DB12 (B1)`,
   `S1-OD1 2-DB12 (B)`, no distribution line). Where the bars are spread closer, the BBS description / Excel note adds
   “ระยะจริง @194 (แบบ @200)” (`floorSpacingNote`).
@@ -181,16 +184,59 @@ into marks (not re-synced by the spec-change job yet).
 - Per-mark sets come from `tagSheetSets` (`sheetOwners` floor branch); plan views for top / bottom bars need a layer filter
   (face `top` / `bottom` + note prefix).
 
-## For S3 (real beams)
+## Beams from the floor (round S3)
 
-- `floor.beams[]` has `mark`, `along`, `line`, `from`, `to`, `width`, `depth`, `offset` → beam group spans along each line
-  (`gridAt` positions, crossing beams give supports); `beamRect()` = plan box (ends to the crossing beams' far faces).
-- Slab concrete already stops at the beam faces; when beams become members, drop `castWith` references or keep them as
-  context. Slab bars already anchor / lap inside the beam boxes (`genfb` regions) — the beam member must accept them as
-  context or the regions stay.
-- Beam depth is “including the slab” (top = floor level); lowered panels do not lower the beam.
+“สร้าง / อัปเดตคานจากแปลนพื้น” turns every beam line of the saved floor into a real beam-group member (`src/domain/floorBeams.ts`,
+command `syncFloorBeams` in `src/data/direct/floorBeams.ts`, UI `components/FloorBeamsDialog.tsx`).
+
+- **Lines**: segments on one grid line with one offset; touching segments form a run → one member `<floor>-B-<line>`
+  (`-<run>` when a line has separate runs, `-<part>` when a run has > 12 spans: equal parts sharing the split station).
+- **Stations** (span ends) on the grids of the run where the beam is supported — a column (`floor.columns`, reference
+  only, size X × Y or a Column Template; `support` = size along the beam, `supportY` = across), or a crossing beam that is
+  primary over this one (`support` = its width) — where the mark / size changes, and at both ends. Primary at a crossing:
+  `rank` when set (editor “คานหลัก / คานรอง”, per line), else the deeper beam, else the one along X (`primaryOver`).
+  A primary beam ending on a crossing beam without a column runs on over its half width (`placement.ends`, read by
+  `beamGroupLayout`: the first / last span starts / ends past the grid). A free end of a run of ≥ 2 spans = cantilever.
+- **Spans**: length grid to grid, width / depth / mark from the segment, top = floor level (beam depth includes the slab).
+  Concrete per span between the support faces (column / primary beam) — beams counted full depth, slab between the beam
+  faces (S1), so beam + slab = hand total without overlap; the column–beam joints are left to the columns (no members yet).
+- **Bars**: Beam Template of the mark (`spec.beamTemplates`: bars + template id; the size stays the plan's, a different
+  template size gives a warning), else the group defaults (`plainBeamRebar`) + “คาน B2 ยังไม่มี Template”.
+- **Data on the beam input** (optional, old groups unchanged): `placement {floorMember, along, line, from, to, offset, level,
+  ends?}` and `floorSource {kind 'slabFloor', floorMember, floorCode, floorVersion, beamIds, part, generatedHash}` — named
+  `floorSource` because every element input already has `source` (the drawing it was read from).
+- **Ownership**: the floor owns the geometry (lines, spans, sizes, supports, level, marks); the beam member owns the bars.
+  `planFloorBeams()` statuses: new · update (bars kept by span mark: rebar + template, cover / detailing, extra top bars by
+  grid label) · same (geometry hash = `generatedHash`, occurrences and beam ids equal: nothing written, so a repeat is
+  idempotent) · edited (the member's own geometry hash differs from `generatedHash`: written only when “เขียนทับ” is ticked) ·
+  removed (a linked member whose line left the plan: marked “ไม่อยู่ในแปลนแล้ว”, deleted only by the user after a confirm) ·
+  conflict (code used by another member). Occurrences = the floor's (zone / floor / WBS link / quantity).
+- **Command** `syncFloorBeams` (admin / qs): ≤ 25 members and ≤ 4 MiB per call (the dialog sends batches), request id
+  idempotent (`projectTransaction`), the floor must still be at the planned version, an existing member may be overwritten
+  only when it is linked to this floor, members saved as saveMember does (Draft, version + 1, review “จากแปลนพื้น …”).
+- **UI**: floor editor tool “เสา” (click a crossing; “เสาทุกจุดตัดกริด”), beam properties “คานหลัก / คานรอง”, beam list with
+  the linked member chips (ล่าสุด / ต้องอัปเดต / แก้เองแล้ว / ไม่อยู่ในแปลนแล้ว, click = open), the dialog (preview table,
+  warnings, overwrite ticks, delete of removed lines, approx. concrete). Beam group page: banner “สร้างจากแปลนพื้น FL2 ·
+  แนว A” + open the floor + “ยกเลิกการเชื่อมกับแปลนพื้น” (drops `floorSource`, keeps the geometry); geometry fields locked
+  while linked, bars editable. Floor 3D: beams of linked lines solid, the rest faint. `openMember()` (window event) opens a
+  member on its category page.
+- **Floor side**: beams stay `reference` parts + `castWith` in the floor (no double count); the `genfb` placement regions stay
+  (slab bars anchor in them).
+- **Copy / backup**: restore keeps member ids, so `floorSource.floorMember` stays valid; a member copy drops `floorSource`.
+
+For S4 (drawing from PDF / DXF + AI): the floor is the single source of the beam geometry — read grids, beam lines (mark,
+width, depth, offset), columns (size) and panels into `elementInput.floor`, then run the same generator; beam bars come from
+the Beam Templates (read the beam schedule into `spec.beamTemplates` by mark). Beams off the grid lines need grids (the
+generator works on grid labels). Columns are references only — column members are still to come.
 
 ## Tests
+
+`tests/floorBeams.test.ts` (S3): 7 groups from the 4 × 3 floor with columns, beam + slab = hand total without overlap,
+secondary stops at the primary face and ranks swap, deeper = primary, 14 spans → 2 groups, Beam Templates / defaults +
+warning, update (lengths follow, bars kept), same = no write, hand edit detected (overwrite only when ticked), removed lines
+kept, hand-made groups unchanged, task 0 tags, backup round trip / copy drops the link, command (Draft v1, request id replay
+without writes, viewer refused, floor version, foreign member, > 25). UI check on separate emulators: images in
+`output/slab-beams-verification/` (ad-hoc `tmp/s3seed.test.ts`, `tmp/s3emu/`, `tmp/beamSheetPng.test.ts`).
 
 `tests/slabFloorSheet.test.ts` (S2): system layout / paging / boxes, layer-filtered plans with one entry per Mark per panel,
 L/4 dimensions, sections through the lowered panel / drop, opening detail + note, schedule / legend warnings, detail

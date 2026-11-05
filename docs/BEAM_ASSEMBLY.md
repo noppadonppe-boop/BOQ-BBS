@@ -31,3 +31,11 @@ The member editor also avoids replacing a just-saved version with an older subsc
 The supplied BS8666:2000 + Amendments1/2 remains the authorized minimum startup reference. Code33, physical code51 closure, complete BS/ACI/approved reference fixtures, cumulative tolerance, real GULF/owner pilot, arbitrary geometry, native Excel printing and production commissioning remain required. Issued/production consume stay closed. Firebase Auth/Firestore/Storage use the configured direct Web SDK; Cloud Functions are not restored. The user owns Rules/deployment; this increment does not edit/deploy Rules, change `.env` or deploy Hosting/Cloud.
 
 Evidence: `output/beam-assembly-verification/DEVELOPMENT_REPORT.html`.
+
+## Beam groups generated from a slab floor (S3)
+
+Beam groups (`layout: 'group'`) can be generated from a slab floor plan — see `docs/SLAB_FLOOR.md` “Beams from the floor”.
+Such a group carries `placement` (floor member, grid line, first / last grid, offset, level, `ends` past a support-free end
+grid) and `floorSource` (floor member + version, floor beam ids, part, geometry hash). The floor owns the geometry: the
+group page locks those fields and keeps the bars editable; “ยกเลิกการเชื่อมกับแปลนพื้น” removes `floorSource`. Groups
+without these fields behave exactly as before (`beamGroupLayout` reads `placement.ends` only when present).
