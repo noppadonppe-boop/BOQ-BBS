@@ -19,7 +19,7 @@ import {drawingStatus,drawingStatusText} from '../domain/drawingStatus';
 import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay,zoomBox} from './LabelQa';
-import {floorCtx} from '../domain/slabFloorSheet';
+import {floorCtx,floorPlanScale} from '../domain/slabFloorSheet';
 import {HelpButton} from './HelpCenter';
 
 /** On-screen BBS sheet (A3 / A2): identical primitives to the exported PDF (layout sheet-a3-v10).
@@ -68,6 +68,7 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
    <button disabled={dirty||saving} title={dirty?'บันทึกสมาชิกก่อนส่งออก':'ไฟล์ CAD DXF 2018 (แก้ไขได้: Dimension / Leader / MTEXT / Block Mark) ทุกแผ่นของสมาชิกนี้'} onClick={()=>setDxfOpen(true)}><FileDown size={14}/>ส่งออก DXF</button>
    <button className="primary" disabled={dirty||saving} title={dirty?'บันทึกสมาชิกก่อนส่งออก':undefined} onClick={onExport}><Download size={14}/>ส่งออก PDF {F.size}</button></div>
   {misfit.length>0&&<p className="notice warning" role="status">{misfit.map(v=>v.title).join(', ')}: {viewScaleLabel(F.scale)} ไม่พอดีกรอบบน {F.size} · ใช้ {[...new Set(misfit.map(v=>v.n?`1:${v.n}`:'NTS'))].join(' / ')} แทน · เลือกมาตราส่วนเล็กลงหรือใช้กระดาษ A2</p>}
+  {floor&&(()=>{const n2=floorPlanScale(member,'A2'),auto=!member.drawingSetup?.sheetSize;return n2>100?<p className="notice">{auto&&F.size==='A1'?`แปลนบน A2 ได้แค่ 1:${n2} (เล็กกว่า 1:100) · ใช้ A1 อัตโนมัติ`:F.size==='A2'?`แปลนบน A2 ได้ 1:${n2} (เล็กกว่า 1:100) · แนะนำ A1`:`แปลนบน A2 ได้แค่ 1:${n2} · ใช้ ${F.size}`}</p>:null;})()}
   {floor&&<p className="notice">พื้นทั้งชั้น: แผ่นแรก = แปลนเหล็กล่าง / บน · ตารางพื้น · สัญลักษณ์ · Key plan · รูปตัด · รูปขยายช่องเปิด · รายละเอียดมาตรฐาน (Template ระบบ “พื้น” ถ้าไม่ได้จัดหน้าเอง) แล้วตาราง BBS ในแผ่นถัดไป <HelpButton topic="slab-floor-sheet"/></p>}
   {F.size==='A2'&&<p className="notice">A2 (594 × 420 mm) · พิมพ์บนกระดาษ A2 เท่านั้น · ย่อลง A3 ตัวหนังสือจะเล็กเกินอ่าน</p>}
   {F.size==='A3'&&info.scales.some(v=>v.title===sheetText[lang].planBottom)&&<p className="notice">แยกแปลนล่าง / บนบน A3 รูปจะเล็ก · แนะนำกระดาษ A2</p>}

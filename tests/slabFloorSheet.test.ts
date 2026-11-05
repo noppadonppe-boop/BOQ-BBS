@@ -14,7 +14,7 @@ import {tagSheetSets} from '../src/domain/tagSheets';
 import {drawSheetInfo,sheetFormat,sheetPageCount,sheetViews,type SheetData} from '../src/domain/bbsSheet';
 import {resolveSheetLayout,sheetSections} from '../src/domain/sheetLayout';
 import {expandPrims,type Prim} from '../src/domain/drawingPrims';
-import {floorCtx,floorDetails,floorRowLayer,floorSchedule,floorSystemLayout,mergeFloorMarks,openingDetailNote} from '../src/domain/slabFloorSheet';
+import {floorCtx,floorDetails,floorPlanScale,floorRowLayer,floorSchedule,floorSystemLayout,mergeFloorMarks,openingDetailNote} from '../src/domain/slabFloorSheet';
 import {sheetLayoutSchema} from '../src/domain/sheetLayoutSchema';
 import {buildBbsDxf} from '../src/data/dxf';
 import {cadStandardOf,cadStandardSchema,defaultCadStandard} from '../src/domain/cadStandard';
@@ -47,7 +47,7 @@ describe('slab floor sheet: views',()=>{
   expect(sheetFormat(s).size).toBe('A2');expect(sheetFormat(s).layout).toBe('split');
   const r=resolveSheetLayout(s,'A2');expect(r.from).toBe('system');expect(sheetLayoutSchema.safeParse(r.layout).success).toBe(true);
   const p=pagesOf(tagSheetSets(s)[0]);
-  expect(p[0].views.map(v=>v.key)).toEqual(['plan-bottom','plan-top','sec:def-x','sec:def-y','det:op-op1']);
+  expect(p[0].views.map(v=>v.key).sort()).toEqual(['det:op-op1','plan-bottom','plan-top','sec:def-x','sec:def-y']);
   expect(p[0].paper?.map(x=>x.key)).toEqual(['schedule','legend','keyplan','stddet']);
   expect(texts(p[1].prims).some(t=>/BAR BENDING SCHEDULE/.test(t))).toBe(true);
   // boxes inside the drawing area, no overlaps
@@ -131,9 +131,10 @@ describe('slab floor sheet: presentations',()=>{
   expect(mergeFloorMarks(s.rows).map(r=>r.id)).toEqual(s.rows.map(r=>r.id));
   expect(pagesOf(set).flatMap(x=>texts(x.prims)).some(t=>/ใช้ใน S1 × \d+ · S2 × \d+/.test(t))).toBe(true);
  });
- it('large whole floor goes on A1; per-mark sets stay A2; single slabs keep the project paper',()=>{
+ it('a floor whose plans get less than 1:100 on A2 goes on A1 (whole floor and per-mark sets); single slabs keep the project paper',()=>{
   const big=member(floor(f=>{f.gridsX=[0,8000,16000,24000,32000].map((at,k)=>({label:String.fromCharCode(65+k),at}));f.beams=autoBeams(f,{mark:'B1',width:300,depth:600});f.panels=autoPanels(f,'S1');f.openings=[];}));
-  expect(sheetFormat(big.s).size).toBe('A1');expect(sheetFormat({...big.s,member:{...big.m,drawingSetup:{number:'',revision:'',title:'',partSheets:'tag'}}}).size).toBe('A2');
+  expect(sheetFormat(big.s).size).toBe('A1');expect(sheetFormat({...big.s,member:{...big.m,drawingSetup:{number:'',revision:'',title:'',partSheets:'tag'}}}).size).toBe('A1');
+  expect(floorPlanScale(big.m,'A2')).toBeGreaterThan(100);expect(floorPlanScale(big.m,'A1')).toBeLessThan(floorPlanScale(big.m,'A2'));expect(sheetFormat(member().s).size).toBe('A2');
   const single={...blankMember('Slab','S9'),elementInput:defaultElementInput('Slab','manual',spec)};expect(sheetFormat({project,member:single}).size).toBe('A3');
  });
 });

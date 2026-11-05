@@ -24,7 +24,7 @@ export const SHEET={w:420,h:297,left:20,margin:10,strip:135,title:72,bbsRow:9,bb
 export const sheetFormat=(s:Pick<SheetData,'project'|'member'>)=>{const setup=sheetSetupOf(s.project,s.member);
  // slab floor (S2): views sheet(s) first then the BBS tables (split, plans bottom / top); paper A2 unless the member chooses
  // one (whole floor on A1 when its plan does not fit A2 at 1:100)
- if(floorCtx(s.member)){const size=s.member.drawingSetup?.sheetSize||floorPaperSize(s.member,setup.parts!=='tag');return {...SHEET,...sheetSizes[size],...setup,size,layout:'split' as const,split:true};}
+ if(floorCtx(s.member)){const size=s.member.drawingSetup?.sheetSize||floorPaperSize(s.member);return {...SHEET,...sheetSizes[size],...setup,size,layout:'split' as const,split:true};}
  return {...SHEET,...sheetSizes[setup.size],...setup};};
 /** Paper scale (sheet mm per model mm) for a view: fixed 1:N when it fits, else the largest standard 1:N that fits. */
 function pickScale(fit:number,want:ViewScale){
