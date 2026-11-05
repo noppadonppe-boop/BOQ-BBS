@@ -224,7 +224,14 @@ export const helpTopics:HelpTopic[]=[
   steps:['เลือกรูปแบบหน้า: หน้าเดียว (one) หรือแยก (split: ตารางก่อน แล้วรูป)','จำนวนรูปต่อหน้า 0 = อัตโนมัติ, 1–3','Shape model: ทั้งโมเดล หรือแยกตาม Tag + หน้าสรุป','ส่งออก PDF / DXF'],
   tips:['Title block ตั้งที่ ภาพรวม › แก้ไข Title block หรือแทนค่าต่อสมาชิก','กลุ่มคานที่มีการทาบได้หน้าสุดท้ายเป็น splice diagram'],
   limits:['กลุ่มคาน / เสาหลายชั้นใช้หน้าเดียว (one) เท่านั้น'],
-  related:['tags','drawings','dxf-export'],updated:'2026-11-05'},
+  related:['tags','drawings','dxf-export','sheet-composer'],updated:'2026-11-05'},
+ {id:'sheet-composer',group:'ปริมาณ แบบ & ส่งงาน',title:'จัดหน้าแบบ (Sheet Composer)',figure:'sheet-a3',caption:'ย้าย / ครอป / มาตราส่วนรายรูป · เพิ่มรูปตัด · Template',
+  summary:'จัดรูปบนแผ่น BBS เอง: ลากย้าย ปรับกรอบ เปลี่ยนมาตราส่วนทีละรูป ล็อกแนวฉายกับแปลน เพิ่มรูปตัดด้วย 3 คลิก และบันทึกการจัดหน้าเป็น Template ของโครงการ · PDF, ตัวอย่าง และ DXF ใช้การจัดหน้าเดียวกัน',
+  where:'สมาชิก › แท็บ “แบบ & BBS” › จัดหน้าแบบ',
+  steps:['กด “จัดหน้าแบบ” · เลือกรูปบนแผ่นหรือในรายการซ้าย','ลากย้าย / ลากมุมเพื่อครอปกรอบ · ลูกศร 1 mm, Shift 5 mm · Delete = เอาออกไป “ยังไม่ได้วาง”','แถบขวา: มาตราส่วน, ตำแหน่งตัด, ทิศที่มอง, ความลึก, แสดง Dimension / ป้าย Mark / ระดับ, ล็อกแนวฉาย, ล็อกตำแหน่ง','เพิ่มรูปตัด (S): คลิกจุดเริ่มบนแปลน (snap แนวเหล็ก / ขอบ / กึ่งกลาง) → คลิกจุดจบ (ดูตัวอย่าง, Tab สลับทิศมอง) → คลิกวางบนแผ่น หรือ “วางที่แนะนำ” / “วางแผ่นใหม่”','คลิกขวาที่เหล็กในแปลน → “สร้างรูปตัดตั้งฉาก” · ลากเส้นแนวตัดในแปลนเพื่อย้ายแนวตัด','Template › บันทึกเป็น Template… (ตั้งเป็นค่าเริ่มต้นของโครงการได้) · ใช้ Template… · กลับไปใช้ Template / อัตโนมัติ','กด “เสร็จ” แล้วบันทึกสมาชิก'],
+  tips:['รูปตัดชุดเดียวกับ “ภาพหลัก / รูปตัด” ของสมาชิก แก้ที่ไหนก็เปลี่ยนตามกัน','ล็อกแนวฉาย: มาตราส่วนเท่ากัน → จุดพิกัดเดียวกันอยู่แนวเดียวกันกับแปลน · มาตราส่วนต่างกัน → ล็อกเส้นกึ่งกลาง','Template เก็บรูปตัดที่เพิ่มเป็นสัดส่วนตามขนาดสมาชิก · รูปไม่พอดีกรอบจะลดมาตราส่วนเป็นค่ามาตรฐานถัดไปและเตือน','DXF โหมด B: 1 กรอบ = 1 Viewport'],
+  limits:['กรอบซ้อนกัน / ออกนอกแผ่น / ทับตาราง บันทึกไม่ได้','กลุ่มคานและเสาหลายชั้นยังจัดหน้าเองไม่ได้','รูปตัดหักมุม, รูปขยาย Detail, ISO 3D และแนวตัดเอียง: รอบถัดไป','แก้รูปตัด (เพิ่ม / ย้าย) ทำให้สมาชิกกลับ Draft ตามกฎเดิม · การจัดหน้าอย่างเดียวไม่กระทบ'],
+  related:['sheet-a3','dxf-export'],keywords:'composer layout จัดหน้า viewport section รูปตัด template',updated:'2026-11-05'},
  {id:'dxf-export',group:'ปริมาณ แบบ & ส่งงาน',title:'ส่งออก DXF (แก้ไขได้ใน CAD)',figure:'sheet-a3',caption:'Dimension / Leader / MTEXT / Block Mark · Layer S-*',
   summary:'DXF 2018 ที่ช่าง CAD แก้ต่อได้: Dimension เป็น DIMENSION จริง ป้าย Mark เป็น LEADER + Block BBS-MARK (Attribute) ข้อความเป็น MTEXT ทุกอย่าง ByLayer ตาม CAD Standard ของ General Spec · PDF ไม่เปลี่ยน',
   where:'สมาชิก › แท็บ “แบบ & BBS” › ส่งออก DXF · มาตรฐาน: General Spec › มาตรฐาน CAD สำหรับ DXF',
@@ -291,7 +298,7 @@ export const helpTopics:HelpTopic[]=[
 
 /** “มีอะไรใหม่” — newest first; each row points at the topic it changed. */
 export const helpChanges:{date:string;items:{text:string;topic?:string}[]}[]=[
- {date:'2026-11-05',items:[{text:'ส่งออก DXF 2018 แบบแก้ไขได้: Dimension / Leader + Block Mark / MTEXT · โหมด Model + Layout, Model อย่างเดียว, พิกัดกระดาษ',topic:'dxf-export'},{text:'General Spec: มาตรฐาน CAD (Layer S-* / Dimension / Block Mark) สำหรับไฟล์ DXF',topic:'dxf-export'}]},
+ {date:'2026-11-05',items:[{text:'จัดหน้าแบบ (Sheet Composer): ย้าย / ครอป / มาตราส่วนรายรูป, ล็อกแนวฉาย, เพิ่มรูปตัด 3 คลิก, Template การจัดหน้าของโครงการ',topic:'sheet-composer'},{text:'ส่งออก DXF 2018 แบบแก้ไขได้: Dimension / Leader + Block Mark / MTEXT · โหมด Model + Layout, Model อย่างเดียว, พิกัดกระดาษ',topic:'dxf-export'},{text:'General Spec: มาตรฐาน CAD (Layer S-* / Dimension / Block Mark) สำหรับไฟล์ DXF',topic:'dxf-export'}]},
  {date:'2026-11-03',items:[{text:'เพิ่มศูนย์ช่วยเหลือ (คู่มือ) พร้อมภาพประกอบ — กด ? มุมขวาบน หรือ F1',topic:'start'},
   {text:'ขอ 90° / 135° ตามรายละเอียดขอปลอก: ส่วนโค้งแตะเส้นหยุด หาง 10db / ขา 6db–12db',topic:'hooks'},
   {text:'Cover รายด้านของชิ้นส่วน คลิกขอบ / ผิว 3D และ snap ข้างเหล็กอื่น',topic:'cover-faces'},
