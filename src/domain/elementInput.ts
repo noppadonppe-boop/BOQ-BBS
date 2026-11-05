@@ -5,6 +5,8 @@ import {detailingFromSpec} from './specDetailing';
 import {emptySiteWork,withSiteWork} from './siteWork';
 import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
+import {slabFloorSchema} from './slabFloorSchema';
+import {applySlabFloor,slabFloorProblems} from './slabFloor';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
 // single per-category pattern; applyElementInput() converts it to the existing
@@ -446,6 +448,10 @@ const slabSchema=z.object({...base,category:z.literal('Slab'),
  ground:groundSchema,
  cover:z.object({top:mm,bottom:mm,edge:mm}).strict(),
  rebar:z.object({bottomX:meshLayer,bottomY:meshLayer,topX:optionalMesh,topY:optionalMesh}).strict(),
+ /** single = one rectangular slab (fields above); floor = whole floor on a grid (`floor`, docs/SLAB_FLOOR.md): panels, reference
+  * beams, openings, drops; the fields above stay as the cover / ground settings of the floor */
+ layout:z.enum(['single','floor']).default('single'),
+ floor:slabFloorSchema.optional(),
 }).strict();
 const wallSchema=z.object({...base,category:z.literal('Wall'),
  length:mm,thickness:mm,height:mm,
@@ -578,7 +584,7 @@ export function defaultElementInput(category:InputCategory,mode:'manual'|'drawin
   case 'Foundation':return {...common,category,foundationType:'spread',shape:'rect',diameter:2400,chamfer:0,armX:800,armY:800,width:2400,length:2400,thickness:600,pile:structuredClone(DEFAULT_PILE),excavation:{depth:1500,workingSpace:300,slope:0},lean:{thickness:50,projection:100},cover:{bottom:75,top:50,side:75},rebar:{bottomX:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},bottomY:{diameter:16,spacing:150,shape:'21',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},side:{...DEFAULT_FOOTING_SIDE},sideBars:{...DEFAULT_FOOTING_SIDE_BARS}},slab:{...DEFAULT_FOOTING_SLAB},column:structuredClone(DEFAULT_FOOTING_COLUMN),extraColumns:[],levels:{...DEFAULT_FOOTING_LEVELS},subbase:structuredClone(DEFAULT_FOOTING_SUBBASE),pour:structuredClone(DEFAULT_FOOTING_POUR)};
   case 'Column':return {...common,category,shape:'rect',width:400,depth:400,diameter:400,height:3000,cover:{side:40},rebar:{main:{corner:{diameter:20,count:1},sideX:{diameter:20,count:1},sideY:{diameter:20,count:1},diameter:20,count:8},tie:{diameter:9,spacing:150,lower:{length:600,spacing:100},upper:{length:600,spacing:100},inner:{diameter:9,lower:{pattern:'auto',spacing:100},middle:{pattern:'auto',spacing:150},upper:{pattern:'auto',spacing:100}}},bottom:{mode:'none',lap:0},top:{mode:'lap',lap:0}},layout:'single',stack:structuredClone(DEFAULT_COLUMN_STACK),pour:{...DEFAULT_COLUMN_POUR}};
   case 'Beam':return {...common,category,width:300,depth:600,length:6000,cover:{top:40,bottom:40,side:40},rebar:{top:{count:2,diameter:16,shape:'21',leg:0,radius:0},bottom:{count:3,diameter:16,shape:'21',leg:0,radius:0},stirrup:{diameter:9,spacing:150}},layout:'single',grids:[],spans:[],ground:structuredClone(DEFAULT_GROUND)};
-  case 'Slab':return {...common,category,lengthX:6000,lengthY:4000,thickness:150,ground:structuredClone(DEFAULT_GROUND),cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
+  case 'Slab':return {...common,category,layout:'single',lengthX:6000,lengthY:4000,thickness:150,ground:structuredClone(DEFAULT_GROUND),cover:{top:25,bottom:25,edge:25},rebar:{bottomX:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},bottomY:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},topX:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0},topY:{enabled:false,diameter:12,spacing:200,shape:'00',leg:0,radius:0}}};
   case 'Wall':return {...common,category,length:6000,thickness:200,height:3000,cover:{face:30,edge:30},rebar:{layers:2,vertical:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},horizontal:{diameter:12,spacing:200,shape:'00',leg:0,radius:0},lap:true}};
  }
 }
@@ -702,6 +708,8 @@ export function elementInputProblems(input:ElementInput):string[]{
    if(input.rebar.top.count>0)need(input.rebar.top.diameter,'ขนาดเหล็กบน');if(input.rebar.bottom.count>0)need(input.rebar.bottom.diameter,'ขนาดเหล็กล่าง');
    layer(input.rebar.stirrup,'เหล็กปลอก');break;}
   case 'Slab':{
+   if(input.layout==='floor'){need(input.cover.top,'cover ด้านบน');need(input.cover.bottom,'cover ด้านล่าง');need(input.cover.edge,'cover ขอบ');
+    if(!input.floor)p.push('พื้นทั้งชั้น: ยังไม่มีข้อมูลกริด / แผงพื้น');else p.push(...slabFloorProblems(input));break;}
    need(input.lengthX,'ความยาวพื้น (X)');need(input.lengthY,'ความกว้างพื้น (Y)');need(input.thickness,'ความหนาพื้น');
    need(input.cover.top,'cover ด้านบน');need(input.cover.bottom,'cover ด้านล่าง');need(input.cover.edge,'cover ขอบ');
    fits(input.thickness,input.cover.top,input.cover.bottom,'ความหนาพื้น');
@@ -736,7 +744,7 @@ export function edgeDowelSpan(i:Extract<ElementInput,{category:'Foundation'}>,e:
  const z=Math.min(Math.max(e.z>0?e.z:T/2,c.bottom+d/2),T-c.top-d/2),face=e.side==='x0'||e.side==='y0'?0:e.side==='x1'?X:Y,dir=face===0?-1:1;
  return {a:face-dir*embed,b:face+dir*out,z,embed,out,face,dir};
 }
-type GenBar={role:string;note:string;diameter:number;grade:string;count:number;points:V3[];axis:Bar['axis'];face:Bar['face'];radius:number;shapeCode:string;distributionAxis?:Bar['axis'];from?:number;to?:number;offsets?:V3[];turns?:number[];cut?:number};
+export type GenBar={id?:string;mark?:string;role:string;note:string;diameter:number;grade:string;count:number;points:V3[];axis:Bar['axis'];face:Bar['face'];radius:number;shapeCode:string;distributionAxis?:Bar['axis'];from?:number;to?:number;offsets?:V3[];turns?:number[];cut?:number};
 const GEN_PREFIX='gen-';
 export const isGeneratedBar=(b:Bar)=>b.id.startsWith(GEN_PREFIX);
 const markPrefix:Record<InputCategory,string>={Foundation:'F',Beam:'B',Column:'C',Slab:'S',Wall:'W'};
@@ -2194,13 +2202,14 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
     const {placementContext:_c,...rest}=next;
     next={...rest,...(context.length?{placementContext:{version:2 as const,regions:context}}:{}),x:input.length,y:input.width,z:input.depth,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.side),faces:[false,false,true,true,!onGround,false],pedestal:{x:0,y:0,z:0},deductions} as Member;}
    gen=beamBars(input,det,warn);break;}
-  case 'Slab':next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
+  case 'Slab':if(input.layout==='floor'&&input.floor){const r=applySlabFloor(next,input,det,warn);next=r.member;gen=r.bars;break;}
+   next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
   case 'Wall':{const opens=wallOpenings(input);next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions,...(opens.length?{geometry:{solids:[{id:'wall',label:'ผนัง',origin:[0,0,0] as V3,size:[input.length,input.thickness,input.height] as V3,faces:[true,true,true,true,false,false]}],voids:opens.map((o,k)=>({id:`opening${k+1}`,label:(o.label||`ช่องเปิด ${k+1}`).slice(0,80),origin:[o.x0,0,o.z0] as V3,size:[o.x1-o.x0,input.thickness,o.z1-o.z0] as V3,faces:[true,true,false,false,false,o.z1<input.height-1]}))}}:{})};}gen=wallBars(input,det,rounding,warn);break;
  }
  if(m.category!=='Foundation')next={...next,excavation:{bottomX:0,bottomY:0,topX:0,topY:0,depth:0,buriedConcrete:0},lean:{x:0,y:0,thickness:0}};
  if(m.category!=='Foundation')next=withSiteWork(next,next.siteWork&&{...emptySiteWork(),items:next.siteWork.items});
  // slab on ground: lean concrete / sand / sheet / compaction under the slab, no soffit formwork
- if(input.category==='Slab'&&input.ground.support==='ground'){const g=groundLayers(input.ground,input.lengthX,input.lengthY);
+ if(input.category==='Slab'&&input.layout!=='floor'&&input.ground.support==='ground'){const g=groundLayers(input.ground,input.lengthX,input.lengthY);
   next=withSiteWork({...next,lean:g.lean,faces:[true,true,true,true,false,false]},{...(m.siteWork||emptySiteWork()),sand:g.sand,sheet:g.sheet,compaction:g.compaction});}
  // beam on ground: layers along the whole beam (group: outer face to outer face of the end supports)
  if(input.category==='Beam'&&input.ground.support==='ground'){const lay=input.layout==='group'&&input.spans.length?beamGroupLayout(input):undefined,g=groundLayers(input.ground,lay?lay.L:input.length,lay?lay.W:input.width);
@@ -2211,7 +2220,7 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
  const generated:Bar[]=gen.filter(g=>g.count>0&&g.diameter>0).map(g=>{
   const cut=g.cut&&g.cut>0?g.cut:0;
   if(cut>det.stockLength)warn(`${g.note}: ยาวตัด ${cut} mm เกินเหล็กเส้น ${det.stockLength} mm ต้องต่อทาบ`);
-  return {id:`${GEN_PREFIX}${g.role}`,mark:nextMark(),diameter:g.diameter,grade:gradeFor(det,g.diameter,g.grade),count:g.count,axis:g.axis,face:g.face,shape:'polyline',shapeCode:g.shapeCode,start:0,end:0,tail:0,radius:Number(g.radius.toFixed(3)),distributionStart:g.offsets?0:g.from||0,distributionEnd:g.offsets?0:g.to||0,points:g.points.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),cutOverride:cut,placementConfirmed:false,note:g.note.slice(0,500),...(['00','11','21'].includes(g.shapeCode)&&!cut?{lengthMethod:'bs8666' as const}:{}),...(g.distributionAxis&&!g.offsets?{distributionAxis:g.distributionAxis}:{}),...(g.offsets?{offsets:g.offsets.map(o=>o.map(v=>Number(v.toFixed(3))) as V3)}:{}),...(g.offsets&&g.turns&&g.turns.some(t=>t!==0)?{offsetTurns:g.turns}:{})};
+  return {id:g.id??`${GEN_PREFIX}${g.role}`,mark:g.mark&&!used.has(g.mark)?(used.add(g.mark),g.mark):nextMark(),diameter:g.diameter,grade:gradeFor(det,g.diameter,g.grade),count:g.count,axis:g.axis,face:g.face,shape:'polyline',shapeCode:g.shapeCode,start:0,end:0,tail:0,radius:Number(g.radius.toFixed(3)),distributionStart:g.offsets?0:g.from||0,distributionEnd:g.offsets?0:g.to||0,points:g.points.map(p=>p.map(v=>Number(v.toFixed(3))) as V3),cutOverride:cut,placementConfirmed:false,note:g.note.slice(0,500),...(['00','11','21'].includes(g.shapeCode)&&!cut?{lengthMethod:'bs8666' as const}:{}),...(g.distributionAxis&&!g.offsets?{distributionAxis:g.distributionAxis}:{}),...(g.offsets?{offsets:g.offsets.map(o=>o.map(v=>Number(v.toFixed(3))) as V3)}:{}),...(g.offsets&&g.turns&&g.turns.some(t=>t!==0)?{offsetTurns:g.turns}:{})};
  });
  return {member:{...next,bars:[...generated,...manual]},warnings,generated};
 }
