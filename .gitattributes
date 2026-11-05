@@ -1,0 +1,2 @@
+# binary files never get line-ending conversion (core.autocrlf): a converted PDF loses its byte offsets
+*.pdf binary
