@@ -14,6 +14,9 @@ import {DxfExportDialog} from './DxfExportDialog';
 import {SheetComposer} from './SheetComposer';
 import {composerSupported} from '../domain/sheetLayout';
 import type {ProjectSheetTemplates} from '../domain/sheetLayoutSchema';
+import {labelReport,type LabelIssue} from '../domain/labelQa';
+import {labelRulesOf} from '../domain/cadStandard';
+import {LabelQaBar,LabelQaOverlay,zoomBox} from './LabelQa';
 
 /** On-screen BBS sheet (A3 / A2): identical primitives to the exported PDF (layout sheet-a3-v10).
  * The language switch shows the sheet at once and saves it as the project sheet language (used by the PDF).
@@ -32,6 +35,9 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
  const owners=useMemo(()=>sheetOwners(member),[member]),picked=member.drawingSetup?.partTags||[];
  const def=sheetSetupOf(project),own=sheetStyleKeys.some(key=>member.drawingSetup?.[key]!==undefined);
  const misfit=info.scales.filter(v=>!v.fits);
+ // Mark label check of this page (drawing only)
+ const qa=useMemo(()=>labelReport(info.prims,info.views,labelRulesOf(project.spec)),[info,project.spec]),[qaShow,setQaShow]=useState(false),[qaFocus,setQaFocus]=useState<LabelIssue>();
+ useEffect(()=>setQaFocus(undefined),[qa]);
  const choose=async(next:SheetLang)=>{if(next===lang)return;setLang(next);if(!onLanguage||next===saved)return;setSaving(true);try{await onLanguage(next);}finally{setSaving(false);}};
  return <section className="sheet-preview" aria-label={`แบบ BBS ${F.size}`}>
   <div className="sheet-toolbar"><b>แบบ & BBS · {F.size} ({F.w} × {F.h} mm)</b>
@@ -54,7 +60,8 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
   {misfit.length>0&&<p className="notice warning" role="status">{misfit.map(v=>v.title).join(', ')}: {viewScaleLabel(F.scale)} ไม่พอดีกรอบบน {F.size} · ใช้ {[...new Set(misfit.map(v=>v.n?`1:${v.n}`:'NTS'))].join(' / ')} แทน · เลือกมาตราส่วนเล็กลงหรือใช้กระดาษ A2</p>}
   {F.size==='A2'&&<p className="notice">A2 (594 × 420 mm) · พิมพ์บนกระดาษ A2 เท่านั้น · ย่อลง A3 ตัวหนังสือจะเล็กเกินอ่าน</p>}
   {F.size==='A3'&&info.scales.some(v=>v.title===sheetText[lang].planBottom)&&<p className="notice">แยกแปลนล่าง / บนบน A3 รูปจะเล็ก · แนะนำกระดาษ A2</p>}
-  <div className="sheet-paper"><svg viewBox={`0 0 ${F.w} ${F.h}`} role="img" fontFamily="Sarabun, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif"><rect x={0} y={0} width={F.w} height={F.h} fill="#fff"/><PrimsSvg prims={prims}/></svg></div>
+  <LabelQaBar reports={qa} show={qaShow} onShow={setQaShow} focus={qaFocus} onFocus={setQaFocus}/>
+  <div className="sheet-paper"><svg viewBox={zoomBox(F.w,F.h,qaFocus)} role="img" fontFamily="Sarabun, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif"><rect x={0} y={0} width={F.w} height={F.h} fill="#fff"/><PrimsSvg prims={prims}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}</svg></div>
   {compose&&<SheetComposer member={member} project={{...project,titleBlock:{...project.titleBlock,sheetLanguage:lang}}} readOnly={!onCompose} onApply={onCompose} onSaveTemplates={onSaveTemplates} onClose={()=>setCompose(false)}/>}
   {dxfOpen&&<DxfExportDialog member={member} project={project} pages={flat} lang={lang} onClose={()=>setDxfOpen(false)}/>}
   <p className="muted">ตัวอย่างนี้ใช้ชุดคำสั่งวาดเดียวกับไฟล์ PDF · ไฟล์ส่งออกใช้ข้อมูลที่บันทึกแล้ว (snapshot) และลงทะเบียน checksum · ภาษาที่เลือกบันทึกเป็นภาษาแบบของโครงการ (ทุกสมาชิก)</p>

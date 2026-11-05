@@ -4,6 +4,7 @@ import type {Spec} from '../domain/model';
 import {layerRoles,type LayerRole} from '../domain/drawingPrims';
 import {aciHex,cadFonts,cadStandardOf,cadStandardSchema,defaultCadStandard,dxfLineweights,layerRoleLabels,type CadLayer,type CadStandard} from '../domain/cadStandard';
 import {NumInput} from './EditorControls';
+import {defaultLabelRules,type LabelRules} from '../domain/labelQa';
 import {HelpButton} from './HelpCenter';
 
 const Num=({onChange,...rest}:{value:number;min:number;max:number;step?:number;disabled:boolean;'aria-label'?:string;onChange:(v:number)=>void})=><NumInput {...rest} onChange={e=>onChange(Number(e.target.value))}/>;
@@ -11,9 +12,10 @@ const linetypes:CadLayer['linetype'][]=['Continuous','HIDDEN2','DASHED','CENTER2
 /** General Spec · CAD Standard of the DXF export (spec.cadStandard): layers per drawing role (ByLayer colour / linetype /
  * lineweight / plot), dimension and text basics, the Mark block. No value = the app's S-* set. */
 export function CadStandardEditor({spec,disabled,onChange}:{spec:Spec;disabled:boolean;onChange:(s:Spec)=>void}){
- const cad=cadStandardOf(spec),own=!!spec.cadStandard,[tab,setTab]=useState<'layer'|'dim'|'block'>('layer'),check=cadStandardSchema.safeParse(cad);
+ const cad=cadStandardOf(spec),own=!!spec.cadStandard,[tab,setTab]=useState<'layer'|'dim'|'block'|'qa'>('layer'),check=cadStandardSchema.safeParse(cad);
  const store=(next:CadStandard|undefined)=>{const {cadStandard:_,...rest}=spec;onChange(next?{...rest,cadStandard:next}:rest);};
  const layer=(r:LayerRole,patch:Partial<CadLayer>)=>store({...cad,layers:{...cad.layers,[r]:{...cad.layers[r],...patch}}});
+ const qa:LabelRules={...defaultLabelRules,...cad.labelQa},setQa=(patch:Partial<LabelRules>)=>store({...cad,labelQa:{...qa,...patch}});
  const exportJson=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({format:'form-spec-import',source:'CAD Standard',codes:{},cadStandard:cad},null,1)],{type:'application/json'}));a.download='cad-standard.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
  return <section className="foundation-templates cad-standard" aria-label="CAD Standard สำหรับ DXF">
   <h3>มาตรฐาน CAD สำหรับ DXF <HelpButton topic="dxf-export"/></h3>
@@ -23,7 +25,7 @@ export function CadStandardEditor({spec,disabled,onChange}:{spec:Spec;disabled:b
    <button type="button" onClick={exportJson}><Download size={14}/>ส่งออก (ไฟล์ Spec .json)</button>
    {own&&!disabled&&<button type="button" onClick={()=>store(undefined)}><RotateCcw size={14}/>ใช้ค่าเริ่มต้น S-*</button>}
   </div>
-  <div className="segmented" role="tablist" aria-label="หมวด CAD Standard">{([['layer','Layer'],['dim','Dimension / Text'],['block','Block Mark']] as const).map(([k,t])=><button key={k} type="button" role="tab" aria-selected={tab===k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{t}</button>)}</div>
+  <div className="segmented" role="tablist" aria-label="หมวด CAD Standard">{([['layer','Layer'],['dim','Dimension / Text'],['block','Block Mark'],['qa','ตรวจป้าย Mark']] as const).map(([k,t])=><button key={k} type="button" role="tab" aria-selected={tab===k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{t}</button>)}</div>
   {!check.success&&<p role="alert" className="notice danger">{check.error.issues[0]?.message}</p>}
   {tab==='layer'&&<div className="table-scroll"><table className="cad-layers"><thead><tr><th>สิ่งที่วาดในแอป</th><th>ชื่อ Layer</th><th>สี (ACI)</th><th>Linetype</th><th>LW (mm)</th><th>Plot</th></tr></thead><tbody>
    {layerRoles.map(r=>{const l=cad.layers[r];return <tr key={r}><td>{layerRoleLabels[r]}</td>
@@ -42,6 +44,12 @@ export function CadStandardEditor({spec,disabled,onChange}:{spec:Spec;disabled:b
    <label className="field"><span>ฟอนต์ข้อความ (STYLE)</span><select value={cad.text.font} disabled={disabled} onChange={e=>store({...cad,text:{...cad.text,font:e.target.value as CadStandard['text']['font']}})}>{cadFonts.map(f=><option key={f}>{f}</option>)}</select></label>
    <label className="field"><span>ความสูงข้อความพื้นฐาน (mm)</span><Num value={cad.text.height} min={.5} max={10} step={.1} disabled={disabled} onChange={v=>store({...cad,text:{...cad.text,height:v}})}/></label>
    <p className="muted full">DIMSTYLE ต่อมาตราส่วน: BBS-DIM-1-n (Model: DIMSCALE = n · พิกัดกระดาษ: DIMLFAC = n) · Annotative scale อยู่ในรอบถัดไป</p></div>}
+  {tab==='qa'&&<div className="form-grid">
+   <label className="check full"><input type="checkbox" checked={qa.enabled} disabled={disabled} onChange={e=>setQa({enabled:e.target.checked})}/>ตรวจป้าย Mark บนแบบ (ตัวอย่างแบบ · จัดหน้าแบบ · ส่งออก DXF) <HelpButton topic="label-qa"/></label>
+   <label className="field"><span>ระยะห่างขั้นต่ำระหว่างป้าย (บนกระดาษ, mm)</span><Num value={qa.minGap} min={0} max={10} step={.25} disabled={disabled||!qa.enabled} onChange={v=>setQa({minGap:Math.max(0,Math.min(10,v))})}/></label>
+   <label className="field"><span>เส้นชี้ยาวสุด (บนกระดาษ, mm)</span><Num value={qa.maxLeader} min={10} max={500} step={5} disabled={disabled||!qa.enabled} onChange={v=>setQa({maxLeader:Math.max(10,Math.min(500,v))})}/></label>
+   <label className="check"><input type="checkbox" checked={qa.lines} disabled={disabled||!qa.enabled} onChange={e=>setQa({lines:e.target.checked})}/>ตรวจป้ายที่วางทับเส้นเหล็ก / ขอบคอนกรีต / เส้น Dimension</label>
+   <p className="muted full">ตรวจเสมอ: ป้ายทับกัน · ทับข้อความ / ตัวเลข · เส้นชี้ไขว้กัน · ล้นกรอบรูป (สีแดง) · ชิดเกิน / ทับเส้น / เส้นชี้ยาว (สีเหลือง) · เป็นคำเตือน ไม่บล็อกการส่งออก</p></div>}
   {tab==='block'&&<div className="form-grid">
    <label className="field"><span>ชื่อ Block ป้าย Mark</span><input className="mono" value={cad.mark.blockName} disabled={disabled} maxLength={60} onChange={e=>store({...cad,mark:{...cad.mark,blockName:e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g,'')||defaultCadStandard().mark.blockName}})}/></label>
    <label className="check"><input type="checkbox" checked={cad.mark.useBlock} disabled={disabled} onChange={e=>store({...cad,mark:{...cad.mark,useBlock:e.target.checked}})}/>ป้าย Mark เป็น Block + Attribute (LABEL · MARK · N · SIZE · SPACING · LAYER)</label>

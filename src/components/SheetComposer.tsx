@@ -14,6 +14,9 @@ import {sheetLayoutSchema,type PlacedView,type ProjectSheetTemplates,type SheetL
 import {sheetLangOf} from '../domain/sheetText';
 import {PrimsSvg} from './PrimsSvg';
 import {HelpButton} from './HelpCenter';
+import {labelReport,type LabelIssue} from '../domain/labelQa';
+import {labelRulesOf} from '../domain/cadStandard';
+import {LabelQaBar,LabelQaOverlay} from './LabelQa';
 
 type Box={x:number;y:number;w:number;h:number};
 type Draft={layout?:SheetLayout;sections:SheetSection[]};
@@ -54,6 +57,8 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
  const problems=useMemo(()=>layout.sheets.flatMap((sh,i)=>{const inf=i===page?info:drawSheetInfo(shown,layoutPage(shown,i));
   const boxes=[...inf.views.filter(v=>v.key).map(v=>({view:v.key!,title:v.title,...v.box})),...(inf.notes?[{view:'notes',title:'หมายเหตุ',...inf.notes}]:[])];
   return layoutBoxProblems(boxes,area.area,area.keep).map(p=>`แผ่น ${i+1}: ${p}`);}),[layout,shown,info,page,area]);
+ const qa=useMemo(()=>labelReport(info.prims,info.views,labelRulesOf(project.spec)),[info,project.spec]),[qaShow,setQaShow]=useState(true),[qaFocus,setQaFocus]=useState<LabelIssue>();
+ useEffect(()=>setQaFocus(undefined),[qa]);
  const fitWarn=info.views.filter(v=>!v.fits),dirty=!sameJson(draft.layout,member.sheetLayout)||!sameJson(draft.sections,initSections);
  const unplaced=[...new Set([...layout.unplaced,...all.map(v=>v.key).filter(k=>!layout.sheets.some(s=>s.views.some(v=>v.view===k)))])].filter(k=>k!=='notes'||area.notes);
 
@@ -210,7 +215,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
     <main className="composer-canvas" onDragOver={e=>e.preventDefault()} onDrop={e=>{const k=e.dataTransfer.getData('text/view') as ViewKey;if(!k||readOnly)return;const [x,y]=pt(e),v=layout.sheets.flatMap(s=>s.views).find(q=>q.view===k),sz=v?{w:v.w,h:v.h}:sizeFor(k,planN());place(k,{x:x-sz.w/2,y:y-sz.h/2,...sz},page,v?.n);}}>
      <svg ref={svg} viewBox={`0 0 ${info.w} ${info.h}`} className={tool?'tool':''} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={()=>setHover(undefined)} onContextMenu={onContext}
       onPointerDown={e=>{if(tool){const [x,y]=pt(e);toolClick(x,y);}else setSel(undefined);}} role="img" aria-label="แผ่นที่กำลังจัด" fontFamily="Sarabun, sans-serif">
-      <rect x={0} y={0} width={info.w} height={info.h} fill="#fff"/><PrimsSvg prims={info.prims}/>
+      <rect x={0} y={0} width={info.w} height={info.h} fill="#fff"/><PrimsSvg prims={info.prims}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}
       {area.keep.map((k,i)=><rect key={i} {...k} className="keepout"/>)}
       {opt.grid&&<g className="grid5">{Array.from({length:Math.floor(info.w/5)},(_,i)=><line key={'x'+i} x1={i*5} x2={i*5} y1={0} y2={info.h}/>)}{Array.from({length:Math.floor(info.h/5)},(_,i)=><line key={'y'+i} y1={i*5} y2={i*5} x1={0} x2={info.w}/>)}</g>}
       {[...placed].map(v=>{const b=drag?.key===v.view?drag.cur:boxOf(v.view)||v,on=sel===v.view;
@@ -246,6 +251,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
     <aside className="composer-props" aria-label="คุณสมบัติรูป">
      {msg&&<p className="notice" role="status" onClick={()=>setMsg('')}>{msg}</p>}
      {problems.length>0&&<div className="notice danger"><b>บันทึกไม่ได้:</b><ul>{problems.slice(0,6).map(p=><li key={p}>{p}</li>)}</ul></div>}
+     <LabelQaBar compact reports={qa} show={qaShow} onShow={setQaShow} focus={qaFocus} onFocus={i=>{setQaFocus(i);const k=i&&info.views.find(v=>v.id===i.view)?.key;if(k)setSel(k);}}/>
      {fitWarn.length>0&&<p className="notice warning">{fitWarn.map(v=>`${v.title}: ใช้ ${v.n?`1:${v.n}`:'NTS'} (มาตราส่วนที่เลือกไม่พอดีกรอบ)`).join(' · ')}</p>}
      {!selV?<p className="muted">เลือกรูปบนแผ่นหรือในรายการ</p>:<>
       <div className="sel-head"><small>รูปที่เลือก</small><b>{title(selV.view)}</b></div>

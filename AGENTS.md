@@ -179,6 +179,9 @@
   Templates `project.sheetTemplates` (command `saveSheetTemplates`, restore `restoredSheetTemplates`) + `spec.sheetLayoutTemplates`
   (import key). `buildView` ViewSpec `look` / `depth` / `extent`; `renderView` `hide`, `sectionLines` (cut bubbles letter / sheet).
   UI `SheetComposer.tsx` (button “จัดหน้าแบบ” in `SheetA3Preview`). Test `tests/sheetComposer.test.ts`; harness `tmp/preview/composer.html`.
+  Mark label check `src/domain/labelQa.ts` (`labelReport()`: overlap / on text / crossing / outside = high, tight / on line / long = low;
+  rules `spec.cadStandard.labelQa` via `labelRulesOf()`), UI `components/LabelQa.tsx` in the preview, Composer and DXF dialog; warnings
+  only, the drawing never changes. Test `tests/labelQa.test.ts`.
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
   `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
   `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),

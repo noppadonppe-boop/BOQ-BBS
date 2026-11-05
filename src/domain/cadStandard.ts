@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {layerRoles,type LayerRole} from './drawingPrims';
+import {defaultLabelRules,type LabelRules} from './labelQa';
 
 /** CAD standard of the DXF export (General Spec `spec.cadStandard`; absent = the app's S-* set below).
  * Every exported entity is ByLayer: colour / linetype / lineweight come from the layer of its role. */
@@ -10,7 +11,9 @@ export const cadStandardSchema=z.object({version:z.literal(1),
  layers:z.object(Object.fromEntries(layerRoles.map(r=>[r,layerSchema])) as Record<LayerRole,typeof layerSchema>).strict(),
  dim:z.object({textHeight:z.number().min(.5).max(10),arrow:z.enum(['tick','closed','dot']),extOffset:z.number().min(0).max(10),extBeyond:z.number().min(0).max(10),precision:z.number().int().min(0).max(3)}).strict(),
  text:z.object({font:z.enum(cadFonts),height:z.number().min(.5).max(10)}).strict(),
- mark:z.object({blockName:z.string().trim().min(1).max(60).regex(/^[A-Za-z0-9_-]+$/),useBlock:z.boolean()}).strict()}).strict()
+ mark:z.object({blockName:z.string().trim().min(1).max(60).regex(/^[A-Za-z0-9_-]+$/),useBlock:z.boolean()}).strict(),
+ /** Mark label check of the sheet (absent = defaultLabelRules) */
+ labelQa:z.object({enabled:z.boolean(),minGap:z.number().min(0).max(10),maxLeader:z.number().min(10).max(500),lines:z.boolean()}).strict().optional()}).strict()
  .refine(c=>new Set(Object.values(c.layers).map(l=>l.name.toUpperCase())).size===layerRoles.length,'ชื่อ Layer ซ้ำกัน');
 export type CadStandard=z.infer<typeof cadStandardSchema>;
 export type CadLayer=CadStandard['layers'][LayerRole];
@@ -26,6 +29,8 @@ export function defaultCadStandard():CadStandard{
 }
 /** The spec's CAD standard, else the default (an invalid stored value also falls back to the default). */
 export function cadStandardOf(spec:{cadStandard?:unknown}):CadStandard{const r=cadStandardSchema.safeParse(spec.cadStandard);return r.success?r.data:defaultCadStandard();}
+/** Rules of the Mark label check (`labelQa.ts`) from the spec's CAD standard. */
+export const labelRulesOf=(spec:{cadStandard?:unknown}):LabelRules=>({...defaultLabelRules,...cadStandardOf(spec).labelQa});
 /** Standard DXF lineweights (1/100 mm): a lineweight is written as the nearest one. */
 export const dxfLineweights=[0,5,9,13,15,18,20,25,30,35,40,50,53,60,70,80,90,100,106,120,140,158,200,211];
 export const lineweightCode=(mm:number)=>dxfLineweights.reduce((b,v)=>Math.abs(v-mm*100)<Math.abs(b-mm*100)?v:b,0);

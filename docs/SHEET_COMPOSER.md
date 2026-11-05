@@ -72,6 +72,18 @@ Cut lines on plans can be dragged; right click on a bar leg → “สร้า�
 “เสร็จ” writes `sheetLayout` (and drawingViews v2 only when the sections changed) into the member draft; save the member as
 usual. Read-only users can open it to look.
 
+## Mark label check (`src/domain/labelQa.ts`)
+
+`labelIssues(prims, views, rules)` / `labelReport()` check the drawn sheet (never change it): label boxes (text width
+estimate `textWidth`, cap 0.8 · size) — `overlap`, `onText` (dimension / level / other text of the view), `cross` (leaders
+crossing), `outside` (label past its view box) = high; `tight` (closer than `minGap`), `onLine` (bar / concrete / dimension
+line through the label), `long` (leader > `maxLeader`) = low. Rules `spec.cadStandard.labelQa {enabled, minGap 1, maxLeader 75,
+lines}` (optional key: standards saved before still parse), read with `labelRulesOf(spec)`; UI tab “ตรวจป้าย Mark” in
+`CadStandardEditor`. Shown by `LabelQaBar` / `LabelQaOverlay` (`components/LabelQa.tsx`): preview (chips per view, “แสดงบนแบบ”,
+issue list → zoom `zoomBox`), Composer right panel (click selects the view), DXF dialog “ตรวจก่อนส่งออก” (all pages). Warnings
+only. Test `tests/labelQa.test.ts`; ad-hoc counts on every fixture sheet `tmp/labelAudit.test.ts`. Next: placement solver +
+“ลองหลายแบบ” variants, dragged label offsets.
+
 ## Tests
 
 `tests/sheetComposer.test.ts`: default sections = old cuts, v1 member sheet unchanged, v1 → v2, schema / bounds, snap on a

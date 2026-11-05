@@ -6,6 +6,8 @@ import {cadFonts,cadStandardOf,defaultCadStandard} from '../domain/cadStandard';
 import type {DxfMode,DxfSheet,DxfSummary} from '../data/dxf';
 import {Modal} from './EditorControls';
 import {HelpButton} from './HelpCenter';
+import {labelCountText,labelReport,totalCount} from '../domain/labelQa';
+import {labelRulesOf} from '../domain/cadStandard';
 
 /** Scales a CAD reader expects on a structural sheet; others (1:30, 1:40 …) are flagged. */
 const PREFERRED=[1,2,5,10,20,25,50,75,100,200,250,500,1000];
@@ -25,6 +27,7 @@ export function DxfExportDialog({member,project,pages,lang,onClose}:{member:Memb
  const [dxf,setDxf]=useState<typeof import('../data/dxf')>();
  useEffect(()=>{let live=true;void import('../data/dxf').then(m=>{if(live)setDxf(m);});return()=>{live=false;};},[]);
  const summary=useMemo<DxfSummary|undefined>(()=>{if(!dxf||r12)return;try{return dxf.buildBbsDxf(sheets,{mode,cad,font,edit}).summary;}catch{return;}},[dxf,sheets,mode,cad,font,edit,r12]);
+ const qa=useMemo(()=>{const rules=labelRulesOf(project.spec);return sheets.flatMap((s,i)=>labelReport(s.prims,s.views,rules).filter(r=>r.high+r.low).map(r=>({...r,page:i+1})));},[sheets,project.spec]);
  const views=sheets.flatMap(s=>s.views),nts=views.filter(v=>!v.n),odd=[...new Set(views.filter(v=>v.n&&!PREFERRED.includes(v.n)).map(v=>v.n))];
  const base=`${project.code}-${member.code}-BBS-${lang.toUpperCase()}${r12?'-R12':`-${mode}`}`;
  const run=async()=>{setBusy(true);setErr('');try{
@@ -69,9 +72,10 @@ export function DxfExportDialog({member,project,pages,lang,onClose}:{member:Memb
      <div className="dxf-list"><small>DIMSTYLE</small>{summary.dimstyles.map(l=><code key={l}>{l}</code>)}</div>
      {summary.blocks.length>0&&<div className="dxf-list"><small>BLOCK</small>{summary.blocks.map(l=><code key={l}>{l}</code>)}</div>}
     </>}
-    {(nts.length>0||odd.length>0||(summary?.warnings.length??0)>0)&&<div className="notice warning"><b>ตรวจก่อนส่งออก:</b><ul>
+    {(nts.length>0||odd.length>0||qa.length>0||(summary?.warnings.length??0)>0)&&<div className="notice warning"><b>ตรวจก่อนส่งออก:</b><ul>
      {nts.length>0&&<li>{nts.length} รูปไม่ได้ใช้มาตราส่วน (NTS){mode==='B'?' · วางใน Paper space ของ Layout':mode==='C'?' · วาดบนกรอบ · ตัวเลขใช้ DIMLFAC':''}</li>}
      {odd.length>0&&<li>มาตราส่วนที่ไม่ใช่มาตรฐาน: {odd.map(n=>`1:${n}`).join(', ')} · แนะนำเลือกมาตราส่วนรูปหรือใช้กระดาษ A2</li>}
+     {qa.length>0&&<li>ป้าย Mark: {labelCountText(totalCount(qa))} ({qa.slice(0,4).map(r=>`แผ่น ${r.page} ${r.title}`).join(', ')}{qa.length>4?' …':''}) · ส่งออกได้ · แก้ใน CAD ได้เพราะ Leader / Block แก้ไขได้</li>}
      {mode==='C'&&summary?.warnings.filter(w=>w.includes('Block')).slice(0,4).map(w=><li key={w}>{w}</li>)}</ul></div>}
     <p className="muted">ใช้ข้อมูลที่บันทึกแล้วเหมือน PDF · ยังมีคำเตือน NOT FOR CONSTRUCTION / DRAFT ใน Title block · ไฟล์ DXF ดาวน์โหลดตรง (ยังไม่ลงทะเบียน checksum)</p>
    </aside>
