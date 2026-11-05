@@ -7,6 +7,7 @@ import {concreteSpecSchema} from './concreteMixes';
 import {foundationTemplatesSchema} from './foundationTemplates';
 import {finishesSchema} from './archInputSchema';
 import {cadStandardSchema} from './cadStandard';
+import {sheetTemplatesSchema} from './sheetLayoutSchema';
 import {mergeBuildings,specBuildingsSchema} from './specBuildings';
 import {mergeByName,slabTemplatesSchema,wallTemplatesSchema} from './slabWallTemplates';
 import {columnTemplatesSchema} from './columnTemplates';
@@ -50,6 +51,8 @@ export const specImportSchema=z.object({format:z.literal('form-spec-import'),sou
  finishes:finishesSchema.optional(),
  /** CAD standard of the DXF export (replaces the spec's) */
  cadStandard:cadStandardSchema.optional(),
+ /** sheet layout templates of the Sheet Composer (replace those of the same name, others kept) */
+ sheetLayoutTemplates:sheetTemplatesSchema.optional(),
  /** buildings (replace those of the same code, others kept) */
  buildings:specBuildingsSchema.optional(),
  /** column schedule types / slab list / RC wall list marks (replace those of the same name, others kept) */
@@ -74,7 +77,8 @@ export function applySpecImport(spec:Spec,input:SpecImport){
  if(input.finishes){const keys=new Set(input.finishes.map(f=>`${f.kind}|${f.code.toUpperCase()}`));finishes=[...(spec.finishes||[]).filter(f=>!keys.has(`${f.kind}|${f.code.toUpperCase()}`)),...input.finishes];notes.push(`วัสดุผิว ${input.finishes.length} รายการ`);}
  const buildings=input.buildings?mergeBuildings(spec.buildings,input.buildings):spec.buildings;if(input.buildings)notes.push(`อาคาร ${input.buildings.map(b=>b.code).join(' · ')}`);
  const merged=(['columnTemplates','slabTemplates','wallTemplates'] as const).reduce<Partial<Pick<Spec,'columnTemplates'|'slabTemplates'|'wallTemplates'>>>((o,k)=>{const v=input[k];if(!v)return o;notes.push(`${{columnTemplates:'Column Template',slabTemplates:'Slab Template',wallTemplates:'Wall Template'}[k]} ${v.length} แบบ`);return {...o,[k]:mergeByName(spec[k] as {name:string}[]|undefined,v)};},{});
+ if(input.sheetLayoutTemplates)notes.push(`Template จัดหน้าแบบ ${input.sheetLayoutTemplates.length} แบบ`);
  if(input.cadStandard)notes.push('CAD Standard (Layer / Dimension)');
  if(input.concrete)notes.push(`คอนกรีต ${input.concrete.mixes.length} Mix · ${input.concrete.uses.length} ประเภทชิ้นส่วน`);
- return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(input.cadStandard?{cadStandard:input.cadStandard}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{}),...(buildings?{buildings}:{}),...merged},notes};
+ return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(input.cadStandard?{cadStandard:input.cadStandard}:{}),...(input.sheetLayoutTemplates?{sheetLayoutTemplates:mergeByName(spec.sheetLayoutTemplates,input.sheetLayoutTemplates)}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{}),...(buildings?{buildings}:{}),...merged},notes};
 }
