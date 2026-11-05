@@ -197,9 +197,10 @@ function elementSummary(i:ElementInput){
 }
 const issues=(e:{issues:{path:PropertyKey[];message:string}[]})=>e.issues.map(i=>`${i.path.map(String).join('.')}: ${i.message}`).join('\n');
 
-type Props={member:Member;input:ElementInput;manualBars:Bar[];preview?:Preview;error?:string;problems:string[];qty:number;spec:Spec;readOnly:boolean;onInput:(next:ElementInput)=>void;onManualBars:(bars:Bar[])=>void;onApply:()=>void;onClose:()=>void};
+type Props={member:Member;input:ElementInput;
+ /** S3: slab floor beam lines (`along|line`) that have a beam-group member: drawn solid, the others faint */ linkedLines?:string[];manualBars:Bar[];preview?:Preview;error?:string;problems:string[];qty:number;spec:Spec;readOnly:boolean;onInput:(next:ElementInput)=>void;onManualBars:(bars:Bar[])=>void;onApply:()=>void;onClose:()=>void};
 
-export function Element3DModal({member,input,manualBars,preview,error,problems,qty,spec,readOnly,onInput,onManualBars,onApply,onClose}:Props){
+export function Element3DModal({linkedLines,member,input,manualBars,preview,error,problems,qty,spec,readOnly,onInput,onManualBars,onApply,onClose}:Props){
  const [selected,setSelected]=useState('');
  const [menu,setMenu]=useState<Menu|null>(null);
  const [editing,setEditing]=useState<Editing|null>(null);
@@ -272,7 +273,7 @@ export function Element3DModal({member,input,manualBars,preview,error,problems,q
     <div className="actions"><button className="primary" disabled={readOnly||!preview||preview.errors.length>0} onClick={onApply} title="นำข้อมูลไปใช้กับสมาชิกและสร้าง Bar cut list (ยังต้องกดบันทึกสมาชิก)">ใช้ข้อมูลและสร้าง Bar cut list</button><button className="e3d-close" onClick={onClose} aria-label="ปิด 3D Modal">×</button></div></header>
    <div className="e3d-body">
     <div className="e3d-stage">
-     {preview?<Viewer member={preview.member} rows={rows} input={input} keyOf={keyOf} colorOf={colorOf} labelOf={k=>itemOf(k)?.label||k} selected={selected} onPick={setSelected} onMenu={openMenu}/>
+     {preview?<Viewer linkedLines={linkedLines} member={preview.member} rows={rows} input={input} keyOf={keyOf} colorOf={colorOf} labelOf={k=>itemOf(k)?.label||k} selected={selected} onPick={setSelected} onMenu={openMenu}/>
       :<div className="e3d-empty"><b>ยังแสดงโมเดล 3D ไม่ได้</b>{error&&<p>{error}</p>}{problems.length>0&&<p>ข้อมูลที่ยังขาด ({problems.length}): {problems.slice(0,6).join(' · ')}</p>}<button disabled={readOnly} onClick={()=>openEdit('element')}><Pencil size={14}/>แก้ขนาด{labels[member.category]}</button></div>}
      <div className="e3d-selbar">{sel?<><span className="swatch" style={{background:hex(sel.color)}}/><b>{sel.label}</b><button disabled={!sel.editable} onClick={()=>openEdit(sel.key)}><Pencil size={13}/>{readOnly?'ดูรายละเอียด':'Edit'}</button><button disabled={readOnly||!sel.removable} onClick={()=>remove(sel.key)}><Trash2 size={13}/>ลบ</button></>:<span className="muted">ยังไม่ได้เลือกรายการ</span>}<button disabled={readOnly} onClick={e=>{const r=e.currentTarget.getBoundingClientRect();openMenu('',r.left,r.top-8-36*adders.length);}}><Plus size={13}/>เพิ่มเหล็ก</button></div>
     </div>
@@ -443,7 +444,7 @@ function axisTriad(len:number){
  return g;
 }
 
-function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}:{member:Member;rows:Row[];input?:ElementInput;keyOf:(id:string)=>string;colorOf:(k:string)=>number;labelOf:(k:string)=>string;selected:string;onPick:(k:string)=>void;onMenu:(k:string,x:number,y:number)=>void}){
+function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu,linkedLines}:{linkedLines?:string[];member:Member;rows:Row[];input?:ElementInput;keyOf:(id:string)=>string;colorOf:(k:string)=>number;labelOf:(k:string)=>string;selected:string;onPick:(k:string)=>void;onMenu:(k:string,x:number,y:number)=>void}){
  const host=useRef<HTMLDivElement>(null),api=useRef<{view:(a:string)=>void;paint:(sel:string,hov:string)=>void}|null>(null),cam=useRef<{pos:THREE.Vector3;target:THREE.Vector3}|null>(null);
  const [hover,setHover]=useState(''),[error,setError]=useState('');
  const cb=useRef({onPick,onMenu,selected,hover});cb.current={onPick,onMenu,selected,hover};
@@ -467,6 +468,10 @@ function Viewer({member,rows,input,keyOf,colorOf,labelOf,selected,onPick,onMenu}
   for(const c of contextBoxes(beamColumnBoxes(member.elementInput)))scene.add(c);
   // RC walls on a footing (reference, no quantities)
   for(const c of contextBoxes((member.placementContext?.regions||[]).filter(r=>r.id.startsWith('genwall')),0x6f8186,.45))scene.add(c);
+  // slab floor reference beams (genfb regions, label “คาน B1 แนว A”): solid when a beam-group member exists for the line (S3)
+  if(linkedLines){const fb=(member.placementContext?.regions||[]).filter(r=>r.id.startsWith('genfb')),on=new Set(linkedLines);
+   const lineOf=(r:{label:string;size:number[]})=>`${r.size[0]>=r.size[1]?'X':'Y'}|${r.label.match(/แนว (\S+)/)?.[1]||''}`;
+   for(const c of contextBoxes(fb.filter(r=>on.has(lineOf(r))),0xb9c4c1,.95))scene.add(c);for(const c of contextBoxes(fb.filter(r=>!on.has(lineOf(r))),0x9aa8ad,.18))scene.add(c);}
   const pickables:THREE.Mesh[]=[],coupMat=new THREE.MeshLambertMaterial({color:0x5b6b70});
   for(const r of rows){const k=keyOf(r.id);for(const path of r.paths){const pts=path.map(P);if(pts.length<2)continue;const mesh=new THREE.Mesh(new THREE.TubeGeometry(new PolyCurve(pts),Math.max(2,(pts.length-1)*2),Math.max(r.diameter,4)/2000,6,false),mat(k));mesh.userData.key=k;scene.add(mesh);pickables.push(mesh);
    for(const c of couplerMeshes(pts,r.diameter,barCouplerEnds(member.elementInput,r.id),coupMat)){c.userData.key=k;scene.add(c);pickables.push(c);}}}

@@ -3,6 +3,8 @@ import {BookmarkPlus,Copy,Download,Plus,Trash2} from 'lucide-react';
 import {beamGroupLayout,beamSpliceReport,beamZoneLabels,beamZones,newBeamGrid,newBeamSpan,type BeamGrid,type BeamInput,type BeamRebar,type BeamSpan,type BeamZone} from '../domain/elementInput';
 import {deleteBeamMark,saveBeamMark,useBeamMarks,type BeamMark} from '../data/beamMarks';
 import {NumInput} from './EditorControls';
+import {HelpButton} from './HelpCenter';
+import {openMember} from './memberNav';
 import {applyBeamTemplate,beamTemplateCurrent,beamTemplateSummary,type BeamTemplate} from '../domain/beamTemplates';
 
 const diameters=[6,9,10,12,16,20,25,28,32,36,40];
@@ -40,7 +42,9 @@ const sectionSummary=(r:BeamRebar,zones:BeamZone[])=>`บน ${bars(r.top)} · �
 export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId,templates=[]}:{input:BeamInput;edit:Edit;readOnly:boolean;selected:number;onSelect:(k:number)=>void;projectId:string;templates?:BeamTemplate[]}){
  const sp=input.spans,gr=input.grids,n=sp.length,sel=Math.min(selected,Math.max(0,n-1)),cur=sp[sel],lay=beamGroupLayout(input),zonesOf=(k:number):BeamZone[]=>{const s=lay.spans[k];return s.kind==='cantilever'?['cant']:[...new Set([s.zoneA,'mid' as BeamZone,s.zoneB])];};
  const {marks,error}=useBeamMarks(projectId),[msg,setMsg]=useState('');
- const num=(v:number,on:(v:number)=>void,label:string,neg=false,width=70)=><NumInput aria-label={label} type="number" step="any" style={{width}} disabled={readOnly} value={v} onClick={e=>e.stopPropagation()} onChange={e=>on(neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
+ // linked to a slab floor (S3): the floor owns the geometry (grids, supports, marks, sizes, levels, spans); bars stay editable here
+ const geo=readOnly||!!input.floorSource;
+ const num=(v:number,on:(v:number)=>void,label:string,neg=false,width=70,free=false)=><NumInput aria-label={label} type="number" step="any" style={{width}} disabled={free?readOnly:geo} value={v} onClick={e=>e.stopPropagation()} onChange={e=>on(neg?Number(e.target.value)||0:Math.max(0,Number(e.target.value)||0))}/>;
  const barsIn=(v:{count:number;diameter:number},on:(v:{count:number;diameter:number})=>void,label:string)=><span className="bar-cell">
   <NumInput aria-label={`${label} จำนวน`} type="number" min={0} style={{width:44}} disabled={readOnly} value={v.count} onChange={e=>on({...v,count:Math.max(0,Math.trunc(Number(e.target.value)||0))})}/>
   <select aria-label={`${label} ขนาด`} disabled={readOnly} value={v.diameter} onChange={e=>on({...v,diameter:Number(e.target.value)})}>{[...new Set([...diameters,v.diameter])].sort((a,b)=>a-b).map(d=><option key={d} value={d}>{barName(d)}</option>)}</select></span>;
@@ -64,29 +68,30 @@ export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId
  const saveMark=async()=>{if(!cur)return;setMsg('');try{const m=await saveBeamMark(projectId,{mark:cur.mark,width:cur.width,depth:cur.depth,rebar:cur.rebar},markOf(cur.mark));setMsg(`บันทึกเบอร์ ${m.mark} ลงตารางเบอร์คานของโครงการแล้ว`);}catch(e){setMsg(e instanceof Error?e.message:String(e));}};
  const zoneCols:BeamZone[]=cur?.kind==='cantilever'?['cant']:beamZones.filter(z=>z!=='cant');
  return <div className="beam-group">
+  {input.floorSource&&<FloorLinkBanner input={input} readOnly={readOnly} onUnlink={()=>edit(i=>{delete i.floorSource;})}/>}
   <BeamGroupElevation input={input} selected={sel} onSelect={onSelect}/>
-  <div className="actions"><button type="button" disabled={readOnly||n>=12} onClick={addSpan}><Plus size={14}/>เพิ่มช่วง (คัดลอกช่วงก่อนหน้า)</button>
-   <button type="button" disabled={readOnly||hasStart||n>=12} onClick={()=>addCantilever('start')}><Plus size={14}/>คานยื่นต้น</button>
-   <button type="button" disabled={readOnly||hasEnd||n>=12} onClick={()=>addCantilever('end')}><Plus size={14}/>คานยื่นปลาย</button></div>
+  <div className="actions"><button type="button" disabled={geo||n>=12} onClick={addSpan}><Plus size={14}/>เพิ่มช่วง (คัดลอกช่วงก่อนหน้า)</button>
+   <button type="button" disabled={geo||hasStart||n>=12} onClick={()=>addCantilever('start')}><Plus size={14}/>คานยื่นต้น</button>
+   <button type="button" disabled={geo||hasEnd||n>=12} onClick={()=>addCantilever('end')}><Plus size={14}/>คานยื่นปลาย</button></div>
   {error&&<p className="notice warning">{error}</p>}
   <datalist id="beam-marks">{templates.map(t=><option key={`t-${t.id}`} value={t.name}>{`Template · ${beamTemplateSummary(t)}`}</option>)}{marks.filter(m=>!tplOf(m.mark)).map(m=><option key={m.id} value={m.mark}>{`${m.width}×${m.depth}`}</option>)}</datalist>
-  {unlinked.length>0&&<p className="notice warning">ช่วง {unlinked.map(k=>k+1).join(', ')} มีเบอร์ตรงกับ Beam Template แต่ยังไม่ได้ใช้ขนาดและเหล็กตามแบบ <button type="button" className="primary" disabled={readOnly} onClick={()=>edit(i=>{i.spans.forEach((s,k)=>{const t=!s.template&&tplOf(s.mark);if(t)i.spans[k]=applyBeamTemplate(s,t);});})}>ใช้ตาม Template</button></p>}
+  {unlinked.length>0&&<p className="notice warning">ช่วง {unlinked.map(k=>k+1).join(', ')} มีเบอร์ตรงกับ Beam Template แต่ยังไม่ได้ใช้ขนาดและเหล็กตามแบบ <button type="button" className="primary" disabled={geo} onClick={()=>edit(i=>{i.spans.forEach((s,k)=>{const t=!s.template&&tplOf(s.mark);if(t)i.spans[k]=applyBeamTemplate(s,t);});})}>ใช้ตาม Template</button></p>}
   {templates.length>0&&<p className="muted">เบอร์คานจาก Beam Template ของ General Spec {templates.length} เบอร์ · พิมพ์ / เลือกเบอร์ในช่อง “เบอร์คาน” เพื่อใช้ขนาดและเหล็กตามแบบ (ช่วงเชื่อมกับ Template และอัปเดตเมื่อ Spec เปลี่ยน)</p>}
-  {stale.length>0&&<p className="notice warning">ช่วง {stale.map(k=>k+1).join(', ')} ไม่ตรงกับ Beam Template ใน Spec (Template ถูกแก้ / นำเข้าใหม่ หรือแก้ค่าในช่วงเอง) <button type="button" className="primary" disabled={readOnly} onClick={()=>edit(i=>{i.spans.forEach((s,k)=>{const t=tplById(s.template);if(t)i.spans[k]=applyBeamTemplate(s,t);});})}>อัปเดตตาม Template</button></p>}
+  {stale.length>0&&<p className="notice warning">ช่วง {stale.map(k=>k+1).join(', ')} ไม่ตรงกับ Beam Template ใน Spec (Template ถูกแก้ / นำเข้าใหม่ หรือแก้ค่าในช่วงเอง) <button type="button" className="primary" disabled={geo} onClick={()=>edit(i=>{i.spans.forEach((s,k)=>{const t=tplById(s.template);if(t)i.spans[k]=applyBeamTemplate(s,t);});})}>อัปเดตตาม Template</button></p>}
   <div className="table-scroll"><table className="subbase-table beam-spans"><thead><tr><th>ช่วง</th><th>กริด</th><th>เบอร์คาน</th><th>ยาว c/c</th><th title="ขนาดเสาที่ Support ซ้าย: X ตามแนวคาน × Y ขวางคาน (X = 0 ไม่มีเสา)">เสาซ้าย X × Y</th><th title="ขนาดเสาที่ Support ขวา: X ตามแนวคาน × Y ขวางคาน">เสาขวา X × Y</th><th>b</th><th>h</th><th title="ระดับหลังคานเทียบระดับอ้างอิงของกลุ่ม (− = Drop ลง)">หลังคาน ±</th><th>หน้าตัด</th><th/></tr></thead>
    <tbody>{sp.map((s,k)=>{const lib=markOf(s.mark);return <tr key={k} className={k===sel?'active':''} onClick={()=>onSelect(k)}>
     <td><small>{k+1}{s.kind==='cantilever'?' · ยื่น':''}</small></td>
-    <td><span className="bar-cell"><input aria-label={`ชื่อกริดซ้าย ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={readOnly} value={gr[k]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k,x=>{x.label=e.target.value.slice(0,20);})}/>–<input aria-label={`ชื่อกริดขวา ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={readOnly} value={gr[k+1]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k+1,x=>{x.label=e.target.value.slice(0,20);})}/></span></td>
-    <td><span className="bar-cell"><input aria-label="เบอร์คาน" list="beam-marks" maxLength={32} style={{width:70}} disabled={readOnly} value={s.mark} onClick={e=>e.stopPropagation()} onChange={e=>{const v=e.target.value.slice(0,32),t=tplOf(v),m=markOf(v);if(t)fromTemplate(k,t);else if(m)fromMark(k,m);else span(k,x=>{x.mark=v;delete x.template;});}}/>
+    <td><span className="bar-cell"><input aria-label={`ชื่อกริดซ้าย ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={geo} value={gr[k]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k,x=>{x.label=e.target.value.slice(0,20);})}/>–<input aria-label={`ชื่อกริดขวา ช่วง ${k+1}`} maxLength={20} style={{width:40}} disabled={geo} value={gr[k+1]?.label||''} onClick={e=>e.stopPropagation()} onChange={e=>grid(k+1,x=>{x.label=e.target.value.slice(0,20);})}/></span></td>
+    <td><span className="bar-cell"><input aria-label="เบอร์คาน" list="beam-marks" maxLength={32} style={{width:70}} disabled={geo} value={s.mark} onClick={e=>e.stopPropagation()} onChange={e=>{const v=e.target.value.slice(0,32),t=tplOf(v),m=markOf(v);if(t)fromTemplate(k,t);else if(m)fromMark(k,m);else span(k,x=>{x.mark=v;delete x.template;});}}/>
      {s.template&&<small className="ct-link on" title={tplById(s.template)?beamTemplateSummary(tplById(s.template)!):'ไม่พบใน Spec แล้ว'}>T</small>}
-     {!s.template&&tplOf(s.mark)&&<button type="button" className="icon-button" title={`ใช้ขนาดและเหล็กตาม Beam Template ${s.mark}: ${beamTemplateSummary(tplOf(s.mark)!)}`} disabled={readOnly} onClick={e=>{e.stopPropagation();fromTemplate(k,tplOf(s.mark)!);}}><Download size={13}/></button>}
-     {!s.template&&!tplOf(s.mark)&&lib&&<button type="button" className="icon-button" title={`ใช้ขนาดและเหล็กของ ${lib.mark} จากตารางเบอร์คาน`} disabled={readOnly} onClick={e=>{e.stopPropagation();fromMark(k,lib);}}><Download size={13}/></button>}</span></td>
+     {!s.template&&tplOf(s.mark)&&<button type="button" className="icon-button" title={`ใช้ขนาดและเหล็กตาม Beam Template ${s.mark}: ${beamTemplateSummary(tplOf(s.mark)!)}`} disabled={geo} onClick={e=>{e.stopPropagation();fromTemplate(k,tplOf(s.mark)!);}}><Download size={13}/></button>}
+     {!s.template&&!tplOf(s.mark)&&lib&&<button type="button" className="icon-button" title={`ใช้ขนาดและเหล็กของ ${lib.mark} จากตารางเบอร์คาน`} disabled={geo} onClick={e=>{e.stopPropagation();fromMark(k,lib);}}><Download size={13}/></button>}</span></td>
     <td>{num(s.length,v=>span(k,x=>{x.length=v;}),'ความยาว',false,84)}</td>
     {([[k,'ซ้าย'],[k+1,'ขวา']] as const).map(([g,side])=><td key={side}><span className="bar-cell">{num(gr[g]?.support||0,v=>grid(g,x=>{x.support=v;}),`เสา${side} X (ตามแนวคาน) ช่วง ${k+1}`,false,62)}×{num(gr[g]?.supportY||gr[g]?.support||0,v=>grid(g,x=>{x.supportY=v;}),`เสา${side} Y (ขวางคาน) ช่วง ${k+1}`,false,62)}</span></td>)}
     <td>{num(s.width,v=>span(k,x=>{x.width=v;}),'กว้าง',false,66)}</td><td>{num(s.depth,v=>span(k,x=>{x.depth=v;}),'ลึก',false,66)}</td>
     <td>{num(s.top,v=>span(k,x=>{x.top=v;}),'ระดับหลังคาน',true,68)}</td>
     <td><small>{zonesOf(k).map(z=>beamZoneLabels[z]).join(' · ')}</small><small className="block muted">{sectionSummary(s.rebar,zonesOf(k))}</small></td>
-    <td><button type="button" className="icon-button" aria-label="ลบช่วง" disabled={readOnly||n<2} onClick={e=>{e.stopPropagation();remove(k);}}><Trash2 size={14}/></button></td></tr>;})}</tbody></table></div>
+    <td><button type="button" className="icon-button" aria-label="ลบช่วง" disabled={geo||n<2} onClick={e=>{e.stopPropagation();remove(k);}}><Trash2 size={14}/></button></td></tr>;})}</tbody></table></div>
   {cur&&<div className="beam-section-editor"><div className="section-heading"><h5>หน้าตัดช่วงที่ {sel+1} · {cur.mark} · {cur.width} × {cur.depth}{cur.kind==='cantilever'?' · คานยื่น (CANT)':''}</h5>
    <span className="actions"><button type="button" disabled={readOnly} onClick={()=>edit(i=>{const src=i.spans[sel];i.spans.forEach((s,k)=>{if(k!==sel&&s.mark===src.mark){s.width=src.width;s.depth=src.depth;s.rebar=structuredClone(src.rebar);if(src.template)s.template=src.template;else delete s.template;}});})} title="คัดลอกขนาดและเหล็กไปทุกช่วงที่เป็นเบอร์เดียวกันในกลุ่มนี้"><Copy size={13}/>ใช้กับทุกช่วงเบอร์ {cur.mark}</button>
     <button type="button" disabled={readOnly||!cur.mark.trim()} onClick={()=>void saveMark()}><BookmarkPlus size={13}/>{markOf(cur.mark)?'อัปเดต':'บันทึก'}ลงตารางเบอร์คาน</button>
@@ -103,7 +108,7 @@ export function BeamGroupEditor({input,edit,readOnly,selected,onSelect,projectId
      {zoneCols.map(z=><td key={z}>@ {num(cur.rebar.stirrup.spacing[z],v=>span(sel,x=>{x.rebar.stirrup.spacing[z]=v;}),`ระยะปลอก ${z}`,false,60)}</td>)}</tr>
     <tr><td>เหล็กข้าง (ต่อด้าน) + เหล็กยึด</td><td colSpan={zoneCols.length}><span className="bar-cell">{barsIn({count:cur.rebar.side.count,diameter:cur.rebar.side.diameter},v=>span(sel,x=>{x.rebar.side.count=Math.min(20,v.count);x.rebar.side.diameter=v.diameter;}),'เหล็กข้างต่อด้าน')}
      <small className="muted">ต่อด้าน (รวม {cur.rebar.side.count*2} เส้น) · ยึด</small>
-     <select aria-label="ขนาดเหล็กยึด" disabled={readOnly} value={cur.rebar.side.tie.diameter} onChange={e=>span(sel,x=>{x.rebar.side.tie.diameter=Number(e.target.value);})}>{[6,9,10,12].map(d=><option key={d} value={d}>{barName(d)}</option>)}</select>@{num(cur.rebar.side.tie.spacing,v=>span(sel,x=>{x.rebar.side.tie.spacing=v;}),'ระยะเหล็กยึด',false,60)}</span></td></tr>
+     <select aria-label="ขนาดเหล็กยึด" disabled={readOnly} value={cur.rebar.side.tie.diameter} onChange={e=>span(sel,x=>{x.rebar.side.tie.diameter=Number(e.target.value);})}>{[6,9,10,12].map(d=><option key={d} value={d}>{barName(d)}</option>)}</select>@{num(cur.rebar.side.tie.spacing,v=>span(sel,x=>{x.rebar.side.tie.spacing=v;}),'ระยะเหล็กยึด',false,60,true)}</span></td></tr>
    </tbody></table></div>
    <p className="muted">END = ปลายติดเสาที่ไม่ต่อเนื่อง · CON = ปลายต่อเนื่อง · CANT = ช่วงยื่น · หน้าตัดตาม Beam Details · ระยะตัด EX และช่วงปลอกถี่ตาม General Spec (Typical beam details) · เหล็กยาวเกินเหล็กเส้นต่อทาบอัตโนมัติ</p>
   </div>}
@@ -129,4 +134,10 @@ function SpliceChecks({input}:{input:BeamInput}){
     <td>{r.checks.map(c=><div key={c.key} className={c.state==='fail'?'danger-text':c.state==='warn'?'warn-text':''}>{icon(c.state)} {c.text}</div>)}</td></tr>)}</tbody></table></div>
  </details>;
 }
-
+/** S3: beam group generated from a slab floor — where it comes from, open the floor, unlink (geometry becomes editable here). */
+function FloorLinkBanner({input,readOnly,onUnlink}:{input:BeamInput;readOnly:boolean;onUnlink:()=>void}){
+ const f=input.floorSource!,p=input.placement;
+ return <p className="notice">สร้างจากแปลนพื้น <b>{f.floorCode}</b>{p?` · แนว ${p.line} (${p.from}–${p.to})`:''}{f.part>1?` · ส่วน ${f.part}`:''} · รูปทรง / ช่วง / เสา แก้ที่แปลนพื้น · เหล็กแก้ที่นี่
+  {' '}<button type="button" onClick={()=>openMember(f.floorMember)}>เปิดแปลนพื้น</button>
+  {' '}<button type="button" disabled={readOnly} onClick={()=>{if(confirm('ยกเลิกการเชื่อมกับแปลนพื้น? · คานนี้จะไม่อัปเดตตามแปลนอีก และแก้รูปทรงได้เอง'))onUnlink();}}>ยกเลิกการเชื่อมกับแปลนพื้น</button> <HelpButton topic="slab-floor-beams"/></p>;
+}

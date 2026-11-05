@@ -45,6 +45,7 @@ import {ApiManagePanel} from './components/ApiManagePanel';
 import {ProjectForm,ProjectDeleteDialog,ProjectLogoImage} from './components/ProjectForm';
 import {TitleBlockDialog} from './components/TitleBlockDialog';
 import {ReviewHistory} from './components/ReviewHistory';
+import {OPEN_MEMBER_EVENT} from './components/memberNav';
 import {revisionLabel,statusLabel} from './domain/memberReview';
 const reviewButton={Draft:'ส่งกลับ Draft',Checked:'ตรวจแล้ว (Checked)',ApprovedForIssue:'อนุมัติ IFC'} as const;
 const CuttingWorkspace=lazy(()=>import('./components/CuttingWorkspace').then(m=>({default:m.CuttingWorkspace})));
@@ -67,6 +68,9 @@ const navGroups:[string,NavItem[]][]=[
 export default function App(){
  const {firebaseUser:user,userProfile,loading:authLoading,profileError,refreshProfile,loginWithEmail,loginWithGoogle,registerWithEmail,logout}=useAuth();
  const [pid,setPid]=useState(''),[page,setPage]=useState('overview'),[mid,setMid]=useState(''),[sourceFocus,setSourceFocus]=useState<{memberId:string;attachmentId:string}|null>(null),[busy,setBusy]=useState(false),[toast,setToast]=useState(''),[failure,setFailure]=useState(''),[newProject,setNewProject]=useState(false),[newMember,setNewMember]=useState(false),[quickEdit,setQuickEdit]=useState<Member|null>(null),[search,setSearch]=useState(''),[profileOpen,setProfileOpen]=useState(false),[titleBlockOpen,setTitleBlockOpen]=useState(false),[specOpen,setSpecOpen]=useState(false),[specFocus,setSpecFocus]=useState('');
+ // S3: editors open a linked member (slab floor ↔ beam groups); unsaved edits of the open member are asked about first
+ const linkMembers=useRef<{id:string;category:string}[]>([]);
+ useEffect(()=>{const on=(e:Event)=>{const id=(e as CustomEvent<string>).detail,target=linkMembers.current.find(m=>m.id===id);if(typeof id==='string'&&target&&(!document.querySelector('.member-detail-modal')||confirm('เปิดสมาชิกที่เชื่อมอยู่? · การแก้ไขที่ยังไม่บันทึกของสมาชิกนี้จะหายไป'))){setPage(target.category);setMid(id);}};window.addEventListener(OPEN_MEMBER_EVENT,on);return()=>window.removeEventListener(OPEN_MEMBER_EVENT,on);},[]);
  const [copySource,setCopySource]=useState<{project:Project;member:Member;actorUid:string}|null>(null);
  const [pricingSource,setPricingSource]=useState<{project:Project;member:Member;actorUid:string}|null>(null);
  useEffect(()=>{setPricingSource(null);setCopySource(null);},[user?.uid]);
@@ -91,6 +95,7 @@ export default function App(){
  if(userProfile?.status==='pending')return <PendingApproval profile={userProfile} onLogout={logout}/>;
  if(userProfile?.status==='rejected')return <RejectedApproval profile={userProfile} onLogout={logout}/>;
  if(!userProfile)return <ProfileLoadFailure error={profileError} onRetry={refreshProfile} onGoogle={loginWithGoogle} onLogout={logout}/>;
+ linkMembers.current=members;
  const category=categories.find(c=>page===c),list=members.filter(m=>m.category===category).sort((a,b)=>a.code.localeCompare(b.code)),member=list.find(m=>m.id===mid);
  const steelInput=project?reinforcementCoverage({members,project,attachments}):undefined;
  const total=(k:'concrete'|'formwork'|'rebar')=>sum(totals.map(q=>q[k]*q.quantity));
