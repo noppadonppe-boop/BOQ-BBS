@@ -9,6 +9,7 @@ import {FoundationTemplateList} from './FoundationTemplateList';
 import {BeamTemplateList} from './BeamTemplateList';
 import {SlabWallTemplateList} from './SlabWallTemplateList';
 import {FinishLibrary} from './FinishLibrary';
+import {CadStandardEditor} from './CadStandardEditor';
 import {FlatEndCoverPolicy} from './FlatEndCover';
 import {PrismPolicy} from './PrismEditor';
 import {BarPlacementPolicy} from './BarPlacements';
@@ -38,6 +39,7 @@ export function SpecEditor({spec:s,readOnly,onChange,onSave}:{spec:Spec;readOnly
    <BeamTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
    <SlabWallTemplateList spec={s} disabled={readOnly} onChange={onChange}/>
    <FinishLibrary spec={s} disabled={readOnly} onChange={onChange}/>
+   <CadStandardEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <ProjectMaterialsEditor spec={s} disabled={readOnly} onChange={onChange}/>
    <PrismPolicy spec={s} disabled={readOnly} onChange={onChange}/>
    <BarPlacementPolicy spec={s} disabled={readOnly} onChange={onChange}/>

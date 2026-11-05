@@ -224,7 +224,14 @@ export const helpTopics:HelpTopic[]=[
   steps:['เลือกรูปแบบหน้า: หน้าเดียว (one) หรือแยก (split: ตารางก่อน แล้วรูป)','จำนวนรูปต่อหน้า 0 = อัตโนมัติ, 1–3','Shape model: ทั้งโมเดล หรือแยกตาม Tag + หน้าสรุป','ส่งออก PDF / DXF'],
   tips:['Title block ตั้งที่ ภาพรวม › แก้ไข Title block หรือแทนค่าต่อสมาชิก','กลุ่มคานที่มีการทาบได้หน้าสุดท้ายเป็น splice diagram'],
   limits:['กลุ่มคาน / เสาหลายชั้นใช้หน้าเดียว (one) เท่านั้น'],
-  related:['tags','drawings'],updated:'2026-11-03'},
+  related:['tags','drawings','dxf-export'],updated:'2026-11-05'},
+ {id:'dxf-export',group:'ปริมาณ แบบ & ส่งงาน',title:'ส่งออก DXF (แก้ไขได้ใน CAD)',figure:'sheet-a3',caption:'Dimension / Leader / MTEXT / Block Mark · Layer S-*',
+  summary:'DXF 2018 ที่ช่าง CAD แก้ต่อได้: Dimension เป็น DIMENSION จริง ป้าย Mark เป็น LEADER + Block BBS-MARK (Attribute) ข้อความเป็น MTEXT ทุกอย่าง ByLayer ตาม CAD Standard ของ General Spec · PDF ไม่เปลี่ยน',
+  where:'สมาชิก › แท็บ “แบบ & BBS” › ส่งออก DXF · มาตรฐาน: General Spec › มาตรฐาน CAD สำหรับ DXF',
+  steps:['บันทึกสมาชิกก่อน (ปุ่มใช้ไม่ได้ขณะยังไม่บันทึก)','เลือกรูปแบบ: B = Model 1:1 + Layout (viewport ต่อรูปตามมาตราส่วน) · C = Model อย่างเดียว (กรอบแผ่นขยาย ×N) · A = พิกัดกระดาษเหมือน PDF','เลือก object ที่ให้แก้ได้ (ปิดแล้วเป็นเส้น + ข้อความแบบเดิม)','เลือกชุดมาตรฐาน CAD และฟอนต์ · ทุกแผ่นไฟล์เดียว หรือแยกไฟล์ตาม Tag (ZIP)','ดูแผงสรุป (Layout / Viewport / DIMSTYLE / Layer) และคำเตือน แล้วกดส่งออก'],
+  tips:['DIMSTYLE BBS-DIM-1-n: ใน Model ใช้ DIMSCALE = n · ในพิกัดกระดาษ (A) ใช้ DIMLFAC = n ตัวเลขจึงเป็นระยะจริง','ป้าย Mark: Attribute LABEL (ข้อความที่เห็น) + MARK / N / SIZE / SPACING / LAYER · แก้ด้วย ATTEDIT','“ไฟล์แบบเดิม R12” ยังมีไว้สำหรับโปรแกรมรุ่นเก่า','Layer / สี / Linetype / LW แก้ได้ที่ General Spec › มาตรฐาน CAD'],
+  limits:['รูป NTS (เช่น กลุ่มคานที่ฟิตกรอบ) อยู่ใน Paper space (B) หรือบนกรอบ (C)','ยังไม่ทำ Annotative scale, MLEADER, นำเข้า CAD Standard จาก Template ลูกค้า และ DWG (รอบถัดไป)','ไฟล์ DXF ดาวน์โหลดตรง ยังไม่ลงทะเบียน checksum เหมือน PDF','จุดที่เหล็กของ Leader เป็น HATCH แยกจากเส้น Leader'],
+  related:['sheet-a3','spec'],keywords:'dxf cad autocad dimension leader mtext layer viewport layout dimstyle',updated:'2026-11-05'},
  {id:'drawings',group:'ปริมาณ แบบ & ส่งงาน',title:'แบบ BBS / ส่งงาน และ Revision',
   summary:'รวมแบบของทุกสมาชิก ตรึง Revision ส่งออกไฟล์ชุด และดูประวัติไฟล์ส่งออก',
   where:'เมนู ปริมาณ & แบบ › แบบ BBS / ส่งงาน',
@@ -284,6 +291,7 @@ export const helpTopics:HelpTopic[]=[
 
 /** “มีอะไรใหม่” — newest first; each row points at the topic it changed. */
 export const helpChanges:{date:string;items:{text:string;topic?:string}[]}[]=[
+ {date:'2026-11-05',items:[{text:'ส่งออก DXF 2018 แบบแก้ไขได้: Dimension / Leader + Block Mark / MTEXT · โหมด Model + Layout, Model อย่างเดียว, พิกัดกระดาษ',topic:'dxf-export'},{text:'General Spec: มาตรฐาน CAD (Layer S-* / Dimension / Block Mark) สำหรับไฟล์ DXF',topic:'dxf-export'}]},
  {date:'2026-11-03',items:[{text:'เพิ่มศูนย์ช่วยเหลือ (คู่มือ) พร้อมภาพประกอบ — กด ? มุมขวาบน หรือ F1',topic:'start'},
   {text:'ขอ 90° / 135° ตามรายละเอียดขอปลอก: ส่วนโค้งแตะเส้นหยุด หาง 10db / ขา 6db–12db',topic:'hooks'},
   {text:'Cover รายด้านของชิ้นส่วน คลิกขอบ / ผิว 3D และ snap ข้างเหล็กอื่น',topic:'cover-faces'},
