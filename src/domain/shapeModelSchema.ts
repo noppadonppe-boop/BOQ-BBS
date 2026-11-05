@@ -5,6 +5,7 @@ import {z} from 'zod';
 // Coordinates are member-local mm (plan X/Y, level Z); the applied model is normalised so the
 // lowest concrete corner is at 0,0,0. Piles and earthwork are carried for takeoff and drawings.
 export const SHAPE_MODEL_VERSION=1 as const;
+export const SHAPE_EDITOR_PARTS=40;
 const coord=z.number().finite().min(-200000).max(200000);
 const len=z.number().finite().positive().max(200000);
 const mm=z.number().finite().min(0).max(200000);
@@ -45,6 +46,9 @@ const base={
   * reference = a column / wall above this element cast later (no concrete / formwork here; its starter bars
   * and dowels may run inside it: placement region `genref-<id>`) */
  role:z.enum(['solid','void','reference']),
+ /** reference part cast with / before this element's concrete (beam under a floor slab): solid faces against it need no
+  * formwork (still not quantified here) */
+ castWith:z.boolean().optional(),
  /** pour stage (1 = first pour); overlaps belong to the lower stage */
  stage:z.number().int().min(1).max(9),
  z0:coord,height:len,
@@ -79,7 +83,10 @@ export const shapeSiteSchema=z.object({
 }).strict();
 export const shapeModelSchema=z.object({
  version:z.literal(SHAPE_MODEL_VERSION),
- parts:z.array(shapePartSchema).min(1).max(40),
+ /** ≤ 40 parts drawn in the shape editor (`SHAPE_EDITOR_PARTS`); generated models (slab floors) up to 160 */
+ parts:z.array(shapePartSchema).min(1).max(160),
+ /** soffit of the lowest level is formed too (elevated element, e.g. a slab floor) */
+ soffit:z.boolean().optional(),
  piles:shapePilesSchema.optional(),
  site:shapeSiteSchema.optional(),
  /** bar groups: several parts reinforced as one (bars drawn on the group `sk-<group id>-…` run across its parts) */

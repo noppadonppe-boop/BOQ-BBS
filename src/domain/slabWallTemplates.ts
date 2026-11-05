@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import type {ElementInput} from './elementInput';
+import {topExtraSchema,DEFAULT_SLAB_REBAR,type FloorMark,type TopExtra} from './slabFloorSchema';
 
 // Project Slab / Wall Template: the slab list and RC wall list of a project's drawings (mark, thickness, bars), kept in
 // the spec (spec.slabTemplates / spec.wallTemplates) so a slab or wall element picks a mark and gets its thickness and
@@ -21,7 +22,11 @@ const head={
 export const slabTemplateSchema=z.object({...head,thickness:mm,
  /** ground = slab on ground (S.O.G) */
  support:z.enum(['elevated','ground']),
- rebar:z.object({shortTop:barSchema,shortBottom:barSchema,longTop:barSchema,longBottom:barSchema}).strict()}).strict();
+ rebar:z.object({shortTop:barSchema,shortBottom:barSchema,longTop:barSchema,longBottom:barSchema,
+  /** extra top bars over the beams (บนเสริม, slab floors): Ø@S, length fixed from the beam face / centre or L/3 · L/4 of the short span */
+  topExtra:topExtraSchema.optional(),
+  /** slab floors: outer edge (top bars bent into the edge beam / U bars) and bottom bars at the beams */
+  edge:z.enum(['bend','ubar']).optional(),bottomAtBeam:z.enum(['continuous','stop']).optional()}).strict()}).strict();
 export type SlabTemplate=z.infer<typeof slabTemplateSchema>;
 const countSchema=z.object({count:z.number().int().min(0).max(20),diameter:dia}).strict();
 export const wallTemplateSchema=z.object({...head,thickness:mm,layers:z.union([z.literal(1),z.literal(2)]),vertical:barSchema,horizontal:barSchema,
@@ -37,7 +42,14 @@ export const slabTemplatesSchema=z.array(slabTemplateSchema).max(300).superRefin
 export const wallTemplatesSchema=z.array(wallTemplateSchema).max(300).superRefine(unique('ผนัง'));
 
 const barText=(b:{diameter:number;spacing:number})=>b.spacing>0?`${b.diameter<=9?'RB':'DB'}${b.diameter}@${b.spacing}`:'–';
-export const slabTemplateSummary=(t:SlabTemplate)=>`หนา ${t.thickness}${t.support==='ground'?' (S.O.G)':''} · ด้านสั้น บน ${barText(t.rebar.shortTop)} ล่าง ${barText(t.rebar.shortBottom)} · ด้านยาว บน ${barText(t.rebar.longTop)} ล่าง ${barText(t.rebar.longBottom)}`;
+/** Extra top bar text: DB12@200 ยาว 1000 จากหน้าคาน / L/4 */
+export const topExtraText=(e:TopExtra|undefined)=>!e||!(e.spacing>0)?'–':`${barText(e)} ${e.length.mode==='ratio'?`L/${e.length.n}`:`ยาว ${e.length.value} จาก${e.length.from==='face'?'หน้าคาน':'ศูนย์กลางคาน'}`}`;
+export const slabTemplateSummary=(t:SlabTemplate)=>`หนา ${t.thickness}${t.support==='ground'?' (S.O.G)':''} · ด้านสั้น บน ${barText(t.rebar.shortTop)} ล่าง ${barText(t.rebar.shortBottom)} · ด้านยาว บน ${barText(t.rebar.longTop)} ล่าง ${barText(t.rebar.longBottom)}${t.rebar.topExtra?.spacing?` · บนเสริม ${topExtraText(t.rebar.topExtra)}`:''}`;
+/** Slab floor mark from a slab list template (missing bar layers = none, missing floor options = defaults). */
+export function floorMarkFromTemplate(t:SlabTemplate):FloorMark{
+ const r=t.rebar;return {name:t.name.replace(/[^A-Za-z0-9-]/g,'').slice(0,12)||'S1',thickness:t.thickness,support:t.support,template:t.id,
+  rebar:{shortBottom:{...r.shortBottom},longBottom:{...r.longBottom},shortTop:{...r.shortTop},longTop:{...r.longTop},...(r.topExtra?{topExtra:structuredClone(r.topExtra)}:{}),edge:r.edge??DEFAULT_SLAB_REBAR.edge,bottomAtBeam:r.bottomAtBeam??DEFAULT_SLAB_REBAR.bottomAtBeam}};
+}
 const countText=(b:{count:number;diameter:number})=>`${b.count}-${b.diameter<=9?'RB':'DB'}${b.diameter}`;
 export const wallTemplateSummary=(t:WallTemplate)=>[`หนา ${t.thickness}`,`${t.layers} ชั้น`,`แนวตั้ง ${barText(t.vertical)}`,`แนวนอน ${barText(t.horizontal)}`,t.edge?.count?`EDGE ${countText(t.edge)}`:'',t.corner?.count?`CORNER ${countText(t.corner)}`:'',
  t.opening?.count?`รอบช่องเปิด ${t.layers}x${countText(t.opening)}${t.opening.diagonal?' + ทแยง':''}`:''].filter(Boolean).join(' · ');

@@ -4,8 +4,8 @@ import {z} from 'zod';
 import type {Member,Solid,Vec3} from './model';
 import {boundsOf,solidsOf,solidQuantities,pathInside,pathClearance,insideBox,type Surface} from './solids';
 
-/** Reference regions per member (v2): footings with up to 10 columns need one per projecting column. */
-export const REGION_LIMIT=16;
+/** Reference regions per member (v2): footings with up to 10 columns need one per projecting column; slab floors one per reference beam. */
+export const REGION_LIMIT=64;
 const coordinate=z.number().finite().min(-200000).max(200000);
 const regionFields={
  id:z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),label:z.string().trim().min(1).max(80),
