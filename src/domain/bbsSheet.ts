@@ -15,7 +15,7 @@ import type {SheetScope} from './tagSheets';
 import {DEFAULT_SECTION_IDS,resolveSheetLayout,sectionSpec,sheetSections} from './sheetLayout';
 import type {PlacedView,SheetLayout,ViewKey} from './sheetLayoutSchema';
 import type {SheetSection} from './drawingViews';
-import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSpacingNote,floorSteelSummary,floorTableItems,floorTitle,isFloorPaper,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
+import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSpacingNote,floorSteelSummary,floorTableItems,floorTitle,isFloorPaper,openingDetailFocus,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -258,7 +258,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   const want=pv?(pv.n==='auto'?S.scale:pv.n):S.scale;
   const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,want);used=r;return r.s;};
   const data=buildView(m,s.rows,input,v.spec),isPlan=v.spec.normal===undefined;
-  if(v.key?.startsWith('det:op-'))data.floorNote=openingDetailNote(m,v.key.slice(4));
+  if(v.key?.startsWith('det:op-')){data.floorNote=openingDetailNote(m,v.key.slice(4));data.floorFocus=openingDetailFocus(m,v.key.slice(4));}
   const opts={k,colors,cuts:v.cuts,zCut:colCut?.z,scale,gutter:!bg&&S.gutter&&!v.key?.startsWith('det:op-'),frame:(f:typeof frame)=>{frame=f;},
    hide:pv?.show?{dims:pv.show.dims===false,marks:pv.show.marks===false,levels:pv.show.levels===false}:undefined,
    // Drawing Edit layer of this view (overrides of automatic annotations + user text / leaders)

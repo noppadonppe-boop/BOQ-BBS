@@ -302,7 +302,8 @@ function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes
   const conc=rects.filter(r=>r.kind==='concrete');for(const l of levels){if(l.on){l.u=f(l.u);continue;}const at=conc.filter(r=>r.v0-1e-6<=l.v&&l.v<=r.v1+1e-6);l.u=at.length?Math.max(...at.map(r=>r.u1)):f(l.u);}
   for(const c of beamCols){const a=c.x0;c.g=f(c.g);c.x0=f(c.x1);c.x1=f(a);}for(const d of exDims)d.stops=d.stops.map(f).sort((p,q)=>p-q);}
  return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,window:undefined as ViewSpec['window'],stepAt:[] as number[],iso:false,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined,
-  floor:fdata,floorMember:!!fc,floorNote:undefined as string[]|undefined};
+  floor:fdata,floorMember:!!fc,floorNote:undefined as string[]|undefined,
+  /** opening detail: bars outside this region (member mm) are drawn faded */ floorFocus:undefined as {x0:number;y0:number;x1:number;y1:number}|undefined};
 }
 type FloorEntry={row:ViewRow;lines:Line[];dots:[number,number][];couplers:[number,number][];dist:{a:[number,number];b:[number,number];q:[number,number];spacing:number;n:number}|undefined;part:string|undefined;
  /** bars of the Mark in this panel */ n:number};
@@ -606,8 +607,10 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
    put('text',{t:'text',x:cx,y:cy-1.2*k,text:letter,size:5.5*k*fs,color:'#22393f',anchor:'middle',bold:true},{t:'text',x:cx,y:cy+4.3*k,text:c.ref||'—',size:4.2*k*fs,color:'#4b6166',anchor:'middle'});}}
  for(const {row,lines,dots,couplers,dist} of v.bars){
   const color=opts.colors.get(row.id)||'#167561',w=Math.max(k,row.diameter*s),bl=barLayer(row.id,row);
-  for(const l of lines)put(bl,{t:'line',x1:X(l.a[0]),y1:Y(l.a[1]),x2:X(l.b[0]),y2:Y(l.b[1]),stroke:color,width:w,cap:'round',group:row.id});
-  for(const d of dots)put(bl,{t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max((v.columns?3:1.6)*k,row.diameter*s/2),fill:color,group:row.id});
+  // opening detail: bars that stay outside the focus region (opening + Ld + one spacing) faded
+  const ff=v.floorFocus,out2=(a:[number,number],b:[number,number])=>!!ff&&(Math.max(a[0],b[0])<ff.x0||Math.min(a[0],b[0])>ff.x1||Math.max(a[1],b[1])<ff.y0||Math.min(a[1],b[1])>ff.y1);
+  for(const l of lines){const faint=out2(l.a,l.b);put(bl,{t:'line',x1:X(l.a[0]),y1:Y(l.a[1]),x2:X(l.b[0]),y2:Y(l.b[1]),stroke:faint?'#d5dde3':color,width:faint?Math.max(.5*k,w*.5):w,cap:'round',group:row.id});}
+  for(const d of dots)put(bl,{t:'circle',cx:X(d[0]),cy:Y(d[1]),r:Math.max((v.columns?3:1.6)*k,row.diameter*s/2),fill:out2(d,d)?'#d5dde3':color,group:row.id});
   for(const c of couplers){const cw=Math.max(4.5*k,row.diameter*1.6*s),ch=Math.max(9*k,row.diameter*3*s);put(bl,{t:'rect',x:X(c[0])-cw/2,y:Y(c[1])-ch/2,w:cw,h:ch,fill:'#ffffff',stroke:color,width:.9*k,group:row.id},{t:'line',x1:X(c[0])-cw/2,x2:X(c[0])+cw/2,y1:Y(c[1]),y2:Y(c[1]),stroke:color,width:.6*k,group:row.id});}
   // distribution line across all bar positions: end slashes, dot where it meets the drawn bar
   if(dist){const ax=X(dist.a[0]),ay=Y(dist.a[1]),bx=X(dist.b[0]),by=Y(dist.b[1]),l=Math.hypot(bx-ax,by-ay)||1,ux=(bx-ax)/l,uy=(by-ay)/l,t=3*k;

@@ -131,8 +131,8 @@ export function floorDetails(m:Member):DetailView[]{
  const c=floorCtx(m);if(!c)return [];const focus=new Set(floorFocus(m)),out:DetailView[]=[];
  c.openings.forEach(o=>{const p=c.panels.find(x=>x.id===o.panel);if(!p||!focus.has(p.mark))return;const fo=c.f.openings.find(x=>x.id===o.id)!;
   if(fo.trim.method==='none')return;const mk=c.f.marks.find(x=>x.name===p.mark),d=mk?.rebar.shortBottom.diameter||12,ext=openingExt(c,fo,d);
-  // window: the opening + Ld (extension) + one bar spacing around it; bars farther out are drawn faded
-  const s=Math.max(mk?.rebar.shortBottom.spacing||0,mk?.rebar.longBottom.spacing||0)||200,r=Math.min(20000,Math.max(o.x1-o.x0,o.y1-o.y0)/2+ext+s);
+  // window: the opening + Ld (extension) + one bar spacing (focus, `openingDetailFocus`) + one more spacing of faded mesh
+  const s=Math.max(mk?.rebar.shortBottom.spacing||0,mk?.rebar.longBottom.spacing||0)||200,r=Math.min(20000,Math.max(o.x1-o.x0,o.y1-o.y0)/2+ext+2*s);
   out.push({id:`op-${o.id}`.slice(0,40),label:`D${out.length+1}`,parent:'plan-top',u:(o.x0+o.x1)/2,v:(o.y0+o.y1)/2,r,circle:false});});
  return out;
 }
@@ -145,6 +145,13 @@ export function openingDetailNote(m:Member,detailId:string):string[]{
  return [`ช่องเปิด ${o.label||o.id} ${o.shape==='circle'?`Ø${o.w}`:`${o.w} × ${o.h}`} mm${p?` · แผง ${p.tag}`:''}`,
   ...(s?[o.trim.method==='deviate'&&s.deviated?'เหล็กเบี่ยงหลบช่องเปิด (≤ 300 mm)':`เหล็กถูกตัด แนว X ${s.cut.X} เส้น · แนว Y ${s.cut.Y} เส้น`,
    `เหล็กเสริมขอบ ${s.trim} เส้น ยื่นเลยมุม ${extText}${s.diag?` · ทแยง ${s.diag} เส้น`:''} · +${s.kg.toFixed(1)} kg`]:[]),...(s?.fallback?[s.fallback]:[])];
+}
+/** Focus region of an opening detail (member mm): the opening + Ld (trimmer extension) + one bar spacing; bars outside are faded. */
+export function openingDetailFocus(m:Member,detailId:string){
+ const c=floorCtx(m);if(!c)return;const o=c.openings.find(x=>`op-${x.id}`.slice(0,40)===detailId),fo=c.f.openings.find(x=>x.id===o?.id);if(!o||!fo)return;
+ const p=c.panels.find(x=>x.id===o.panel),mk=p&&c.f.marks.find(x=>x.name===p.mark),d=mk?.rebar.shortBottom.diameter||12;
+ const r=openingExt(c,fo,d)+(Math.max(mk?.rebar.shortBottom.spacing||0,mk?.rebar.longBottom.spacing||0)||200);
+ return {x0:o.x0-r,y0:o.y0-r,x1:o.x1+r,y1:o.y1+r};
 }
 /** Paper views of a floor sheet (ViewKeys placed by the Composer, drawn on paper: no model scale). */
 export const FLOOR_PAPER=['schedule','legend','keyplan','stddet'] as const;
