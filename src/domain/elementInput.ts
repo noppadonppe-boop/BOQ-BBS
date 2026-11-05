@@ -6,7 +6,7 @@ import {emptySiteWork,withSiteWork} from './siteWork';
 import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
 import {slabAccessoriesSchema,slabFloorSchema} from './slabFloorSchema';
-import {applySlabFloor,slabFloorProblems} from './slabFloor';
+import {applySlabFloor,retagPanels,slabFloorProblems} from './slabFloor';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
 // single per-category pattern; applyElementInput() converts it to the existing
@@ -443,6 +443,16 @@ const beamSchema=z.object({...base,category:z.literal('Beam'),
  grids:z.array(beamGridSchema).max(13),
  spans:z.array(beamSpanSchema).max(12),
  ground:groundSchema,
+ /** S3 (docs/SLAB_FLOOR.md “Beams from the floor”): where the group lies on a slab floor plan — floor member, grid line,
+  * first / last grid, centre offset, top level (m); `ends` = concrete past the first / last grid at an end without support
+  * (a primary beam over the crossing beam's width) */
+ placement:z.object({floorMember:z.string().max(80),along:z.enum(['X','Y']),line:z.string().max(20),from:z.string().max(20),to:z.string().max(20),
+  offset:z.number().finite().min(-20000).max(20000),level:z.number().finite().min(-1000).max(1000),
+  ends:z.tuple([z.number().finite().min(0).max(5000),z.number().finite().min(0).max(5000)]).optional()}).strict().optional(),
+ /** S3: generated from a slab floor (`source` is the drawing source of every element input, so this is its own key):
+  * floor member + version, floor beam ids, hash of the generated geometry (a different hash now = edited by hand) */
+ floorSource:z.object({kind:z.literal('slabFloor'),floorMember:z.string().max(80),floorCode:z.string().max(50),floorVersion:z.number().int().min(0),
+  beamIds:z.array(z.string().max(40)).max(120),part:z.number().int().min(1).max(20).default(1),generatedHash:z.string().max(80)}).strict().optional(),
 }).strict();
 const slabSchema=z.object({...base,category:z.literal('Slab'),
  lengthX:mm,lengthY:mm,thickness:mm,
@@ -1720,12 +1730,14 @@ export function beamGroupFrom(i:BeamInput):BeamInput{
  * support faces, levels from the lowest soffit (z = 0) and the column reference boxes. */
 export function beamGroupLayout(i:BeamInput){
  const sp=i.spans,gr=i.grids,gx=[0];sp.forEach((s,k)=>gx.push(gx[k]+s.length));
- const x0=(gr[0]?.support||0)/2,grid=gx.map(x=>x+x0),hi=Math.max(...sp.map(s=>s.top)),lo=Math.min(...sp.map(s=>s.top-s.depth)),W=Math.max(...sp.map(s=>s.width));
- const spans=sp.map((s,k)=>{const sl=(gr[k]?.support||0)/2,sr=(gr[k+1]?.support||0)/2,a=grid[k]+sl,b=grid[k+1]-sr;
+ // `placement.ends`: concrete past the first / last grid where there is no support (S3: primary beam over the crossing beam)
+ const e0=gr[0]?.support>0?0:i.placement?.ends?.[0]||0,e1=gr[sp.length]?.support>0?0:i.placement?.ends?.[1]||0;
+ const x0=Math.max((gr[0]?.support||0)/2,e0),grid=gx.map(x=>x+x0),hi=Math.max(...sp.map(s=>s.top)),lo=Math.min(...sp.map(s=>s.top-s.depth)),W=Math.max(...sp.map(s=>s.width));
+ const spans=sp.map((s,k)=>{const sl=(gr[k]?.support||0)/2,sr=(gr[k+1]?.support||0)/2,a=grid[k]+sl-(k===0?e0:0),b=grid[k+1]-sr+(k===sp.length-1?e1:0);
   // section at each end: CANT for a cantilever, CON where the beam continues past the support, END otherwise
   const zoneA:BeamZone=s.kind==='cantilever'?'cant':k>0?'con':'end',zoneB:BeamZone=s.kind==='cantilever'?'cant':k<sp.length-1?'con':'end';
   return {...s,k,a,b,clear:b-a,z0:s.top-s.depth-lo,z1:s.top-lo,y0:(W-s.width)/2,y1:(W+s.width)/2,zoneA,zoneB,label:`${s.mark} (${gr[k]?.label||'ปลาย'}–${gr[k+1]?.label||'ปลาย'})`};});
- const n=sp.length,L=grid[n]+(gr[n]?.support||0)/2;
+ const n=sp.length,L=grid[n]+Math.max((gr[n]?.support||0)/2,e1);
  const columns=gr.flatMap((g,k)=>{if(!(g.support>0))return [];const adj=spans.filter(s=>s.k===k||s.k===k-1);if(!adj.length)return [];
   const sy=g.supportY>0?g.supportY:g.support;
   return [{k,label:g.label,x0:grid[k]-g.support/2,x1:grid[k]+g.support/2,y0:(W-sy)/2,y1:(W+sy)/2,z0:Math.min(...adj.map(s=>s.z0)),z1:Math.max(...adj.map(s=>s.z1))}];});
@@ -2091,6 +2103,8 @@ export type AppliedElement={member:Member;warnings:string[];generated:Bar[]};
 /** Converts the structured input to the existing member pattern. Manual bars and
  * manual deductions are kept; previously generated bars/deductions are replaced. */
 export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:number;withBars?:boolean}={}):AppliedElement{
+ // slab floor: panel tags follow their slab mark (S3 task 0, also migrates floors saved before)
+ if(input.category==='Slab'&&input.layout==='floor'&&input.floor){const f=retagPanels(input.floor);if(f!==input.floor)input={...input,floor:f};}
  const rounding=opts.rounding&&opts.rounding>0?opts.rounding:25,warnings:string[]=[],warn=(s:string)=>warnings.push(s),det=input.detailing;
  const deductions=m.deductions.filter(d=>!d.reason.startsWith(AUTO));
  const {geometry:_g,prismGeometry:_p,beamAssembly:_b,...plain}=m;

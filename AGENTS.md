@@ -293,6 +293,16 @@
   (`floor {mode:'mark'}`) or whole floor / picked marks (`partTags`, grouped BBS `floorTableItems` + summary page, `floorMerge` → SF-
   Marks `mergeFloorMarks`); Excel “Slab BBS” / “Slab Summary” (`data/slabFloorExcel.ts`); CAD roles `barBottom` / `barTop` (fallback
   barMain); `spec.slabAccessories` → detailing → site items `gen-slab-chair|chair-kg|spacer`. Test: `tests/slabFloorSheet.test.ts`.
+  S2.1: plan labels inside the panels (`placeFloorLabels`, `drawingSetup.floorLabels` typ | all, TYP. + short codes), text =
+  design spacing (`floorDesignSpacing` from `Raw.s`) / counts for OP / OD, BBS note `floorSpacingNote`; < 1:100 on A2 → A1
+  (`floorPlanScale`); sections cropped (`floorSectionExtent`) + break lines + `T.O.S.` levels (`on`); details 1:20 + faded
+  bars (`openingDetailFocus`). Ad-hoc PNGs: `tmp/floorSheet.test.ts` (env FMODE tag | floor, MERGE, OUT, PX).
+  S3 beams from the floor (`src/domain/floorBeams.ts`: `floorBeamGroups` / `planFloorBeams` / `beamGeometryHash`, command
+  `syncFloorBeams` ≤ 25 members / 4 MiB, UI `FloorBeamsDialog.tsx`): one beam group per line `<floor>-B-<line>`, supports =
+  `floor.columns` (reference) or the primary beam (`beam.rank`, else deeper, else X); beam input `placement` + `floorSource`
+  (not `source`), geometry locked in `BeamGroupEditor` while linked; `openMember()` (`components/memberNav.ts`) opens a member.
+  Panel tags follow the mark (`retagPanels`, `panel.tagCustom`). Test: `tests/floorBeams.test.ts`. UI check on separate
+  emulators: `tmp/s3emu/` (ports 9399 / 8380 / 9599, demo-boq-s3, `node tmp/s3emu/dev.mjs` on 5181), seed `tmp/s3seed.test.ts`.
   UI `components/SlabFloorEditor.tsx` in the Slab input panel;
   floor members hide the shape / rebar tabs (`isSlabFloorMember`). Slab List column “บนเสริม” (`topExtra`, `TopExtraCell`).
   Test: `tests/slabFloor.test.ts` (+ DXF `output/dxf-verification/slabFloor-*.dxf`).

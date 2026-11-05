@@ -1,9 +1,12 @@
 import {useMemo,useRef,useState,type PointerEvent as RPointerEvent} from 'react';
 import {Box,Plus,Redo2,Trash2,Undo2} from 'lucide-react';
-import type {Project} from '../domain/model';
+import type {Member,Project} from '../domain/model';
+import {lineRank} from '../domain/floorBeams';
+import {FloorBeamsDialog,floorLinks,linkStateLabel} from './FloorBeamsDialog';
+import {openMember} from './memberNav';
 import type {BeamInput,SlabInput} from '../domain/elementInput';
-import {DEFAULT_OPENING_TRIM,DEFAULT_SLAB_REBAR,type FloorBeam,type FloorDrop,type FloorMark,type FloorOpening,type FloorPanel,type SlabBar,type SlabFloor,type TopExtra} from '../domain/slabFloorSchema';
-import {autoBeams,autoPanels,floorBars,floorBeamRects,floorMarkSummary,freeId,freeTag,gridRef,gridsFromBeamGroup,markIndex,mergePanels,openingPanel,openingRing,panelThickness,parseGridRef,polyArea,slabFloorProblems,snapLines,toggleBeamSegment} from '../domain/slabFloor';
+import {DEFAULT_OPENING_TRIM,DEFAULT_SLAB_REBAR,type FloorBeam,type FloorColumn,type FloorDrop,type FloorMark,type FloorOpening,type FloorPanel,type SlabBar,type SlabFloor,type TopExtra} from '../domain/slabFloorSchema';
+import {autoBeams,autoPanels,retagPanels,floorBars,floorBeamRects,floorMarkSummary,freeId,freeTag,gridRef,gridsFromBeamGroup,markIndex,mergePanels,openingPanel,openingRing,panelThickness,parseGridRef,polyArea,slabFloorProblems,snapLines,toggleBeamSegment} from '../domain/slabFloor';
 import {floorMarkFromTemplate,topExtraText} from '../domain/slabWallTemplates';
 import {readCollectionPages} from '../data/collections';
 import {HelpButton} from './HelpCenter';
@@ -11,20 +14,29 @@ import {NumInput} from './EditorControls';
 
 // Floor plan of a slab floor (Slab layout 'floor'): grids, reference beams, panels per slab mark, openings and drops on an
 // SVG plan with snapping (grids, beam faces, panel edges) + undo / redo; the right column edits the selection.
-type Tool='select'|'grid'|'beam'|'panel'|'opening'|'drop';
-type Sel={kind:'panel'|'opening'|'beam'|'drop';id:string}|null;
+type Tool='select'|'grid'|'beam'|'column'|'panel'|'opening'|'drop';
+type Sel={kind:'panel'|'opening'|'beam'|'drop'|'column';id:string}|null;
 type P2=[number,number];
-const tools:[Tool,string][]=[['select','เลือก'],['grid','กริด'],['beam','คาน'],['panel','แผงพื้น'],['opening','ช่องเปิด'],['drop','Drop / ลดระดับ']];
+const tools:[Tool,string][]=[['select','เลือก'],['grid','กริด'],['beam','คาน'],['column','เสา'],['panel','แผงพื้น'],['opening','ช่องเปิด'],['drop','Drop / ลดระดับ']];
 const colors=[['#ccfbf1','#0f766e'],['#fef3c7','#b45309'],['#e0e7ff','#4338ca'],['#fce7f3','#be185d'],['#dcfce7','#15803d'],['#ffedd5','#c2410c'],['#e0f2fe','#0369a1'],['#f3e8ff','#7e22ce']];
 const barText=(b:{diameter:number;spacing:number})=>b.spacing>0?`${b.diameter<=9?'RB':'DB'}${b.diameter}@${b.spacing}`:'–';
 const fmt=(v:number)=>Math.round(v).toLocaleString('en-US');
 const diameters=[6,9,10,12,16,20,25,28,32];
 
-export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuild,buildDisabled}:{input:SlabInput;project:Project;readOnly:boolean;onChange:(f:SlabFloor)=>void;onView3d?:()=>void;onBuild?:()=>void;buildDisabled?:boolean}){
+export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuild,buildDisabled,memberId,members,onReloadMembers}:{input:SlabInput;project:Project;readOnly:boolean;onChange:(f:SlabFloor)=>void;onView3d?:()=>void;onBuild?:()=>void;buildDisabled?:boolean;
+ /** S3: this floor member and the project members (beam groups linked to the floor) */ memberId?:string;members?:Member[]|null;onReloadMembers?:()=>Promise<void>}){
  const f=input.floor!,spec=project.spec;
  const [tool,setTool]=useState<Tool>('select'),[sel,setSel]=useState<Sel>(null),[multi,setMulti]=useState<string[]>([]),[msg,setMsg]=useState('');
  const [hist,setHist]=useState<{past:SlabFloor[];future:SlabFloor[]}>({past:[],future:[]});
- const [beamSize,setBeamSize]=useState({mark:'B1',width:300,depth:600});
+ const [beamSize,setBeamSize]=useState({mark:'B1',width:300,depth:600}),[colSize,setColSize]=useState<{sx:number;sy:number;template?:string}>({sx:400,sy:400}),[beamsOpen,setBeamsOpen]=useState(false);
+ // S3: beam groups linked to this floor (saved floor = the stored member)
+ const links=useMemo(()=>floorLinks(members?.find(m=>m.id===memberId),members||null,project),[members,memberId,project]);
+ const linkOf=(along:'X'|'Y',line:string)=>links.filter(l=>l.input.placement?.along===along&&l.input.placement?.line===line);
+ const colTemplates=(spec.columnTemplates||[]).flatMap(t=>t.rows[0]?[{id:t.id,label:`${t.name} ${t.rows[0].width}×${t.rows[0].depth}`,sx:t.rows[0].width,sy:t.rows[0].depth}]:[]);
+ const setColumn=(id:string,patch:Partial<FloorColumn>)=>commit({...f,columns:(f.columns||[]).map(c=>c.id===id?{...c,...patch}:c)});
+ const allColumns=()=>{const have=new Set((f.columns||[]).map(c=>`${c.x}|${c.y}`)),used=new Set((f.columns||[]).map(c=>c.id));let n=0;const add:FloorColumn[]=[];
+  for(const x of f.gridsX)for(const y of f.gridsY)if(!have.has(`${x.label}|${y.label}`)){let id='';do{id=`col${++n}`;}while(used.has(id));used.add(id);add.push({id,x:x.label,y:y.label,sx:colSize.sx,sy:colSize.sy,...(colSize.template?{template:colSize.template}:{})});}
+  commit({...f,columns:[...(f.columns||[]),...add].slice(0,300)});};
  const [groups,setGroups]=useState<{code:string;grids:{label:string;at:number}[]}[]|null>(null),[loading,setLoading]=useState(false);
  const commit=(next:SlabFloor)=>{if(readOnly)return;setHist(h=>({past:[...h.past.slice(-49),f],future:[]}));onChange(next);};
  const undo=()=>{const prev=hist.past.at(-1);if(!prev)return;setHist(h=>({past:h.past.slice(0,-1),future:[f,...h.future]}));onChange(prev);};
@@ -58,6 +70,13 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
  const onPlanClick=(e:React.MouseEvent)=>{if(readOnly)return;const p=toModel(e);
   if(tool==='opening'){const host=panelUnder(p);if(!host){setMsg('คลิกในแผงพื้นเพื่อวางช่องเปิด');return;}const id=freeId(f,'op');const o:FloorOpening={id,label:`OP-${f.openings.length+1}`,panel:host.id,shape:'rect',x:snap(p[0]-300,0),y:snap(p[1]-300,1),w:600,h:600,trim:{...DEFAULT_OPENING_TRIM}};commit({...f,openings:[...f.openings,o]});setSel({kind:'opening',id});return;}
   if(tool==='drop'){const host=panelUnder(p);if(!host){setMsg('คลิกในแผงพื้นเพื่อวาง Drop / พื้นลดระดับ');return;}const id=freeId(f,'dp'),a=snap(p[0]-600,0),b=snap(p[1]-600,1);const d:FloorDrop={id,label:`D-${f.drops.length+1}`,kind:'drop',outline:[[a,b],[a+1200,b],[a+1200,b+1200],[a,b+1200]],depth:150,rebar:'separate'};commit({...f,drops:[...f.drops,d]});setSel({kind:'drop',id});return;}
+  if(tool==='column'){// nearest grid crossing: add a column / remove the one there
+   const tol=14/s,gxs=f.gridsX.find(g=>Math.abs(g.at-p[0])<tol),gys=f.gridsY.find(g=>Math.abs(g.at-p[1])<tol);
+   if(!gxs||!gys){setMsg('คลิกที่จุดตัดกริดเพื่อวาง / ลบเสา');return;}
+   const hit=(f.columns||[]).find(c=>c.x===gxs.label&&c.y===gys.label);
+   if(hit){commit({...f,columns:(f.columns||[]).filter(c=>c!==hit)});return;}
+   const used=new Set((f.columns||[]).map(c=>c.id));let k=1;while(used.has(`col${k}`))k++;
+   commit({...f,columns:[...(f.columns||[]),{id:`col${k}`,x:gxs.label,y:gys.label,sx:colSize.sx,sy:colSize.sy,...(colSize.template?{template:colSize.template}:{})}]});setSel({kind:'column',id:`col${k}`});return;}
   if(tool==='beam'){// nearest grid segment
    const gx=[...f.gridsX].sort((a,b)=>a.at-b.at),gy=[...f.gridsY].sort((a,b)=>a.at-b.at),tol=12/s;
    const ly=gy.find(g=>Math.abs(g.at-p[1])<tol),lx=gx.find(g=>Math.abs(g.at-p[0])<tol);
@@ -73,12 +92,13 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
  const regenerate=(what:'beams'|'panels')=>{if(what==='beams'){if(f.beams.length&&!confirm('สร้างคานอ้างอิงใหม่ทุกแนวกริด (แทนคานเดิม)?'))return;const nf={...f,beams:autoBeams(f,beamSize)};commit(nf);return;}
   if(f.panels.length&&!confirm('สร้างแผงพื้นใหม่จากช่องกริด (แทนแผงเดิม · ช่องเปิดที่อ้างแผงเดิมจะหาแผงจากตำแหน่ง)?'))return;
   const mark=f.marks[0]?.name||'S1';commit({...f,panels:autoPanels(f,mark),openings:f.openings.map(({panel:_p,...o})=>o)});};
- const setPanel=(id:string,patch:Partial<FloorPanel>)=>commit({...f,panels:f.panels.map(p=>p.id===id?{...p,...patch}:p)});
+ // a new slab mark renames automatic tags to <mark>-nn (`retagPanels`); a typed tag is kept (`tagCustom`)
+ const setPanel=(id:string,patch:Partial<FloorPanel>)=>commit(retagPanels({...f,panels:f.panels.map(p=>p.id===id?{...p,...patch}:p)}));
  const setOpening=(id:string,patch:Partial<FloorOpening>)=>commit({...f,openings:f.openings.map(o=>o.id===id?{...o,...patch}:o)});
  const setBeam=(id:string,patch:Partial<FloorBeam>)=>commit({...f,beams:f.beams.map(b=>b.id===id?{...b,...patch}:b)});
  const setDrop=(id:string,patch:Partial<FloorDrop>)=>commit({...f,drops:f.drops.map(d=>d.id===id?{...d,...patch}:d)});
- const setMark=(name:string,patch:Partial<FloorMark>)=>{const renamed=patch.name&&patch.name!==name?patch.name:undefined;commit({...f,marks:f.marks.map(m=>m.name===name?{...m,...patch}:m),panels:renamed?f.panels.map(p=>p.mark===name?{...p,mark:renamed}:p):f.panels});};
- const remove=()=>{if(!sel)return;const k=sel.kind;commit({...f,panels:k==='panel'?f.panels.filter(p=>p.id!==sel.id):f.panels,openings:k==='opening'?f.openings.filter(o=>o.id!==sel.id):f.openings,beams:k==='beam'?f.beams.filter(b=>b.id!==sel.id):f.beams,drops:k==='drop'?f.drops.filter(d=>d.id!==sel.id):f.drops});setSel(null);};
+ const setMark=(name:string,patch:Partial<FloorMark>)=>{const renamed=patch.name&&patch.name!==name?patch.name:undefined;commit(retagPanels({...f,marks:f.marks.map(m=>m.name===name?{...m,...patch}:m),panels:renamed?f.panels.map(p=>p.mark===name?{...p,mark:renamed}:p):f.panels}));};
+ const remove=()=>{if(!sel)return;const k=sel.kind;if(k==='column'){commit({...f,columns:(f.columns||[]).filter(c=>c.id!==sel.id)});setSel(null);return;}commit({...f,panels:k==='panel'?f.panels.filter(p=>p.id!==sel.id):f.panels,openings:k==='opening'?f.openings.filter(o=>o.id!==sel.id):f.openings,beams:k==='beam'?f.beams.filter(b=>b.id!==sel.id):f.beams,drops:k==='drop'?f.drops.filter(d=>d.id!==sel.id):f.drops});setSel(null);};
  const merge=()=>{const r=mergePanels(f,multi);if('error' in r){setMsg(r.error);return;}commit(r.floor);setMulti([]);setMsg('รวมแผงแล้ว');};
  const loadGroups=async()=>{setLoading(true);setMsg('');try{const all=await readCollectionPages(project.id,'members');
   const list=all.filter((m:any)=>m.category==='Beam'&&m.elementInput?.layout==='group'&&m.elementInput.spans?.length).map((m:any)=>({code:String(m.code),grids:gridsFromBeamGroup(m.elementInput as BeamInput)})).filter(g=>g.grids.length>=2);
@@ -106,9 +126,10 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
    {onView3d&&<button type="button" onClick={onView3d}><Box size={14}/>ดู 3D</button>}
    <HelpButton topic="slab-floor"/>
    {onBuild&&<button type="button" className="primary" disabled={readOnly||buildDisabled||problems.length>0} title="ใช้แปลนพื้นกับสมาชิก: สร้างเหล็กและปริมาณ (เหมือนปุ่ม “ใช้ข้อมูลและสร้าง Bar cut list”) แล้วกดบันทึกสมาชิก" onClick={onBuild}>สร้างเหล็ก + ใช้กับสมาชิก</button>}
-   <span className="muted sf-hint">{tool==='beam'?'คลิกบนเส้นกริดเพื่อเพิ่ม / ลบคานช่วงนั้น':tool==='opening'?'คลิกในแผงเพื่อวางช่องเปิด · ลากเพื่อย้าย · มุมขวาล่างปรับขนาด':tool==='drop'?'คลิกในแผงเพื่อวาง Drop / พื้นลดระดับ':tool==='panel'?'คลิกเลือกหลายแผงเพื่อรวม (ตัว L) / ลบ':tool==='grid'?'แก้กริดในตารางด้านซ้าย':'คลิกเลือกเพื่อแก้คุณสมบัติด้านขวา · Shift+คลิก เลือกหลายแผง'}</span>
+   <span className="muted sf-hint">{tool==='beam'?'คลิกบนเส้นกริดเพื่อเพิ่ม / ลบคานช่วงนั้น':tool==='column'?'คลิกที่จุดตัดกริดเพื่อวาง / ลบเสา (ขนาดตั้งที่แผงซ้าย)':tool==='opening'?'คลิกในแผงเพื่อวางช่องเปิด · ลากเพื่อย้าย · มุมขวาล่างปรับขนาด':tool==='drop'?'คลิกในแผงเพื่อวาง Drop / พื้นลดระดับ':tool==='panel'?'คลิกเลือกหลายแผงเพื่อรวม (ตัว L) / ลบ':tool==='grid'?'แก้กริดในตารางด้านซ้าย':'คลิกเลือกเพื่อแก้คุณสมบัติด้านขวา · Shift+คลิก เลือกหลายแผง'}</span>
   </div>
   {msg&&<p className="notice" role="status">{msg}</p>}
+  {beamsOpen&&memberId&&<FloorBeamsDialog project={project} floorId={memberId} editedInput={input} readOnly={readOnly} members={members||null} onReload={async()=>{await onReloadMembers?.();}} onClose={()=>setBeamsOpen(false)}/>}
   {problems.length>0&&<div className="notice warning"><b>ต้องแก้ก่อนสร้างเหล็ก ({problems.length})</b><ul>{problems.slice(0,8).map(p=><li key={p}>{p}</li>)}</ul></div>}
   <div className="sf-body">
    <aside className="sf-left">
@@ -119,10 +140,16 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
      {groups&&groups.length>0&&<select disabled={readOnly} defaultValue="" onChange={e=>{const [k,axis]=e.target.value.split('|');const g=groups[Number(k)];if(g){setGrid(axis==='Y'?'gridsY':'gridsX',g.grids);setMsg(`ใช้กริดของกลุ่มคาน ${g.code} เป็นกริด ${axis}`);}e.target.value='';}}>
       <option value="">— เลือกกลุ่มคาน → แนว —</option>{groups.flatMap((g,k)=>(['X','Y'] as const).map(a=><option key={`${k}${a}`} value={`${k}|${a}`}>{g.code} ({g.grids.map(x=>x.label).join('–')}) → กริด {a}</option>))}</select>}
     </div>
-    <h5>คานอ้างอิง <small className="muted">ไม่คิดปริมาณ (รอบสร้างคานจริง)</small></h5>
+    <h5>คานอ้างอิง <small className="muted">ไม่คิดปริมาณในพื้น (คิดในสมาชิกคาน)</small> <HelpButton topic="slab-floor-beams"/></h5>
     <div className="sf-beam-size">{<label className="field"><span>Mark</span><input disabled={readOnly} value={beamSize.mark} maxLength={20} onChange={e=>setBeamSize({...beamSize,mark:e.target.value})}/></label>}{num('กว้าง',beamSize.width,v=>setBeamSize({...beamSize,width:v}),{min:0})}{num('ลึก',beamSize.depth,v=>setBeamSize({...beamSize,depth:v}),{min:0})}</div>
     <div className="sf-actions"><button type="button" disabled={readOnly} onClick={()=>regenerate('beams')}>คานทุกแนวกริด</button><button type="button" disabled={readOnly} onClick={()=>regenerate('panels')}>สร้างแผงจากช่องกริด</button></div>
-    <ul className="sf-list">{f.beams.map(b=><li key={b.id} className={sel?.id===b.id?'on':''} onClick={()=>setSel({kind:'beam',id:b.id})}>{b.mark} {b.width}×{b.depth} · แนว {b.line} ({b.from}–{b.to})</li>)}</ul>
+    <ul className="sf-list">{f.beams.map(b=>{const l=linkOf(b.along,b.line);return <li key={b.id} className={sel?.id===b.id?'on':''} onClick={()=>setSel({kind:'beam',id:b.id})}>{b.mark} {b.width}×{b.depth} · แนว {b.line} ({b.from}–{b.to}){lineRank(f,b.along,b.line)==='secondary'?' · รอง':''}
+     {l.map(x=><button key={x.member.id} type="button" className={`link-chip ls-${x.state}`} title={`สมาชิกคาน ${x.member.code} · ${linkStateLabel[x.state]} · คลิกเพื่อเปิด`} onClick={e=>{e.stopPropagation();openMember(x.member.id);}}>{x.member.code} · {linkStateLabel[x.state]}</button>)}</li>;})}</ul>
+    <h5>เสา <small className="muted">อ้างอิง · เป็นที่รองรับคาน</small></h5>
+    <div className="sf-beam-size">{num('X',colSize.sx,v=>setColSize({...colSize,sx:v,template:undefined}),{min:0})}{num('Y',colSize.sy,v=>setColSize({...colSize,sy:v,template:undefined}),{min:0})}
+     {colTemplates.length>0&&<label className="field"><span>Column Template</span><select disabled={readOnly} value={colSize.template||''} onChange={e=>{const t=colTemplates.find(x=>x.id===e.target.value);setColSize(t?{sx:t.sx,sy:t.sy,template:t.id}:{...colSize,template:undefined});}}><option value="">— ขนาดเอง —</option>{colTemplates.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></label>}</div>
+    <div className="sf-actions"><button type="button" disabled={readOnly} onClick={allColumns}>เสาทุกจุดตัดกริด</button><span className="muted">{(f.columns||[]).length} ต้น</span></div>
+    <div className="sf-actions"><button type="button" className="primary" disabled={!memberId} title={memberId?'สร้างสมาชิกกลุ่มคานจริงทุกแนวจากแปลนพื้นที่บันทึกแล้ว (พรีวิวก่อน)':'บันทึกสมาชิกพื้นก่อน'} onClick={()=>setBeamsOpen(true)}>สร้าง / อัปเดตคานจากแปลนพื้น</button>{links.length>0&&<span className="muted">{links.length} สมาชิกคาน</span>}</div>
     <h5>เบอร์พื้นในชั้นนี้</h5>
     <ul className="sf-list">{summary.map(m=>{const [bg,fg]=colors[markIndex(f,m.mark)%colors.length];return <li key={m.mark}><span className="sf-swatch" style={{background:bg,borderColor:fg}}/><b>{m.mark}</b> หนา {f.marks.find(x=>x.name===m.mark)?.thickness} · {m.panels} แผง · {m.area.toFixed(2)} m² · {m.volume.toFixed(2)} m³</li>;})}</ul>
    </aside>
@@ -136,6 +163,8 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
      {f.panels.map(p=>{const [bg,fg]=colors[markIndex(f,p.mark)%colors.length],c=centre(p.outline as P2[]),on=sel?.id===p.id||multi.includes(p.id);
       return <g key={p.id} onClick={e=>pick(e,'panel',p.id)} className="sf-panel"><path d={path(p.outline as P2[])} fill={bg} stroke={fg} strokeWidth={on?3:1.2}/>
        <text x={X(c[0])} y={Y(c[1])} fill={fg} className="sf-mark">{p.mark}</text><text x={X(c[0])} y={Y(c[1])+15} fill={fg} className="sf-tag">{p.tag}{p.top?` · ${p.top>0?'+':''}${p.top}`:''}</text></g>;})}
+     {(f.columns||[]).map(c=>{const cx=f.gridsX.find(g=>g.label===c.x)?.at,cy=f.gridsY.find(g=>g.label===c.y)?.at;if(cx===undefined||cy===undefined)return null;
+      return <rect key={c.id} x={X(cx-c.sx/2)} y={Y(cy+c.sy/2)} width={c.sx*s} height={c.sy*s} className={`sf-col${sel?.id===c.id?' on':''}`} onClick={e=>{if(tool==='column')return;e.stopPropagation();setSel({kind:'column',id:c.id});}}><title>{`เสา ${c.x}/${c.y} ${c.sx}×${c.sy}`}</title></rect>;})}
      {beams.map(b=><rect key={b.beam.id} x={X(b.x0)} y={Y(b.y1)} width={(b.x1-b.x0)*s} height={(b.y1-b.y0)*s} className={`sf-beam${sel?.id===b.beam.id?' on':''}`} onClick={e=>pick(e,'beam',b.beam.id)}/>)}
      {f.drops.map(d=>{const r=d.outline as P2[],bb=bbox(r),on=sel?.id===d.id;return <g key={d.id}><path d={path(r)} className={`sf-drop ${d.kind}${on?' on':''}`} onPointerDown={e=>onDown(e,'drop',d.id,'move')} onClick={e=>e.stopPropagation()}/>
       <text x={X((bb[0]+bb[2])/2)} y={Y((bb[1]+bb[3])/2)+4} className="sf-drop-t">{d.kind==='drop'?`DROP +${d.depth}`:`ลดระดับ −${d.depth}`}</text>
@@ -148,12 +177,12 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
         {!readOnly&&<rect x={X(bx+bw)-5} y={Y(by)-5} width={10} height={10} className="sf-grip" onPointerDown={e=>onDown(e,'opening',o.id,'size')}/>}</>}</g>;})}
     </svg>
     {tool==='panel'&&<div className="sf-actions"><span className="muted">เลือก {multi.length} แผง</span><button type="button" disabled={readOnly||multi.length<2} onClick={merge}>รวมแผง (ตัว L / หลายเหลี่ยม)</button><button type="button" disabled={readOnly||!multi.length} onClick={()=>{commit({...f,panels:f.panels.filter(p=>!multi.includes(p.id))});setMulti([]);}}><Trash2 size={13}/>ลบแผงที่เลือก</button>
-     <label className="field inline"><span>ตั้งเบอร์พื้น</span><select disabled={readOnly||!multi.length} value="" onChange={e=>{if(e.target.value)commit({...f,panels:f.panels.map(p=>multi.includes(p.id)?{...p,mark:e.target.value}:p)});}}><option value="">—</option>{f.marks.map(m=><option key={m.name}>{m.name}</option>)}</select></label></div>}
+     <label className="field inline"><span>ตั้งเบอร์พื้น</span><select disabled={readOnly||!multi.length} value="" onChange={e=>{if(e.target.value)commit(retagPanels({...f,panels:f.panels.map(p=>multi.includes(p.id)?{...p,mark:e.target.value}:p)}));}}><option value="">—</option>{f.marks.map(m=><option key={m.name}>{m.name}</option>)}</select></label></div>}
    </div>
    <aside className="sf-right">
     {selPanel&&<div className="sf-props"><span className="sf-kicker">แผงพื้นที่เลือก</span><b>{selPanel.tag} · {selPanel.mark}</b>
      <label className="field"><span>เบอร์พื้น</span><select disabled={readOnly} value={selPanel.mark} onChange={e=>setPanel(selPanel.id,{mark:e.target.value})}>{[...new Set([selPanel.mark,...f.marks.map(m=>m.name)])].map(n=><option key={n}>{n}</option>)}</select></label>
-     <label className="field"><span>Tag (ห้ามซ้ำ)</span><input disabled={readOnly} value={selPanel.tag} maxLength={16} onChange={e=>setPanel(selPanel.id,{tag:e.target.value.replace(/[^A-Za-z0-9-]/g,'')})}/></label>
+     <label className="field"><span>Tag (ห้ามซ้ำ)</span><input disabled={readOnly} value={selPanel.tag} maxLength={16} onChange={e=>setPanel(selPanel.id,{tag:e.target.value.replace(/[^A-Za-z0-9-]/g,''),tagCustom:true})}/></label>
      {num(`หนา (0 = ตามเบอร์ ${panelThickness({...f},{...selPanel,thickness:0})})`,selPanel.thickness,v=>setPanel(selPanel.id,{thickness:v}),{min:0})}
      {num('ระดับหลังพื้นเทียบระดับชั้น (mm, − = ลด)',selPanel.top,v=>setPanel(selPanel.id,{top:v}))}
      <p className="muted">พื้นที่ {(polyArea(selPanel.outline as P2[])/1e6).toFixed(2)} m² · {selPanel.outline.length} จุดยอด</p>
@@ -183,12 +212,21 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
       <button type="button" disabled={readOnly} onClick={remove}><Trash2 size={13}/>ลบช่องเปิด</button></div>;})()}
     {selBeam&&<div className="sf-props"><span className="sf-kicker">คานอ้างอิง</span><b>{selBeam.mark} · แนว {selBeam.line}</b>
      <label className="field"><span>Mark</span><input disabled={readOnly} value={selBeam.mark} maxLength={20} onChange={e=>setBeam(selBeam.id,{mark:e.target.value})}/></label>
+     <label className="field"><span>คานหลัก / คานรอง (ทั้งแนว {selBeam.line})</span><select disabled={readOnly} value={f.beams.find(b=>b.along===selBeam.along&&b.line===selBeam.line&&b.rank)?.rank||''} onChange={e=>{const rank=e.target.value as ''|'primary'|'secondary';commit({...f,beams:f.beams.map(b=>{if(b.along!==selBeam.along||b.line!==selBeam.line)return b;const {rank:_r,...rest}=b;return rank?{...rest,rank}:rest;})});}}>
+      <option value="">อัตโนมัติ ({lineRank({...f,beams:f.beams.map(b=>{const {rank:_r,...rest}=b;return rest;})},selBeam.along,selBeam.line)==='primary'?'หลัก':'รอง'}: ลึกกว่าเป็นหลัก · เท่ากันแนว X หลัก)</option><option value="primary">คานหลัก (วิ่งต่อเนื่องที่จุดตัด)</option><option value="secondary">คานรอง (หยุดที่หน้าคานหลัก)</option></select></label>
+     {linkOf(selBeam.along,selBeam.line).map(x=><p key={x.member.id} className="muted">สมาชิกคาน <button type="button" className="link-chip" onClick={()=>openMember(x.member.id)}>{x.member.code}</button> · {linkStateLabel[x.state]}</p>)}
      <div className="sf-two">{num('กว้าง',selBeam.width,v=>setBeam(selBeam.id,{width:v}),{min:0})}{num('ลึก (รวมพื้น)',selBeam.depth,v=>setBeam(selBeam.id,{depth:v}),{min:0})}</div>
      <label className="field"><span>แนวคาน</span><select disabled={readOnly} value={selBeam.along} onChange={e=>{const along=e.target.value as 'X'|'Y',l=along==='X'?gy:gx,r=along==='X'?gx:gy;setBeam(selBeam.id,{along,line:l[0]?.label||'',from:r[0]?.label||'',to:r.at(-1)?.label||''});}}><option value="X">ขนานแกน X</option><option value="Y">ขนานแกน Y</option></select></label>
      <div className="sf-two"><label className="field"><span>อยู่บนกริด</span><select disabled={readOnly} value={selBeam.line} onChange={e=>setBeam(selBeam.id,{line:e.target.value})}>{(selBeam.along==='X'?gy:gx).map(g=><option key={g.label}>{g.label}</option>)}</select></label>{num('เยื้องจากกริด',selBeam.offset||0,v=>setBeam(selBeam.id,{offset:v}))}</div>
      <div className="sf-two">{(['from','to'] as const).map(k=><label key={k} className="field"><span>{k==='from'?'จากกริด':'ถึงกริด'}</span><select disabled={readOnly} value={selBeam[k]} onChange={e=>setBeam(selBeam.id,{[k]:e.target.value})}>{(selBeam.along==='X'?gx:gy).map(g=><option key={g.label}>{g.label}</option>)}</select></label>)}</div>
      <p className="muted">คานอ้างอิง: ไม่คิดคอนกรีต / แบบหล่อ (คิดในสมาชิกคาน) · เป็นที่รองรับ ตัดแผง และให้เหล็กพื้นวิ่งผ่าน</p>
      <button type="button" disabled={readOnly} onClick={remove}><Trash2 size={13}/>ลบคาน</button></div>}
+    {sel?.kind==='column'&&(()=>{const c=(f.columns||[]).find(x=>x.id===sel.id);if(!c)return null;
+     return <div className="sf-props"><span className="sf-kicker">เสาอ้างอิง</span><b>เสา {c.x}/{c.y}</b>
+      <div className="sf-two">{num('X',c.sx,v=>setColumn(c.id,{sx:v,template:undefined}),{min:0})}{num('Y',c.sy,v=>setColumn(c.id,{sy:v,template:undefined}),{min:0})}</div>
+      {colTemplates.length>0&&<label className="field"><span>Column Template</span><select disabled={readOnly} value={c.template||''} onChange={e=>{const t=colTemplates.find(x=>x.id===e.target.value);setColumn(c.id,t?{sx:t.sx,sy:t.sy,template:t.id}:{template:undefined});}}><option value="">— ขนาดเอง —</option>{colTemplates.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></label>}
+      <p className="muted">เสาอ้างอิง: ไม่สร้างสมาชิกเสาในรอบนี้ · ใช้เป็นที่รองรับ (support) ของกริดคาน</p>
+      <button type="button" disabled={readOnly} onClick={remove}><Trash2 size={13}/>ลบเสา</button></div>;})()}
     {selDrop&&(()=>{const d=selDrop,b=bbox(d.outline as P2[]),setBox=(x:number,y:number,w:number,h:number)=>setDrop(d.id,{outline:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]]});
      return <div className="sf-props"><span className="sf-kicker">{d.kind==='drop'?'Drop (หนาลง)':'พื้นลดระดับ (บางส่วน)'}</span><b>{d.label||d.id}</b>
       <label className="field"><span>ชนิด</span><select disabled={readOnly} value={d.kind} onChange={e=>setDrop(d.id,{kind:e.target.value as 'drop'|'sunken'})}><option value="drop">Drop · หนาลงใต้พื้น</option><option value="sunken">ลดระดับบางส่วน (ห้องน้ำ / ระเบียง)</option></select></label>

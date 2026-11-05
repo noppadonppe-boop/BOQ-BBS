@@ -19,14 +19,14 @@ import {drawingStatus,drawingStatusText} from '../domain/drawingStatus';
 import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay,zoomBox} from './LabelQa';
-import {floorCtx} from '../domain/slabFloorSheet';
+import {floorCtx,floorPlanScale} from '../domain/slabFloorSheet';
 import {HelpButton} from './HelpCenter';
 
 /** On-screen BBS sheet (A3 / A2): identical primitives to the exported PDF (layout sheet-a3-v10).
  * The language switch shows the sheet at once and saves it as the project sheet language (used by the PDF).
  * Paper / view scale / drawing style: project default (Title block) or this member's override (`onSheetSetup`,
  * null = use the default). */
-export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheetSetup,onCompose,onSaveDrawing,onSaveTemplates,siblings,onCopyEdits}:{/** members of the same category (copy of the Drawing Edit layer) */ siblings?:Member[];onCopyEdits?:(t:{member:Member;edits:DrawingEdits|undefined}[])=>Promise<void>;member:Member;project:Project;dirty:boolean;onExport:()=>void;onLanguage?:(lang:SheetLang)=>Promise<void>;onSheetSetup?:(patch:(SheetStyle&{partTags?:string[];floorMerge?:boolean})|null)=>void;
+export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheetSetup,onCompose,onSaveDrawing,onSaveTemplates,siblings,onCopyEdits}:{/** members of the same category (copy of the Drawing Edit layer) */ siblings?:Member[];onCopyEdits?:(t:{member:Member;edits:DrawingEdits|undefined}[])=>Promise<void>;member:Member;project:Project;dirty:boolean;onExport:()=>void;onLanguage?:(lang:SheetLang)=>Promise<void>;onSheetSetup?:(patch:(SheetStyle&{partTags?:string[];floorMerge?:boolean;floorLabels?:'typ'|'all'})|null)=>void;
  /** Sheet Composer result (member with sheetLayout / drawingViews); absent = read only */ onCompose?:(m:Member)=>void;
  /** drawing-only save of the Composer (layout + Drawing Edit, member status kept) */ onSaveDrawing?:(d:{sheetLayout?:SheetLayout;drawingEdits?:DrawingEdits})=>Promise<void>;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>}){
  const [page,setPage]=useState(0),[dxfOpen,setDxfOpen]=useState(false),[compose,setCompose]=useState(false),[logo,setLogo]=useState<LoadedLogo>(),saved=sheetLangOf(project),[lang,setLang]=useState<SheetLang>(saved),[saving,setSaving]=useState(false);
@@ -57,7 +57,8 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
    <label className="sheet-scale"><span>มาตราส่วนรูป</span><select value={String(F.scale)} disabled={!onSheetSetup} onChange={e=>onSheetSetup?.({viewScale:e.target.value==='auto'?'auto':Number(e.target.value)})}>{(['auto',...viewScaleChoices] as ViewScale[]).map(v=><option key={String(v)} value={String(v)}>{v==='auto'?'Auto (มาตรฐานที่พอดีกรอบ)':viewScaleLabel(v)}</option>)}</select></label>
    <label className="sheet-scale"><span>เหล็กในแปลน</span><select value={F.bars} disabled={!onSheetSetup} onChange={e=>onSheetSetup?.({barDisplay:e.target.value==='all'?'all':'representative'})}><option value="representative">ตัวแทน + ช่วงกระจาย</option><option value="all">ทุกเส้น</option></select></label>
    {!floor&&<label className="check"><input type="checkbox" checked={F.split} disabled={!onSheetSetup} onChange={e=>onSheetSetup?.({planSplit:e.target.checked})}/>แยกแปลนล่าง / บน</label>}
-   <label className="check"><input type="checkbox" checked={F.gutter} disabled={!onSheetSetup} onChange={e=>onSheetSetup?.({markGutter:e.target.checked})}/>ป้าย Mark นอกรูป</label>
+   {floor?<label className="check" title="ปกติ: ป้ายเต็มครั้งเดียวต่อ Mark (แผงที่เหล็กเหมือนกันใส่ TYP.) แผงอื่นแสดงรหัสสั้น เช่น B01 · ติ๊ก = ป้ายเต็มทุกแผง"><input type="checkbox" checked={member.drawingSetup?.floorLabels==='all'} disabled={!onSheetSetup} onChange={e=>onSheetSetup?.({floorLabels:e.target.checked?'all':undefined})}/>ป้ายทุกแผง</label>
+    :<label className="check"><input type="checkbox" checked={F.gutter} disabled={!onSheetSetup} onChange={e=>onSheetSetup?.({markGutter:e.target.checked})}/>ป้าย Mark นอกรูป</label>}
    {own?<button type="button" disabled={!onSheetSetup} title={`ค่าโครงการ: ${def.size} · ${def.layout==='split'?'ตารางก่อน · ':''}${viewScaleLabel(def.scale)} · ${def.bars==='all'?'ทุกเส้น':'ตัวแทน'}${def.split?' · แยกแปลน':''}${def.gutter?' · ป้ายนอกรูป':''}`} onClick={()=>onSheetSetup?.(null)}>ใช้ค่าโครงการ</button>:<small className="muted">ค่าโครงการ</small>}
    <span className="segmented" role="group" aria-label="ภาษาในแบบ">{sheetLangs.map(l=><button key={l.id} type="button" className={lang===l.id?'active':''} aria-pressed={lang===l.id} disabled={saving} onClick={()=>void choose(l.id)}>{l.label}</button>)}</span>
    {lang!==saved&&<small className="muted">{saving?'กำลังบันทึกภาษา…':'ภาษานี้แสดงบนจอเท่านั้น · PDF ใช้ภาษาที่บันทึกในโครงการ'}</small>}
@@ -67,6 +68,7 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
    <button disabled={dirty||saving} title={dirty?'บันทึกสมาชิกก่อนส่งออก':'ไฟล์ CAD DXF 2018 (แก้ไขได้: Dimension / Leader / MTEXT / Block Mark) ทุกแผ่นของสมาชิกนี้'} onClick={()=>setDxfOpen(true)}><FileDown size={14}/>ส่งออก DXF</button>
    <button className="primary" disabled={dirty||saving} title={dirty?'บันทึกสมาชิกก่อนส่งออก':undefined} onClick={onExport}><Download size={14}/>ส่งออก PDF {F.size}</button></div>
   {misfit.length>0&&<p className="notice warning" role="status">{misfit.map(v=>v.title).join(', ')}: {viewScaleLabel(F.scale)} ไม่พอดีกรอบบน {F.size} · ใช้ {[...new Set(misfit.map(v=>v.n?`1:${v.n}`:'NTS'))].join(' / ')} แทน · เลือกมาตราส่วนเล็กลงหรือใช้กระดาษ A2</p>}
+  {floor&&(()=>{const n2=floorPlanScale(member,'A2'),auto=!member.drawingSetup?.sheetSize;return n2>100?<p className="notice">{auto&&F.size==='A1'?`แปลนบน A2 ได้แค่ 1:${n2} (เล็กกว่า 1:100) · ใช้ A1 อัตโนมัติ`:F.size==='A2'?`แปลนบน A2 ได้ 1:${n2} (เล็กกว่า 1:100) · แนะนำ A1`:`แปลนบน A2 ได้แค่ 1:${n2} · ใช้ ${F.size}`}</p>:null;})()}
   {floor&&<p className="notice">พื้นทั้งชั้น: แผ่นแรก = แปลนเหล็กล่าง / บน · ตารางพื้น · สัญลักษณ์ · Key plan · รูปตัด · รูปขยายช่องเปิด · รายละเอียดมาตรฐาน (Template ระบบ “พื้น” ถ้าไม่ได้จัดหน้าเอง) แล้วตาราง BBS ในแผ่นถัดไป <HelpButton topic="slab-floor-sheet"/></p>}
   {F.size==='A2'&&<p className="notice">A2 (594 × 420 mm) · พิมพ์บนกระดาษ A2 เท่านั้น · ย่อลง A3 ตัวหนังสือจะเล็กเกินอ่าน</p>}
   {F.size==='A3'&&info.scales.some(v=>v.title===sheetText[lang].planBottom)&&<p className="notice">แยกแปลนล่าง / บนบน A3 รูปจะเล็ก · แนะนำกระดาษ A2</p>}

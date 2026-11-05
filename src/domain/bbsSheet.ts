@@ -15,7 +15,7 @@ import type {SheetScope} from './tagSheets';
 import {DEFAULT_SECTION_IDS,resolveSheetLayout,sectionSpec,sheetSections} from './sheetLayout';
 import type {PlacedView,SheetLayout,ViewKey} from './sheetLayoutSchema';
 import type {SheetSection} from './drawingViews';
-import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSteelSummary,floorTableItems,floorTitle,isFloorPaper,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
+import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSize,floorRole,floorSectionCuts,floorSheetWarnings,floorSpacingNote,floorSteelSummary,floorTableItems,floorTitle,isAutoDetail,isFloorPaper,openingDetailFocus,openingDetailNote,type FloorRole,type FloorSet,type FloorTableItem} from './slabFloorSheet';
 
 /** A3 landscape (mm). Standard frame: 20 mm binding margin on the left, 10 mm elsewhere.
  * Left: plan, section X–X, section Y–Y and notes. Right strip: BBS table, BOQ table and title block. */
@@ -24,7 +24,7 @@ export const SHEET={w:420,h:297,left:20,margin:10,strip:135,title:72,bbsRow:9,bb
 export const sheetFormat=(s:Pick<SheetData,'project'|'member'>)=>{const setup=sheetSetupOf(s.project,s.member);
  // slab floor (S2): views sheet(s) first then the BBS tables (split, plans bottom / top); paper A2 unless the member chooses
  // one (whole floor on A1 when its plan does not fit A2 at 1:100)
- if(floorCtx(s.member)){const size=s.member.drawingSetup?.sheetSize||floorPaperSize(s.member,setup.parts!=='tag');return {...SHEET,...sheetSizes[size],...setup,size,layout:'split' as const,split:true};}
+ if(floorCtx(s.member)){const size=s.member.drawingSetup?.sheetSize||floorPaperSize(s.member);return {...SHEET,...sheetSizes[size],...setup,size,layout:'split' as const,split:true};}
  return {...SHEET,...sheetSizes[setup.size],...setup};};
 /** Paper scale (sheet mm per model mm) for a view: fixed 1:N when it fits, else the largest standard 1:N that fits. */
 function pickScale(fit:number,want:ViewScale){
@@ -108,7 +108,7 @@ export function sheetViews(s:SheetData,extras=true):SheetView[]{
  // slab floor (S2): plans of the bottom / top bars (grids, beams, other marks faded), sections through the representative panel,
  // one Detail view per opening (automatic, `det:op-<id>`, + the user's details)
  if(floorCtx(m)){const th=lang==='th',fc=floorSectionCuts(m);
-  const fp=(key:ViewKey,title:string,layer:'bottom'|'top'):SheetView=>({key,title,spec:{axes:[0,1],rep,floor:{layer}},cuts,plan:true});
+  const labels=m.drawingSetup?.floorLabels==='all'?'all' as const:'typ' as const,fp=(key:ViewKey,title:string,layer:'bottom'|'top'):SheetView=>({key,title,spec:{axes:[0,1],rep,floor:{layer,labels}},cuts,plan:true});
   const base=[fp('plan-bottom',th?'แปลนเหล็กล่าง (BOTTOM)':'BOTTOM BARS PLAN','bottom'),fp('plan-top',th?'แปลนเหล็กบน (TOP)':'TOP BARS PLAN','top'),
    ...secs.map(sec=>({key:`sec:${sec.id}`,title:`${sectionTitle(T,lang,sec,'pedestal')}${fc&&sec.source==='default'&&sec.id!==DEFAULT_SECTION_IDS.z?` · ${th?'ผ่าน':'through'} ${fc.through}`:''}`,spec:{...sectionSpec(sec)},plan:false,sec}) as SheetView)];
   const auto=floorDetails(m),user=m.drawingEdits?.details||[],ops=new Map((floorCtx(m)?.openings||[]).map(o=>[`op-${o.id}`.slice(0,40),o.label]));
@@ -258,14 +258,14 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   const want=pv?(pv.n==='auto'?S.scale:pv.n):S.scale;
   const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,want);used=r;return r.s;};
   const data=buildView(m,s.rows,input,v.spec),isPlan=v.spec.normal===undefined;
-  if(v.key?.startsWith('det:op-'))data.floorNote=openingDetailNote(m,v.key.slice(4));
+  if(v.key?.startsWith('det:op-')){data.floorNote=openingDetailNote(m,v.key.slice(4));data.floorFocus=openingDetailFocus(m,v.key.slice(4));}
   const opts={k,colors,cuts:v.cuts,zCut:colCut?.z,scale,gutter:!bg&&S.gutter&&!v.key?.startsWith('det:op-'),frame:(f:typeof frame)=>{frame=f;},
    hide:pv?.show?{dims:pv.show.dims===false,marks:pv.show.marks===false,levels:pv.show.levels===false}:undefined,
    // Drawing Edit layer of this view (overrides of automatic annotations + user text / leaders)
    edits:v.key?m.drawingEdits?.views[v.key]:undefined,
    sectionLines:isPlan&&userCuts.length?userCuts.map(c=>({axis:c.axis==='X'?0:1,at:c.position,label:c.label,ref:pageOfSec.has(c.id)?String(pageOfSec.get(c.id)):undefined,look:c.look,extent:c.extent,...(c.steps?.length?{steps:c.steps.map(x=>({from:x.from,at:x.position}))}:{})})):undefined,
    // Detail marks of the placed Detail views on their parent view
-   detailMarks:v.key?details.filter(d=>d.parent===v.key&&pageOfDet.has(d.id)).map(d=>({u:d.u,v:d.v,r:d.r,circle:d.circle!==false,label:d.label,ref:String(pageOfDet.get(d.id))})):undefined};
+   detailMarks:v.key?details.filter(d=>(d.parent===v.key||floorCtx(m)&&isAutoDetail(d.id)&&v.key==='plan-bottom')&&pageOfDet.has(d.id)).map(d=>({u:d.u,v:d.v,r:d.r,circle:d.circle!==false,label:d.label,ref:String(pageOfDet.get(d.id))})):undefined};
   const inner=(b:Box)=>({x:b.x,y:b.y+4,w:b.w,h:b.h-4});
   // projection lock: same scale and shared model axis → that axis at the same sheet x / y as the target view, else centre lines
   if(pv?.lock){const t=frames.get(pv.lock.to);
@@ -322,7 +322,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   for(const t of part){x=tx;[t.tag,t.label,String(t.marks),t.concrete===null?'—':fmt(t.concrete*s.quantity,3),fmt(t.weight*s.quantity)].forEach((v,i)=>{cell(v,x,y,sw[i],rowH,2.3*fz,i>1?'end':'start',ink,i!==1);x+=sw[i];});line(tx,y+rowH,tr,y+rowH);y+=rowH;}
   x=tx;for(const w of sw.slice(0,-1)){x+=w;line(x,top,x,y);}
  }
- for(const it of subset){x=tx;if('head' in it){out.push({t:'rect',x:tx,y,w:tw,h:rowH,fill:'#e8f0eb'});cell(it.head,tx,y,tw*.5,rowH,2.6*fz,'start',ink,true);cell(it.sub,tx+tw*.5,y,tw*.5,rowH,2.3*fz,'end','#4b6166',true);line(tx,y+rowH,tr,y+rowH);y+=rowH;continue;}const r=it.row,values=[r.mark,r.note||'',`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
+ for(const it of subset){x=tx;if('head' in it){out.push({t:'rect',x:tx,y,w:tw,h:rowH,fill:'#e8f0eb'});cell(it.head,tx,y,tw*.5,rowH,2.6*fz,'start',ink,true);cell(it.sub,tx+tw*.5,y,tw*.5,rowH,2.3*fz,'end','#4b6166',true);line(tx,y+rowH,tr,y+rowH);y+=rowH;continue;}const r=it.row,sn=floorSpacingNote(s.member,r),values=[r.mark,`${r.note||''}${sn?` · ${sn}`:''}`,`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
   const bar=r as unknown as Bar,raw=bar.shape&&!['arc','helix'].includes(bar.shape)?barPaths(m,bar)[0]||[]:[];
   cols.forEach((c,i)=>{if(i===3){const n0=out.length;sketch(out,r.paths[0]||[],raw,r.diameter,x+5*fz,y+2.6*fz,c.w-10*fz,rowH-5*fz,colors.get(r.id)||ink,barCouplerEnds(input,r.id));for(const q of out.slice(n0))q.layer=q.t==='text'?'dim':'barMain';text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+rowH-.8,1.8*fz,{color:'#4b6166'});}else cell(values[i],x,y,c.w,rowH,(i===1?1.9:i===0&&r.mark.length>5?Math.max(1.5,Math.min(2.3,(c.w/fz-1.6)/(r.mark.length*.56))):2.3)*fz,c.align||'start');x+=c.w;});
   line(tx,y+rowH,tr,y+rowH);y+=rowH;}

@@ -590,6 +590,12 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .sf-bg{fill:#fff}.sf-grid{stroke:#94a3b8;stroke-width:1;stroke-dasharray:10 4 2 4}.sf-bubble{fill:#fff;stroke:#334155}.sf-bubble-t{font:700 13px Sarabun;text-anchor:middle;fill:#334155}.sf-dim{font:11px Sarabun;fill:#64748b;text-anchor:middle}
 .sf-panel{cursor:pointer}.sf-mark{font:700 17px Sarabun;text-anchor:middle;pointer-events:none}.sf-tag{font:11px Sarabun;text-anchor:middle;pointer-events:none}
 .sf-beam{fill:#47556914;stroke:#475569;stroke-width:1.2;stroke-dasharray:6 4;cursor:pointer}.sf-beam.on{stroke:#2563eb;stroke-width:2.4;fill:#2563eb22}
+/* S3: reference columns, beam ↔ member links, beams-from-floor dialog */
+.sf-col{fill:#64748b;stroke:#1e293b;stroke-width:1;cursor:pointer}.sf-col.on{fill:#2563eb;stroke:#1d4ed8}
+.link-chip{display:inline-block;margin:2px 0 0 6px;padding:0 6px;border:1px solid #94a3b8;border-radius:9px;background:#f8fafc;font-size:11px;line-height:17px;cursor:pointer}
+.link-chip.ls-current{border-color:#15803d;color:#15803d}.link-chip.ls-stale{border-color:#b45309;color:#b45309}.link-chip.ls-edited{border-color:#be185d;color:#be185d}.link-chip.ls-missing{border-color:#94a3b8;color:#64748b}
+.floor-beams-dialog{max-width:900px;width:min(900px,94vw)}.floor-beams-dialog header{display:flex;align-items:center;gap:8px}.floor-beams-dialog header .icon-button{margin-left:auto}
+.floor-beams-dialog table{width:100%}.floor-beams-dialog tr.fb-new td:nth-child(3){color:#15803d}.floor-beams-dialog tr.fb-update td:nth-child(3){color:#b45309}.floor-beams-dialog tr.fb-edited td:nth-child(3),.floor-beams-dialog tr.fb-conflict td:nth-child(3){color:#be185d}.floor-beams-dialog tr.fb-removed td{color:#64748b}
 .sf-open{fill:#fff;stroke:#2563eb;stroke-width:1.6;cursor:move}.sf-open.on{stroke-width:2.6}.sf-open-x{stroke:#2563eb;stroke-width:1;pointer-events:none}
 .sf-drop{fill:#0f766e18;stroke:#0f766e;stroke-dasharray:4 3;cursor:move}.sf-drop.sunken{fill:#4338ca18;stroke:#4338ca}.sf-drop.on{stroke-width:2.4}.sf-drop-t{font:10px Sarabun;text-anchor:middle;fill:#0f766e;pointer-events:none}
 .sf-grip{fill:#fff;stroke:#2563eb;stroke-width:1.5;cursor:nwse-resize}.sf-odim line{stroke:#2563eb}.sf-odim text,.sf-odim-t{font:600 11px 'JetBrains Mono',monospace;fill:#2563eb;text-anchor:middle}

@@ -26,6 +26,7 @@ import {SiteItemsEditor} from './SiteItemsEditor';
 import {applySlabTemplate,applyWallTemplate,floorMarkFromTemplate,slabTemplateSummary,wallTemplateSummary} from '../domain/slabWallTemplates';
 import {newSlabFloor} from '../domain/slabFloor';
 import {SlabFloorEditor} from './SlabFloorEditor';
+import {floorLinks,useProjectMembers} from './FloorBeamsDialog';
 import {groupLabel,orderGroups} from '../domain/specBuildings';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
 import {detailingFromSpec,specLabel,specOutdated} from '../domain/specProfiles';
@@ -56,6 +57,9 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const [filled,setFilled]=useState<string[]>([]);
  const [manualBars,setManualBars]=useState(()=>m.bars.filter(b=>!isGeneratedBar(b)));
  const [view3d,setView3d]=useState(false);
+ // S3: slab floors list the beam groups linked to them (project members, read once; reloaded after creating beams)
+ const isFloor=m.category==='Slab'&&(m.elementInput as {layout?:string}|undefined)?.layout==='floor';
+ const proj=useProjectMembers(project.id,isFloor),linkedLines=isFloor?floorLinks(proj.members?.find(x=>x.id===m.id),proj.members,project).map(l=>`${l.input.placement?.along}|${l.input.placement?.line}`):undefined;
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
  const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0),[picker,setPicker]=useState(false),[ftPicker,setFtPicker]=useState(false);
  const spec=project.spec;
@@ -124,7 +128,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   <div className="section-heading"><div><h3>ข้อมูลพื้นฐาน & เหล็กเสริม · {m.code}</h3><p className="muted">เลือกวิธีป้อนข้อมูล · ทั้งสองวิธีให้ผลเป็นข้อมูลชุดเดียวกัน แล้วใช้คำนวณ BOQ และสร้าง Bar cut list</p></div>
    <div className="actions"><SaveTemplateButton project={project} category={m.category} defaultName={m.code} payload={()=>templatePayload(m,{elementInput:input,siteItems:items,bars:manualBars})}/><button className="view3d-button" onClick={()=>setView3d(true)} title="มุมมอง 3D · หมุน ซูม คลิกขวาเพื่อแก้ไขขนาดและเหล็กเสริม"><Box size={15}/>3D Modal</button>
    <div className="segmented mode-switch" role="group" aria-label="วิธีป้อนข้อมูล">{(['manual','drawing'] as const).map(mode=><button key={mode} disabled={readOnly} className={input.mode===mode?'active':''} onClick={()=>set('mode',mode)}>{mode==='manual'?'กรอกเอง':'อ่านจากแบบ'}</button>)}</div></div></div>
-  {view3d&&<Suspense fallback={<div className="e3d-shade"><div className="notice">กำลังเปิดมุมมอง 3D…</div></div>}><Element3DModal member={m} input={input} manualBars={manualBars} preview={preview&&!('error' in preview)?preview:undefined} error={preview&&'error' in preview?preview.error:undefined} problems={problems} qty={qty} spec={spec} readOnly={readOnly} onInput={setInput} onManualBars={setManualBars} onApply={()=>apply(true)} onClose={()=>setView3d(false)}/></Suspense>}
+  {view3d&&<Suspense fallback={<div className="e3d-shade"><div className="notice">กำลังเปิดมุมมอง 3D…</div></div>}><Element3DModal member={m} input={input} linkedLines={linkedLines} manualBars={manualBars} preview={preview&&!('error' in preview)?preview:undefined} error={preview&&'error' in preview?preview.error:undefined} problems={problems} qty={qty} spec={spec} readOnly={readOnly} onInput={setInput} onManualBars={setManualBars} onApply={()=>apply(true)} onClose={()=>setView3d(false)}/></Suspense>}
 
   {input.mode==='drawing'&&<div className="notice drawing-steps">
    <b>อ่านค่าจากแบบ</b>
@@ -137,7 +141,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
 
   {input.category==='Slab'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบพื้น">{([['single','พื้นแผ่นเดียว'],['floor','พื้นทั้งชั้น (กริด)']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Slab'?prev:v==='floor'?{...prev,layout:'floor',floor:prev.floor??newSlabFloor(spec.slabTemplates?.[0]?floorMarkFromTemplate(spec.slabTemplates[0]):undefined)}:{...prev,layout:'single'})}>{t}</button>)}</div>}
   {input.category==='Slab'&&input.layout==='floor'&&input.floor&&<section className="slab-floor-wrap"><h4>แปลนพื้น <small className="muted">กริด · คานอ้างอิง · แผงตามเบอร์พื้น · ช่องเปิด · Drop — กด “สร้างเหล็ก + ใช้กับสมาชิก” แล้วบันทึกสมาชิก</small></h4>
-   <SlabFloorEditor input={input} project={project} readOnly={readOnly} onView3d={()=>setView3d(true)} onBuild={()=>apply(true)} buildDisabled={pending||!preview||'error' in preview} onChange={floor=>setInput(prev=>prev?.category==='Slab'?{...prev,floor}:prev)}/></section>}
+   <SlabFloorEditor input={input} project={project} readOnly={readOnly} memberId={m.id} members={proj.members} onReloadMembers={proj.reload} onView3d={()=>setView3d(true)} onBuild={()=>apply(true)} buildDisabled={pending||!preview||'error' in preview} onChange={floor=>setInput(prev=>prev?.category==='Slab'?{...prev,floor}:prev)}/></section>}
   <div className="element-input-layout"><div className="element-input-form">
   <h4>1. มิติและรูปร่าง (จำเป็น)</h4>
   {input.category==='Foundation'&&<div className="ct-bar"><button type="button" className={spec.foundationTemplates?.length?'ct-open':''} disabled={readOnly} title={spec.foundationTemplates?.length?'เลือกฐานรากตามแบบ (ขนาด เข็ม เหล็ก ระดับ ตำแหน่งเสา) จาก General Spec ของโครงการ':'ยังไม่มี Foundation Template · นำเข้าที่ General Spec'} onClick={()=>setFtPicker(true)}><Box size={15}/>Foundation Template (ตามแบบ)</button>

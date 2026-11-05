@@ -1,6 +1,6 @@
 import type {Member,Vec3} from './model';
 import {elementInputSchema,lapLength,type SlabInput} from './elementInput';
-import {devLength,floorBars,floorBeamRects,floorShapeModel,inRing,panelThickness,polyArea,type Floor,type OpeningStat} from './slabFloor';
+import {devLength,floorBars,floorBeamRects,floorShapeModel,groupFloorBars,inRing,panelThickness,polyArea,type Floor,type OpeningStat} from './slabFloor';
 import {normaliseShape} from './shapeGeometry';
 import {shapeModelSchema} from './shapeModelSchema';
 import {sheetSizes,type SheetSize} from './drawingStandard';
@@ -58,6 +58,26 @@ export function floorStats(m:Pick<Member,'elementInput'|'category'>){
  if(!stats.has(raw)){try{stats.set(raw,floorBars(input,input.detailing));}catch{stats.set(raw,null);}}
  return stats.get(raw)||undefined;
 }
+const spacings=new WeakMap<object,Map<string,number>>();
+/** Design spacing (mm, as specified) of each generated floor bar set (id → spacing); the drawn spacing can be smaller
+ * (bars spread evenly, count rounded up: the same rule as a single slab). Labels show this value. */
+export function floorDesignSpacing(m:Pick<Member,'elementInput'|'category'>):Map<string,number>{
+ const raw=m.elementInput as object|undefined,c=floorCtx(m),st=floorStats(m);if(!raw||!c||!st||!c.input.detailing)return new Map();
+ if(!spacings.has(raw)){const map=new Map<string,number>();try{groupFloorBars(c.input,c.input.detailing,st.raw,c.shift,map);}catch{/* labels fall back to the drawn spacing */}spacings.set(raw,map);}
+ return spacings.get(raw)!;
+}
+/** Spread spacing of a floor bar set as drawn (evenly spaced bars along one plan axis), else undefined. */
+export function floorActualSpacing(r:{paths:Vec3[][]}){
+ const pts=r.paths.map(p=>p[0]).filter(Boolean);if(pts.length<2)return;
+ const ax=[0,1].map(k=>Math.max(...pts.map(p=>p[k]))-Math.min(...pts.map(p=>p[k]))),k=ax[0]>=ax[1]?0:1,o=1-k;
+ if(ax[o]>2)return;const vs=pts.map(p=>p[k]).sort((a,b)=>a-b),s=(vs.at(-1)!-vs[0])/(vs.length-1);
+ return vs.every((v,i)=>!i||Math.abs(v-vs[i-1]-s)<2)?s:undefined;
+}
+/** BBS note when bars are spread closer than designed (count rounded up over the span): “ระยะจริง @195 (แบบ @200)”. */
+export function floorSpacingNote(m:Pick<Member,'elementInput'|'category'>,r:{id:string;paths:Vec3[][]}){
+ const d=floorDesignSpacing(m).get(r.id),a=floorActualSpacing(r);
+ return d&&a&&d-a>=1?`ระยะจริง @${Math.floor(a)} (แบบ @${d})`:undefined;
+}
 export type FloorKind='B'|'T'|'OP'|'OD';
 export type FloorRole='B1'|'B2'|'T'|'OP'|'OD';
 /** Kind of a generated floor bar from its id (`gen-<owner>-b01` / `-t01` / `-op01` / `-od01`). */
@@ -99,8 +119,7 @@ export function floorSectionCuts(m:Member){
  const withDrop=mine.find(p=>c.drops.some(d=>d.panel===p.id)),lowered=mine.filter(p=>Math.abs(p.top-c.shift[2])>.5).sort((a,b)=>b.area-a.area)[0],p=withDrop||lowered||[...mine].sort((a,b)=>b.area-a.area)[0];
  const d=withDrop?c.drops.find(x=>x.panel===p.id):undefined;let at:P2=d?centroid(d.ring):centroid(p.ring);
  if(!inRing(at,p.ring)){const b=p.box;at=[(b.x0+b.x1)/2,(b.y0+b.y1)/2];}
- const pad=1500,e=c.extent;
- return {panel:p.tag,x:at[0],y:at[1],extentX:[Math.max(e.x0,p.box.x0-pad),Math.min(e.x1,p.box.x1+pad)] as [number,number],extentY:[Math.max(e.y0,p.box.y0-pad),Math.min(e.y1,p.box.y1+pad)] as [number,number],through:d?(d.kind==='drop'?`Drop ${d.label}`:`พื้นลดระดับ ${d.label}`):p===lowered?`พื้นลดระดับ ${p.tag}`:`แผง ${p.tag}`};
+ return {panel:p.tag,x:at[0],y:at[1],extentX:floorSectionExtent(c,p.box,0),extentY:floorSectionExtent(c,p.box,1),through:d?(d.kind==='drop'?`Drop ${d.label}`:`พื้นลดระดับ ${d.label}`):p===lowered?`พื้นลดระดับ ${p.tag}`:`แผง ${p.tag}`};
 }
 /** Extension of the opening trimmers past the corners (mm). */
 function openingExt(c:FloorCtx,o:Floor['openings'][number],d:number){
@@ -112,7 +131,8 @@ export function floorDetails(m:Member):DetailView[]{
  const c=floorCtx(m);if(!c)return [];const focus=new Set(floorFocus(m)),out:DetailView[]=[];
  c.openings.forEach(o=>{const p=c.panels.find(x=>x.id===o.panel);if(!p||!focus.has(p.mark))return;const fo=c.f.openings.find(x=>x.id===o.id)!;
   if(fo.trim.method==='none')return;const mk=c.f.marks.find(x=>x.name===p.mark),d=mk?.rebar.shortBottom.diameter||12,ext=openingExt(c,fo,d);
-  const r=Math.min(20000,Math.max(o.x1-o.x0,o.y1-o.y0)/2+ext+300);
+  // window: the opening + Ld (extension) + one bar spacing (focus, `openingDetailFocus`) + one more spacing of faded mesh
+  const s=Math.max(mk?.rebar.shortBottom.spacing||0,mk?.rebar.longBottom.spacing||0)||200,r=Math.min(20000,Math.max(o.x1-o.x0,o.y1-o.y0)/2+ext+2*s);
   out.push({id:`op-${o.id}`.slice(0,40),label:`D${out.length+1}`,parent:'plan-top',u:(o.x0+o.x1)/2,v:(o.y0+o.y1)/2,r,circle:false});});
  return out;
 }
@@ -125,6 +145,13 @@ export function openingDetailNote(m:Member,detailId:string):string[]{
  return [`ช่องเปิด ${o.label||o.id} ${o.shape==='circle'?`Ø${o.w}`:`${o.w} × ${o.h}`} mm${p?` · แผง ${p.tag}`:''}`,
   ...(s?[o.trim.method==='deviate'&&s.deviated?'เหล็กเบี่ยงหลบช่องเปิด (≤ 300 mm)':`เหล็กถูกตัด แนว X ${s.cut.X} เส้น · แนว Y ${s.cut.Y} เส้น`,
    `เหล็กเสริมขอบ ${s.trim} เส้น ยื่นเลยมุม ${extText}${s.diag?` · ทแยง ${s.diag} เส้น`:''} · +${s.kg.toFixed(1)} kg`]:[]),...(s?.fallback?[s.fallback]:[])];
+}
+/** Focus region of an opening detail (member mm): the opening + Ld (trimmer extension) + one bar spacing; bars outside are faded. */
+export function openingDetailFocus(m:Member,detailId:string){
+ const c=floorCtx(m);if(!c)return;const o=c.openings.find(x=>`op-${x.id}`.slice(0,40)===detailId),fo=c.f.openings.find(x=>x.id===o?.id);if(!o||!fo)return;
+ const p=c.panels.find(x=>x.id===o.panel),mk=p&&c.f.marks.find(x=>x.name===p.mark),d=mk?.rebar.shortBottom.diameter||12;
+ const r=openingExt(c,fo,d)+(Math.max(mk?.rebar.shortBottom.spacing||0,mk?.rebar.longBottom.spacing||0)||200);
+ return {x0:o.x0-r,y0:o.y0-r,x1:o.x1+r,y1:o.y1+r};
 }
 /** Paper views of a floor sheet (ViewKeys placed by the Composer, drawn on paper: no model scale). */
 export const FLOOR_PAPER=['schedule','legend','keyplan','stddet'] as const;
@@ -220,36 +247,76 @@ function drawStdDetails(out:PlainPrim[],box:Box,c:FloorCtx,focus:string[],tx:(t:
   const sh=b.h*.2,y0=b.y+b.h*.28,step=b.h*.08,xm=b.x+b.w/2;conc(b.x+3,y0,xm-b.x-3,sh);conc(xm,y0+step,b.x+b.w-3-xm,sh);
   bar([[b.x+5,y0+sh*.72],[xm-4,y0+sh*.72],[xm+4,y0+step+sh*.72],[b.x+b.w-5,y0+step+sh*.72]],floorRoleColors.B1);
   note('ต่างระดับ ≤ 75: ดัดคอม้า 1:6 (Shape 26) · > 75: แยกเหล็ก + ยึด Ld',b.x+3,b.y+b.h-6);note(`Ld = ${ld} · หนา ${t}`,b.x+3,b.y+b.h-3);}});
- const n=items.length,g=2,cw=(box.w-4-(n-1)*g)/n,ch=box.h-9;
- items.forEach((it,i)=>{const b={x:box.x+2+i*(cw+g),y:box.y+7,w:cw,h:ch};out.push({t:'rect',x:b.x,y:b.y,w:b.w,h:b.h,fill:'#f8fafc',stroke:'#cbd5e1',width:.2,layer:'titleBlock'});tx(it.title,b.x+1.5,b.y+3.5,{size:2,bold:true});it.draw(b);});
+ // grid whose cells come closest to 2 : 1 (sketches are wide)
+ const n=items.length,g=2,W=box.w-4,Hh=box.h-9,cols=[...Array(n).keys()].map(k=>k+1).reduce((best,k)=>{const r=Math.ceil(n/k),q=((W-(k-1)*g)/k)/((Hh-(r-1)*g)/r),qb=((W-(best-1)*g)/best)/((Hh-(Math.ceil(n/best)-1)*g)/Math.ceil(n/best));return Math.abs(Math.log(q/2))<Math.abs(Math.log(qb/2))?k:best;},1);
+ const rows=Math.ceil(n/cols),cw=(W-(cols-1)*g)/cols,ch=(Hh-(rows-1)*g)/rows;
+ items.forEach((it,i)=>{const b={x:box.x+2+(i%cols)*(cw+g),y:box.y+7+Math.floor(i/cols)*(ch+g),w:cw,h:ch};out.push({t:'rect',x:b.x,y:b.y,w:b.w,h:b.h,fill:'#f8fafc',stroke:'#cbd5e1',width:.2,layer:'titleBlock'});tx(it.title,b.x+1.5,b.y+3.5,{size:2,bold:true});it.draw(b);});
 }
 /** Drawing area of a view sheet of the split layout (title band 15 mm on top, title strip 12 mm at the bottom) — the same
  * frame as `bbsSheet.ts` (left 20, margin 10). */
 export function floorDrawArea(size:SheetSize){const p=sheetSizes[size];return {x:22,y:27,w:p.w-10-2-22,h:p.h-10-12-2-27};}
-/** System layout “พื้น (Slab Floor)” (artboard 10): bottom | top plan | schedule + legend + key plan; sections X–X, Y–Y;
- * opening details + standard details; details that do not fit go to the next sheets. */
+// view box → drawing room: title 4 mm + renderView margins 2 × 12.5 mm (+ 2 mm spare)
+const ROOM_W=27,ROOM_H=31;
+const PLAN_SCALES=[50,75,100,125,150,200,250,300,400,500,750,1000];
+/** Plan span of the floor views (grids run 900 past the outer beams). */
+function planSpan(c:FloorCtx){return {u:c.extent.x1-c.extent.x0+1800,v:c.extent.y1-c.extent.y0+1800};}
+/** Boxes of the slab floor sheet 1 (artboard 10, S2.1): right column = schedule (rows) + legend (items) + key plan (¼) +
+ * standard details (rest); left = bottom | top plan at the largest standard scale that fits (1:100 or better on A2,
+ * else A1), sections X–X | Y–Y, opening details at 1:20. */
+function floorFrame(m:Member,size:SheetSize){
+ const c=floorCtx(m),a=floorDrawArea(size),g=3,colR=Math.round(a.w*.22),wl=a.w-colR-g,pw=(wl-g)/2,sp=c?planSpan(c):{u:10000,v:10000};
+ const n=PLAN_SCALES.find(n=>sp.u/n+ROOM_W<=pw&&sp.v/n+ROOM_H<=a.h*.55)??PLAN_SCALES.at(-1)!;
+ const h1=Math.round(Math.min(a.h*.55,Math.max(a.h*.3,sp.v/n+ROOM_H+2)));
+ return {a,g,colR,wl,pw,n,h1,xr:a.x+wl+g};
+}
+/** Plan scale of the floor views on a paper size (bottom / top plans side by side, see `floorFrame`). */
+export const floorPlanScale=(m:Member,size:SheetSize)=>floorFrame(m,size).n;
+/** Size (sheet mm, square) a Detail view needs at 1:n. */
+const detailSide=(r:number,n:number)=>Math.ceil(2*r/n+ROOM_W+2);
+/** Section crop of the default floor sections: the cut panel + the beams on both sides + 1,200 of the neighbours. */
+export function floorSectionExtent(c:FloorCtx,box:{x0:number;y0:number;x1:number;y1:number},axis:0|1):[number,number]{
+ const lo=axis===0?box.x0:box.y0,hi=axis===0?box.x1:box.y1,bw=Math.max(0,...c.beams.map(b=>Math.min(b.x1-b.x0,b.y1-b.y0))),pad=bw+1200,e=c.extent;
+ return [Math.max(axis===0?e.x0:e.y0,lo-pad),Math.min(axis===0?e.x1:e.y1,hi+pad)];
+}
+/** System layout “พื้น (Slab Floor)” (artboard 10, S2.1). Sheet 1: plans | right column (schedule sized to its rows, compact
+ * legend, key plan ≈ ¼ of the column, standard details in the rest); sections X–X | Y–Y (1:25 when they fit); opening
+ * details at 1:20 in the last row — when the row cannot hold them they move to the next sheets at 1:20 (never scaled down). */
 export function floorSystemLayout(m:Member,size:SheetSize,secX?:string,secY?:string):SheetLayout{
- const a=floorDrawArea(size),g=3,colR=Math.round(a.w*.27),wl=a.w-colR-g,pw=(wl-g)/2,h1=Math.round(a.h*.47),h2=Math.round(a.h*.25),h3=a.h-h1-h2-2*g,xr=a.x+wl+g;
- const y2=a.y+h1+g,y3=y2+h2+g,dets=floorDetails(m).map(d=>`det:${d.id}` as ViewKey);
+ const c=floorCtx(m),F=floorFrame(m,size),{a,g,colR,wl,pw,h1,xr}=F,focus=floorFocus(m);
+ // right column
+ const rows=c?floorSchedule(c,focus).length:1,hs=Math.round(Math.min(a.h*.3,7+6*(rows+1)+7));
+ const warn=floorSheetWarnings(m,focus).length,hl=Math.round(Math.min(a.h*.3,12+9*4.4+(warn?6+3*warn:0)+6));
+ const hk=Math.round(a.h*.25),hd=a.h-hs-hl-hk-3*g;
  const views:SheetLayout['sheets'][number]['views']=[
   {view:'plan-bottom',x:a.x,y:a.y,w:pw,h:h1,n:'auto'},{view:'plan-top',x:a.x+pw+g,y:a.y,w:pw,h:h1,n:'auto'},
-  {view:'schedule',x:xr,y:a.y,w:colR,h:Math.round(a.h*.24),n:'auto'},{view:'legend',x:xr,y:a.y+Math.round(a.h*.24)+g,w:colR,h:Math.round(a.h*.26),n:'auto'},
-  {view:'keyplan',x:xr,y:a.y+Math.round(a.h*.5)+2*g,w:colR,h:a.h-Math.round(a.h*.5)-2*g,n:'auto'},
-  ...(secX?[{view:`sec:${secX}` as ViewKey,x:a.x,y:y2,w:pw,h:h2,n:'auto' as const}]:[]),...(secY?[{view:`sec:${secY}` as ViewKey,x:a.x+pw+g,y:y2,w:pw,h:h2,n:'auto' as const}]:[])];
- // row 3: details (square slots) on the left half, standard details on the rest
- // details at 1:20 when the window fits the slot (title + margins ≈ 30 mm), else the largest standard scale that fits
- const want=(k:ViewKey,box:number)=>{const d=floorDetails(m).find(x=>`det:${x.id}`===k);return d&&2*d.r/20+30<=box?20 as const:'auto' as const;};
- const slot=h3,fit=dets.length?Math.max(1,Math.min(dets.length,Math.floor((wl*.5+g)/(slot+g)))):0,dw=fit?fit*(slot+g):0;
- dets.slice(0,fit).forEach((k,i)=>views.push({view:k,x:a.x+i*(slot+g),y:y3,w:slot,h:h3,n:want(k,slot)}));
- views.push({view:'stddet',x:a.x+dw,y:y3,w:wl-dw,h:h3,n:'auto'});
- const sheets:SheetLayout['sheets']=[{id:'s1',views}],rest=dets.slice(fit),sz=Math.min(slot*1.3,a.h/2-g),cols=Math.max(1,Math.floor((a.w+g)/(sz+g))),rows=Math.max(1,Math.floor((a.h+g)/(sz+g))),per=Math.min(16,cols*rows);
- for(let i=0;i<rest.length&&sheets.length<20;i+=per)sheets.push({id:`s${sheets.length+1}`,views:rest.slice(i,i+per).map((k,j)=>({view:k,x:a.x+(j%cols)*(sz+g),y:a.y+Math.floor(j/cols)*(sz+g),w:sz,h:sz,n:want(k,sz)}))});
+  {view:'schedule',x:xr,y:a.y,w:colR,h:hs,n:'auto'},{view:'legend',x:xr,y:a.y+hs+g,w:colR,h:hl,n:'auto'},
+  {view:'keyplan',x:xr,y:a.y+hs+hl+2*g,w:colR,h:hk,n:'auto'}];
+ const stdInCol=hd>=60;if(stdInCol)views.push({view:'stddet',x:xr,y:a.y+hs+hl+hk+3*g,w:colR,h:hd,n:'auto'});
+ // below the plans: opening details at 1:20 (square, stacked in a column at the right when they fit the height, never
+ // scaled down — else on the next sheets) and the sections X–X / Y–Y stacked in the rest (1:25 when the crop fits)
+ const dets=floorDetails(m),sides=dets.map(d=>detailSide(d.r,20)),below=a.h-h1-g,y2=a.y+h1+g,first:number[]=[];
+ let used=0,colW=0;for(const [i,sd] of sides.entries()){if(used+sd<=below&&Math.max(colW,sd)<=wl*.45){first.push(i);used+=sd+g;colW=Math.max(colW,sd);}}
+ let dy=y2;for(const i of first){views.push({view:`det:${dets[i].id}` as ViewKey,x:a.x+wl-colW,y:dy,w:sides[i],h:sides[i],n:20});dy+=sides[i]+g;}
+ const rest=dets.filter((_,i)=>!first.includes(i)),sw=wl-(colW?colW+g:0);
+ // standard details: in the column when it has room, else under the sections
+ const hstd=stdInCol?0:Math.min(80,Math.round(below*.35)),hsec=(below-hstd-(hstd?g:0)-g)/2;
+ if(!stdInCol)views.push({view:'stddet',x:a.x,y:y2+2*(hsec+g),w:sw,h:hstd,n:'auto'});
+ const fc=c?floorSectionCuts(m):undefined,depth=Math.max(0,...(c?.beams||[]).map(b=>b.depth))+300;
+ // + 24 mm: level marks (T.O.S. +3.500) right of the concrete
+ const secN=(axis:0|1)=>{if(!fc)return 'auto' as const;const [lo,hi]=axis===0?fc.extentX:fc.extentY;return (hi-lo)/25+ROOM_W+24<=sw&&depth/25+ROOM_H+12<=hsec?25 as const:'auto' as const;};
+ if(secX)views.push({view:`sec:${secX}` as ViewKey,x:a.x,y:y2,w:sw,h:hsec,n:secN(0)});
+ if(secY)views.push({view:`sec:${secY}` as ViewKey,x:a.x,y:y2+hsec+g,w:sw,h:hsec,n:secN(1)});
+ // details that do not fit sheet 1: next sheets, packed in rows at 1:20 (a detail larger than the drawing area: the largest scale that fits)
+ const sheets:SheetLayout['sheets']=[{id:'s1',views}];let sh:SheetLayout['sheets'][number]|undefined,cx=0,cy=0,rowH=0;
+ for(const d of rest){const n=detailSide(d.r,20)<=Math.min(a.w,a.h)?20 as const:'auto' as const,sd=Math.min(detailSide(d.r,20),a.w,a.h);
+  if(!sh||cx+sd>a.x+a.w){cx=a.x;cy+=rowH+(sh?g:0);rowH=0;}
+  if(!sh||cy+sd>a.y+a.h){if(sheets.length>=20)break;sh={id:`s${sheets.length+1}`,views:[]};sheets.push(sh);cx=a.x;cy=a.y;rowH=0;}
+  sh.views.push({view:`det:${d.id}` as ViewKey,x:cx,y:cy,w:sd,h:sd,n});cx+=sd+g;rowH=Math.max(rowH,sd);}
  return {version:1,sheets,unplaced:[]};
 }
-/** Paper of a floor sheet when the member does not choose one: A2; the whole floor on A1 when its plan does not fit A2 at 1:100. */
-export function floorPaperSize(m:Member,whole:boolean):SheetSize{
- const c=floorCtx(m);if(!c||!whole)return 'A2';const a=floorDrawArea('A2'),w=(a.w*.73-3)/2-20,h=a.h*.47-20;
- return (c.extent.x1-c.extent.x0)/100>w||(c.extent.y1-c.extent.y0)/100>h?'A1':'A2';
+/** Paper of a floor sheet when the member does not choose one: A2 when the plans get 1:100 or better there, else A1. */
+export function floorPaperSize(m:Member):SheetSize{
+ return floorCtx(m)&&floorPlanScale(m,'A2')>100?'A1':'A2';
 }
 
 /** Sheet set of a slab floor: one slab mark ('mark', “เฉพาะเบอร์พื้น”) or several / the whole floor ('floor', “รวมทั้งชั้น”);

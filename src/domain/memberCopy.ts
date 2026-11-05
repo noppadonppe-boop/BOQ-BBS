@@ -37,5 +37,7 @@ export function copyMemberInputs(source:Member,input:Pick<MemberCopyRequest,'mem
  m.occurrences=structuredClone(input.occurrences).map(o=>({...o,id:newId()}));
  delete m.inputEpoch;delete m.updatedAt;delete m.sourceSchedule;delete m.drawingExtraction;
  delete m.drawingSetup;delete m.review;delete m.scheduleSetup;delete m.copySource;delete m.pricing;delete m.noRebar;
+ // S3: a copied beam group is not the one the slab floor generated: no floor link (it keeps its geometry and placement)
+ const ei=m.elementInput as {category?:string;floorSource?:unknown}|undefined;if(ei?.category==='Beam'&&ei.floorSource)delete ei.floorSource;
  return memberSchema.parse(m);
 }
