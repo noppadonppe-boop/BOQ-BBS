@@ -75,9 +75,13 @@ function compute(sm:ShapeModel):ShapeGeometry{
  const flush=(o:Open)=>{const v:Vec3[]=[[o.a[0],o.a[1],o.z0],[o.b[0],o.b[1],o.z0],[o.b[0],o.b[1],o.z1],[o.a[0],o.a[1],o.z1]],dx=o.b[0]-o.a[0],dy=o.b[1]-o.a[1],l=Math.hypot(dx,dy);surfaces.push(surface(v,[dy/l,-dx/l,0],o.formed));if(o.formed)formwork+=l*(o.z1-o.z0);};
  for(const s of slabs){
   const next=new Map<string,Open>();
-  const tol=3,attribute=(m:P2)=>{const hits=[...s.voids,...s.solids].filter(p=>onBoundary(m,partPolygon(p),tol));return hits.length?hits.some(p=>p.formSides):true;};
+  // faces against reference concrete cast with this element (beams under a slab floor) are not formed
+  const cast=sm.parts.filter(p=>p.role==='reference'&&p.castWith&&p.z0<s.z1-EPS&&top(p)>s.z0+EPS);
+  const tol=3,attribute=(m:P2,a:P2,b:P2)=>{
+   if(cast.length){const dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy),q:P2=[m[0]+dy/l*2,m[1]-dx/l*2];if(cast.some(p=>inPart(q,p)))return false;}
+   const hits=[...s.voids,...s.solids].filter(p=>onBoundary(m,partPolygon(p),tol));return hits.length?hits.some(p=>p.formSides):true;};
   for(const poly of s.region)for(const raw of poly){const r=open(raw as P2[]);r.forEach((a,i)=>{const b=r[(i+1)%r.length];if(Math.hypot(b[0]-a[0],b[1]-a[1])<EPS)return;
-   const key=`${a[0].toFixed(3)},${a[1].toFixed(3)},${b[0].toFixed(3)},${b[1].toFixed(3)}`,formed=attribute([(a[0]+b[0])/2,(a[1]+b[1])/2]),prev=running.get(key);
+   const key=`${a[0].toFixed(3)},${a[1].toFixed(3)},${b[0].toFixed(3)},${b[1].toFixed(3)}`,formed=attribute([(a[0]+b[0])/2,(a[1]+b[1])/2],a,b),prev=running.get(key);
    if(prev&&prev.formed===formed&&Math.abs(prev.z1-s.z0)<EPS){prev.z1=s.z1;next.set(key,prev);running.delete(key);}else next.set(key,{a,b,z0:s.z0,z1:s.z1,formed});});}
   for(const o of running.values())flush(o);running=next;
  }
@@ -88,7 +92,7 @@ function compute(sm:ShapeModel):ShapeGeometry{
   for(const [region,up] of [[diff(below,above),true],[diff(above,below),false]] as [MultiPolygon,boolean][])for(const poly of region){
    const rings=poly.map(r=>open(r as P2[])),points=rings.flat(),tris=ShapeUtils.triangulateShape(rings[0].map(v=>new Vector2(...v)),rings.slice(1).map(r=>r.map(v=>new Vector2(...v))));
    for(const t of tris){const tri=t.map(k=>points[k]),c:P2=[(tri[0][0]+tri[1][0]+tri[2][0])/3,(tri[0][1]+tri[1][1]+tri[2][1])/3];
-    const formed=!up&&L>min[2]+EPS&&(sm.parts.some(p=>p.role==='solid'&&Math.abs(p.z0-L)<EPS&&p.formBottom&&inPart(c,p))||sm.parts.some(p=>p.role==='void'&&Math.abs(top(p)-L)<EPS&&p.formBottom&&inPart(c,p)));
+    const formed=!up&&(L>min[2]+EPS||!!sm.soffit)&&(sm.parts.some(p=>p.role==='solid'&&Math.abs(p.z0-L)<EPS&&p.formBottom&&inPart(c,p))||sm.parts.some(p=>p.role==='void'&&Math.abs(top(p)-L)<EPS&&p.formBottom&&inPart(c,p)));
     surfaces.push(surface(tri.map(v=>[v[0],v[1],L] as Vec3),[0,0,up?1:-1],formed));if(formed)formwork+=Math.abs(ringArea(tri));}
   }
  });
@@ -107,7 +111,7 @@ export function shapeGeometry(sm:ShapeModel):ShapeGeometry{
  const g=shapeGeometryByParts(sm);byModel.set(sm,g);return g;
 }
 function shapeGeometryByParts(sm:ShapeModel):ShapeGeometry{
- const key=JSON.stringify(sm.parts);let g=cache.get(key);
+ const key=JSON.stringify(sm.parts)+(sm.soffit?'|soffit':'');let g=cache.get(key);
  if(!g){try{g=compute(sm);}catch(e){g={slabs:[],levels:[],min:[0,0,0],max:[0,0,0],volume:0,formwork:0,surfaces:[],errors:[`รูปทรงคำนวณไม่ได้: ${e instanceof Error?e.message:String(e)}`],stages:[]};}cache.set(key,g);if(cache.size>24)cache.delete(cache.keys().next().value!);}
  return g;
 }
