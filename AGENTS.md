@@ -202,6 +202,8 @@
   of a Mark (`anchor.pos` + `t`, leaders too; `barExtremes()`, `anchorPoint(a, cb, bars)`), re-anchor tool for lost anchors.
   Grouped icon toolbar (section / detail via `EditExtras`), screen tint user orange / auto grey (“สีพิมพ์” off), list filter hidden,
   per-view `ViewEdits.hide {dims, marks, levels}` (`setHide`, panel “แสดงในรูป”, merged into renderView `hide`).
+  Snap kind toggles (`snapBar`); copy the edit layer to members of the same category: `copyEditsTo()` + `EditCopyDialog`
+  (`siblings` / `onCopyEdits` props, one `saveMemberDrawing` per target, target status → check).
   Status hash = `memberDrawingHash()` (schema-normalized member, same before / after saveMember). Command-layer test with an in-memory
   Firestore stand-in: `tests/drawingSave.test.ts` (roles, versions, status kept / Draft). Harness `tmp/preview/composer.html#footing-detailer`.
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),

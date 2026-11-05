@@ -181,6 +181,29 @@ describe('view hide groups',()=>{
  });
 });
 
+// ---- copy the edit layer to other members of the same category
+import {copyEditsTo} from '../src/domain/drawingEdits';
+describe('copyEditsTo',()=>{
+ const src:DrawingEdits={version:1,views:{
+  plan:{over:{'mark:gen-a':{dx:2},'mark:gen-x':{hidden:true},'dim:hb0':{off:3}},hide:{levels:true},objs:[{id:'l1',kind:'leader',at:[0,0],dx:5,dy:5,lines:['x'],arrow:'dot',bar:'gen-a',pos:'first'},{id:'c1',kind:'cloud',pts:[[0,0],[9,0],[9,9]],rev:'A'}]},
+  'sec:def-x':{objs:[{id:'d1',kind:'dim',dir:'h',off:5,pts:[{u:0,v:0,bar:'gen-a'},{u:9,v:0,bar:'gen-z'}]}]},
+  'sec:own1':{objs:[{id:'t1',kind:'text',at:[0,0],lines:['own']}]},'det:d1':{objs:[{id:'t2',kind:'text',at:[0,0],lines:['det']}]}},
+  details:[{id:'d1',label:'D1',parent:'plan',u:0,v:0,r:300,circle:true}],revisions:[{rev:'A',date:'2026-11-05',desc:'src',by:''}],check:{hash:'h',at:'x'}};
+ it('copies views the target draws, scores bar keys, keeps target revisions / clouds, drops check',()=>{
+  const target={bars:[{id:'gen-a'}],drawingEdits:{version:1 as const,views:{plan:{objs:[{id:'c9',kind:'cloud' as const,pts:[[0,0],[5,0],[5,5]] as [number,number][],rev:'B'}]}},revisions:[{rev:'B',date:'2026-11-01',desc:'own',by:''}]}};
+  const r=copyEditsTo(src,target);
+  expect(r.skipped).toEqual(['sec:own1']);expect(r.found).toBe(4);expect(r.total).toBe(6); // mark a ✓, mark x ✗, dim ✓, leader a ✓, dim pts a ✓ / z ✗
+  const e=r.edits!;expect(Object.keys(e.views).sort()).toEqual(['det:d1','plan','sec:def-x']);
+  expect(e.views.plan.objs!.map(o=>o.id)).toEqual(['l1','c9']);expect(e.views.plan.hide).toEqual({levels:true});
+  expect(e.revisions).toEqual(target.drawingEdits.revisions);expect(e.check).toBeUndefined();expect(e.details?.map(d=>d.id)).toEqual(['d1']);
+  expect(drawingEditsSchema.safeParse(e).success).toBe(true);
+  // own section with the same id on the target → kept
+  expect(copyEditsTo(src,{bars:[],drawingViews:{sections:[{id:'own1'}]}}).skipped).toEqual([]);
+  // the copy is independent of the source
+  e.views.plan.over!['mark:gen-a'].dx=99;expect(src.views.plan.over!['mark:gen-a'].dx).toBe(2);
+ });
+});
+
 // ---- phase 3: Detail views, ISO 3D, stepped sections; detailer role
 import {buildView} from '../src/domain/elementViews';
 import {sectionSpec} from '../src/domain/sheetLayout';

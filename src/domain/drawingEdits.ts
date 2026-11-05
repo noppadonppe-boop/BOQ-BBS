@@ -94,3 +94,29 @@ export function drawingModelHash(m:Record<string,unknown>):string{
 export const nextRevision=(revs:{rev:string}[]|undefined)=>{const used=new Set((revs||[]).map(r=>r.rev));for(const c of 'ABCDEFGHJKLMNPQRSTUVWXYZ')if(!used.has(c))return c;let n=1;while(used.has(String(n)))n++;return String(n);};
 /** Kind of an annotation key, for labels. */
 export const annotationKind=(key:string)=>key.split(':')[0] as 'mark'|'dim'|'cover'|'ex'|'level';
+
+/** Target of `copyEditsTo`: the parts of a member the copy depends on (no Member import: model.ts imports this file). */
+export type EditCopyTarget={bars:{id:string}[];drawingViews?:{sections:{id:string}[]};drawingEdits?:DrawingEdits};
+/** Copy of a member's Drawing Edit layer onto another member (“คัดลอกการแก้ไปยังสมาชิกอื่น”): overrides, user objects (not
+ * revision clouds), view groups hidden and Detail views, for the views the target also draws (plans, ISO, default sections
+ * `sec:def-*`, own sections with the same id; details on such a parent). The target keeps its revisions and clouds and loses
+ * its `check`, so its drawing status is “ต้องตรวจ” until someone confirms it. `found / total` = Mark overrides and bar anchors
+ * whose bar the target has (other keys count as found); `skipped` = view keys left out. */
+export function copyEditsTo(src:DrawingEdits,t:EditCopyTarget):{edits:DrawingEdits|undefined;found:number;total:number;skipped:string[]}{
+ const own=new Set((t.drawingViews?.sections||[]).map(s=>s.id)),bars=new Set(t.bars.map(b=>b.id));
+ const okKey=(k:string)=>!k.startsWith('sec:')&&!k.startsWith('det:')||k.startsWith('sec:')&&(k.startsWith('sec:def-')||own.has(k.slice(4)));
+ const details=(src.details||[]).filter(d=>okKey(d.parent));const detKeys=new Set(details.map(d=>`det:${d.id}`));
+ const views:DrawingEdits['views']={},skipped:string[]=[];let found=0,total=0;
+ const count=(bar?:string)=>{if(!bar)return;total++;if(bars.has(bar))found++;};
+ for(const [k,v] of Object.entries(src.views)){
+  if(!okKey(k)&&!detKeys.has(k)){skipped.push(k);continue;}
+  for(const key of Object.keys(v.over||{})){if(key.startsWith('mark:'))count(key.slice(5));else{total++;found++;}}
+  const objs=(v.objs||[]).filter(o=>o.kind!=='cloud');
+  for(const o of objs){if(o.kind==='dim')o.pts.forEach(p=>count(p.bar));else if(o.kind==='level')count(o.at.bar);else if(o.kind==='leader')count(o.bar);}
+  views[k]=structuredClone({...(v.over?{over:v.over}:{}),...(objs.length?{objs}:{}),...(v.hide?{hide:v.hide}:{})});}
+ // the target's own revision clouds stay in their views
+ for(const [k,v] of Object.entries(t.drawingEdits?.views||{})){const clouds=(v.objs||[]).filter(o=>o.kind==='cloud');if(!clouds.length)continue;
+  const ids=new Set((views[k]?.objs||[]).map(o=>o.id));views[k]={...(views[k]||{}),objs:[...(views[k]?.objs||[]),...clouds.filter(c=>!ids.has(c.id))]};}
+ const revisions=t.drawingEdits?.revisions;
+ return {edits:cleanDrawingEdits({version:1,views,...(details.length?{details:structuredClone(details)}:{}),...(revisions?.length?{revisions}:{})}),found,total,skipped};
+}

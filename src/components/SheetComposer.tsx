@@ -17,7 +17,7 @@ import {HelpButton} from './HelpCenter';
 import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay} from './LabelQa';
-import {useDrawingEdit} from './DrawingEditLayer';
+import {EditCopyDialog,useDrawingEdit} from './DrawingEditLayer';
 import {cleanDrawingEdits,drawingEditsSchema,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
 import {drawingStatus,drawingStatusText,memberDrawingHash} from '../domain/drawingStatus';
 import {FLOOR_PAPER,floorCtx,floorPaperTitles,isFloorPaper} from '../domain/slabFloorSheet';
@@ -37,10 +37,12 @@ const sameJson=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
  * concrete edges / centre), dragging cut lines in plans, right-click on a bar → perpendicular section, templates.
  * Mode “แก้ไขแบบ” (Drawing Edit, `DrawingEditLayer.tsx`): move / hide / retext automatic annotations, add text and leaders.
  * Writes member.sheetLayout, member.drawingViews (v2, only when the sections changed) and member.drawingEdits through `onApply`. */
-export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,memberDirty,onSaveTemplates,onClose}:{member:Member;project:Project;readOnly:boolean;onApply?:(m:Member)=>void;
+export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,memberDirty,onSaveTemplates,onClose,siblings,onCopyEdits}:{member:Member;project:Project;readOnly:boolean;onApply?:(m:Member)=>void;
  /** drawing-only save (layout + Drawing Edit layer; admin / qs / detailer): the member keeps its status; used when the sections did
   * not change and the member editor has no unsaved changes, else `onApply` (member edit → Draft on save) */
- onSaveDrawing?:(d:{sheetLayout?:SheetLayout;drawingEdits?:DrawingEdits})=>Promise<void>;memberDirty?:boolean;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>;onClose:()=>void}){
+ onSaveDrawing?:(d:{sheetLayout?:SheetLayout;drawingEdits?:DrawingEdits})=>Promise<void>;memberDirty?:boolean;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>;onClose:()=>void;
+ /** members of the same category (copy of the Drawing Edit layer) */ siblings?:Member[];onCopyEdits?:(t:{member:Member;edits:DrawingEdits|undefined}[])=>Promise<void>;}){
+ const [copyOpen,setCopyOpen]=useState(false);
  // sections are member data (saveMember → Draft): only with `onApply`
  const secRO=readOnly||!onApply;
  const base=useMemo(()=>{const q=takeoff(member,project.spec),parsed=elementInputSchema.safeParse(member.elementInput);
@@ -241,15 +243,18 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
      <button disabled title="รูปตัดเอียง: ยังไม่รองรับ · รูปตัดหักมุม: เลือกรูปตัดแล้วเพิ่มขั้นในแถบขวา">รูปตัดเอียง</button></>}
     </div>
     <div className="composer-opts">
+     {mode==='edit'?ed.snapBar:<>
      <label className="check"><input type="checkbox" checked={opt.lock} onChange={e=>setOpt({...opt,lock:e.target.checked})}/>Snap แนวฉาย</label>
      <label className="check"><input type="checkbox" checked={opt.guides} onChange={e=>setOpt({...opt,guides:e.target.checked})}/>Smart guide</label>
      <label className="check"><input type="checkbox" checked={opt.grid} onChange={e=>setOpt({...opt,grid:e.target.checked})}/>Grid 5 mm</label>
-     <button disabled={readOnly} onClick={autoArrange}>จัดอัตโนมัติ</button>
+     <button disabled={readOnly} onClick={autoArrange}>จัดอัตโนมัติ</button></>}
      <button aria-label="ย้อนกลับ" disabled={!undo.length} onClick={back}><Undo2 size={15}/></button><button aria-label="ทำซ้ำ" disabled={!redo.length} onClick={fwd}><Redo2 size={15}/></button>
      <details className="composer-menu"><summary>Template</summary><div>
       <button disabled={readOnly||!onSaveTemplates} title={onSaveTemplates?undefined:'ต้องเป็น Admin / QS ของโครงการ'} onClick={()=>{setTplName(member.code);setTplOpen('save');}}>บันทึกเป็น Template…</button>
       <button disabled={readOnly||!templates.length} onClick={()=>setTplOpen('apply')}>ใช้ Template…{templates.length?` (${templates.length})`:''}</button>
-      <button disabled={readOnly||!draft.layout} onClick={revert}>กลับไปใช้ Template / อัตโนมัติ</button></div></details>
+      <button disabled={readOnly||!draft.layout} onClick={revert}>กลับไปใช้ Template / อัตโนมัติ</button>
+      <button disabled={!onCopyEdits||!draft.edits} title={!onCopyEdits?'ต้องมีสิทธิ์แก้แบบ (Admin / QS / Detailer)':!draft.edits?'ยังไม่มีการแก้ไขแบบ':undefined} onClick={()=>setCopyOpen(true)}>คัดลอกการแก้ไขแบบไปยังสมาชิกอื่น…</button></div></details>
+     {copyOpen&&onCopyEdits&&<EditCopyDialog source={member.code} edits={draft.edits} siblings={siblings||[]} onCopy={onCopyEdits} onClose={()=>setCopyOpen(false)}/>}
      <button className="primary" disabled={readOnly||!!problems.length} title={problems[0]} onClick={done}>เสร็จ</button>
     </div>
    </header>

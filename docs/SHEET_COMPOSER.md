@@ -150,6 +150,11 @@ The header switch “จัดหน้า | แก้ไขแบบ” turns t
   “ที่ซ่อน” = list filter `hidden` (single overrides + whole groups, “แสดง” restores).
 - `ViewEdits.hide {dims, marks, levels}` (panel “แสดงในรูป”, `setHide`): renderView merges it into `hide` (dims include covers / EX);
   overrides of a hidden group are not counted stale; templates carry it.
+- Snap kinds on / off (`snapBar`: corner / mid / bar; the Mark tool and re-anchor of leaders always take bars).
+- Copy to other members: `copyEditsTo(src, target)` (`drawingEdits.ts`): views the target draws (plans, ISO, `sec:def-*`, own
+  sections with the same id, details on such parents), clouds / revisions not copied (the target keeps its own), `check` dropped →
+  status “ต้องตรวจ”; `found / total` = Mark overrides + bar anchors the target has. UI `EditCopyDialog` (Template menu), members
+  of the same category (`siblings` App → MemberEditor → SheetA3Preview → SheetComposer), saved with `saveMemberDrawing` each.
 
 ### Phase 4
 

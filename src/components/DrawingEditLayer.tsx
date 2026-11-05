@@ -2,9 +2,10 @@ import {useEffect,useMemo,useRef,useState,type ReactNode} from 'react';
 import {expandPrims,textWidth,type Prim} from '../domain/drawingPrims';
 import type {SheetViewInfo} from '../domain/bbsSheet';
 import {anchorPoint,concreteBox,lostAnchors,viewSnapPoints,type ViewSnap} from '../domain/elementViews';
-import {annotationKind,nextRevision,type Anchor,type AnnotationOverride,type DrawingEdits,type DrawingRevision,type UserAnnotation,type ViewEdits} from '../domain/drawingEdits';
+import {annotationKind,copyEditsTo,nextRevision,type Anchor,type AnnotationOverride,type DrawingEdits,type DrawingRevision,type UserAnnotation,type ViewEdits} from '../domain/drawingEdits';
 import type {ViewKey} from '../domain/sheetLayoutSchema';
 import {PrimsSvg} from './PrimsSvg';
+import type {Member} from '../domain/model';
 import {Cloud,EyeOff,MousePointer2,MoveUpRight,Palette,PlusCircle,Ruler,Scissors,Tag,Triangle,Type,ZoomIn,type LucideIcon} from 'lucide-react';
 
 /** Drawing Edit mode of the Sheet Composer (Tekla-style). Phase 1: select the annotations of the sheet (automatic ones by their
@@ -85,6 +86,7 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status,extras}
  /** drawing status (P4) shown in the panel */ status?:{state:string;label:string;detail:string}}){
  const [tool,setTool0]=useState<Tool>('select'),[sel,setSel]=useState<string>(),[hover,setHover]=useState<{x:number;y:number;ann?:string;snap?:Snap}>();
  const [pend,setPend]=useState<Pend>(),[drag,setDrag0]=useState<Drag>(),[focusText,setFocusText]=useState(0);
+ const [snapOn,setSnapOn]=useState<Record<ViewSnap['kind'],boolean>>({corner:true,mid:true,bar:true});
  const [menu,setMenu]=useState<Menu>(),[filter0,setFilter]=useState<ListFilter>('all'),[printInk,setPrintInk]=useState(false);
  // the drag also lives in a ref: the release may come from the window (outside the sheet) and must be applied once
  const dragRef=useRef<Drag|undefined>(undefined),setDrag=(d:Drag|undefined)=>{dragRef.current=d;setDrag0(d);};
@@ -100,7 +102,7 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status,extras}
  const toSheet=(v:SheetViewInfo,u:number,w:number):[number,number]=>[v.origin.sheet[0]+(u-v.origin.model[0])*v.s,v.origin.sheet[1]-(w-v.origin.model[1])*v.s];
  const anchorSheet=(v:SheetViewInfo,a:Anchor)=>{const [u,w]=v.data?anchorPoint(a,concreteBox(v.data),v.data.bars):[a.u,a.v];return toSheet(v,u,w);};
  const findSnap=(x:number,y:number,only?:SheetViewInfo,bars=false):Snap|undefined=>{const v=only||viewAt(x,y);if(!v)return;let best:Snap|undefined,bd=SNAP_TOL;
-  for(const s of snapsOf(v)){if(bars&&s.kind!=='bar')continue;const [sx,sy]=toSheet(v,s.u,s.v),d=Math.hypot(sx-x,sy-y);if(d<bd||d<bd+.2&&best&&best.s.kind==='bar'&&s.kind!=='bar'){bd=Math.min(bd,d);best={view:v,s,x:sx,y:sy};}}
+  for(const s of snapsOf(v)){if(bars?s.kind!=='bar':!snapOn[s.kind])continue;const [sx,sy]=toSheet(v,s.u,s.v),d=Math.hypot(sx-x,sy-y);if(d<bd||d<bd+.2&&best&&best.s.kind==='bar'&&s.kind!=='bar'){bd=Math.min(bd,d);best={view:v,s,x:sx,y:sy};}}
   return best;};
  // pick: the annotation whose drawn lines / text lie nearest the cursor (≤ 1.5 mm), ties → smaller box
  const hit=(x:number,y:number)=>anns.filter(a=>x>=a.box.x0-1.5&&x<=a.box.x1+1.5&&y>=a.box.y0-1.5&&y<=a.box.y1+1.5).map(a=>({a,d:distTo(a.prims,x,y)})).filter(c=>c.d<=1.5)
@@ -194,7 +196,7 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status,extras}
    <line x1={h?sorted[0][0]:pos} y1={h?pos:sorted[0][1]} x2={h?sorted.at(-1)![0]:pos} y2={h?pos:sorted.at(-1)![1]}/>
    {sorted.slice(1).map((p,i)=>{const q=sorted[i],val=Math.round(Math.abs(h?p[0]-q[0]:p[1]-q[1])/s);return <text key={'t'+i} x={h?(p[0]+q[0])/2:pos-.9} y={h?pos-.9:(p[1]+q[1])/2} fontSize={2.6} textAnchor={h?'middle':'end'}>{val.toLocaleString('en-US')}</text>;})}</g>;};
  const overlay:ReactNode=<g className="ed-layer" pointerEvents="none">
-  {snapView&&snapsOf(snapView).filter(s=>tool!=='mark'||pend||s.kind==='bar').slice(0,800).map((s,i)=>{const [x,y]=toSheet(snapView,s.u,s.v);return <g key={i}>{marker(s,x,y,'ed-snapc',.45)}</g>;})}
+  {snapView&&snapsOf(snapView).filter(s=>tool==='mark'&&!pend?s.kind==='bar':snapOn[s.kind]).slice(0,800).map((s,i)=>{const [x,y]=toSheet(snapView,s.u,s.v);return <g key={i}>{marker(s,x,y,'ed-snapc',.45)}</g>;})}
   {hov&&hov.id!==sel&&<rect className="ed-hover" x={hov.box.x0-.8} y={hov.box.y0-.8} width={hov.box.x1-hov.box.x0+1.6} height={hov.box.y1-hov.box.y0+1.6}/>}
   {printInk&&anns.filter(a=>a.user&&a.id!==sel).map(a=><rect key={a.id} className={`ed-user${lost.has(a.id)?' lost':''}`} x={a.box.x0-.6} y={a.box.y0-.6} width={a.box.x1-a.box.x0+1.2} height={a.box.y1-a.box.y0+1.2}/>)}
   {selAnn&&!drag?.moved&&<rect className={`ed-sel${selAnn.user?' user':''}${lost.has(selAnn.id)?' lost':''}`} x={selAnn.box.x0-1} y={selAnn.box.y0-1} width={selAnn.box.x1-selAnn.box.x0+2} height={selAnn.box.y1-selAnn.box.y0+2}/>}
@@ -279,7 +281,10 @@ export function useDrawingEdit({info,edits,commit,readOnly,setMsg,status,extras}
  </div>;
  const panel:ReactNode=<EditPanel status={status} ann={selAnn} edits={edits} readOnly={readOnly} info={info} commit={commit} focusText={focusText} over={selAnn?over(selAnn):undefined} obj={selAnn?obj(selAnn):undefined}
   lost={!!selAnn&&lost.has(selAnn.id)} lostList={lostList} onPick={setSel} onReanchor={()=>selAnn&&reanchor(selAnn)} onRemove={()=>selAnn&&remove(selAnn)} onAddPoint={()=>setTool('addpt')} onDetach={()=>selAnn&&detachDim(selAnn)}/>;
- return {tool,down,move,up,key,filter,overlay,toolbar,panel,list,menu:menuEl,context,hint:hint+snapHint,cursor:tool!=='select'?'crosshair':drag?.moved?'grabbing':hov?'pointer':'default',clear:()=>{setSel(undefined);setPend(undefined);setDrag(undefined);setMenu(undefined);}};
+ const SNAP_KINDS:[ViewSnap['kind'],string,string][]=[['corner','□','มุม'],['mid','△','กึ่งกลาง'],['bar','○','เหล็ก']];
+ const snapBar:ReactNode=<div className="ed-snaps" role="group" aria-label="Snap"><span>Snap</span>{SNAP_KINDS.map(([k,sym,l])=>
+  <button key={k} type="button" aria-pressed={snapOn[k]} className={snapOn[k]?'active':''} title={`${snapOn[k]?'ปิด':'เปิด'} snap ${l}${k==='bar'?' (Mark / ยึดจุดใหม่ ยังจับเหล็กเสมอ)':''}`} onClick={()=>setSnapOn(o=>({...o,[k]:!o[k]}))}>{sym} {l}</button>)}</div>;
+ return {tool,down,move,up,key,filter,overlay,toolbar,panel,list,menu:menuEl,context,snapBar,hint:hint+snapHint,cursor:tool!=='select'?'crosshair':drag?.moved?'grabbing':hov?'pointer':'default',clear:()=>{setSel(undefined);setPend(undefined);setDrag(undefined);setMenu(undefined);}};
 }
 
 function EditPanel({status,ann,edits,readOnly,info,commit,focusText,over,obj,lost,lostList,onPick,onReanchor,onRemove,onAddPoint,onDetach}:{status?:{state:string;label:string;detail:string};ann?:Ann;edits:DrawingEdits|undefined;readOnly:boolean;info:Info;commit:(e:DrawingEdits)=>void;focusText:number;over?:AnnotationOverride;obj?:UserAnnotation;
@@ -346,6 +351,26 @@ function EditPanel({status,ann,edits,readOnly,info,commit,focusText,over,obj,los
    {hidden.map(h=><div key={h.vk+h.key} className="ed-hidden"><span><small>{h.title}</small>{KIND[annotationKind(h.key)]||h.key} <code>{h.key.split(':').slice(1).join(':')}</code></span>
     <button disabled={readOnly} onClick={()=>commit(setOverride(edits,h.vk,h.key,{hidden:undefined}))}>แสดง</button></div>)}</fieldset>}
  </div>;
+}
+
+/** Copy the current Drawing Edit layer to other members of the same category (mockup “คัดลอกการแก้ไปยัง member ที่เหมือนกัน”):
+ * per member the share of Mark overrides / bar anchors it can take (`copyEditsTo`), its own edits are replaced (revisions and
+ * clouds kept) and its drawing becomes “ต้องตรวจ”. */
+export function EditCopyDialog({source,edits,siblings,onCopy,onClose}:{source:string;edits:DrawingEdits|undefined;siblings:Member[];onCopy:(t:{member:Member;edits:DrawingEdits|undefined}[])=>Promise<void>;onClose:()=>void}){
+ const rows=useMemo(()=>edits?siblings.map(m=>({m,...copyEditsTo(edits,{bars:m.bars,drawingViews:m.drawingViews,drawingEdits:m.drawingEdits})})).sort((a,b)=>(b.total?b.found/b.total:1)-(a.total?a.found/a.total:1)||a.m.code.localeCompare(b.m.code)):[],[edits,siblings]);
+ const full=(r:typeof rows[number])=>r.found===r.total;
+ const [pick,setPick]=useState(()=>new Set(rows.filter(full).map(r=>r.m.id))),[busy,setBusy]=useState(false);
+ const toggle=(id:string)=>setPick(p=>{const n=new Set(p);if(n.has(id))n.delete(id);else n.add(id);return n;});
+ const go=async()=>{setBusy(true);try{await onCopy(rows.filter(r=>pick.has(r.m.id)).map(r=>({member:r.m,edits:r.edits})));onClose();}catch{setBusy(false);}};
+ return <div className="modal-shade ed-copy-shade" role="presentation"><section className="modal ed-copy" role="dialog" aria-modal="true" aria-label="คัดลอกการแก้ไขแบบ">
+  <h3>คัดลอกการแก้ไขแบบของ {source} ไปยังสมาชิกอื่น</h3>
+  <p className="muted">คัดลอก: ป้าย / Dimension ที่แก้ ของที่เพิ่มเอง การซ่อนทั้งรูป และ Detail (ไม่รวมก้อนเมฆ / Revision) · ของเดิมของปลายทางถูกแทนที่ · ปลายทางจะเป็น “แบบต้องตรวจ” จนกว่าจะเปิดตรวจแล้วกด “เสร็จ”</p>
+  {!edits?<p className="notice warning">ยังไม่มีการแก้ไขแบบให้คัดลอก</p>:!rows.length?<p className="muted">ไม่มีสมาชิกประเภทเดียวกันในโครงการ</p>:<>
+   <div className="actions"><button type="button" onClick={()=>setPick(new Set(rows.filter(full).map(r=>r.m.id)))}>เลือกที่ตรงครบ</button><button type="button" onClick={()=>setPick(new Set())}>ไม่เลือก</button></div>
+   <div className="ed-copy-list">{rows.map(r=><label key={r.m.id} className={`check ed-copy-row${full(r)?'':' partial'}`}><input type="checkbox" checked={pick.has(r.m.id)} onChange={()=>toggle(r.m.id)}/>
+    <b>{r.m.code}</b><span>{r.total?`ตรง ${r.found} / ${r.total}`:'ไม่มีจุดยึดเหล็ก'}</span>{r.m.drawingEdits&&<small>มีการแก้อยู่แล้ว (ถูกแทนที่)</small>}{r.skipped.length>0&&<small>ข้าม {r.skipped.length} รูป (ไม่มีรูปตัดนี้)</small>}</label>)}</div></>}
+  <div className="actions"><button type="button" onClick={onClose} disabled={busy}>ยกเลิก</button><button type="button" className="primary" disabled={busy||!pick.size||!edits} onClick={go}>{busy?'กำลังคัดลอก…':`คัดลอก (${pick.size})`}</button></div>
+ </section></div>;
 }
 
 /** “แสดง” per view (mockup): automatic dimensions / Mark labels / levels of a view on or off as a group (`ViewEdits.hide`). */
