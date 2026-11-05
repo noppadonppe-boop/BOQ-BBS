@@ -1,4 +1,4 @@
-# Slab floor (พื้นทั้งชั้น · Slab layout `floor`) — rounds S1 + S2
+# Slab floor (พื้นทั้งชั้น · Slab layout `floor`) — rounds S1 + S2 + S2.1
 
 One Slab member holds a whole floor on a grid: grids → reference beams → panels cut at the beam faces → slab marks
 (เบอร์พื้น) from the slab list → openings / drops / lowered areas placed by grid + distance → bars and quantities.
@@ -72,6 +72,12 @@ side of the panel's bounding box.
   (only lines ≥ cover + d/2 inside). **Sunken**: `crank` ≤ 75 = top and bottom bars dip; else top bars (and bottom bars
   that no longer fit) are cut around the area, the area gets its own bottom mesh and a lowered top mesh running Ld into
   the slab when it stays above the slab's bottom bars (else a warning to check the anchor bars).
+- **Spacing**: every layer uses the same rule as a single slab (`spreadAt` in `slabFloor.ts` = `spread` in `elementInput.ts`):
+  bars from cover to cover, count = ⌈span / spacing⌉ + 1, spread evenly — so the drawn spacing is the design spacing or a
+  little less (e.g. @194 for @200). Raw bars carry the design spacing (`Raw.s`, not stored); `groupFloorBars(…, spacing)`
+  reports it per Mark → `floorDesignSpacing(m)` for the sheet labels.
+- **Diagonals** of opposite corners are drawn the same way (left → right), so the two of one direction share a Mark
+  (`S1-OD1` × 2) — S2.1, count and weight unchanged.
 - **Marks**: equal bars (shape, Ø, layer) of one slab mark share a Mark — placed by spacing when evenly spaced along one
   axis, else by offsets (≤ 2000 per set). Names `S1-B01` bottom, `S1-T01` top / extra / U, `S1-OP1` trimmers,
   `S1-OD1` diagonals; the note starts with the layer (B1 / B2 / T1 / T2 / T1/B1 for U bars) and lists the panels.
@@ -82,14 +88,13 @@ side of the panel's bounding box.
 
 Floor members get their own sheet; single slabs and every other category draw exactly as before (snapshot test).
 
-- **Paper / paging** (`sheetFormat`): A2 unless the member chooses a size; a whole-floor set whose plan does not fit A2 at
-  1:100 goes on **A1** (`floorPaperSize`; A1 = 841 × 594 added to `sheetSizes`). The layout is always split with the **drawing
+- **Paper / paging** (`sheetFormat`): A2 unless the member chooses a size; a set whose plan does not fit A2 at
+  1:100 goes on **A1** (S2.1: per-mark sets too) (`floorPaperSize`; A1 = 841 × 594 added to `sheetSizes`). The layout is always split with the **drawing
   sheet(s) first**, then the BBS table pages (`layout()` → `firstView` / `firstTable` / `viewPages`), + one steel summary page
   for whole-floor sets.
 - **System layout “พื้น (Slab Floor)”** (`floorSystemLayout`, used by `resolveSheetLayout` → `from:'system'` when the member
-  has no layout and the project no default template): bottom plan | top plan | schedule + legend + key plan / sections X–X,
-  Y–Y / opening details + standard details. Details that do not fit go to the next layout sheets; they ask for 1:20 when the
-  window fits the slot, else 'auto'. Editable in the Composer like any layout (writes `member.sheetLayout`).
+  has no layout and the project no default template): see “Readable sheet (S2.1)” below for the current
+  arrangement. Editable in the Composer like any layout (writes `member.sheetLayout`).
 - **Plans** `plan-bottom` / `plan-top` (`ViewSpec.floor {layer}` → `buildViewOne` floor branch, `floorPlanData`): rows filtered
   by `floorRowLayer()` (kind from the id: B → bottom, T → top, OP / OD by the layer token of the note); focused panels =
   concrete, other marks faded (`floorFocus()` = panels still solid in the set's shape model); grids + bubbles; reference beams
@@ -99,10 +104,10 @@ Floor members get their own sheet; single slabs and every other category draw ex
   (`fdim:<id>@<panel>`, projection text `<> (L/4)` in ratio mode); opening trimmers across the opening (details). Plan
   dimensions = overall + grid to grid.
 - **Sections** `def-x` / `def-y` (`defaultSections` floor branch, `floorSectionCuts`): through the representative panel of the
-  set — a panel with a drop first, then a lowered panel, else the largest — cropped (`extent`) to that panel ± 1,500; the
-  titles say what they pass through.
+  set — a panel with a drop first, then a lowered panel, else the largest — cropped (`extent`, S2.1: panel + beams + 1,200); the titles say
+  what they pass through.
 - **Opening details**: one automatic Detail view per opening of the focused panels (`floorDetails()`, id `op-<opening id>`,
-  label D1, D2 …, parent `plan-top`, square window = opening + extension + 300) drawing every bar of both layers near the
+  label D1, D2 …, parent `plan-top`, square window = opening + extension + two spacings, S2.1) drawing every bar of both layers near the
   opening, labels of the OP / OD Marks only, the trimmer dimensions and a note (`openingDetailNote`: cut bars X / Y, trimmers,
   extension, diagonals, kg). Not stored; user details (`drawingEdits.details`) are drawn too; D bubbles on the top plan.
 - **Paper views** (ViewKeys `schedule` / `legend` / `keyplan` / `stddet`, `drawFloorPaper`): slab schedule of the set's marks
@@ -124,6 +129,31 @@ Floor members get their own sheet; single slabs and every other category draw ex
   `slabAccessories`; default off): copied into the slab detailing by `detailingFromSpec` (key only when enabled), then
   `applySlabFloor` adds site items `gen-slab-chair` (pcs per m² of panels with top bars), `gen-slab-chair-kg` and
   `gen-slab-spacer` (pcs per m² of every panel). Bars and concrete are unchanged.
+
+## Readable sheet (round S2.1)
+
+- **Plan labels in the panels** (`placeFloorLabels` in `elementViews.ts`, run after every other annotation of the view): each
+  label is searched around its bar point inside its own panel (Detail: the window), then anywhere in the view; it never
+  touches another label, a text / dimension / grid line / bubble / opening, leaders never cross, fewest bar lines under the
+  text, then the shortest leader; a label left without a spot is moved to the front and the view placed again (≤ 6 rounds).
+  Anchors: the k-th Mark of N in a panel takes the bar at (k+1)/(N+1) of its set and a staggered point along the panel,
+  away from openings (`floorPlanData` slots). Default `drawingSetup.floorLabels` 'typ': the full label once per Mark (first
+  panel, top-left first), “TYP.” on the first of panels with exactly the same Marks, short code (`B01`) elsewhere; toolbar
+  “ป้ายทุกแผง” = 'all'. The Mark label check (`labelReport`) finds nothing on the plans of the test floor.
+- **Label text** = design spacing (`S1-B01 DB12@200 (B1)`); trimmers / diagonals by count (`S1-OP1 4-DB12 (B1)`,
+  `S1-OD1 2-DB12 (B)`, no distribution line). Where the bars are spread closer, the BBS description / Excel note adds
+  “ระยะจริง @194 (แบบ @200)” (`floorSpacingNote`).
+- **Paper**: plans side by side at the largest standard scale that fits (`floorPlanScale`); smaller than 1:100 on A2 → A1
+  (`floorPaperSize`, whole floor and per-mark sets), notice in the sheet toolbar.
+- **System layout** (`floorSystemLayout`, artboard 10 revised): right column 22 % = schedule sized to its rows, compact legend,
+  key plan ≈ ¼ of the column, standard details in the rest (cells close to 2 : 1); under the plans the opening details at
+  1:20 (stacked at the right, never scaled down — the next sheets when they do not fit) and the sections X–X / Y–Y stacked
+  in the rest. Layouts saved from the Composer are untouched.
+- **Sections**: cropped to the cut panel + the beams + 1,200 of the neighbours (`floorSectionExtent`), break lines where the
+  slab runs on, level marks on the surface (`T.O.S. ±0.000`, lowered `−0.050`; datum = floor level) instead of the height
+  chain; the layout asks 1:25 when the crop fits (with room for the level marks), else the largest standard scale.
+- **Opening details**: window = opening + Ld + two spacings; bars outside opening + Ld + one spacing faded
+  (`openingDetailFocus` → `ViewData.floorFocus`).
 
 ## UI
 
@@ -166,6 +196,11 @@ into marks (not re-synced by the spec-change job yet).
 L/4 dimensions, sections through the lowered panel / drop, opening detail + note, schedule / legend warnings, detail
 overflow, per-mark and whole-floor sets (grouping, summary page, picked marks, SF- merge), A1 / A2 / A3 paper, DXF A / B / C
 (`output/dxf-verification/slabFloorSheet-*.dxf`), CAD standard fallback, chairs / spacers, Excel sheets.
+
+S2.1 (same file): no label-check issue on the plans (whole floor + every per-mark set), labels at the design spacing /
+by count, BBS spacing note, TYP. / short codes / “ป้ายทุกแผง”, cropped sections with level marks (1:25 on a small floor),
+opening detail 1:20 with faded bars and the large-opening detail on the next sheet at 1:20, member totals as in v0.108.0
+(672 bars, 2,281.616 kg). Before / after PNGs: `output/slab-sheet-verification/` (ad-hoc renderer `tmp/floorSheet.test.ts`).
 
 `tests/slabFloor.test.ts`: schema / grid refs / blockers, 4 × 3 grid (6 panels, concrete = Σ panels, soffit only), L panel,
 opening 800 × 600 (cuts, trimmers, Ld, diagonals, deviate), extra top bars (face / centre / L/4 / L/3 / bend / U), continuous

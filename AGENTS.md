@@ -287,6 +287,10 @@
   (`floor {mode:'mark'}`) or whole floor / picked marks (`partTags`, grouped BBS `floorTableItems` + summary page, `floorMerge` → SF-
   Marks `mergeFloorMarks`); Excel “Slab BBS” / “Slab Summary” (`data/slabFloorExcel.ts`); CAD roles `barBottom` / `barTop` (fallback
   barMain); `spec.slabAccessories` → detailing → site items `gen-slab-chair|chair-kg|spacer`. Test: `tests/slabFloorSheet.test.ts`.
+  S2.1: plan labels inside the panels (`placeFloorLabels`, `drawingSetup.floorLabels` typ | all, TYP. + short codes), text =
+  design spacing (`floorDesignSpacing` from `Raw.s`) / counts for OP / OD, BBS note `floorSpacingNote`; < 1:100 on A2 → A1
+  (`floorPlanScale`); sections cropped (`floorSectionExtent`) + break lines + `T.O.S.` levels (`on`); details 1:20 + faded
+  bars (`openingDetailFocus`). Ad-hoc PNGs: `tmp/floorSheet.test.ts` (env FMODE tag | floor, MERGE, OUT, PX).
   UI `components/SlabFloorEditor.tsx` in the Slab input panel;
   floor members hide the shape / rebar tabs (`isSlabFloorMember`). Slab List column “บนเสริม” (`topExtra`, `TopExtraCell`).
   Test: `tests/slabFloor.test.ts` (+ DXF `output/dxf-verification/slabFloor-*.dxf`).

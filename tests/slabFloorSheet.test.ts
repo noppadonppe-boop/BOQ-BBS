@@ -20,6 +20,8 @@ import {buildBbsDxf} from '../src/data/dxf';
 import {cadStandardOf,cadStandardSchema,defaultCadStandard} from '../src/domain/cadStandard';
 import {detailingFromSpec} from '../src/domain/specDetailing';
 import {appendSlabFloorSheets} from '../src/data/slabFloorExcel';
+import {labelReport} from '../src/domain/labelQa';
+import type {LeaderPrim} from '../src/domain/drawingPrims';
 
 const spec:Spec={...currentStarterSpec,designCode:'ACI',rounding:25} as Spec;
 const project={id:'p',code:'J-SF',name:'Slab floor ทดสอบ',location:'',owner:'',notes:'',acl:{},version:1,createdAt:'',spec,titleBlock:{company:'FORM',drawnBy:'',checkedBy:'',drawingPrefix:'',sheetSize:'A3'}} as unknown as Project;
@@ -170,5 +172,56 @@ describe('slab floor sheet: outputs and options',()=>{
   const sum=wb.getWorksheet('Slab Summary')!,total=sum.getRow(sum.rowCount).values as unknown[];
   expect(total[2]).toBe('TOTAL');expect(Number(total.at(-1))).toBeCloseTo(q.rows.reduce((t,r)=>t+r.weight,0)*2,6);
   expect(wb.getWorksheet('Slab BBS')!.getColumn(2).values.filter(v=>v==='S2').length).toBeGreaterThan(1);
+ });
+});
+
+// S2.1 (readable sheet): labels inside the panels, design spacing, counted trimmers / diagonals, TYP., cropped sections at
+// the requested scale with level marks, opening details at 1:20, member totals unchanged.
+describe('slab floor sheet S2.1: readable plans, sections and details',()=>{
+ const sheet1=(s:SheetData)=>drawSheetInfo(s,0);
+ const planLeaders=(i:ReturnType<typeof drawSheetInfo>,key:string)=>{const id=i.views.find(v=>v.key===key)!.id;return i.prims.filter((p):p is LeaderPrim=>p.t==='leader'&&p.view===id);};
+ it('the label check finds nothing on the bottom / top plans (whole floor and every per-mark set)',()=>{
+  for(const setup of [{partSheets:'model' as const},{partSheets:'tag' as const}])for(const set of tagSheetSets(member(floor(),setup).s)){
+   const i=sheet1(set);if(!i.views.some(v=>v.key==='plan-bottom'))continue;
+   const plans=new Set(i.views.filter(v=>v.key==='plan-bottom'||v.key==='plan-top').map(v=>v.id)),r=labelReport(i.prims,i.views).filter(x=>plans.has(x.view));
+   expect(r.length).toBe(2);for(const x of r)expect(x.issues.map(q=>`${q.kind} ${q.marks.join('/')}`)).toEqual([]);}
+ });
+ it('labels: spacing as designed (@200, not the drawn @194), trimmers / diagonals by count; drawn spacing noted in the BBS',()=>{
+  const {s}=member(),set=tagSheetSets(s)[0],i=sheet1(set),all=[...planLeaders(i,'plan-bottom'),...planLeaders(i,'plan-top')].map(l=>l.text[0]);
+  const full=all.filter(t=>t.includes(' '));expect(full.length).toBeGreaterThan(10);
+  for(const t of full){if(/-O[PD]\d/.test(t))expect(t).toMatch(/^S\d-O[PD]\d+ \d+-DB12 \(/);else expect(t).toMatch(/^S\d-[BT]\d+ DB12@200 \([BT][12/BT]*\)( TYP\.)?$/);}
+  expect(full.some(t=>/^S1-OP\d 4-DB12/.test(t))).toBe(true);expect(full.some(t=>/^S1-OD\d 2-DB12/.test(t))).toBe(true);
+  // short codes elsewhere (default 'typ'): Mark number only
+  expect(all.filter(t=>!t.includes(' ')).every(t=>/^(B|T|OP|OD)\d+$/.test(t))).toBe(true);
+  const tables=pagesOf(set).slice(1).flatMap(p=>texts(p.prims)).join('\n');expect(tables).toMatch(/ระยะจริง @19\d \(แบบ @200\)/);
+ });
+ it('TYP.: equal panels get the full labels on the first + TYP., short codes on the others; “ป้ายทุกแผง” = full label in every panel',()=>{
+  // 3 × 2 equal panels, bottom bars stop at the beams → equal panels share their Marks
+  const eq=floor(f=>{f.gridsX=[0,6000,12000,18000].map((at,k)=>({label:String.fromCharCode(65+k),at}));f.beams=autoBeams(f,{mark:'B1',width:300,depth:600});f.panels=autoPanels(f,'S1');f.marks=[{...f.marks[0],rebar:{...f.marks[0].rebar,bottomAtBeam:'stop'}}];f.openings=[];});
+  const typ=planLeaders(sheet1(tagSheetSets(member(eq,{partSheets:'model'}).s)[0]),'plan-bottom').map(l=>l.text[0]);
+  expect(typ.some(t=>/ TYP\.$/.test(t))).toBe(true);expect(typ.some(t=>/^B\d+$/.test(t))).toBe(true);
+  const every=planLeaders(sheet1(tagSheetSets(member(eq,{partSheets:'model',floorLabels:'all'}).s)[0]),'plan-bottom').map(l=>l.text[0]);
+  expect(every.length).toBe(typ.length);expect(every.every(t=>/^S1-B\d+ DB12@200 \(B[12]\)$/.test(t))).toBe(true);
+ });
+ it('sections: cropped to the cut panel (break lines), T.O.S. level marks, no height chain; 1:25 when the crop fits',()=>{
+  const {s}=member(),i=sheet1(tagSheetSets(s)[0]),secs=i.views.filter(v=>v.key?.startsWith('sec:'));expect(secs).toHaveLength(2);
+  for(const v of secs){expect(v.data!.cropped).toBe(true);const span=v.data!.u[1]-v.data!.u[0];expect(span).toBeLessThan(10000);expect(v.n).toBeLessThanOrEqual(50);}
+  const t=texts(i.prims);expect(t).toEqual(expect.arrayContaining(['T.O.S. ±0.000','T.O.S. −0.050']));expect(t).not.toContain('429');
+  // small floor: both sections at 1:25 as the system layout asks
+  const small=member(floor(f=>{f.gridsX=[0,3000,6000].map((at,k)=>({label:String.fromCharCode(65+k),at}));f.gridsY=[0,3000,6000].map((at,k)=>({label:String(k+1),at}));f.beams=autoBeams(f,{mark:'B1',width:300,depth:600});f.panels=autoPanels(f,'S1');f.marks=[f.marks[0]];f.openings=[];}));
+  const si=sheet1(tagSheetSets(small.s)[0]);expect(si.views.filter(v=>v.key?.startsWith('sec:')).map(v=>[v.n,v.fits])).toEqual([[25,true],[25,true]]);
+ });
+ it('opening detail at 1:20 (focus Ld + one spacing, the rest faded); a detail too large for sheet 1 moves to the next sheet at 1:20',()=>{
+  const {s,m}=member(),i=sheet1(tagSheetSets(s)[0]),d=i.views.find(v=>v.key==='det:op-op1')!;expect([d.n,d.fits]).toEqual([20,true]);
+  expect(d.data!.floorFocus).toBeDefined();expect(expandPrims(i.prims).some(p=>p.view===d.id&&p.t==='line'&&p.stroke==='#d5dde3')).toBe(true);
+  expect(floorDetails(m)[0].r).toBeGreaterThan(400+475);
+  const big=member(floor(f=>{f.openings=[opening({id:'op1',x:7000,y:1200,w:2600,h:2600})];})),set=tagSheetSets(big.s)[0];
+  const lay=resolveSheetLayout(set,'A2').layout!,where=lay.sheets.findIndex(sh=>sh.views.some(v=>v.view==='det:op-op1'));
+  expect(where).toBe(1);expect(lay.sheets[1].views.find(v=>v.view==='det:op-op1')!.n).toBe(20);
+  const p2=drawSheetInfo(set,1),d2=p2.views.find(v=>v.key==='det:op-op1')!;expect([d2.n,d2.fits]).toEqual([20,true]);
+ });
+ it('member totals unchanged by S2.1 (bar count and weight as in v0.108.0; diagonals of opposite corners share one Mark)',()=>{
+  const {q}=member();expect(q.rows.reduce((t,r)=>t+r.count,0)).toBe(672);expect(q.rows.reduce((t,r)=>t+r.weight,0)).toBeCloseTo(2281.616,2);
+  expect(q.rows.filter(r=>/-od\d+$/.test(r.id)).map(r=>r.count)).toEqual([2,2]);
  });
 });
