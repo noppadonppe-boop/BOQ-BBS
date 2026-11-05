@@ -38,7 +38,7 @@ export async function command(action:string,projectId:string|undefined,data:Data
  if(action==='beginOccurrenceBatch')return (await import('./direct/occurrenceBatches')).beginOccurrenceBatch(pid,data,requestId);
  if(action==='revokeCode99Detail')return (await import('./direct/code99Reviews')).revokeCode99Detail(pid,data,requestId);
  if(action==='acceptCode99Detail')return (await import('./direct/code99Reviews')).acceptCode99Detail(pid,data,requestId);
- if(['saveMember','deleteMember','reviewMember'].includes(action))return (await import('./direct/members')).directMember(action,pid,data,requestId);
+ if(['saveMember','saveMemberDrawing','deleteMember','reviewMember'].includes(action))return (await import('./direct/members')).directMember(action,pid,data,requestId);
  if(['exportSnapshot','freezeRevision'].includes(action))return (await import('./direct/snapshotCommands')).directSnapshot(action,pid,data,requestId);
  if(['startExport','finishExport','failExport'].includes(action))return (await import('./direct/snapshotCommands')).directExport(action,pid,data,requestId);
  if(['addStock','planCutting','reserveCutting','consumeCutting','cancelCutting'].includes(action))return (await import('./direct/stock')).directStock(action,pid,data,requestId);

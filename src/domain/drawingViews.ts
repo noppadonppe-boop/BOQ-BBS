@@ -6,7 +6,9 @@ const sectionV1={id:z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),label:z.string().t
  * nearest bar plane as before), extent = range along the cut line (crops the view), source default | user, columns = footing
  * pedestal / starter plan section (column outlines + column bars only). */
 const sectionV2={...sectionV1,look:z.enum(['+','-']).optional(),depth:z.number().finite().positive().max(100000).optional(),
- extent:z.tuple([z.number().finite(),z.number().finite()]).refine(([a,b])=>b>a,'ช่วงแนวตัดไม่ถูกต้อง').optional(),source:z.enum(['default','user']).optional(),columns:z.boolean().optional()};
+ extent:z.tuple([z.number().finite(),z.number().finite()]).refine(([a,b])=>b>a,'ช่วงแนวตัดไม่ถูกต้อง').optional(),source:z.enum(['default','user']).optional(),columns:z.boolean().optional(),
+ /** stepped section (Drawing Edit P3): from `from` mm along the view's horizontal axis the cut moves to `position` */
+ steps:z.array(z.object({from:z.number().finite().nonnegative().max(200000),position:z.number().finite().nonnegative().max(200000)}).strict()).max(4).optional()};
 const unique=(v:{sections:{id:string;label:string;axis:string;position:number}[]},c:z.RefinementCtx)=>{
  const ids=new Set<string>(),labels=new Set<string>(),planes=new Set<string>();v.sections.forEach((s,i)=>{const label=s.label.toUpperCase(),plane=s.axis+':'+s.position;if(ids.has(s.id)||labels.has(label)||planes.has(plane))c.addIssue({code:'custom',path:['sections',i],message:'รหัส ชื่อ หรือแนวรูปตัดซ้ำ'});ids.add(s.id);labels.add(label);planes.add(plane);});
 };

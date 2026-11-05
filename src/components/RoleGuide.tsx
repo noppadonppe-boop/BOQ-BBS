@@ -10,6 +10,7 @@ const systemRoles:Card[]=[
 ];
 const projectRoles:Card[]=[
  {id:'qs',name:'ผู้ถอดปริมาณ',sub:'QS · เขียนแบบ (Drawn)',tone:'teal',icon:PencilRuler,text:'สร้างและแก้สมาชิก BOQ / BBS',can:['เพิ่ม / แก้ / ทำสำเนาสมาชิก','อัปโหลดแบบต้นทาง อ่านแบบด้วย AI','ยืนยันตำแหน่งเหล็กและที่มาปริมาณ','ตัดเหล็ก สต็อก และเตรียมชุดส่งตรวจ']},
+ {id:'detailer',name:'ผู้เขียนแบบ',sub:'Detailer',tone:'teal',icon:PencilRuler,text:'จัดหน้าและแก้ไขแบบ BBS',can:['จัดหน้าแบบ / แก้ไขแบบ (Dimension, ระดับ, ป้าย Mark, ข้อความ, Detail)','บันทึกแบบโดยสถานะสมาชิกไม่กลับเป็น Draft','ดูสมาชิก BOQ และแบบ · ส่งออก PDF / DXF']},
  {id:'checker',name:'ผู้ตรวจ',sub:'Checker',tone:'amber',icon:ClipboardCheck,text:'ตรวจความถูกต้องของแบบและปริมาณ',can:['ตรวจสมาชิก → Checked','ส่งกลับ Draft พร้อมหมายเหตุ','ตรึง Revision และรันชุดทดสอบ']},
  {id:'approver',name:'ผู้อนุมัติ',sub:'Approver',tone:'green',icon:BadgeCheck,text:'อนุมัติให้ใช้งาน (IFC)',can:['ทุกอย่างที่ผู้ตรวจทำได้','อนุมัติสมาชิก → IFC (ได้ Revision)','อนุมัติ Spec และออกเอกสาร (Issue)']},
  {id:'viewer',name:'ผู้อ่าน',sub:'Viewer',tone:'grey',icon:Eye,text:'ดูข้อมูลและนำไปใช้',can:['ดูสมาชิก BOQ และแบบ','ส่งออก PDF / Excel / DXF']},

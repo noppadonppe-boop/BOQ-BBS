@@ -191,6 +191,10 @@
   Phase 2: user `dim` (anchors `{u,v,eu,ev,bar}`: eu / ev follow the concrete box edge `concreteBox`/`anchorPoint`, bar = Mark row id),
   `level` (value = `ViewData.datum` + v), leaders `bar` + `fromMark` (text / DXF Mark data from the row); snaps `viewSnapPoints()` from
   `SheetViewInfo.data`; lost bar anchors `lostAnchors()` drawn red; “แยกเป็นของผู้ใช้” turns an automatic dim into a user dim.
+  Phase 3: Detail views `drawingEdits.details` → ViewKey `det:<id>` (`ViewSpec.window`, clipped by `primClip.ts`, marks on the parent),
+  ISO `iso` (`isoView`), stepped sections `section.steps` (pieces merged in `buildView`); extras only in composed layouts
+  (`sheetViews(s, extras)`). Drawing-only save `saveMemberDrawing` (direct/members.ts: sheetLayout + drawingEdits, status kept) for
+  roles admin / qs / detailer (new project role `detailer`); sections still go through saveMember (→ Draft).
 - DXF 2018 export (`src/data/dxf/`, docs `docs/DXF_EXPORT.md`): `writer.ts` (handles / owners / tables / blocks / objects as ezdxf R2018),
   `entities.ts` (DIMENSION + *D block, LEADER + INSERT `BBS-MARK` with ATTRIBs, MTEXT, solid HATCH, VIEWPORT; all ByLayer), modes
   `layoutB` (model 1:1 + one Layout per sheet, locked viewports), `layoutC` (model only, frame block ×N, view blocks ×N/n),

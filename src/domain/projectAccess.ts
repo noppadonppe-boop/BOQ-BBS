@@ -1,10 +1,11 @@
 import type {Role} from './model';
 
-export const projectRoles:Role[]=['admin','qs','checker','approver','viewer'];
-export const roleLabels:Record<Role,string>={admin:'ผู้ดูแลโครงการ',qs:'ผู้ถอดปริมาณ',checker:'ผู้ตรวจ',approver:'ผู้อนุมัติ',viewer:'ผู้อ่าน'};
+export const projectRoles:Role[]=['admin','qs','detailer','checker','approver','viewer'];
+export const roleLabels:Record<Role,string>={admin:'ผู้ดูแลโครงการ',qs:'ผู้ถอดปริมาณ',detailer:'ผู้เขียนแบบ (Detailer)',checker:'ผู้ตรวจ',approver:'ผู้อนุมัติ',viewer:'ผู้อ่าน'};
 export const roleDescriptions:Record<Role,string>={
  admin:'จัดการข้อมูลโครงการ ทีม และสิทธิ์ผู้ใช้',
  qs:'เพิ่มและแก้สมาชิก แบบอ้างอิง BOQ และ BBS',
+ detailer:'จัดหน้าและแก้ไขแบบ BBS (Dimension / ป้าย / ข้อความ) โดยไม่แก้ข้อมูลสมาชิก',
  checker:'ตรวจข้อมูลและยืนยันสถานะ Checked',
  approver:'ตรวจและอนุมัติสมาชิกตามขั้นตอนของโครงการ',
  viewer:'อ่านข้อมูลและดาวน์โหลดไฟล์ตามสิทธิ์โครงการ'

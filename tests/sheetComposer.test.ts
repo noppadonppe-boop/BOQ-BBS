@@ -127,6 +127,6 @@ describe('DXF mode B with a composed layout',()=>{
   for(const v of placed){const hit=vps.find(([cx,cy,w,h])=>Math.abs(cx-(v.box.x+v.box.w/2))<1e-4&&Math.abs(cy-(297-(v.box.y+v.box.h/2)))<1e-4&&Math.abs(w-v.box.w)<1e-4&&Math.abs(h-v.box.h)<1e-4);
    expect(hit,v.title).toBeTruthy();expect(hit![4]/hit![3]).toBeCloseTo(v.n,6);}
   mkdirSync('output/dxf-verification',{recursive:true});writeFileSync('output/dxf-verification/composed-B.dxf',text);
-  expect(layoutPage(d,1)).toBe(1);expect(sheetViews(d).map(v=>v.key)).toEqual(['plan','sec:def-x','sec:def-y','sec:def-z']);
+  expect(layoutPage(d,1)).toBe(1);expect(sheetViews(d,false).map(v=>v.key)).toEqual(['plan','sec:def-x','sec:def-y','sec:def-z']);expect(sheetViews(d).map(v=>v.key)).toEqual(['plan','sec:def-x','sec:def-y','sec:def-z','iso']);
  });
 });

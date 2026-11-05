@@ -12,6 +12,8 @@ import {drawingNumberKey,drawingRunText,type DrawingSetup} from '../../domain/dr
 import {numberedSetup} from '../../domain/drawingNumbers';
 import {nextReview,statusLabel} from '../../domain/memberReview';
 import {displayName} from '../../domain/auth';
+import {sheetLayoutSchema} from '../../domain/sheetLayoutSchema';
+import {drawingEditsSchema} from '../../domain/drawingEdits';
 import {canonical} from '../../domain/canonical';
 import {occurrenceLocProblems} from '../../domain/locations';
 import {decodeStorage} from '../../domain/storageCodec';
@@ -54,6 +56,15 @@ export async function directMember(action:string,pid:string,data:Record<string,a
    tx.set(r,encode({...next,...(review?{review}:{})}));tx.update(projectRef(pid),{version:p.version+1});return {version:next.version};
   });
  }
+ // drawing only (Sheet Composer layout + Drawing Edit layer): admin / qs / detailer, the member keeps its status (not Draft);
+ // sections (drawingViews) stay with saveMember because they change the member data
+ if(action==='saveMemberDrawing')return projectTransaction(action,pid,data,requestId,['admin','qs','detailer'],async(tx,p)=>{
+  const layout=data.sheetLayout==null?undefined:sheetLayoutSchema.parse(data.sheetLayout),edits=data.drawingEdits==null?undefined:drawingEditsSchema.parse(data.drawingEdits);
+  const r=recordRef(pid,'members',String(data.memberId)),s=await tx.get(r);must(s.exists(),'ไม่พบสมาชิก','not-found');const old=decodeStorage(s.data()) as Member;
+  must(old.version===data.version,'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่ก่อนบันทึก','aborted');
+  const next:Member={...old,version:old.version+1,updatedAt:now()};if(layout)next.sheetLayout=layout;else delete next.sheetLayout;if(edits)next.drawingEdits=edits;else delete next.drawingEdits;
+  must(new TextEncoder().encode(JSON.stringify(encode(next))).length<700000,'ข้อมูลแบบเกินขนาดเอกสาร 700 KB');
+  tx.set(r,encode(next));tx.update(projectRef(pid),{version:p.version+1});return {version:next.version};});
  if(action==='deleteMember')return projectTransaction(action,pid,data,requestId,['admin','qs'],async(tx,p)=>{const r=recordRef(pid,'members',data.memberId),s=await tx.get(r);must(s.exists()&&s.data().version===data.version,'ข้อมูลเปลี่ยนแล้ว','aborted');tx.delete(r);tx.update(projectRef(pid),{version:p.version+1});return {ok:true};});
  const status=data.status;must(['Draft','Checked','ApprovedForIssue'].includes(status),'สถานะไม่ถูกต้อง','invalid-argument');
  // Perform queries and file verification before taking transaction locks.

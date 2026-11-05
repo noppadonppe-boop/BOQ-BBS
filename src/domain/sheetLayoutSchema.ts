@@ -2,7 +2,7 @@ import {z} from 'zod';
 
 /** Sheet Composer data (zod only, no runtime imports: `model.ts` imports it).
  * ViewKey = plan | plan-bottom | plan-top | sec:<section id> | notes. Boxes are sheet mm (frame of the view incl. its title band). */
-export const viewKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|sec:[a-zA-Z0-9_-]{1,80})$/,'รหัสรูปไม่ถูกต้อง');
+export const viewKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|iso|sec:[a-zA-Z0-9_-]{1,80}|det:[a-zA-Z0-9_-]{1,40})$/,'รหัสรูปไม่ถูกต้อง');
 export type ViewKey=z.infer<typeof viewKeySchema>;
 export const viewScaleNSchema=z.union([z.literal('auto'),z.number().int().min(1).max(1000)]);
 const showSchema=z.object({dims:z.boolean().optional(),marks:z.boolean().optional(),levels:z.boolean().optional(),allBars:z.boolean().optional()}).strict();
@@ -21,7 +21,7 @@ export const sheetLayoutSchema=z.object({version:z.literal(1),sheets:sheetsOf(pl
 export type SheetLayout=z.infer<typeof sheetLayoutSchema>;
 
 /** Template roles: plan views / notes as is, sections by role (sec-x = X–X, sec-y = Y–Y, col-z = Z–Z, user-1 … = added cuts). */
-export const roleKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|sec-x|sec-y|col-z|user-[0-9]{1,2})$/,'role ไม่ถูกต้อง');
+export const roleKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|iso|sec-x|sec-y|col-z|user-[0-9]{1,2})$/,'role ไม่ถูกต้อง');
 export type RoleKey=z.infer<typeof roleKeySchema>;
 export const sheetTemplateSchema=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),name:z.string().trim().min(1).max(80),category:z.string().min(1).max(40),
  match:z.object({foundationType:z.string().max(20).optional(),layout:z.string().max(20).optional()}).strict().optional(),size:z.enum(['A3','A2']),

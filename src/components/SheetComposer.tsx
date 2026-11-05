@@ -18,7 +18,7 @@ import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay} from './LabelQa';
 import {useDrawingEdit} from './DrawingEditLayer';
-import {cleanDrawingEdits,drawingEditsSchema,type DrawingEdits} from '../domain/drawingEdits';
+import {cleanDrawingEdits,drawingEditsSchema,type DetailView,type DrawingEdits} from '../domain/drawingEdits';
 
 type Box={x:number;y:number;w:number;h:number};
 type Draft={layout?:SheetLayout;sections:SheetSection[];edits?:DrawingEdits};
@@ -35,7 +35,12 @@ const sameJson=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
  * concrete edges / centre), dragging cut lines in plans, right-click on a bar → perpendicular section, templates.
  * Mode “แก้ไขแบบ” (Drawing Edit, `DrawingEditLayer.tsx`): move / hide / retext automatic annotations, add text and leaders.
  * Writes member.sheetLayout, member.drawingViews (v2, only when the sections changed) and member.drawingEdits through `onApply`. */
-export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,onClose}:{member:Member;project:Project;readOnly:boolean;onApply?:(m:Member)=>void;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>;onClose:()=>void}){
+export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,memberDirty,onSaveTemplates,onClose}:{member:Member;project:Project;readOnly:boolean;onApply?:(m:Member)=>void;
+ /** drawing-only save (layout + Drawing Edit layer; admin / qs / detailer): the member keeps its status; used when the sections did
+  * not change and the member editor has no unsaved changes, else `onApply` (member edit → Draft on save) */
+ onSaveDrawing?:(d:{sheetLayout?:SheetLayout;drawingEdits?:DrawingEdits})=>Promise<void>;memberDirty?:boolean;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>;onClose:()=>void}){
+ // sections are member data (saveMember → Draft): only with `onApply`
+ const secRO=readOnly||!onApply;
  const base=useMemo(()=>{const q=takeoff(member,project.spec),parsed=elementInputSchema.safeParse(member.elementInput);
   return {member,rows:q.rows,input:parsed.success?parsed.data:undefined,project,quantity:sum(member.occurrences.map(o=>o.quantity)),takeoff:q,status:'DRAFT / NOT FOR CONSTRUCTION',revision:'D'+project.version,date:new Date().toISOString().slice(0,10),provisional:quantityBasisState(member)==='Provisional'} as SheetData;},[member,project]);
  const size=sheetFormat(base).size,initSections=useMemo(()=>sheetSections(base,size).sections,[base,size]);
@@ -113,10 +118,11 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
   const p=opt.lock&&drag.mode==='move'?partner(drag.key,b):undefined;
   editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.map(v=>v.view!==drag.key?v:{...v,...b,...(p?{lock:{to:p.v.key!,axis:p.ax}}:drag.mode==='move'&&!opt.lock?{lock:undefined}:{})})}))}));};
  useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.target as HTMLElement)?.closest('input,select,textarea'))return;
-   if(e.key==='Escape'&&mode!=='edit'){setDrag(undefined);setCut(undefined);setTool(undefined);setMenu(undefined);return;}
+   if(e.key==='Escape'&&mode!=='edit'){setDrag(undefined);setCut(undefined);setTool(undefined);setMenu(undefined);setDt(undefined);return;}
    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();back();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();fwd();return;}
    if(mode==='edit'){if(!e.ctrlKey&&!e.metaKey&&!e.altKey)ed.key(e);return;}
-   if(e.key==='s'||e.key==='S'){if(!readOnly)setTool({step:1});return;}if(e.key==='v'||e.key==='V'){setTool(undefined);return;}
+   if(e.key==='s'||e.key==='S'){if(!secRO){setDt(undefined);setTool({step:1});}return;}
+   if(e.key==='k'||e.key==='K'){if(!readOnly&&details.length<8){setTool(undefined);setDt({step:1});}return;}if(e.key==='v'||e.key==='V'){setTool(undefined);return;}
    if(tool?.step===2&&e.key==='Tab'){e.preventDefault();setTool(t=>t?.sec?{...t,sec:{...t.sec,look:t.sec.look==='-'?'+':'-'}}:t);return;}
    if(!sel||readOnly)return;const v=placed.find(x=>x.view===sel);if(!v)return;const st=e.shiftKey?5:1;
    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();unplace(sel);setSel(undefined);return;}
@@ -152,12 +158,32 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
  const preview=useMemo(()=>{if(!tool?.sec)return;const d=buildView(base.member,base.rows,base.input,sectionSpec(tool.sec)),seen=d.bars.filter(b=>b.lines.length||b.dots.length).length;
   return {prims:renderView(d,{x:0,y:0,w:320,h:220},{colors:markColors(base.rows)}),seen};},[tool?.sec,base]);
  // right click on a bar in a plan → perpendicular section through the clicked point
- const onContext=(e:React.MouseEvent)=>{e.preventDefault();if(readOnly)return;const [x,y]=pt(e),v=viewAt(x,y);if(!v)return;const [u,w]=toModel(v,x,y),tol=2/v.s,[a,b]=v.axes;
+ const onContext=(e:React.MouseEvent)=>{e.preventDefault();if(secRO)return;const [x,y]=pt(e),v=viewAt(x,y);if(!v)return;const [u,w]=toModel(v,x,y),tol=2/v.s,[a,b]=v.axes;
   for(const r of base.rows)for(const p of r.paths)for(let i=1;i<p.length;i++){const s0=p[i-1],s1=p[i];
    if(Math.abs(s0[b]-s1[b])<.5&&Math.abs(w-s0[b])<tol&&u>=Math.min(s0[a],s1[a])&&u<=Math.max(s0[a],s1[a])){const sec=sectionFrom(v,[u,w],[u,w+1]);if(sec){setMenu({x:e.clientX,y:e.clientY,sec:{...sec,label:sec.label}});return;}}
    if(Math.abs(s0[a]-s1[a])<.5&&Math.abs(u-s0[a])<tol&&w>=Math.min(s0[b],s1[b])&&w<=Math.max(s0[b],s1[b])){const sec=sectionFrom(v,[u,w],[u+1,w]);if(sec){setMenu({x:e.clientX,y:e.clientY,sec});return;}}}};
  const startPlace=(sec:SheetSection)=>{setMenu(undefined);setTool({step:3,sec,view:undefined,size:estimate(sec,planN())});};
 
+ // ---- Detail tool (K): centre on a plan / section → radius → place the box; drawing data (member.drawingEdits.details)
+ const details=draft.edits?.details||[];
+ const [dt,setDt]=useState<{step:1|2|3;view?:SheetViewInfo;c?:[number,number];r?:number;at?:[number,number];size?:{w:number;h:number};n?:number}>();
+ const detView=(x:number,y:number)=>{const v=viewAt(x,y);return v&&(v.key?.startsWith('plan')||v.key?.startsWith('sec:'))?v:undefined;};
+ const dtMove=(x:number,y:number)=>{if(!dt)return;
+  if(dt.step===1){const v=detView(x,y);setHover({x,y,snap:v?snapPoint(v,x,y).label:''});return;}
+  if(dt.step===2&&dt.view&&dt.c){const [u,w]=toModel(dt.view,x,y);setDt({...dt,r:Math.max(50,Math.round(Math.hypot(u-dt.c[0],w-dt.c[1])/10)*10)});setHover({x,y});return;}
+  if(dt.step===3)setDt({...dt,at:[x,y]});};
+ const dtClick=(x:number,y:number)=>{if(!dt)return;
+  if(dt.step===1){const v=detView(x,y);if(!v){setMsg('Detail: คลิกจุดศูนย์กลางบนแปลนหรือรูปตัด');return;}setDt({step:2,view:v,c:snapPoint(v,x,y).p,r:300});return;}
+  if(dt.step===2&&dt.view&&dt.c&&dt.r){const parentN=dt.view.n||planN(),n=[...standardScales].filter(q=>q<=Math.max(1,parentN/2.5)).pop()||Math.max(1,Math.round(parentN/2)),side=2*dt.r/n+34;
+   setDt({...dt,step:3,n,size:{w:Math.min(area.area.w-4,side),h:Math.min(area.area.h-20,side)},at:[x,y]});return;}
+  if(dt.step===3&&dt.view?.key&&dt.c&&dt.r&&dt.size&&dt.n){let k=details.length+1;while(details.some(d=>d.label.toUpperCase()===`D${k}`))k++;
+   const d:DetailView={id:`d${uid()}`,label:`D${k}`,parent:dt.view.key,u:Math.round(dt.c[0]),v:Math.round(dt.c[1]),r:dt.r,circle:true},key=`det:${d.id}` as ViewKey;
+   const l=structuredClone(layout);l.sheets[page].views.push({view:key,x:x-dt.size.w/2,y:y-dt.size.h/2,...dt.size,n:dt.n});
+   commit({layout:l,edits:{version:1,views:draft.edits?.views||{},details:[...details,d]}});setDt(undefined);setSel(key);}};
+ const editDetail=(id:string,patch:Partial<DetailView>)=>commit({edits:{version:1,views:draft.edits?.views||{},details:details.map(d=>d.id===id?{...d,...patch}:d)}});
+ const removeDetail=(id:string)=>{const k=`det:${id}`,views={...(draft.edits?.views||{})};delete views[k];
+  commit({layout:{...layout,sheets:layout.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k&&v.lock?.to!==k)})),unplaced:layout.unplaced.filter(x=>x!==k)},edits:{version:1,views,details:details.filter(d=>d.id!==id)}});setSel(undefined);};
+ const selDet=sel?.startsWith('det:')?details.find(d=>`det:${d.id}`===sel):undefined;
  // ---- templates
  const templates=sheetTemplatesOf(project).filter(t=>t.size===size&&t.category===member.category);
  const [tplName,setTplName]=useState(''),[tplDefault,setTplDefault]=useState(false),[tplMatch,setTplMatch]=useState(false);
@@ -177,6 +203,8 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
   if(edits){const ok=drawingEditsSchema.safeParse(edits);if(!ok.success){setMsg(`แก้ไขแบบ: ${ok.error.issues[0]?.message||'ข้อมูลไม่ถูกต้อง'}`);return;}next.drawingEdits=ok.data;}else delete next.drawingEdits;
   if(own?.data)next.sheetLayout=own.data;else delete next.sheetLayout;
   if(secsChanged)next.drawingViews={version:2,primaryPlane:member.drawingViews?.primaryPlane||'XY',basis:member.drawingViews?.basis||'Sheet Composer',sections:draft.sections};
+  if(secsChanged&&!onApply){setMsg('แก้รูปตัดต้องมีสิทธิ์แก้สมาชิก (Admin / QS)');return;}
+  if(!secsChanged&&onSaveDrawing&&(!memberDirty||!onApply)){onSaveDrawing({sheetLayout:next.sheetLayout,drawingEdits:next.drawingEdits}).then(onClose,e=>setMsg(e instanceof Error?e.message:String(e)));return;}
   onApply?.(next);onClose();};
  const close=()=>{if(dirty&&!readOnly&&!confirm('ทิ้งการจัดหน้าที่ยังไม่ได้กด “เสร็จ”?'))return;onClose();};
  const selV=sel?placed.find(v=>v.view===sel):undefined,selInfo=sel?info.views.find(v=>v.key===sel):undefined,selSec=sel?.startsWith('sec:')?draft.sections.find(s=>`sec:${s.id}`===sel):undefined;
@@ -195,8 +223,10 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
     <div className="composer-tools" role="toolbar" aria-label="เครื่องมือ">
      {mode==='edit'?ed.toolbar:<>
      <button aria-pressed={!tool} className={!tool?'active':''} onClick={()=>setTool(undefined)}>เลือก / ย้าย <kbd>V</kbd></button>
-     <button aria-pressed={!!tool} className={tool?'active':''} disabled={readOnly} onClick={()=>setTool({step:1})}>+ รูปตัด <kbd>S</kbd></button>
-     <button disabled title="เร็ว ๆ นี้">+ รูปขยาย Detail</button><button disabled title="เร็ว ๆ นี้">+ 3D ISO</button><button disabled title="เร็ว ๆ นี้">รูปตัดหักมุม / เอียง</button></>}
+     <button aria-pressed={!!tool} className={tool?'active':''} disabled={secRO} title={secRO&&!readOnly?'แก้รูปตัดต้องมีสิทธิ์แก้สมาชิก (Admin / QS)':undefined} onClick={()=>setTool({step:1})}>+ รูปตัด <kbd>S</kbd></button>
+     <button aria-pressed={!!dt} className={dt?'active':''} disabled={readOnly||details.length>=8} onClick={()=>{setTool(undefined);setDt({step:1});}}>+ รูปขยาย Detail <kbd>K</kbd></button>
+     <button disabled={readOnly||layout.sheets.some(s=>s.views.some(v=>v.view==='iso'))} onClick={()=>placeFree('iso',{w:120,h:110})}>+ 3D ISO</button>
+     <button disabled title="รูปตัดเอียง: ยังไม่รองรับ · รูปตัดหักมุม: เลือกรูปตัดแล้วเพิ่มขั้นในแถบขวา">รูปตัดเอียง</button></>}
     </div>
     <div className="composer-opts">
      <label className="check"><input type="checkbox" checked={opt.lock} onChange={e=>setOpt({...opt,lock:e.target.checked})}/>Snap แนวฉาย</label>
@@ -226,8 +256,8 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
     </aside>
     <main className="composer-canvas" onDragOver={e=>e.preventDefault()} onDrop={e=>{const k=e.dataTransfer.getData('text/view') as ViewKey;if(!k||readOnly)return;const [x,y]=pt(e),v=layout.sheets.flatMap(s=>s.views).find(q=>q.view===k),sz=v?{w:v.w,h:v.h}:sizeFor(k,planN());place(k,{x:x-sz.w/2,y:y-sz.h/2,...sz},page,v?.n);}}>
      <svg ref={svg} viewBox={`0 0 ${info.w} ${info.h}`} className={mode==='edit'?'edit':tool?'tool':''} style={mode==='edit'?{cursor:ed.cursor}:undefined}
-      onPointerMove={e=>{if(mode==='edit'){const [x,y]=pt(e);ed.move(x,y);setHover({x,y});return;}onMove(e);}} onPointerUp={()=>{if(mode==='edit'){ed.up();return;}onUp();}} onPointerLeave={()=>setHover(undefined)} onContextMenu={e=>{if(mode==='edit'){e.preventDefault();return;}onContext(e);}}
-      onPointerDown={e=>{if(mode==='edit'){(e.currentTarget as Element).setPointerCapture?.(e.pointerId);const [x,y]=pt(e);ed.down(x,y);return;}if(tool){const [x,y]=pt(e);toolClick(x,y);}else setSel(undefined);}} role="img" aria-label="แผ่นที่กำลังจัด" fontFamily="Sarabun, sans-serif">
+      onPointerMove={e=>{if(mode==='edit'){const [x,y]=pt(e);ed.move(x,y);setHover({x,y});return;}if(dt){const [x,y]=pt(e);dtMove(x,y);return;}onMove(e);}} onPointerUp={()=>{if(mode==='edit'){ed.up();return;}onUp();}} onPointerLeave={()=>setHover(undefined)} onContextMenu={e=>{if(mode==='edit'){e.preventDefault();return;}onContext(e);}}
+      onPointerDown={e=>{if(mode==='edit'){(e.currentTarget as Element).setPointerCapture?.(e.pointerId);const [x,y]=pt(e);ed.down(x,y);return;}if(dt){const [x,y]=pt(e);dtClick(x,y);return;}if(tool){const [x,y]=pt(e);toolClick(x,y);}else setSel(undefined);}} role="img" aria-label="แผ่นที่กำลังจัด" fontFamily="Sarabun, sans-serif">
       <rect x={0} y={0} width={info.w} height={info.h} fill="#fff"/><PrimsSvg prims={ed.filter(info.prims)}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}
       {mode==='edit'&&ed.overlay}
       {mode==='layout'&&<>
@@ -241,15 +271,20 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
       {drag?.guides.map((g,i)=>g.x!==undefined?<line key={i} className="guide" x1={g.x} x2={g.x} y1={0} y2={info.h}/>:g.y!==undefined?<line key={i} className="guide" y1={g.y} y2={g.y} x1={0} x2={info.w}/>:null)}
       {drag&&drag.guides.some(g=>g.label)&&<g className="guide-label"><rect x={drag.cur.x} y={drag.cur.y-8} width={Math.max(40,drag.guides.filter(g=>g.label).map(g=>g.label!).join(' · ').length*1.8)} height={6} rx={1.2}/><text x={drag.cur.x+2} y={drag.cur.y-3.6} fontSize={3.2}>{drag.guides.filter(g=>g.label).map(g=>g.label).join(' · ')}</text></g>}
       {/* cut lines of the sections on the plans: drag to move the cut */}
-      {!tool&&!readOnly&&planView.flatMap(pv=>draft.sections.filter(s=>s.axis!=='Z').map(s=>{const pos=cut?.id===s.id&&cut.view.key===pv.key?cut.pos:s.position,vert=s.axis==='X'?pv.axes[0]===0:pv.axes[0]===1;
+      {!tool&&!secRO&&planView.flatMap(pv=>draft.sections.filter(s=>s.axis!=='Z').map(s=>{const pos=cut?.id===s.id&&cut.view.key===pv.key?cut.pos:s.position,vert=s.axis==='X'?pv.axes[0]===0:pv.axes[0]===1;
        const [x,y]=toSheet(pv,s.axis==='X'?pos:0,s.axis==='Y'?pos:0);const b=pv.box;
        return <line key={pv.key+s.id} className={`cutline${cut?.id===s.id?' on':''}`} x1={vert?x:b.x} x2={vert?x:b.x+b.w} y1={vert?b.y+4:y} y2={vert?b.y+b.h:y} onPointerDown={e=>{e.stopPropagation();(e.target as Element).setPointerCapture?.(e.pointerId);setCut({id:s.id,axis:s.axis as 'X'|'Y',view:pv,pos:s.position});}}><title>{`ลากแนวตัด ${s.label.replace('-','–')}`}</title></line>;}))}
       {tool?.step===2&&tool.view&&tool.p1&&tool.p2&&(()=>{const a=toSheet(tool.view,...tool.p1),b=toSheet(tool.view,...tool.p2),h=Math.abs(b[0]-a[0])>=Math.abs(b[1]-a[1]);return <line className="newcut" x1={a[0]} y1={a[1]} x2={h?b[0]:a[0]} y2={h?a[1]:b[1]}/>;})()}
       {suggested&&<rect className="suggest" {...suggested}/>}
-      {tool?.step===3&&tool.size&&tool.at&&<rect className="placing" x={tool.at[0]-tool.size.w/2} y={tool.at[1]-tool.size.h/2} width={tool.size.w} height={tool.size.h}/>}</>}
+      {tool?.step===3&&tool.size&&tool.at&&<rect className="placing" x={tool.at[0]-tool.size.w/2} y={tool.at[1]-tool.size.h/2} width={tool.size.w} height={tool.size.h}/>}
+      {dt?.view&&dt.c&&dt.r&&(()=>{const [cx,cy]=toSheet(dt.view,...dt.c);return <circle className="newcut" cx={cx} cy={cy} r={dt.r*dt.view.s} fill="none"/>;})()}
+      {dt?.step===3&&dt.size&&dt.at&&<rect className="placing" x={dt.at[0]-dt.size.w/2} y={dt.at[1]-dt.size.h/2} width={dt.size.w} height={dt.size.h}/>}</>}
      </svg>
      {mode==='edit'&&ed.hint&&<div className="composer-tip">{ed.hint}</div>}
      {mode==='layout'&&hover&&(drag||tool)&&<div className="composer-tip">{drag?`x ${drag.cur.x.toFixed(1)} · y ${drag.cur.y.toFixed(1)} mm`:tool?.step===1?hover.snap?`Snap: ${hover.snap}`:'คลิกจุดเริ่มบนแปลน / รูปตัด':tool?.step===2?`${tool.sec?`${tool.sec.label.replace('-','–')} · ${tool.sec.axis} = ${tool.sec.position.toLocaleString()} mm · มอง ${tool.sec.look==='-'?'−':'+'}${tool.sec.axis} (Tab สลับ)`:'นอกสมาชิก'}`:'คลิกบนแผ่นเพื่อวางรูปตัด · Esc ยกเลิก'}</div>}
+     {mode==='layout'&&dt&&<div className="composer-toolbox"><b>+ รูปขยาย Detail · ขั้น {dt.step} / 3</b>
+      <p>{dt.step===1?'คลิกจุดศูนย์กลางบนแปลนหรือรูปตัด (snap แนวเหล็ก / ขอบ)':dt.step===2?`ลากออกแล้วคลิกเพื่อกำหนดรัศมี · R = ${dt.r?.toLocaleString()} mm`:`คลิกวางบนแผ่น · มาตราส่วน 1:${dt.n}`}</p>
+      <button onClick={()=>setDt(undefined)}>ยกเลิก (Esc)</button></div>}
      {mode==='layout'&&tool&&<div className="composer-toolbox">
       <b>+ รูปตัด · ขั้น {tool.step} / 3</b>
       {tool.step===1&&<p>คลิกจุดเริ่มบนแปลนหรือรูปตัด (snap: แนวเหล็ก · ขอบคอนกรีต · กึ่งกลาง)</p>}
@@ -271,13 +306,27 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
      {fitWarn.length>0&&<p className="notice warning">{fitWarn.map(v=>`${v.title}: ใช้ ${v.n?`1:${v.n}`:'NTS'} (มาตราส่วนที่เลือกไม่พอดีกรอบ)`).join(' · ')}</p>}
      {mode==='edit'?ed.panel:!selV?<p className="muted">เลือกรูปบนแผ่นหรือในรายการ</p>:<>
       <div className="sel-head"><small>รูปที่เลือก</small><b>{title(selV.view)}</b></div>
-      {selSec&&selSec.source==='user'&&<label className="field"><span>ชื่อรูปตัด</span><input value={selSec.label} maxLength={12} disabled={readOnly} onChange={e=>{const v=e.target.value.toUpperCase();if(/^[A-Z0-9]+(?:-[A-Z0-9]*)?$/.test(v)&&!draft.sections.some(s=>s.id!==selSec.id&&s.label.toUpperCase()===v))editSection(selSec.id,{label:v});}}/></label>}
+      {selSec&&selSec.source==='user'&&<label className="field"><span>ชื่อรูปตัด</span><input value={selSec.label} maxLength={12} disabled={secRO} onChange={e=>{const v=e.target.value.toUpperCase();if(/^[A-Z0-9]+(?:-[A-Z0-9]*)?$/.test(v)&&!draft.sections.some(s=>s.id!==selSec.id&&s.label.toUpperCase()===v))editSection(selSec.id,{label:v});}}/></label>}
       <div className="form-grid">
        {selV.view!=='notes'&&<label className="field"><span>มาตราส่วน</span><select value={String(selV.n)} disabled={readOnly} onChange={e=>editView(selV.view,{n:e.target.value==='auto'?'auto':Number(e.target.value)})}><option value="auto">Auto{selInfo?.n?` (1:${selInfo.n})`:''}</option>{[...new Set([...PREF,...standardScales.filter(n=>n>=5&&n<=500)])].sort((a,b)=>a-b).map(n=><option key={n} value={n}>1:{n}</option>)}</select></label>}
-       {selSec&&<label className="field"><span>ตำแหน่งตัด {selSec.axis} (mm)</span><input type="number" min={0} max={boundsOf(base.member)[axisIndex(selSec.axis)]} value={selSec.position} disabled={readOnly} onChange={e=>{const v=Number(e.target.value);if(Number.isFinite(v)&&v>=0&&v<=boundsOf(base.member)[axisIndex(selSec.axis)])editSection(selSec.id,{position:v});}}/></label>}
+       {selSec&&<label className="field"><span>ตำแหน่งตัด {selSec.axis} (mm)</span><input type="number" min={0} max={boundsOf(base.member)[axisIndex(selSec.axis)]} value={selSec.position} disabled={secRO} onChange={e=>{const v=Number(e.target.value);if(Number.isFinite(v)&&v>=0&&v<=boundsOf(base.member)[axisIndex(selSec.axis)])editSection(selSec.id,{position:v});}}/></label>}
       </div>
-      {selSec&&!selSec.columns&&<><div className="field"><span>ทิศที่มอง</span><div className="segmented">{(['+','-'] as const).map(l=><button key={l} type="button" disabled={readOnly} className={(selSec.look||'+')===l?'active':''} onClick={()=>editSection(selSec.id,{look:l})}>มอง {l==='+'?'+':'−'}{selSec.axis}</button>)}</div></div>
-       <label className="field"><span>ความลึกที่มองเห็นหลังแนวตัด (mm · 0 = เฉพาะแนวที่ใกล้สุด)</span><input type="number" min={0} step={50} value={selSec.depth||0} disabled={readOnly} onChange={e=>{const v=Number(e.target.value);editSection(selSec.id,{depth:v>0?v:undefined});}}/></label></>}
+      {selSec&&!selSec.columns&&<><div className="field"><span>ทิศที่มอง</span><div className="segmented">{(['+','-'] as const).map(l=><button key={l} type="button" disabled={secRO} className={(selSec.look||'+')===l?'active':''} onClick={()=>editSection(selSec.id,{look:l})}>มอง {l==='+'?'+':'−'}{selSec.axis}</button>)}</div></div>
+       <label className="field"><span>ความลึกที่มองเห็นหลังแนวตัด (mm · 0 = เฉพาะแนวที่ใกล้สุด)</span><input type="number" min={0} step={50} value={selSec.depth||0} disabled={secRO} onChange={e=>{const v=Number(e.target.value);editSection(selSec.id,{depth:v>0?v:undefined});}}/></label></>}
+      {selSec&&!selSec.columns&&selSec.axis!=='Z'&&<fieldset className="composer-show"><legend>หักมุม (Stepped section)</legend>
+       <p className="muted">ตั้งแต่ระยะ “จาก” (ตามแกนแนวนอนของรูปตัด) แนวตัดย้ายไปที่ตำแหน่งใหม่ · สูงสุด 4 ขั้น</p>
+       {(selSec.steps||[]).map((st,i)=><div key={i} className="form-grid step-row">
+        <label className="field"><span>จาก (mm)</span><input type="number" min={0} disabled={secRO} value={st.from} onChange={e=>{const v=Number(e.target.value);if(Number.isFinite(v)&&v>=0)editSection(selSec.id,{steps:(selSec.steps||[]).map((x,j)=>j===i?{...x,from:v}:x)});}}/></label>
+        <label className="field"><span>ตัดที่ {selSec.axis} (mm)</span><input type="number" min={0} disabled={secRO} value={st.position} onChange={e=>{const v=Number(e.target.value),max=boundsOf(base.member)[axisIndex(selSec.axis)];if(Number.isFinite(v)&&v>=0&&v<=max)editSection(selSec.id,{steps:(selSec.steps||[]).map((x,j)=>j===i?{...x,position:v}:x)});}}/></label>
+        <button className="danger-text" disabled={secRO} aria-label="ลบขั้น" onClick={()=>{const steps=(selSec.steps||[]).filter((_,j)=>j!==i);editSection(selSec.id,{steps:steps.length?steps:undefined});}}>×</button></div>)}
+       <button disabled={secRO||(selSec.steps||[]).length>=4} onClick={()=>{const along=sectionSpec(selSec).axes[0],size=boundsOf(base.member)[along],max=boundsOf(base.member)[axisIndex(selSec.axis)],last=selSec.steps?.at(-1);
+        editSection(selSec.id,{steps:[...(selSec.steps||[]),{from:Math.round(last?(last.from+size)/2:size/2),position:Math.round(Math.min(max,(last?.position??selSec.position)+Math.min(500,max/4)))}]});}}>+ เพิ่มขั้น</button></fieldset>}
+      {selDet&&<fieldset className="composer-show"><legend>รูปขยาย Detail</legend>
+       <div className="form-grid"><label className="field"><span>ชื่อ</span><input value={selDet.label} maxLength={8} disabled={readOnly} onChange={e=>{const v=e.target.value.toUpperCase();if(/^[A-Z0-9-]{1,8}$/.test(v)&&!details.some(d=>d.id!==selDet.id&&d.label.toUpperCase()===v))editDetail(selDet.id,{label:v});}}/></label>
+        <label className="field"><span>รัศมี (mm)</span><input type="number" min={20} max={20000} step={10} disabled={readOnly} value={selDet.r} onChange={e=>{const v=Number(e.target.value);if(v>=20&&v<=20000)editDetail(selDet.id,{r:v});}}/></label></div>
+       <div className="segmented">{([true,false] as const).map(c=><button key={String(c)} type="button" disabled={readOnly} className={(selDet.circle!==false)===c?'active':''} onClick={()=>editDetail(selDet.id,{circle:c})}>{c?'วงกลม':'สี่เหลี่ยม'}</button>)}</div>
+       <p className="muted">จาก {title(selDet.parent as ViewKey)} · ศูนย์กลาง ({selDet.u.toLocaleString()}, {selDet.v.toLocaleString()}) mm · วงรอบ + ป้าย {selDet.label} แสดงบนรูปต้นทาง</p>
+       <button className="danger-text" disabled={readOnly} onClick={()=>removeDetail(selDet.id)}>ลบ Detail</button></fieldset>}
       {selV.view!=='notes'&&<fieldset className="composer-show"><legend>แสดงในรูป</legend>
        {([['dims','Dimension อัตโนมัติ'],['marks','ป้าย Mark'],['levels','ระดับ T.O.F. / B.O.F.']] as const).map(([k,t])=><label key={k} className="check"><input type="checkbox" disabled={readOnly} checked={selV.show?.[k]!==false} onChange={e=>editView(selV.view,{show:{...selV.show,[k]:e.target.checked}})}/>{t}</label>)}
        {selV.view.startsWith('plan')&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!selV.show?.allBars} onChange={e=>editView(selV.view,{show:{...selV.show,allBars:e.target.checked}})}/>เหล็กทุกเส้น (ปิด = ตัวแทน)</label>}</fieldset>}
@@ -287,7 +336,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveTemplates,o
        <label className="check"><input type="checkbox" disabled={readOnly} checked={!!selV.fixed} onChange={e=>editView(selV.view,{fixed:e.target.checked||undefined})}/>ล็อกตำแหน่ง</label>
        <p className="muted">x {selV.x.toFixed(1)} · y {selV.y.toFixed(1)} · {selV.w.toFixed(0)} × {selV.h.toFixed(0)} mm</p></fieldset>
       <div className="actions"><button disabled={readOnly} onClick={()=>unplace(selV.view)}>เอาออกจากแผ่น</button>
-       {selSec&&selSec.source==='user'&&<button className="danger-text" disabled={readOnly} onClick={()=>{const k=`sec:${selSec.id}`;commit({layout:{...layout,sheets:layout.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k&&v.lock?.to!==k)})),unplaced:layout.unplaced.filter(x=>x!==k)},sections:draft.sections.filter(s=>s.id!==selSec.id)});setSel(undefined);}}>ลบรูปตัด</button>}</div>
+       {selSec&&selSec.source==='user'&&<button className="danger-text" disabled={secRO} onClick={()=>{const k=`sec:${selSec.id}`;commit({layout:{...layout,sheets:layout.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k&&v.lock?.to!==k)})),unplaced:layout.unplaced.filter(x=>x!==k)},sections:draft.sections.filter(s=>s.id!==selSec.id)});setSel(undefined);}}>ลบรูปตัด</button>}</div>
      </>}
     </aside>
    </div>

@@ -13,7 +13,8 @@ import {sheetOwners,tagSheetSets} from '../domain/tagSheets';
 import {DxfExportDialog} from './DxfExportDialog';
 import {SheetComposer} from './SheetComposer';
 import {composerSupported} from '../domain/sheetLayout';
-import type {ProjectSheetTemplates} from '../domain/sheetLayoutSchema';
+import type {ProjectSheetTemplates,SheetLayout} from '../domain/sheetLayoutSchema';
+import type {DrawingEdits} from '../domain/drawingEdits';
 import {labelReport,type LabelIssue} from '../domain/labelQa';
 import {labelRulesOf} from '../domain/cadStandard';
 import {LabelQaBar,LabelQaOverlay,zoomBox} from './LabelQa';
@@ -22,8 +23,9 @@ import {LabelQaBar,LabelQaOverlay,zoomBox} from './LabelQa';
  * The language switch shows the sheet at once and saves it as the project sheet language (used by the PDF).
  * Paper / view scale / drawing style: project default (Title block) or this member's override (`onSheetSetup`,
  * null = use the default). */
-export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheetSetup,onCompose,onSaveTemplates}:{member:Member;project:Project;dirty:boolean;onExport:()=>void;onLanguage?:(lang:SheetLang)=>Promise<void>;onSheetSetup?:(patch:(SheetStyle&{partTags?:string[]})|null)=>void;
- /** Sheet Composer result (member with sheetLayout / drawingViews); absent = read only */ onCompose?:(m:Member)=>void;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>}){
+export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheetSetup,onCompose,onSaveDrawing,onSaveTemplates}:{member:Member;project:Project;dirty:boolean;onExport:()=>void;onLanguage?:(lang:SheetLang)=>Promise<void>;onSheetSetup?:(patch:(SheetStyle&{partTags?:string[]})|null)=>void;
+ /** Sheet Composer result (member with sheetLayout / drawingViews); absent = read only */ onCompose?:(m:Member)=>void;
+ /** drawing-only save of the Composer (layout + Drawing Edit, member status kept) */ onSaveDrawing?:(d:{sheetLayout?:SheetLayout;drawingEdits?:DrawingEdits})=>Promise<void>;onSaveTemplates?:(next:ProjectSheetTemplates)=>Promise<void>}){
  const [page,setPage]=useState(0),[dxfOpen,setDxfOpen]=useState(false),[compose,setCompose]=useState(false),[logo,setLogo]=useState<LoadedLogo>(),saved=sheetLangOf(project),[lang,setLang]=useState<SheetLang>(saved),[saving,setSaving]=useState(false);
  useEffect(()=>setLang(saved),[saved]);
  useEffect(()=>{let live=true;setLogo(undefined);loadProjectLogo(project).then(l=>{if(live)setLogo(l);}).catch(()=>{});return()=>{live=false;};},[project.logo?.path]);
@@ -62,7 +64,7 @@ export function SheetA3Preview({member,project,dirty,onExport,onLanguage,onSheet
   {F.size==='A3'&&info.scales.some(v=>v.title===sheetText[lang].planBottom)&&<p className="notice">แยกแปลนล่าง / บนบน A3 รูปจะเล็ก · แนะนำกระดาษ A2</p>}
   <LabelQaBar reports={qa} show={qaShow} onShow={setQaShow} focus={qaFocus} onFocus={setQaFocus}/>
   <div className="sheet-paper"><svg viewBox={zoomBox(F.w,F.h,qaFocus)} role="img" fontFamily="Sarabun, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif"><rect x={0} y={0} width={F.w} height={F.h} fill="#fff"/><PrimsSvg prims={prims}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}</svg></div>
-  {compose&&<SheetComposer member={member} project={{...project,titleBlock:{...project.titleBlock,sheetLanguage:lang}}} readOnly={!onCompose} onApply={onCompose} onSaveTemplates={onSaveTemplates} onClose={()=>setCompose(false)}/>}
+  {compose&&<SheetComposer member={member} project={{...project,titleBlock:{...project.titleBlock,sheetLanguage:lang}}} readOnly={!onCompose&&!onSaveDrawing} onApply={onCompose} onSaveDrawing={onSaveDrawing} memberDirty={dirty} onSaveTemplates={onSaveTemplates} onClose={()=>setCompose(false)}/>}
   {dxfOpen&&<DxfExportDialog member={member} project={project} pages={flat} lang={lang} onClose={()=>setDxfOpen(false)}/>}
   <p className="muted">ตัวอย่างนี้ใช้ชุดคำสั่งวาดเดียวกับไฟล์ PDF · ไฟล์ส่งออกใช้ข้อมูลที่บันทึกแล้ว (snapshot) และลงทะเบียน checksum · ภาษาที่เลือกบันทึกเป็นภาษาแบบของโครงการ (ทุกสมาชิก)</p>
  </section>;

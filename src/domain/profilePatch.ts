@@ -28,7 +28,7 @@ const profileEmail=z.string().trim().toLowerCase().regex(z.regexes.html5Email).m
 },'อีเมลต้องเป็นข้อมูลบัญชีในเอกสารเดียว ไม่ใช่เส้นทางย่อย');
 export const adminProfilePatchSchema=z.object({
  ...fields,email:profileEmail,
- roles:z.array(z.enum(userRoles)).min(1).max(9).refine(unique,'Role ต้องไม่ซ้ำ').optional(),
+ roles:z.array(z.enum(userRoles)).min(1).max(10).refine(unique,'Role ต้องไม่ซ้ำ').optional(),
  status:z.enum(approvalStatuses).optional(),
  assignedProjects:z.array(projectId).max(500).optional(),
  projectRoles:projectRoleMap.optional(),

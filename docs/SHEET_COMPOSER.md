@@ -119,7 +119,22 @@ The header switch “จัดหน้า | แก้ไขแบบ” turns t
 - Lost anchors (`lostAnchors()`): a bar no longer drawn in the view → the object is drawn red and listed in the panel.
 - Automatic dims: “แยกเป็นของผู้ใช้” creates the user dim at the same points (edge flags set) and hides the automatic one.
 
+### Phase 3
+
+- Detail views: `member.drawingEdits.details` [{id, label, parent ViewKey, u, v, r, circle}] → ViewKey `det:<id>`; the parent view's
+  spec + `window` (`ViewSpec.window`): `renderView` fits the window, hides member-wide dims / levels, keeps Mark labels inside and cuts
+  everything to the circle / square (`primClip.ts` `clipPrims`). The parent view draws a dashed region + bubble (label / sheet) for
+  placed details (`detailMarks`). Composer tool “+ รูปขยาย Detail” (K): centre → radius → place (the sheet may be switched first);
+  scale = largest standard ≤ parent / 2.5.
+- ISO 3D: ViewKey `iso` (`ViewSpec.iso` → `isoView()`): concrete box / footing outline edges + bar centrelines, isometric.
+- Stepped sections: `section.steps` [{from, position}] (drawingViews v2) → `ViewSpec.steps`: pieces built with `exact` extents and
+  merged (`stepAt` = dash-dot break lines); plan cut lines step (`sectionLines[].steps`). Editor in the section panel.
+- Detail and ISO views exist only in composed layouts (`sheetViews(s, extras)`), so automatic sheets are unchanged.
+- Saving: the Composer uses `saveMemberDrawing` (sheetLayout + drawingEdits only; admin / qs / detailer; the member keeps its status)
+  when the sections are unchanged and the member editor has nothing unsaved; else the member edit (`saveMember` → Draft).
+  Project role `detailer` (ผู้เขียนแบบ): drawing only.
+
 ## Next round
 
-Drawing Edit phase 3: Detail (enlarged) views, stepped / oblique sections, ISO 3D on the sheet. Phase 4: drawing status
+Oblique sections. Phase 4: drawing status
 (up to date / to check after a model change), revision clouds + revision table, annotation templates per category.

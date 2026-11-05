@@ -81,12 +81,18 @@ function sheetCuts(s:SheetData){
  return {secs,cuts:{x:pos(DEFAULT_SECTION_IDS.y)??d.x,y:pos(DEFAULT_SECTION_IDS.x)??d.y}};
 }
 /** Every view a sheet can show: plan (or bottom / top plans) and the sections (plan section Z–Z of pedestal / starter bars). */
-export function sheetViews(s:SheetData):SheetView[]{
+/** Views of the sheet. `extras` = also the views only a composed layout places: ISO 3D (`iso`) and Detail views (`det:<id>`,
+ * member.drawingEdits.details). Automatic sheets leave them out, so their drawing is unchanged. */
+export function sheetViews(s:SheetData,extras=true):SheetView[]{
  const S=sheetFormat(s),m=s.member,input=s.input,lang=sheetLangOf(s.project),T=sheetText[lang],{secs,cuts}=sheetCuts(s),colCut=columnSectionCut(input,s.rows),rep=S.bars==='representative';
  const split=S.split&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='bottom')&&s.rows.some(r=>lying(r)&&planLayerOf(m,input,r)==='top');
  const plan=(key:ViewKey,title:string,layer?:'bottom'|'top'):SheetView=>({key,title,spec:{axes:[0,1],rep,layer,tight:true},cuts,plan:true});
- return [...(split?[plan('plan-bottom',T.planBottom,'bottom'),plan('plan-top',T.planTop,'top')]:[plan('plan',T.plan)]),
+ const base=[...(split?[plan('plan-bottom',T.planBottom,'bottom'),plan('plan-top',T.planTop,'top')]:[plan('plan',T.plan)]),
   ...secs.map(sec=>({key:`sec:${sec.id}`,title:sectionTitle(T,lang,sec,colCut?.kind||'pedestal'),spec:{...sectionSpec(sec),...(sec.columns?{}:{tight:true})},plan:false,sec}) as SheetView)];
+ if(!extras)return base;
+ const det=(m.drawingEdits?.details||[]).flatMap(d=>{const p=base.find(v=>v.key===d.parent);if(!p)return [];const {tight:_t,...spec}=p.spec;
+  return [{key:`det:${d.id}` as ViewKey,title:`DETAIL ${d.label}`,spec:{...spec,window:{u:d.u,v:d.v,r:d.r,circle:d.circle!==false}},plan:false} as SheetView];});
+ return [...base,...det,{key:'iso' as ViewKey,title:'3D ISO',spec:{axes:[0,1],iso:true},plan:false}];
 }
 type Box={x:number;y:number;w:number;h:number};
 /** Boxes of the views of a drawing sheet: the arrangement (side by side, stacked, large + two, top + two, rows, 2 × 2)
@@ -113,7 +119,7 @@ function layout(s:SheetData){
  const custom:SheetLayout|undefined=own?undefined:resolveSheetLayout(s,S.size).layout;
  if(S.layout!=='split'||own)return {...base,split:false,tablePages:0,groups:[] as number[][],tRow:0,tHead:0,tTop:0,tPer:0,custom,pages:Math.max(1,Math.ceil(tableCount(s)/perPage),beamSheetPages(s.input),custom?.sheets.length||0)};
  const tRow=S.bbsRow*1.35,tHead=S.bbsHead*1.2,tTop=S.margin+22,tPer=Math.max(1,Math.floor((S.h-S.margin-9-tTop-tHead)/tRow)),tablePages=Math.max(1,Math.ceil(tableCount(s)/tPer));
- const views=sheetViews(s),idx=views.map((_,i)=>i),n=Math.min(4,S.perPage);
+ const views=sheetViews(s,false),idx=views.map((_,i)=>i),n=Math.min(4,S.perPage);
  const groups=n?Array.from({length:Math.ceil(idx.length/n)},(_,k)=>idx.slice(k*n,(k+1)*n)):[idx.filter(i=>views[i].plan),idx.filter(i=>!views[i].plan)].filter(g=>g.length);
  return {...base,split:true,tablePages,groups:custom?[]:groups,tRow,tHead,tTop,tPer,custom,pages:tablePages+(custom?custom.sheets.length:groups.length)};
 }
@@ -186,7 +192,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  const c3=(sx-S.left-8)/3,col3=(i:number)=>left+i*(c3+2);
  const colBox=!colCut?undefined:split?{x:col3(1),y:botY,w:c3,h:botH}:under?{x:left+colW+2,y:botY+noteH+2,w:colW,h:botH-noteH-2}:{x:left+secW+2,y:botY,w:colW-secW-2,h:botH};
  const rep=S.bars==='representative',planSpec=(layer?:'bottom'|'top')=>({axes:[0,1] as [number,number],rep,layer});
- const sheetBox={x:left,y:topY,w:right-2-left,h:S.h-S.margin-14-topY},all=kind==='views'||L.custom?sheetViews(s):[],group=kind==='views'&&!L.custom?L.groups[page-L.tablePages]:[];
+ const sheetBox={x:left,y:topY,w:right-2-left,h:S.h-S.margin-14-topY},all=kind==='views'||L.custom?sheetViews(s,!!L.custom):[],group=kind==='views'&&!L.custom?L.groups[page-L.tablePages]:[];
  const built=group.map(i=>buildView(m,s.rows,input,all[i].spec));
  const secX=secOf(DEFAULT_SECTION_IDS.x),secY=secOf(DEFAULT_SECTION_IDS.y);
  type Item={key?:ViewKey;title:string;box:Box;spec:ViewSpec;cuts?:{x:number;y:number};pv?:PlacedView};
@@ -203,8 +209,8 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   ...(colCut&&colBox&&secZ?[{key:`sec:${secZ.id}` as ViewKey,title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{...sectionSpec(secZ)}}]:[])];
  const notesBox=L.custom&&kind==='one'?(lsheet?.views||[]).find(v=>v.view==='notes'):undefined;
  // sheet number of each section view (cut-line bubbles in plans): Composer layout, else auto pages
- const pageOfSec=new Map<string,number>(),allViews=L.split&&!L.custom?sheetViews(s):[];
- if(L.custom)L.custom.sheets.forEach((sh,i)=>sh.views.forEach(v=>{if(v.view.startsWith('sec:'))pageOfSec.set(v.view.slice(4),(L.split?L.tablePages:0)+i+1);}));
+ const pageOfSec=new Map<string,number>(),pageOfDet=new Map<string,number>(),allViews=L.split&&!L.custom?sheetViews(s,false):[];
+ if(L.custom)L.custom.sheets.forEach((sh,i)=>sh.views.forEach(v=>{if(v.view.startsWith('sec:'))pageOfSec.set(v.view.slice(4),(L.split?L.tablePages:0)+i+1);if(v.view.startsWith('det:'))pageOfDet.set(v.view.slice(4),(L.split?L.tablePages:0)+i+1);}));
  else if(L.split)L.groups.forEach((g,i)=>g.forEach(j=>{const v=allViews[j];if(v?.sec)pageOfSec.set(v.sec.id,L.tablePages+i+1);}));
  const userCuts=secs.filter(x=>!Object.values(DEFAULT_SECTION_IDS).includes(x.id as never)&&x.axis!=='Z');
  // render order: projection-locked views after the view they are locked to
@@ -223,7 +229,9 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
    hide:pv?.show?{dims:pv.show.dims===false,marks:pv.show.marks===false,levels:pv.show.levels===false}:undefined,
    // Drawing Edit layer of this view (overrides of automatic annotations + user text / leaders)
    edits:v.key?m.drawingEdits?.views[v.key]:undefined,
-   sectionLines:isPlan&&userCuts.length?userCuts.map(c=>({axis:c.axis==='X'?0:1,at:c.position,label:c.label,ref:pageOfSec.has(c.id)?String(pageOfSec.get(c.id)):undefined,look:c.look,extent:c.extent})):undefined};
+   sectionLines:isPlan&&userCuts.length?userCuts.map(c=>({axis:c.axis==='X'?0:1,at:c.position,label:c.label,ref:pageOfSec.has(c.id)?String(pageOfSec.get(c.id)):undefined,look:c.look,extent:c.extent,...(c.steps?.length?{steps:c.steps.map(x=>({from:x.from,at:x.position}))}:{})})):undefined,
+   // Detail marks of the placed Detail views on their parent view
+   detailMarks:v.key?(m.drawingEdits?.details||[]).filter(d=>d.parent===v.key&&pageOfDet.has(d.id)).map(d=>({u:d.u,v:d.v,r:d.r,circle:d.circle!==false,label:d.label,ref:String(pageOfDet.get(d.id))})):undefined};
   const inner=(b:Box)=>({x:b.x,y:b.y+4,w:b.w,h:b.h-4});
   // projection lock: same scale and shared model axis → that axis at the same sheet x / y as the target view, else centre lines
   if(pv?.lock){const t=frames.get(pv.lock.to);

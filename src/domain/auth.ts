@@ -3,12 +3,12 @@ import type {Timestamp} from 'firebase/firestore';
 const viteEnv=(import.meta as ImportMeta&{env?:Record<string,string|undefined>}).env||{};
 export const APP_NAME=viteEnv.VITE_APP_NAME||'my-boq-app';
 
-export const userRoles=['MasterAdmin','SuperAdmin','Admin','admin','Staff','qs','checker','approver','viewer'] as const;
+export const userRoles=['MasterAdmin','SuperAdmin','Admin','admin','Staff','qs','detailer','checker','approver','viewer'] as const;
 export type UserRole=typeof userRoles[number];
 export const roleLabels:Record<UserRole,string>={
  // stored value 'SuperAdmin' is kept for existing accounts; it is shown as ProjectAdmin
  MasterAdmin:'MasterAdmin',SuperAdmin:'ProjectAdmin',Admin:'Admin (เดิม)',admin:'ผู้ดูแลโครงการ',Staff:'Staff',
- qs:'ผู้ถอดปริมาณ',checker:'ผู้ตรวจ',approver:'ผู้อนุมัติ',viewer:'ผู้อ่าน'
+ qs:'ผู้ถอดปริมาณ',detailer:'ผู้เขียนแบบ (Detailer)',checker:'ผู้ตรวจ',approver:'ผู้อนุมัติ',viewer:'ผู้อ่าน'
 };
 export const roleDescriptions:Record<UserRole,string>={
  MasterAdmin:'ดูแลระบบทั้งหมด · อนุมัติผู้ใช้ กำหนด Role / โครงการ · จัดการ API · ทำได้ทุกอย่างในทุกโครงการ',
@@ -16,6 +16,7 @@ export const roleDescriptions:Record<UserRole,string>={
  Admin:'เหมือน ProjectAdmin (ชื่อ Role แบบเดิม)',admin:'เหมือน ProjectAdmin (ชื่อ Role แบบเดิม)',
  Staff:'ผู้ใช้งานทั่วไป · อ่านข้อมูลในโครงการที่ได้รับมอบหมาย จนกว่าจะกำหนด Role งาน',
  qs:'เพิ่มและแก้สมาชิก แบบอ้างอิง BOQ และ BBS',
+ detailer:'จัดหน้าและแก้ไขแบบ BBS (Dimension / ป้าย / ข้อความ) โดยไม่แก้ข้อมูลสมาชิก',
  checker:'ตรวจข้อมูลและยืนยันสถานะ Checked',
  approver:'ตรวจและอนุมัติสมาชิกตามขั้นตอนของโครงการ',
  viewer:'อ่านข้อมูลและดาวน์โหลดไฟล์ตามสิทธิ์โครงการ'

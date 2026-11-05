@@ -47,7 +47,8 @@ export function templateLayout(t:SheetTemplate,sections:SheetSection[]):SheetLay
 /** Member layout + its sections → template (roles; added cuts as fractions of the member size). */
 export function templateFrom(o:{id:string;name:string;category:string;size:'A3'|'A2';match?:SheetTemplate['match']},layout:SheetLayout,sections:SheetSection[],m:Member):SheetTemplate{
  const users=sections.filter(s=>!Object.values(DEFAULT_SECTION_IDS).includes(s.id as never)),role=new Map<string,RoleKey>([[`sec:${DEFAULT_SECTION_IDS.x}`,'sec-x'],[`sec:${DEFAULT_SECTION_IDS.y}`,'sec-y'],[`sec:${DEFAULT_SECTION_IDS.z}`,'col-z'],...users.map((s,i)=>[`sec:${s.id}`,`user-${i+1}`] as [string,RoleKey])]);
- const r=(k:string)=>role.get(k)||(k.startsWith('sec:')?undefined:k as RoleKey);
+ // Detail views belong to the member's own edits: not in templates
+ const r=(k:string)=>role.get(k)||(k.startsWith('sec:')||k.startsWith('det:')?undefined:k as RoleKey);
  return {...o,sheets:layout.sheets.map(sh=>({id:sh.id,views:sh.views.flatMap(v=>{const k=r(v.view);if(!k)return [];const to=v.lock&&r(v.lock.to);const {lock:_l,...rest}=v;return [{...rest,view:k,...(to?{lock:{to,axis:v.lock!.axis}}:{})}];})})),
   sections:users.slice(0,12).map((s,i)=>({role:`user-${i+1}`,label:s.label,axis:s.axis,at:Math.min(1,Math.max(0,s.position/Math.max(1,extentOf(m,s.axis)))),look:s.look||'+',...(s.depth?{depth:s.depth}:{})}))};
 }
@@ -68,7 +69,7 @@ export function resolveSheetLayout(s:Src,size:string):{layout?:SheetLayout;from:
 /** View spec of a section (look '-' mirrors the horizontal axis, depth / extent as stored). */
 export function sectionSpec(sec:SheetSection):ViewSpec{
  const axes:[number,number]=sec.axis==='X'?[1,2]:sec.axis==='Y'?[0,2]:[0,1],normal=axisIndex(sec.axis);
- return {axes,normal,cut:sec.position,...(sec.columns?{columns:true}:{}),...(sec.look==='-'?{look:'-' as const}:{}),...(sec.depth?{depth:sec.depth}:{}),...(sec.extent?{extent:sec.extent}:{})};
+ return {axes,normal,cut:sec.position,...(sec.columns?{columns:true}:{}),...(sec.look==='-'?{look:'-' as const}:{}),...(sec.depth?{depth:sec.depth}:{}),...(sec.extent?{extent:sec.extent}:{}),...(sec.steps?.length?{steps:sec.steps.map(x=>({from:x.from,cut:x.position}))}:{})};
 }
 type Box={x:number;y:number;w:number;h:number};
 const overlap=(a:Box,b:Box,tol=.5)=>a.x<b.x+b.w-tol&&b.x<a.x+a.w-tol&&a.y<b.y+b.h-tol&&b.y<a.y+a.h-tol;

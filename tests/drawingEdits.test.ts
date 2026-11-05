@@ -134,3 +134,48 @@ describe('phase 2 · anchors and user annotations',()=>{
   expect(cleanDrawingEdits(corners)).toEqual(corners);
  });
 });
+
+// ---- phase 3: Detail views, ISO 3D, stepped sections; detailer role
+import {buildView} from '../src/domain/elementViews';
+import {sectionSpec} from '../src/domain/sheetLayout';
+import {clipPrims} from '../src/domain/primClip';
+import {projectRoles} from '../src/domain/projectAccess';
+import {drawingViewsSchema} from '../src/domain/drawingViews';
+import type {SheetLayout} from '../src/domain/sheetLayoutSchema';
+describe('phase 3 · Detail / ISO / stepped section',()=>{
+ const box=(view:string,x:number,y:number,w:number,h:number,n:number|'auto'='auto')=>({view,x,y,w,h,n});
+ const withLayout=(s:SheetData,edits:DrawingEdits|undefined,views:ReturnType<typeof box>[]):SheetData=>({...s,member:{...s.member,drawingEdits:edits,sheetLayout:{version:1,unplaced:[],sheets:[{id:'s1',views}]} as SheetLayout}});
+ it('clipPrims cuts a line to a circle and keeps only points inside',()=>{
+  const out=clipPrims([{t:'line',x1:-10,y1:0,x2:10,y2:0,stroke:'#000',width:1},{t:'circle',cx:20,cy:0,r:1,fill:'#000'},{t:'text',x:0,y:0,text:'a',size:2}],{kind:'circle',cx:0,cy:0,r:5});
+  const l=out.find(p=>p.t==='line');if(!l||l.t!=='line')throw Error();expect(l.x1).toBeCloseTo(-5,6);expect(l.x2).toBeCloseTo(5,6);
+  expect(out.some(p=>p.t==='circle')).toBe(false);expect(out.some(p=>p.t==='text')).toBe(true);
+ });
+ it('Detail view: drawn inside its circle at its own scale; the parent view gets the detail mark',()=>{
+  const s=footingData(2400,2400),e:DrawingEdits={version:1,views:{},details:[{id:'a',label:'D1',parent:'plan',u:1200,v:1200,r:400}]};
+  const d=withLayout(s,e,[box('plan',30,30,170,120,40),box('det:a',210,30,120,120,10)]),info=drawSheetInfo(d),dv=info.views.find(v=>v.key==='det:a')!,pv=plan(info);
+  expect(dv.title).toBe('DETAIL D1');expect(dv.n).toBe(10);
+  const cx=dv.origin.sheet[0]+(1200-dv.origin.model[0])*dv.s,cy=dv.origin.sheet[1]-(1200-dv.origin.model[1])*dv.s,r=400*dv.s;
+  const pts=expandPrims(info.prims.filter(p=>p.view===dv.id&&!p.key)).flatMap(p=>p.t==='line'?[[p.x1,p.y1],[p.x2,p.y2]]:[]);
+  expect(pts.length).toBeGreaterThan(4);expect(pts.every(([x,y])=>Math.hypot(x-cx,y-cy)<=r+.6)).toBe(true);
+  expect(expandPrims(info.prims.filter(p=>p.view===pv.id)).some(p=>p.t==='text'&&p.text==='D1')).toBe(true);
+  // automatic sheet (no layout): unchanged by the detail definition
+  expect(expandPrims(drawSheetInfo({...s,member:{...s.member,drawingEdits:e}}).prims)).toEqual(expandPrims(drawSheetInfo(s).prims));
+ });
+ it('ISO 3D view: concrete edges and bar lines, no chained dims',()=>{
+  const s=footingData(2400,2400),info=drawSheetInfo(withLayout(s,undefined,[box('plan',30,30,170,120),box('iso',210,30,120,110)])),iv=info.views.find(v=>v.key==='iso')!;
+  const ps=info.prims.filter(p=>p.view===iv.id);expect(ps.some(p=>p.layer==='concrete')).toBe(true);expect(ps.some(p=>p.layer==='barMain'||p.layer==='barLink')).toBe(true);expect(ps.some(p=>p.t==='dim')).toBe(false);
+ });
+ it('stepped section: pieces at two cuts, step line, schema',()=>{
+  const s=footingData(2400,2400),sec={id:'u1',label:'A-A',axis:'Y' as const,position:600,source:'user' as const,steps:[{from:1200,position:1800}]};
+  expect(drawingViewsSchema.safeParse({version:2,primaryPlane:'XY',basis:'t',sections:[sec]}).success).toBe(true);
+  const st=buildView(s.member,s.rows,s.input,sectionSpec(sec)),flat=buildView(s.member,s.rows,s.input,sectionSpec({...sec,steps:undefined}));
+  expect(st.stepAt).toEqual([1200]);expect(st.cropped).toBe(true);expect(st.u[0]).toBeCloseTo(flat.u[0],0);
+  expect(sectionSpec(sec).steps).toEqual([{from:1200,cut:1800}]);
+ });
+ it('detail schema: label / parent rules; detailer is a project role',()=>{
+  expect(drawingEditsSchema.safeParse({version:1,views:{},details:[{id:'a',label:'D1',parent:'det:x',u:0,v:0,r:100}]}).success).toBe(false);
+  expect(drawingEditsSchema.safeParse({version:1,views:{},details:[{id:'a',label:'D1',parent:'plan',u:0,v:0,r:100},{id:'b',label:'d1',parent:'plan',u:0,v:0,r:100}]}).success).toBe(false);
+  expect(cleanDrawingEdits({version:1,views:{},details:[{id:'a',label:'D1',parent:'plan',u:0,v:0,r:100}]})?.details).toHaveLength(1);
+  expect(projectRoles).toContain('detailer');
+ });
+});

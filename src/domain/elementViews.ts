@@ -6,6 +6,8 @@ import {contextSolids} from './placementContext';
 import {partExtent,partPolygon,shapePlanRings,shapeSectionRects} from './shapeGeometry';
 import {expandPrims,textWidth,type DimPrim,type LayerRole,type PlainPrim,type Prim} from './drawingPrims';
 import type {Anchor,ViewEdits} from './drawingEdits';
+import {clipPrims} from './primClip';
+import {boundsOf} from './solids';
 
 export type ViewRow={id:string;mark:string;diameter:number;note:string;count:number;paths:Vec3[][]};
 /** `columns`: footing pedestal / starter plan section (normal = 2) with only the column outlines and column bars. */
@@ -14,7 +16,11 @@ export type ViewRow={id:string;mark:string;diameter:number;note:string;count:num
  * around a footing) is clipped to it, so large drawing sheets show the member big */
 /** Sections (Sheet Composer): look '-' = view from the other side (horizontal axis mirrored), depth = also show bars lying up
  * to `depth` mm beyond the cut in the viewing direction, extent = crop to that range along the cut line (+ a margin). */
-export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean;layer?:'bottom'|'top';rep?:boolean;tight?:boolean;look?:'+'|'-';depth?:number;extent?:[number,number]};
+export type ViewSpec={axes:[number,number];normal?:number;cut?:number;columns?:boolean;layer?:'bottom'|'top';rep?:boolean;tight?:boolean;look?:'+'|'-';depth?:number;extent?:[number,number];
+ /** extent without the margin (pieces of a stepped section) */ exact?:boolean;
+ /** Detail view: the parent view drawn around (u, v) within r mm (circle or square), cropped to it */ window?:{u:number;v:number;r:number;circle?:boolean};
+ /** stepped section: from `from` (along the view's horizontal axis) the cut moves to `cut` */ steps?:{from:number;cut:number}[];
+ /** isometric 3D view (concrete edges + bar centrelines) */ iso?:boolean};
 type Rect={u0:number;u1:number;v0:number;v1:number;kind:'concrete'|'context'|'wall'|'lean'|'sand'|'pile';circle?:boolean};
 type Pile={u:number;v:number;square:boolean;size:number;hollow:boolean};
 type Line={a:[number,number];b:[number,number]};
@@ -69,7 +75,39 @@ const underside=(m:Member)=>m.lean.thickness+(m.siteWork?.sand.thickness||0);
 /** Geometry of one view (plan when `normal` is undefined, otherwise a section at `cut`). */
 // min / max of long coordinate lists (spreading them into Math.min overflows the call stack on large members)
 const low=(a:number[],start=Infinity)=>a.reduce((m,v)=>v<m?v:m,start),high=(a:number[],start=-Infinity)=>a.reduce((m,v)=>v>m?v:m,start);
-export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep,tight,look,depth,extent}:ViewSpec){
+/** View data for a spec: plain view, Detail window (`window`), stepped section (`steps`: pieces merged) or ISO 3D (`iso`). */
+export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,spec:ViewSpec):ViewData{
+ if(spec.iso)return isoView(m,rows,input);
+ if(spec.steps?.length&&spec.normal!==undefined&&spec.cut!==undefined){
+  const full=buildViewOne(m,rows,input,{...spec,steps:undefined}),lo=spec.extent?.[0]??full.u[0],hi=spec.extent?.[1]??full.u[1];
+  const st=spec.steps.filter(x=>x.from>lo+1&&x.from<hi-1).sort((a,b)=>a.from-b.from),cuts=[spec.cut,...st.map(x=>x.cut)],edges=[lo,...st.map(x=>x.from),hi];
+  const parts=cuts.map((c,i)=>buildViewOne(m,rows,input,{...spec,steps:undefined,cut:c,extent:[edges[i],edges[i+1]],exact:true}));
+  const base=spec.extent?full:buildViewOne(m,rows,input,{...spec,steps:undefined,extent:[lo,hi],exact:true}),join=<T,>(f:(d:ViewData)=>T[])=>parts.flatMap(f);
+  const uniq=<T,>(xs:T[],key:(x:T)=>string)=>{const seen=new Set<string>();return xs.filter(x=>{const k=key(x);if(seen.has(k))return false;seen.add(k);return true;});};
+  return {...base,rects:join(d=>d.rects),polys:join(d=>d.polys),refs:join(d=>d.refs),holes:join(d=>d.holes),edges:join(d=>d.edges),piles:join(d=>d.piles),guides:join(d=>d.guides),
+   bars:join(d=>d.bars),joints:join(d=>d.joints),stageText:uniq(join(d=>d.stageText),t=>t.text),levels:uniq(join(d=>d.levels),l=>l.text),covers:join(d=>d.covers),
+   u:[Math.min(...parts.map(d=>d.u[0])),Math.max(...parts.map(d=>d.u[1]))],v:[Math.min(...parts.map(d=>d.v[0])),Math.max(...parts.map(d=>d.v[1]))],
+   cropped:true,stepAt:st.map(x=>base.flip?base.u[0]+base.u[1]-x.from:x.from)};}
+ const d=buildViewOne(m,rows,input,spec);return spec.window?{...d,window:spec.window}:d;
+}
+/** Isometric 3D view (u = (x − y)·cos 30°, v = z + (x + y)·sin 30°): concrete box / outline edges and bar centrelines. */
+function isoView(m:Member,rows:ViewRow[],input:ElementInput|undefined):ViewData{
+ const c=Math.cos(Math.PI/6),P=(p:Vec3):[number,number]=>[(p[0]-p[1])*c,p[2]+(p[0]+p[1])*.5],edges:{a:[number,number];b:[number,number]}[]=[];
+ const box=(o:Vec3,sz:Vec3)=>{const q=(i:number,j:number,k2:number):Vec3=>[o[0]+i*sz[0],o[1]+j*sz[1],o[2]+k2*sz[2]];
+  for(const [a,b] of [[[0,0,0],[1,0,0]],[[1,0,0],[1,1,0]],[[1,1,0],[0,1,0]],[[0,1,0],[0,0,0]],[[0,0,1],[1,0,1]],[[1,0,1],[1,1,1]],[[1,1,1],[0,1,1]],[[0,1,1],[0,0,1]],[[0,0,0],[0,0,1]],[[1,0,0],[1,0,1]],[[1,1,0],[1,1,1]],[[0,1,0],[0,1,1]]] as [number,number,number][][])
+   edges.push({a:P(q(a[0],a[1],a[2])),b:P(q(b[0],b[1],b[2]))});};
+ const foot=input?.category==='Foundation'?footingOutline(input):undefined;
+ if(foot){const T=input!.category==='Foundation'?input!.thickness:0;const ring=foot;for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length];
+   edges.push({a:P([a[0],a[1],0]),b:P([b[0],b[1],0])},{a:P([a[0],a[1],T]),b:P([b[0],b[1],T])},{a:P([a[0],a[1],0]),b:P([a[0],a[1],T])});}}
+ const solids=solidsOf(m).filter(x=>!foot||!(x.id==='main'||x.id.startsWith('footing')));
+ if(solids.length)for(const x of solids)box(x.origin,x.size);else if(!foot){const b=boundsOf(m);box([0,0,0],[b[0],b[1],b[2]]);}
+ let n=0;const bars=rows.map(row=>({row,lines:row.paths.slice(0,40).flatMap(p=>p.slice(1).map((q,i)=>({a:P(p[i]),b:P(q)}))).filter(()=>n++<6000),dots:[] as [number,number][],couplers:[] as [number,number][],dist:undefined}));
+ const pts=[...edges.flatMap(e=>[e.a,e.b]),...bars.flatMap(b=>b.lines.flatMap(l=>[l.a,l.b]))],us=pts.map(p=>p[0]),vs=pts.map(p=>p[1]);
+ const base=buildViewOne(m,[],input,{axes:[0,1]});
+ return {...base,rects:[],polys:[],refs:[],holes:[],edges,piles:[],guides:[],bars,joints:[],stageText:[],levels:[],covers:[],beamCols:[],exDims:[],band:undefined,ground:undefined,
+  u:us.length?[Math.min(...us),Math.max(...us)]:base.u,v:vs.length?[Math.min(...vs),Math.max(...vs)]:base.v,iso:true};
+}
+function buildViewOne(m:Member,rows:ViewRow[],input:ElementInput|undefined,{axes,normal,cut,columns,layer,rep,tight,look,depth,extent,exact}:ViewSpec){
  if(layer&&normal===undefined)rows=rows.filter(r=>planLayerOf(m,input,r)===layer);
  const [a,b]=axes,round=circleIds(input),rects:Rect[]=[],guides:Line[]=[];
  // Footing concrete comes from the true plan outline (circle / polygons / L / U), not the bounding box.
@@ -223,7 +261,7 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
    for(const q of refs)for(const pt of q){pt[0]=cl(pt[0],U);pt[1]=cl(pt[1],V);}
    for(const g of guides){g.a=[cl(g.a[0],U),cl(g.a[1],V)];g.b=[cl(g.b[0],U),cl(g.b[1],V)];}}}
  // extent: crop along the cut line to the clicked range (+ margin)
- if(extent&&normal!==undefined){const pad=Math.max(150,.05*(extent[1]-extent[0])),lo=Math.max(U[0],extent[0]-pad),hi=Math.min(U[1],extent[1]+pad);
+ if(extent&&normal!==undefined){const pad=exact?0:Math.max(150,.05*(extent[1]-extent[0])),lo=Math.max(U[0],extent[0]-pad),hi=Math.min(U[1],extent[1]+pad);
   if(hi-lo>1){U=[lo,hi];const cl=(x:number)=>Math.min(hi,Math.max(lo,x)),inU=(x:number)=>x>=lo-1e-6&&x<=hi+1e-6;
    for(let j=rects.length-1;j>=0;j--){const r=rects[j];r.u0=cl(r.u0);r.u1=cl(r.u1);if(r.u1-r.u0<1)rects.splice(j,1);}
    for(const q of [...polys,...refs,...holes])for(const pt of q)pt[0]=cl(pt[0]);
@@ -247,9 +285,9 @@ export function buildView(m:Member,rows:ViewRow[],input:ElementInput|undefined,{
   // level marks stay right of the concrete
   const conc=rects.filter(r=>r.kind==='concrete');for(const l of levels){const at=conc.filter(r=>r.v0-1e-6<=l.v&&l.v<=r.v1+1e-6);l.u=at.length?Math.max(...at.map(r=>r.u1)):f(l.u);}
   for(const c of beamCols){const a=c.x0;c.g=f(c.g);c.x0=f(c.x1);c.x1=f(a);}for(const d of exDims)d.stops=d.stops.map(f).sort((p,q)=>p-q);}
- return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined};
+ return {member:m,input,axes,normal,cut,rects,polys,refs,holes,edges,piles,guides,bars,joints,stageText,levels,covers,beamCols,exDims,band,datum:normal!==undefined&&normal!==2?datum:undefined,window:undefined as ViewSpec['window'],stepAt:[] as number[],iso:false,u:U,v:V,ground:normal!==undefined&&!only&&earth&&e.depth>0?ground:undefined,columns:only,flip,cropped:!!extent&&normal!==undefined};
 }
-export type ViewData=ReturnType<typeof buildView>;
+export type ViewData=ReturnType<typeof buildViewOne>;
 
 type DimSpec={dir:'h'|'v';stops:number[];side:'start'|'end'};
 /** Chained dimensions per view from the member / input (not measured from the drawing). */
@@ -299,12 +337,16 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  /** per-view display switches of the Sheet Composer */
  hide?:{dims?:boolean;marks?:boolean;levels?:boolean};
  /** added section cut lines (plan / elevation): model axis, position, label (A-A), sheet reference, viewing side, extent */
- sectionLines?:{axis:number;at:number;label:string;ref?:string;look?:'+'|'-';extent?:[number,number]}[];
+ sectionLines?:{axis:number;at:number;label:string;ref?:string;look?:'+'|'-';extent?:[number,number];steps?:{from:number;at:number}[]}[];
  /** Drawing Edit layer of this view (`drawingEdits.ts`): overrides of the automatic annotations by key + user text / leaders */
- edits?:ViewEdits}):Prim[]{
- const k=opts.k??1,fs=opts.fontScale??1,M=48*k,{u,v:vr}=v,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
+ edits?:ViewEdits;
+ /** Detail marks on this (parent) view: region (view mm), label, sheet reference */ detailMarks?:{u:number;v:number;r:number;circle?:boolean;label:string;ref?:string}[]}):Prim[]{
+ const win=v.window,{u,v:vr}=win?{u:[win.u-win.r,win.u+win.r] as [number,number],v:[win.v-win.r,win.v+win.r] as [number,number]}:v;
+ // Detail (window) and ISO views: no chained dims / levels / stage names (member-wide); ISO: no Mark labels either
+ const hide={...opts.hide,...(win||v.iso?{dims:true,levels:true}:{}),...(v.iso?{marks:true}:{})};
+ const k=opts.k??1,fs=opts.fontScale??1,M=48*k,spanU=u[1]-u[0],spanV=vr[1]-vr[0];
  // level marks sit right of the concrete: keep room for their text inside the box
- const levelList=opts.hide?.levels?[]:v.levels,lvW=levelList.length?Math.max(...levelList.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
+ const levelList=hide.levels?[]:v.levels,lvW=levelList.length?Math.max(...levelList.map(l=>textWidth(l.text,9*k*fs)))+16*k:0;
  // `scale` picks the drawing scale (target units per model mm) from the largest one that fits, e.g. a standard 1:N
  // Mark labels (one per Mark family; marks split by bar length, gen-bottom-x-1, -2 …, share "F01–F08");
  // a representative bar adds count and spacing: "F01 36-DB32@250"
@@ -314,7 +356,8 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   const p=dist?dist.q:lines[0]?[(lines[0].a[0]+lines[0].b[0])/2,(lines[0].a[1]+lines[0].b[1])/2] as [number,number]:dots[0];if(!p)continue;labelled.add(fam);
   const marks=fam!==row.id?v.bars.filter(x=>family(x.row.id)===fam).map(x=>x.row.mark):[row.mark],name=marks.length>1?`${marks[0]}–${marks.at(-1)}`:row.mark;
   labels.push({id:row.id,text:dist?`${name} ${dist.n}-${barName(row.diameter)}@${Math.round(dist.spacing/5)*5}`:name,at:p,left:p[0]<(u[0]+u[1])/2,mark:{mark:name,size:barName(row.diameter),...(dist?{n:dist.n,spacing:Math.round(dist.spacing/5)*5}:{})}});}
- if(opts.hide?.marks)labels.length=0;
+ if(hide.marks)labels.length=0;
+ if(win)for(let i=labels.length-1;i>=0;i--){const [a,b]=labels[i].at;if(win.circle?Math.hypot(a-win.u,b-win.v)>win.r:Math.abs(a-win.u)>win.r||Math.abs(b-win.v)>win.r)labels.splice(i,1);}
  // gutter: labels just outside the dimension lines, in columns left / right of the drawing ('side') or in rows
  // above / below it ('rows'). Use the direction the drawing leaves spare (no shrinking); else shrink by at most a
  // third of the view; else labels next to the bars ('near').
@@ -349,6 +392,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  for(const g of v.guides)put('concreteHidden',{t:'line',x1:X(g.a[0]),y1:Y(g.a[1]),x2:X(g.b[0]),y2:Y(g.b[1]),stroke:'#a07b54',width:.8*k,dash:[6*k,4*k]});
  if(v.ground!==undefined&&!levelList.length)put('text',{t:'text',x:X(u[1]),y:Y(v.ground)-4*k,text:'ระดับดิน',size:10*k*fs,color:'#8a6a45',anchor:'end'});
  // pour stages: joint lines (red dashed) and the stage names; level marks: ▽ + text right of the concrete face
+ for(const x of v.stepAt)put('symbol',{t:'line',x1:X(x),x2:X(x),y1:Y(vr[0]),y2:Y(vr[1]),stroke:'#7c8b8f',width:.6*k,dash:[8*k,3*k,2*k,3*k]});
  for(const j of v.joints)put('symbol',{t:'line',x1:X(j.u0),x2:X(j.u1),y1:Y(j.v),y2:Y(j.v),stroke:'#c0392b',width:1.1*k,dash:[6*k,3*k]});
  levelList.forEach((l,i)=>{const key=`level:${i}`,o=over(key);if(o?.hidden)return;const x=X(l.u)+10*k+(o?.dx||0)*pu,y=Y(l.v),h=5*k,text=o?.text??l.text;
   put('dim',{t:'line',x1:X(l.u),x2:x+textWidth(text,9*k*fs)+4*k,y1:y,y2:y,stroke:'#3f5459',width:.6*k,key},{t:'poly',pts:[[x,y],[x-h*.6,y-h],[x+h*.6,y-h]],closed:true,stroke:'#3f5459',width:.6*k,key});put('text',{t:'text',x:x+h,y:y-2*k,text,size:9*k*fs,color:'#3f5459',halo:true,key});});
@@ -360,9 +404,15 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   put('symbol',{t:'line',x1:X(u[0]),x2:X(u[1]),y1:y,y2:y,stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]});put('text',{t:'text',x:X(u[0])-6*k,y:y+4*k,text:'Z',anchor:'end',...ts},{t:'text',x:X(u[1])+6*k,y:y+4*k,text:'Z',...ts});}
  // added section cuts: dash-dot line across the view (or its extent), split bubble at both ends (label / sheet), arrow to the viewing side
  for(const c of opts.sectionLines||[]){const vert=c.axis===v.axes[0],horiz=c.axis===v.axes[1];if(!vert&&!horiz)continue;
-  const at=c.at,[e0,e1]=c.extent||(vert?vr:u),ext=12*k,cs={stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]},r=5*k,letter=c.label.split('-')[0],sign=c.look==='-'?-1:1;
-  const a:[number,number]=vert?[X(at),Y(e1)-ext]:[X(e0)-ext,Y(at)],b:[number,number]=vert?[X(at),Y(e0)+ext]:[X(e1)+ext,Y(at)];
-  put('symbol',{t:'line',x1:a[0],y1:a[1],x2:b[0],y2:b[1],...cs});
+  const [e0,e1]=c.extent||(vert?vr:u),ext=12*k,cs={stroke:'#7c8b8f',width:.8*k,dash:[10*k,3*k,2*k,3*k]},r=5*k,letter=c.label.split('-')[0],sign=c.look==='-'?-1:1;
+  // stepped cut: the line jumps to the next position at each step (thick corners), bubbles at the first / last position
+  const st=(c.steps||[]).filter(x=>x.from>e0&&x.from<e1).sort((p,q)=>p.from-q.from),ats=[c.at,...st.map(x=>x.at)],brk=[e0,...st.map(x=>x.from),e1];
+  const pt=(along:number,at:number):[number,number]=>vert?[X(at),Y(along)]:[X(along),Y(at)];
+  const a:[number,number]=vert?[X(ats[0]),Y(e1)-ext]:[X(e0)-ext,Y(ats[0])],b:[number,number]=vert?[X(ats.at(-1)!),Y(e0)+ext]:[X(e1)+ext,Y(ats.at(-1)!)];
+  if(!st.length)put('symbol',{t:'line',x1:a[0],y1:a[1],x2:b[0],y2:b[1],...cs});
+  else{const path:[number,number][]=[vert?a:a];ats.forEach((at,i)=>{const s0=pt(vert?brk[ats.length-i]:brk[i],at),s1=pt(vert?brk[ats.length-1-i]:brk[i+1],at);if(i)path.push(s0);path.push(s1);});
+   const seq=vert?[...ats].reverse():ats;if(vert){path.length=0;path.push(a);seq.forEach((at,i)=>{const hiE=brk[brk.length-1-i],loE=brk[brk.length-2-i];if(i)path.push(pt(hiE,at));path.push(pt(loE,at));});path.push(b);}else path.push(b);
+   put('symbol',{t:'poly',pts:path,closed:false,...cs});for(const q of path.slice(1,-1))put('symbol',{t:'circle',cx:q[0],cy:q[1],r:.9*k,fill:'#3f5459'});}
   for(const [px,py,out] of [[a[0],a[1],-1],[b[0],b[1],1]] as [number,number,number][]){const cx=vert?px:px+out*r,cy=vert?py+out*r:py;
    // arrow toward the viewing side (+ along the cut axis = right in plan / up for a horizontal cut)
    const ax=vert?sign*4*k:0,ay=vert?0:-sign*4*k;put('symbol',{t:'line',x1:px,y1:py,x2:px+ax*1.6,y2:py+ay*1.6,stroke:'#3f5459',width:.7*k},{t:'poly',pts:[[px+ax*2.2,py+ay*2.2],[px+ax*1.4-ay*.4,py+ay*1.4+ax*.4],[px+ax*1.4+ay*.4,py+ay*1.4-ax*.4]],closed:true,fill:'#3f5459',stroke:'#3f5459',width:.3*k});
@@ -414,7 +464,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // the whole chain's drawing rides on the first segment
  const chain=(segs:Omit<DimPrim,'t'|'kind'|'draw'|'size'>[],size:number,draw:PlainPrim[],color?:string)=>segs.forEach((d,i)=>put('dim',{t:'dim',kind:'linear',...d,size,color,draw:i?[]:draw}));
  // cover C: short dimension with ticks, value beside it (right of a vertical one, above a horizontal one)
- for(const [ci,c] of (opts.hide?.dims?[]:v.covers).entries()){if(over(`cover:${ci}`)?.hidden)continue;const x1=X(c.a[0]),y1=Y(c.a[1]),x2=X(c.b[0]),y2=Y(c.b[1]),vert=Math.abs(x1-x2)<.5,t=2.5*k,st={stroke:'#7a3e9d',width:.6*k};
+ for(const [ci,c] of (hide.dims?[]:v.covers).entries()){if(over(`cover:${ci}`)?.hidden)continue;const x1=X(c.a[0]),y1=Y(c.a[1]),x2=X(c.b[0]),y2=Y(c.b[1]),vert=Math.abs(x1-x2)<.5,t=2.5*k,st={stroke:'#7a3e9d',width:.6*k};
   chain([{a:[x1,y1],b:[x2,y2],line:[x1,y1],dir:vert?'v':'h',value:Math.hypot(c.b[0]-c.a[0],c.b[1]-c.a[1]),text:'C=<>',key:`cover:${ci}`}],8*k*fs,[{t:'line',x1,y1,x2,y2,...st},...(vert?[{t:'line' as const,x1:x1-t,x2:x1+t,y1,y2:y1,...st},{t:'line' as const,x1:x2-t,x2:x2+t,y1:y2,y2,...st}]:[{t:'line' as const,x1,x2:x1,y1:y1-t,y2:y1+t,...st},{t:'line' as const,x1:x2,x2,y1:y2-t,y2:y2+t,...st}]),
    {t:'text',x:vert?x1+4*k:Math.max(x1,x2)+3*k,y:vert?(y1+y2)/2+3*k:y1-3*k,text:c.text,size:8*k*fs,color:'#7a3e9d',bold:true,halo:true}],'#7a3e9d');}
  // beam group: column faces (dashed), grid centre lines (dash-dot) with bubbles at the bottom, EX bar dimensions
@@ -422,7 +472,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
   if(c.x1-c.x0>1)put('concreteHidden',{t:'line',x1:X(c.x0),x2:X(c.x0),y1:y0,y2:y1,...cs},{t:'line',x1:X(c.x1),x2:X(c.x1),y1:y0,y2:y1,...cs});
   put('symbol',{t:'line',x1:X(c.g),x2:X(c.g),y1:y0,y2:y1,stroke:'#7c8b8f',width:.5*k,dash:[10*k,3*k,2*k,3*k]});
   if(c.label){const r=5.5*k,cy=y0+r+1.5*k;put('dim',{t:'circle',cx:X(c.g),cy,r,stroke:'#4a5a66',width:.6*k,fill:'#ffffff'});put('text',{t:'text',x:X(c.g),y:cy+3*k*fs,text:c.label,size:8*k*fs,color:'#22393f',anchor:'middle'});}}
- if(v.band&&!opts.hide?.dims)for(const {d,row} of exDimRows(v.exDims)){if(over(`ex:${d.id}`)?.hidden)continue;const x0=d.stops[0],x1=d.stops.at(-1)!;
+ if(v.band&&!hide.dims)for(const {d,row} of exDimRows(v.exDims)){if(over(`ex:${d.id}`)?.hidden)continue;const x0=d.stops[0],x1=d.stops.at(-1)!;
    const color=opts.colors.get(d.id)||'#3f5459',y=d.top?Y(v.band[1])-(9+row*9)*k:Y(v.band[0])+(9+row*9)*k,st={stroke:color,width:.6*k},ds=7.5*k*fs,draw:PlainPrim[]=[];
    draw.push({t:'line',x1:X(x0),x2:X(x1),y1:y,y2:y,...st});
    for(const p of d.stops)draw.push({t:'line',x1:X(p)-2*k,x2:X(p)+2*k,y1:y+2*k,y2:y-2*k,...st});
@@ -434,7 +484,7 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  // Drawing Edit override `dim:<dir><side><n>` (n-th chain of that direction / side): hidden, dimension line moved (off,
  // paper mm: +y down for horizontal chains, +x right for vertical ones), text ('<>' = measured value)
  const dimN=new Map<string,number>();
- for(const d of opts.hide?.dims?[]:dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){
+ for(const d of hide.dims?[]:dimensionSets(v.member,v.input,v.axes,v.normal,v.columns)){
   const kk=`${d.dir}${d.side}`,n=dimN.get(kk)||0;dimN.set(kk,n+1);const key=`dim:${kk}${n}`,o=over(key),off=(o?.off||0)*pu,tpl=o?.text,lab=(x:number)=>tpl!==undefined?tpl.replace('<>',fmt(x)):fmt(x);if(o?.hidden)continue;
   // mirrored view (look '-'): stops along the horizontal axis mirror too; a cropped view keeps the stops inside it
   const flipU=v.flip&&d.dir==='h',pts=[...new Set(d.stops.map(n=>Math.round((flipU?u[0]+u[1]-n:n)*10)/10))].filter(p=>!v.cropped||d.dir!=='h'||p>=u[0]-1&&p<=u[1]+1).sort((p,q)=>p-q);if(pts.length<2)continue;const draw:PlainPrim[]=[];
@@ -460,6 +510,15 @@ export function renderView(v:ViewData,box:{x:number;y:number;w:number;h:number},
  }
  // walls on the footing (reference): outline again over the bars so the wall lines stay visible
  v.rects.filter(r=>r.kind==='wall').forEach(r=>put('concrete',{t:'rect',x:X(r.u0),y:Y(r.v1),w:(r.u1-r.u0)*s,h:(r.v1-r.v0)*s,stroke:'#22393f',width:1.6*k}));
+ // Detail marks (parent view): dashed circle / square around the region, bubble with the detail label and its sheet
+ for(const d of opts.detailMarks||[]){const cx=X(d.u),cy=Y(d.v),rr=d.r*s,ds={stroke:'#3f5459',width:.7*k,dash:[6*k,3*k]},br=5*k;
+  put('symbol',d.circle===false?{t:'rect',x:cx-rr,y:cy-rr,w:2*rr,h:2*rr,...ds}:{t:'circle',cx,cy,r:rr,...ds});
+  const bx=cx+rr*.72+br*1.6,by=cy-rr*.72-br*1.6;put('symbol',{t:'line',x1:cx+rr*.72,y1:cy-rr*.72,x2:bx-br*.7,y2:by+br*.7,stroke:'#3f5459',width:.5*k},{t:'circle',cx:bx,cy:by,r:br,stroke:'#3f5459',width:.6*k,fill:'#ffffff'},{t:'line',x1:bx-br,x2:bx+br,y1:by,y2:by,stroke:'#3f5459',width:.4*k});
+  put('text',{t:'text',x:bx,y:by-1.2*k,text:d.label,size:5*k*fs,color:'#22393f',anchor:'middle',bold:true},{t:'text',x:bx,y:by+4.3*k,text:d.ref||'—',size:4.2*k*fs,color:'#4b6166',anchor:'middle'});}
+ // Detail view: everything drawn so far is cut to the window (circle / square) + its boundary
+ if(win){const sh=win.circle!==false?{kind:'circle' as const,cx:X(win.u),cy:Y(win.v),r:win.r*s}:{kind:'rect' as const,x0:X(win.u-win.r),y0:Y(win.v+win.r),x1:X(win.u+win.r),y1:Y(win.v-win.r)};
+  const kept=clipPrims(out.splice(0),sh);out.push(...kept);
+  put('symbol',sh.kind==='circle'?{t:'circle',cx:sh.cx,cy:sh.cy,r:sh.r,stroke:'#3f5459',width:.7*k,dash:[6*k,3*k]}:{t:'rect',x:sh.x0,y:sh.y0,w:sh.x1-sh.x0,h:sh.y1-sh.y0,stroke:'#3f5459',width:.7*k,dash:[6*k,3*k]});}
  // Drawing Edit user objects: text (MTEXT) at a view point; leaders (text offset in paper mm, phase 2: Mark text from the bar);
  // dimension chains and level marks at anchors (`anchorPoint`: concrete edge / bar / point). Lost bar anchors are drawn red.
  const cbox=concreteBox(v),barIds=new Set(v.bars.map(b=>b.row.id)),lost='#c0262d';
