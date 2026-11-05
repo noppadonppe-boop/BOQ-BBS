@@ -6,8 +6,8 @@ import {pourStageQuantities} from './solids';
 import type {ElementInput} from './elementInput';
 import {barCouplerEnds,footingColumns,pileQuantities} from './elementInput';
 import {beamGroupSheet,beamSheetPages} from './beamGroupSheet';
-import {buildView,columnSectionCut,defaultCuts,markColors,planLayerOf,renderView,type ViewRow} from './elementViews';
-import {textWidth,wrapText,type Prim} from './drawingPrims';
+import {buildView,columnSectionCut,defaultCuts,markColors,planLayerOf,renderView,type ViewRow,type ViewSpec} from './elementViews';
+import {mapPrimText,textWidth,wrapText,type PlainPrim,type Prim} from './drawingPrims';
 import {composeDrawingNumber,sheetSetupOf,sheetSizes,standardScales,type ViewScale} from './drawingStandard';
 import {sheetLangOf,sheetPhrase,sheetText} from './sheetText';
 import {concreteNote,memberConcrete} from './concreteMixes';
@@ -106,19 +106,27 @@ function layout(s:SheetData){
 export function sheetPageCount(s:SheetData){return layout(s).pages;}
 
 export type SheetViewScale={title:string;n:number;fits:boolean};
+/** A view on a sheet: its box (sheet mm), scale 1:n (0 = not to scale, `s` = sheet mm per model mm) and the linear map
+ * sheet ↔ view model coordinates (mm along the view axes `axes`): u = model[0] + (x − sheet[0]) / s, v = model[1] − (y − sheet[1]) / s.
+ * Primitives drawn in the view carry `view` = id; the rest of the sheet (tables, title block, notes) is paper. */
+export type SheetViewInfo={id:string;title:string;box:{x:number;y:number;w:number;h:number};n:number;s:number;fits:boolean;axes:[number,number];normal?:number;cut?:number;
+ origin:{sheet:[number,number];model:[number,number]}};
 /** All primitives of one sheet (mm). */
 export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page).prims;}
 /** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */
-export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];size:keyof typeof sheetSizes}{
+export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];views:SheetViewInfo[];size:keyof typeof sheetSizes;w:number;h:number}{
  const S=sheetFormat(s),L=layout(s),{sx}=L,out:Prim[]=[],ink='#22393f',grid='#9fb2ad',k=.26,lang=sheetLangOf(s.project),T=sheetText[lang];
  // 'one' = views + tables; split layout: 'tables' sheets (BBS on the left) then 'views' sheets (views + title strip)
  const kind=!L.split?'one':page<L.tablePages?'tables':'views',right=S.w-S.margin;
- const line=(x1:number,y1:number,x2:number,y2:number,width=.2,stroke=grid)=>out.push({t:'line',x1,y1,x2,y2,stroke,width});
+ const line=(x1:number,y1:number,x2:number,y2:number,width=.2,stroke=grid)=>out.push({t:'line',x1,y1,x2,y2,stroke,width,layer:'titleBlock'});
  // generated Thai phrases (bar descriptions, notes typed in Thai) are translated for EN / ZH sheets
- const text=(t:string,x:number,y:number,size=2.6,o:{anchor?:'start'|'middle'|'end';bold?:boolean;color?:string;raw?:boolean}={})=>out.push({t:'text',x,y,text:o.raw?t:sheetPhrase(t,lang),size,color:o.color||ink,anchor:o.anchor,bold:o.bold});
- const cell=(t:string,x:number,y:number,w:number,h:number,size=2.3,align:'start'|'end'|'middle'='start',color=ink,raw=false)=>{const lines=wrapText(raw?t:sheetPhrase(t,lang),size,w-2,Math.max(1,Math.floor((h-.6)/(size*1.15))));const top=y+h/2-(lines.length-1)*size*.575+size*.35;lines.forEach((l,i)=>text(l,align==='end'?x+w-1:align==='middle'?x+w/2:x+1,top+i*size*1.15,size,{anchor:align,color,raw:true}));};
+ const textPrim=(t:string,x:number,y:number,size=2.6,o:{anchor?:'start'|'middle'|'end';bold?:boolean;color?:string;raw?:boolean}={}):PlainPrim=>({t:'text',x,y,text:o.raw?t:sheetPhrase(t,lang),size,color:o.color||ink,anchor:o.anchor,bold:o.bold,layer:'text'});
+ const text=(t:string,x:number,y:number,size=2.6,o:{anchor?:'start'|'middle'|'end';bold?:boolean;color?:string;raw?:boolean}={})=>out.push(textPrim(t,x,y,size,o));
+ // table / title block cell: one MTEXT (DXF) whose drawing = the wrapped lines as before
+ const cell=(t:string,x:number,y:number,w:number,h:number,size=2.3,align:'start'|'end'|'middle'='start',color=ink,raw=false)=>{const lines=wrapText(raw?t:sheetPhrase(t,lang),size,w-2,Math.max(1,Math.floor((h-.6)/(size*1.15))));const top=y+h/2-(lines.length-1)*size*.575+size*.35,tx=align==='end'?x+w-1:align==='middle'?x+w/2:x+1;
+  if(lines.length)out.push({t:'mtext',x:tx,y:top,w:w-2,lines,size,step:size*1.15,anchor:align,color,layer:'text',draw:lines.map((l,i)=>textPrim(l,tx,top+i*size*1.15,size,{anchor:align,color,raw:true}))});};
  // Frame.
- out.push({t:'rect',x:S.left,y:S.margin,w:S.w-S.left-S.margin,h:S.h-2*S.margin,stroke:ink,width:.7});
+ out.push({t:'rect',x:S.left,y:S.margin,w:S.w-S.left-S.margin,h:S.h-2*S.margin,stroke:ink,width:.7,layer:'titleBlock'});
  if(kind!=='views')line(sx,S.margin,sx,S.h-S.margin,.45,ink);
  // Left: heading, views and notes.
  const m=s.member,input=s.input,colors=markColors(s.rows),cuts=defaultCuts(m,s.rows);
@@ -164,24 +172,25 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   {title:T.sectionY(Math.round(cuts.x)),box:split?{x:left,y:botY,w:colCut?c3:2*c3+2,h:botH}:{x:left,y:botY,w:secW,h:botH},spec:{axes:[1,2] as [number,number],normal:0,cut:cuts.x}},
   ...(colCut&&colBox?[{title:T.columnSection(colCut.kind,Math.round(colCut.z)),box:colBox,spec:{axes:[0,1] as [number,number],normal:2,cut:colCut.z,columns:true}}]:[])];
  // beam-group marks are placed for the fitted views: those views stay not to scale
- const scales:SheetViewScale[]=[];
- for(const v of views){
-  out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2});
-  let used={n:0,fits:true};
+ const scales:SheetViewScale[]=[],viewInfo:SheetViewInfo[]=[];
+ views.forEach((v,j)=>{
+  out.push({t:'rect',x:v.box.x,y:v.box.y,w:v.box.w,h:v.box.h,stroke:'#c8d5d0',width:.2,layer:'titleBlock'});
+  let used={n:0,fits:true},frame={s:1,x0:0,y0:0,u0:0,v0:0};const id=`V${j+1}`;
   const scale=bg?undefined:(fit:number)=>{const r=pickScale(fit,S.scale);used=r;return r.s;};
   // one view of a large member has more prims than a spread call takes as arguments
-  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z,scale,gutter:!bg&&S.gutter}))out.push(p.t==='text'?{...p,text:sheetPhrase(p.text,lang)}:p);
+  for(const p of renderView(buildView(m,s.rows,input,v.spec),{x:v.box.x,y:v.box.y+4,w:v.box.w,h:v.box.h-4},{k,colors,cuts:'cuts' in v?v.cuts:undefined,zCut:colCut?.z,scale,gutter:!bg&&S.gutter,frame:f=>{frame=f;}})){const q=mapPrimText(p,t=>sheetPhrase(t,lang));q.view=id;out.push(q);}
   text(`${v.title} · ${used.n?`1:${used.n}`:'NTS'}`,v.box.x+2,v.box.y+4,2.8,{bold:true});
   scales.push({title:v.title,...used});
- }
+  viewInfo.push({id,title:v.title,box:v.box,n:used.n,s:frame.s,fits:used.fits,axes:v.spec.axes,normal:(v.spec as ViewSpec).normal,cut:(v.spec as ViewSpec).cut,origin:{sheet:[frame.x0,frame.y0],model:[frame.u0,frame.v0]}});
+ });
  if(bg)out.push(...bg.marks);
  // Notes and Mark legend.
  if(kind!=='views'){
  const nb=kind==='tables'?{x:sx,y:S.margin,w:S.strip,h:L.boqTop-4-S.margin}:bg?bg.notes:split?{x:col3(2),y:botY,w:c3,h:botH}:{x:left+colW+2,y:botY,w:colW,h:under?noteH:botH};out.push({t:'rect',x:nb.x,y:nb.y,w:nb.w,h:nb.h,stroke:'#c8d5d0',width:.2});
  text(T.notes,nb.x+2,nb.y+4.5,3,{bold:true});
- let ny=nb.y+9;for(const n of notes){for(const l of wrapText(`• ${n}`,2.3,nb.w-4,3)){text(l,nb.x+2,ny,2.3);ny+=2.9;}ny+=.6;}
+ let ny=nb.y+9;for(const n of notes){const ls=wrapText(`• ${n}`,2.3,nb.w-4,3),y0=ny,draw:PlainPrim[]=[];for(const l of ls){draw.push(textPrim(l,nb.x+2,ny,2.3));ny+=2.9;}if(ls.length)out.push({t:'mtext',x:nb.x+2,y:y0,w:nb.w-4,lines:draw.map(d=>d.t==='text'?d.text:''),size:2.3,step:2.9,color:ink,layer:'text',draw});ny+=.6;}
  ny+=2;text(T.legend,nb.x+2,ny,2.6,{bold:true});ny+=3.6;
- const per=2,cw=(nb.w-4)/per;s.rows.forEach((r,i)=>{const cx=nb.x+2+(i%per)*cw,cy=ny+Math.floor(i/per)*3.4;if(cy>nb.y+nb.h-2)return;out.push({t:'rect',x:cx,y:cy-2,w:2.4,h:2.4,fill:colors.get(r.id),stroke:colors.get(r.id),width:.1});text(T.perPiece(`${r.mark} ${barName(r.diameter)}`,r.count),cx+3.4,cy,2.2);});
+ const per=2,cw=(nb.w-4)/per;s.rows.forEach((r,i)=>{const cx=nb.x+2+(i%per)*cw,cy=ny+Math.floor(i/per)*3.4;if(cy>nb.y+nb.h-2)return;out.push({t:'rect',x:cx,y:cy-2,w:2.4,h:2.4,fill:colors.get(r.id),stroke:colors.get(r.id),width:.1,layer:'mark'});text(T.perPiece(`${r.mark} ${barName(r.diameter)}`,r.count),cx+3.4,cy,2.2);});
  }
  if(kind!=='views'){
  // BBS table: right strip, or (tables sheet) the whole left area with bigger rows / text
@@ -201,7 +210,7 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
  }
  for(const r of subset){x=tx;const values=[r.mark,r.note||'',`${barName(r.diameter)} ${r.grade}`,'',fmt(r.cutLength,0),String(r.count),String(r.count*s.quantity),fmt(r.weight*s.quantity)];
   const bar=r as unknown as Bar,raw=bar.shape&&!['arc','helix'].includes(bar.shape)?barPaths(m,bar)[0]||[]:[];
-  cols.forEach((c,i)=>{if(i===3){sketch(out,r.paths[0]||[],raw,r.diameter,x+5*fz,y+2.6*fz,c.w-10*fz,rowH-5*fz,colors.get(r.id)||ink,barCouplerEnds(input,r.id));text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+rowH-.8,1.8*fz,{color:'#4b6166'});}else cell(values[i],x,y,c.w,rowH,(i===1?1.9:i===0&&r.mark.length>5?Math.max(1.5,Math.min(2.3,(c.w/fz-1.6)/(r.mark.length*.56))):2.3)*fz,c.align||'start');x+=c.w;});
+  cols.forEach((c,i)=>{if(i===3){const n0=out.length;sketch(out,r.paths[0]||[],raw,r.diameter,x+5*fz,y+2.6*fz,c.w-10*fz,rowH-5*fz,colors.get(r.id)||ink,barCouplerEnds(input,r.id));for(const q of out.slice(n0))q.layer=q.t==='text'?'dim':'barMain';text(r.shapeCode?`#${r.shapeCode}`:'',x+1,y+rowH-.8,1.8*fz,{color:'#4b6166'});}else cell(values[i],x,y,c.w,rowH,(i===1?1.9:i===0&&r.mark.length>5?Math.max(1.5,Math.min(2.3,(c.w/fz-1.6)/(r.mark.length*.56))):2.3)*fz,c.align||'start');x+=c.w;});
   line(tx,y+rowH,tr,y+rowH);y+=rowH;}
  if(!summary&&!subset.length){cell(T.noBars,tx,y,tw,rowH);y+=rowH;}
  if(!summary){x=tx;for(const c of cols.slice(0,-1)){x+=c.w;line(x,top,x,y);}}
@@ -239,7 +248,9 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
   const cells:[string,string,number][]=[[B.title,m.drawingSetup?.title||B.defaultTitle(T.category[m.category],m.code),.27],[B.project,`${p.code} · ${p.drawingProfile?.projectName||p.name}`,.25],[B.number,number,.16],[B.rev,m.drawingSetup?.revision||s.revision,.06],[B.date,s.date,.09],[B.size,`${S.size} · ${ns.length===1?ns[0]?`1:${ns[0]}`:'NTS':'AS SHOWN'}`,.09],[B.sheet,`${page+1} / ${L.pages}`,.08]];
   let cx=S.left;const tw=right-S.left;cells.forEach(([l,v,w],i)=>{const cw=tw*w;text(l,cx+1,ty+2.6,1.8,{color:'#6b7f84'});cell(v,cx,ty+3,cw,9,2.5,'start',ink,true);cx+=cw;if(i<cells.length-1)line(cx,ty,cx,S.h-S.margin,.25,ink);});
  }
- return {prims:out,scales,size:S.size};
+ // remaining sheet primitives: text on the text layer, lines / frames / fills on the title block layer
+ for(const p of out)if(!p.layer)p.layer=p.t==='text'||p.t==='mtext'?'text':'titleBlock';
+ return {prims:out,scales,views:viewInfo,size:S.size,w:S.w,h:S.h};
 }
 /** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
  * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */

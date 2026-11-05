@@ -1,4 +1,4 @@
-import type {Prim} from '../domain/drawingPrims';
+import {expandPrims,type PlainPrim,type Prim} from '../domain/drawingPrims';
 
 /** Sheet primitives (mm, y down) → AutoCAD R12 DXF (mm, y up). Pages sit side by side with a 20 mm gap.
  * Colours map to the nearest AutoCAD Colour Index; dashed strokes use linetype DASHED; Mark primitives go on
@@ -15,10 +15,10 @@ export function primsDxf(pages:Prim[][],size:{w:number;h:number},font='tahoma.tt
  g(0,'SECTION');g(2,'ENTITIES');
  pages.forEach((prims,page)=>{
   const ox=page*(size.w+20),X=(x:number)=>x+ox,Y=(y:number)=>size.h-y;
-  const head=(type:string,p:Prim,color:number,dashed=false)=>{g(0,type);g(8,layer(p));if(dashed)g(6,'DASHED');g(62,color);};
-  const poly=(p:Prim,pts:[number,number][],closed:boolean,color:number,dashed:boolean)=>{if(pts.length<2)return;head('POLYLINE',p,color,dashed);g(66,1);g(10,0);g(20,0);g(30,0);g(70,closed?1:0);
+  const head=(type:string,p:PlainPrim,color:number,dashed=false)=>{g(0,type);g(8,layer(p));if(dashed)g(6,'DASHED');g(62,color);};
+  const poly=(p:PlainPrim,pts:[number,number][],closed:boolean,color:number,dashed:boolean)=>{if(pts.length<2)return;head('POLYLINE',p,color,dashed);g(66,1);g(10,0);g(20,0);g(30,0);g(70,closed?1:0);
    for(const [x,y] of pts){g(0,'VERTEX');g(8,layer(p));g(10,X(x));g(20,Y(y));g(30,0);}g(0,'SEQEND');g(8,layer(p));};
-  for(const p of prims){
+  for(const p of expandPrims(prims)){
    if(p.t==='image')continue;
    if(p.t==='text'){if(!p.text.trim())continue;const just=p.anchor==='end'?2:p.anchor==='middle'?1:0;head('TEXT',p,aci(p.color||'#253b42'));
     g(10,X(p.x));g(20,Y(p.y));g(30,0);g(40,p.size*.72);g(1,encode(p.text));if(just){g(72,just);g(11,X(p.x));g(21,Y(p.y));g(31,0);}continue;}
@@ -36,7 +36,7 @@ export function primsDxf(pages:Prim[][],size:{w:number;h:number},font='tahoma.tt
  return out.join('\r\n')+'\r\n';
 }
 const num=(v:number)=>Number.isInteger(v)?String(v):v.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
-const layer=(p:Prim)=>p.t==='text'?'TEXT':p.group?`MARK-${p.group.replace(/[^A-Za-z0-9_-]/g,'_').slice(0,60)}`:'SHEET';
+const layer=(p:PlainPrim)=>p.t==='text'?'TEXT':p.group?`MARK-${p.group.replace(/[^A-Za-z0-9_-]/g,'_').slice(0,60)}`:'SHEET';
 const encode=(t:string)=>[...t].map(ch=>{const c=ch.codePointAt(0)!;return c<128?ch:c<0x10000?`\\U+${c.toString(16).toUpperCase().padStart(4,'0')}`:'?';}).join('');
 const rgb=(hex:string)=>{const h=hex.replace('#',''),n=h.length===3?h.split('').map(c=>c+c).join(''):h;return [0,2,4].map(i=>parseInt(n.slice(i,i+2),16)/255);};
 const light=(hex:string)=>{const [r,g,b]=rgb(hex);return .3*r+.59*g+.11*b>.8;};
