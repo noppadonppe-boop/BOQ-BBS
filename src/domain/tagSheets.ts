@@ -9,20 +9,26 @@ import {sheetSetupOf} from './drawingStandard';
 // BBS sheets per Tag (custom elements with tagged parts / bar groups): one sheet set per tag with only the bars it owns
 // and its own concrete (other parts drawn as reference outlines), bars of untagged owners on a "general" set, then a
 // summary set (whole model views, a table of the tags and the whole BOQ). Group sets are rebar only: their concrete
-// is counted on the part sets.
+// is counted on the part sets. Slab floors: one set per slab mark (its panels' concrete + every bar of the mark).
 export type TagSummary={tag:string;label:string;marks:number;weight:number;concrete:number|null};
 export type SheetScope={kind:'tag';tag:string;label:string;rebarOnly:boolean}|{kind:'summary';tags:TagSummary[]};
-type Owner={id:string;tag:string;label:string;group:boolean};
+/** owner of a sheet set: a part / bar group, or a slab mark of a slab floor (`ids` = its panels + the mark's bar group) */
+type Owner={id:string;tag:string;label:string;group:boolean;ids:string[]};
 
-/** Tagged owners of a member in model order (parts, then groups). */
+/** Tagged owners of a member in model order (parts, then groups); slab floors: one owner per slab mark (เบอร์พื้น). */
 export function sheetOwners(m:Member):Owner[]{
  const sm=m.shapeModel;if(!sm)return [];
- return [...sm.parts.filter(p=>p.tag).map(p=>({id:p.id,tag:p.tag!,label:p.label,group:false})),...(sm.groups||[]).map(g=>({id:g.id,tag:g.tag,label:g.label,group:true}))];
+ const fl=floorOf(m);
+ if(fl){const marks=[...new Set(fl.panels.map(p=>p.mark))];return marks.map(mark=>{const ps=fl.panels.filter(p=>p.mark===mark),g=sm.groups?.find(x=>x.tag===mark);
+  return {id:g?.id||ps[0].id,tag:mark,label:`เบอร์พื้น ${mark} · ${ps.length} แผง (${ps.map(p=>p.tag).join(', ')})`.slice(0,120),group:false,ids:[...ps.map(p=>p.id),...(g?[g.id]:[])]};});}
+ return [...sm.parts.filter(p=>p.tag).map(p=>({id:p.id,tag:p.tag!,label:p.label,group:false,ids:[p.id]})),...(sm.groups||[]).map(g=>({id:g.id,tag:g.tag,label:g.label,group:true,ids:[g.id]}))];
 }
+/** Slab floor input of a member (Slab layout floor), if any. */
+const floorOf=(m:Member)=>{const i=m.elementInput as {category?:string;layout?:string;floor?:{panels:{id:string;mark:string;tag:string}[]}}|undefined;return i?.category==='Slab'&&i.layout==='floor'&&i.floor?.panels.length?i.floor:undefined;};
 const GENERAL='GEN';
 /** Member of one tag: bars it owns, its concrete (other solids become reference outlines), piles under it. */
 function tagMember(m:Member,o:Owner|null,ids:Set<string>):{member:Member;rebarOnly:boolean}{
- const sm=m.shapeModel!,mine=o?ownerParts(sm,o.id):[],solid=mine.filter(p=>p.role==='solid');
+ const sm=m.shapeModel!,mine=o?o.ids.flatMap(id=>ownerParts(sm,id)):[],solid=mine.filter(p=>p.role==='solid');
  const rebarOnly=!o||o.group||!solid.length,bars=m.bars.filter(b=>ids.has(b.id));
  const code=`${m.code}-${o?.tag||GENERAL}`.slice(0,50),title=m.drawingSetup?.title?{...m.drawingSetup,title:`${m.drawingSetup.title} · ${o?.tag||GENERAL}`.slice(0,120)}:m.drawingSetup;
  if(!solid.length)return {member:{...m,code,bars,drawingSetup:title,siteWork:undefined},rebarOnly};
@@ -40,12 +46,12 @@ function tagMember(m:Member,o:Owner|null,ids:Set<string>):{member:Member;rebarOn
 export function tagSheetSets(s:SheetData):SheetData[]{
  const m=s.member,sm=m.shapeModel,setup=sheetSetupOf(s.project,m);
  const owners=sheetOwners(m);if(!sm||setup.parts!=='tag'||!owners.length)return [s];
- const pick=new Set((m.drawingSetup?.partTags||[]).map(t=>t.toUpperCase())),tagged=new Map(owners.map(o=>[o.id,o]));
- const ownerOf=(id:string)=>{const o=barOwner(sm,{id});return o&&tagged.has(o)?o:undefined;};
+ const pick=new Set((m.drawingSetup?.partTags||[]).map(t=>t.toUpperCase())),tagged=new Map(owners.flatMap(o=>o.ids.map(id=>[id,o] as const)));
+ const ownerOf=(id:string)=>{const o=barOwner(sm,{id});return o?tagged.get(o)?.id:undefined;};
  const sets:SheetData[]=[],summary:TagSummary[]=[];
  const add=(o:Owner|null)=>{
   const rows=s.rows.filter(r=>(ownerOf(r.id)??null)===(o?.id??null)),ids=new Set(rows.map(r=>r.id));
-  const mine=o?ownerParts(sm,o.id):[];if(!rows.length&&!mine.some(p=>p.role==='solid'))return;
+  const mine=o?o.ids.flatMap(id=>ownerParts(sm,id)):[];if(!rows.length&&!mine.some(p=>p.role==='solid'))return;
   const {member,rebarOnly}=tagMember(m,o,ids),q=rebarOnly?{volume:0,formwork:0}:solidQuantities(member);
   const weight=rows.reduce((t,r)=>t+r.weight,0),tag=o?.tag||GENERAL,label=o?.label||'เหล็กที่ไม่อยู่ใน Tag';
   summary.push({tag,label,marks:rows.length,weight,concrete:rebarOnly?null:q.volume});

@@ -4,7 +4,7 @@ import {nextMark} from './rebarSketch';
 
 // Tag no. of shape-model parts and bar groups (custom elements): names a part on the drawings, prefixes the Marks
 // of the bars it owns (`F-01/01`) and splits the BBS sheets per part. Owner of a bar = the part / group whose id
-// follows `pp-` (preset) or `sk-` (drawn) in the bar id; longest id wins so `a` never claims `a-b`'s bars.
+// follows `pp-` (preset), `sk-` (drawn) or `gen-` (slab floor bars from the element input) in the bar id; longest id wins so `a` never claims `a-b`'s bars.
 // Kept free of runtime imports from partRebar.ts (which uses `tagMarks`).
 export const tagPrefixes:Record<PartPurpose,string>={footing:'F',column:'C',beam:'B',slab:'S',wall:'W',other:'X'};
 export type BarGroup=NonNullable<ShapeModel['groups']>[number];
@@ -27,7 +27,7 @@ export function withAutoTags(sm:ShapeModel,purpose?:(p:ShapePart)=>PartPurpose):
 /** Part or group owning a bar (by id prefix). */
 export function barOwner(sm:ShapeModel|undefined,b:Pick<Bar,'id'>):string|undefined{
  if(!sm)return;let best:string|undefined;
- for(const id of [...sm.parts.map(p=>p.id),...(sm.groups||[]).map(g=>g.id)])if((b.id.startsWith(`pp-${id}-`)||b.id.startsWith(`sk-${id}-`))&&(!best||id.length>best.length))best=id;
+ for(const id of [...sm.parts.map(p=>p.id),...(sm.groups||[]).map(g=>g.id)])if((b.id.startsWith(`pp-${id}-`)||b.id.startsWith(`sk-${id}-`)||b.id.startsWith(`gen-${id}-`))&&(!best||id.length>best.length))best=id;
  return best;
 }
 export function ownerTag(sm:ShapeModel|undefined,id:string|undefined){
