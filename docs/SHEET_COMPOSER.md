@@ -136,6 +136,16 @@ The header switch “จัดหน้า | แก้ไขแบบ” turns t
   when the sections are unchanged and the member editor has nothing unsaved; else the member edit (`saveMember` → Draft).
   Project role `detailer` (ผู้เขียนแบบ): drawing only.
 
+### Mockup gaps (after phase 4)
+
+- Object list (left column in edit mode, `useDrawingEdit().list`): annotations per view, user first, badges MRK / DIM / LVL / TXT / LDR /
+  C / EX / REV, filter all / user / edited (override) / lost; click selects, double click focuses the text field.
+- Context menu (`list` items and the sheet, `useDrawingEdit().context`): edit text, hide / delete, restore Auto, detach dim, add point,
+  re-anchor; empty view point: text here + tools. Right click while a tool runs ends the command.
+- First / last bar anchors: `anchor.pos` first | last (+ `t` 0…1 along a bar line), also on leaders (`pos`, `t`); `barExtremes()` /
+  `anchorPoint(a, cb, bars)` in `elementViews.ts`; `viewSnapPoints()` labels those snaps “เส้นแรก / เส้นสุดท้าย”.
+- Re-anchor (tool `reanchor`): replaces the lost bar anchor of a leader / level (dims: one lost point per click).
+
 ### Phase 4
 
 - Drawing status (`src/domain/drawingStatus.ts`): `auto` (no edits) · `ok` · `check` = the model changed since the drawing was saved

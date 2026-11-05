@@ -135,6 +135,37 @@ describe('phase 2 · anchors and user annotations',()=>{
  });
 });
 
+// ---- first / last bar anchors (mockup gap 3): the point follows the edge bar of a Mark when the count changes
+import {anchorPoint,barExtremes} from '../src/domain/elementViews';
+describe('first / last bar anchors',()=>{
+ const sec=(w:number)=>drawSheetInfo(footingData(w,2400)).views.find(v=>v.key==='sec:def-x')!;
+ it('section dots: a dim first → last bar measures the whole set in both member sizes; snaps carry pos',()=>{
+  const b0=sec(2400).data!.bars.find(b=>b.dots.length>=3)!,bar=b0.row.id;
+  for(const w of [2400,3000]){const s=footingData(w,2400),sv=sec(w),b=sv.data!.bars.find(x=>x.row.id===bar)!,us=b.dots.map(d=>d[0]);
+   const sn=viewSnapPoints(sv.data!);expect(sn.some(p=>p.bar===bar&&p.pos==='first')).toBe(true);expect(sn.some(p=>p.bar===bar&&p.pos==='last')).toBe(true);
+   const e:DrawingEdits={version:1,views:{'sec:def-x':{objs:[{id:'fl',kind:'dim',dir:'h',off:-8,pts:[{u:0,v:0,bar,pos:'first'},{u:0,v:0,bar,pos:'last'}]}]}}};
+   const d=drawSheetInfo(withEdits(s,e)).prims.filter(p=>p.key==='user:fl'&&p.t==='dim');expect(d).toHaveLength(1);if(d[0].t!=='dim')throw Error();
+   expect(d[0].value).toBeCloseTo(Math.max(...us)-Math.min(...us),3);}
+  expect(sec(3000).data!.bars.find(x=>x.row.id===bar)!.dots.length).toBeGreaterThan(b0.dots.length);
+ });
+ it('plan lines: first / last = outermost parallel bars, t along the bar; leaders follow too',()=>{
+  const s=footingData(2400,2400),pv=plan(drawSheetInfo(s)),b=pv.data!.bars.find(x=>x.lines.length>=3&&!x.dots.length)!,e=barExtremes(b)!;
+  expect(e.first.kind).toBe('line');if(e.first.kind!=='line'||e.last.kind!=='line')throw Error();
+  const cb=concreteBox(pv.data!),[u,v]=anchorPoint({u:0,v:0,bar:b.row.id,pos:'last',t:.5},cb,pv.data!.bars);
+  expect(u).toBeCloseTo((e.last.a[0]+e.last.b[0])/2,6);expect(v).toBeCloseTo((e.last.a[1]+e.last.b[1])/2,6);
+  // without the bars (or the bar gone) the stored point is used
+  expect(anchorPoint({u:7,v:9,bar:'gen-x',pos:'first'},cb,pv.data!.bars)).toEqual([7,9]);
+  const info=drawSheetInfo(withEdits(s,{version:1,views:{plan:{objs:[{id:'m2',kind:'leader',at:[0,0],dx:5,dy:-5,lines:['x'],arrow:'dot',bar:b.row.id,pos:'first',t:0}]}}}));
+  const l=info.prims.find(p=>p.key==='user:m2'&&p.t==='leader');if(!l||l.t!=='leader')throw Error();
+  const [x,y]=[pv.origin.sheet[0]+(e.first.a[0]-pv.origin.model[0])*pv.s,pv.origin.sheet[1]-(e.first.a[1]-pv.origin.model[1])*pv.s];
+  expect(l.pts[0][0]).toBeCloseTo(x,4);expect(l.pts[0][1]).toBeCloseTo(y,4);
+ });
+ it('schema: pos / t on anchors and leaders',()=>{
+  expect(drawingEditsSchema.safeParse({version:1,views:{plan:{objs:[{id:'d',kind:'dim',dir:'h',off:0,pts:[{u:0,v:0,bar:'b',pos:'first'},{u:0,v:0,bar:'b',pos:'last',t:1}]}]}}}).success).toBe(true);
+  expect(drawingEditsSchema.safeParse({version:1,views:{plan:{objs:[{id:'d',kind:'dim',dir:'h',off:0,pts:[{u:0,v:0,pos:'mid'},{u:0,v:0}]}]}}}).success).toBe(false);
+ });
+});
+
 // ---- phase 3: Detail views, ISO 3D, stepped sections; detailer role
 import {buildView} from '../src/domain/elementViews';
 import {sectionSpec} from '../src/domain/sheetLayout';

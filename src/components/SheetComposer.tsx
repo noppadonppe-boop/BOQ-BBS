@@ -252,7 +252,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
     </div>
    </header>
    <div className="composer-body">
-    <aside className="composer-list" aria-label="รายการรูป">
+    <aside className="composer-list" aria-label={mode==='edit'?'วัตถุบนแผ่น':'รายการรูป'}>{mode==='edit'?ed.list:<>
      <h4>รูปในแผ่นนี้</h4>
      {placed.map((v,i)=>{const inf=info.views.find(x=>x.key===v.view),sec=draft.sections.find(s=>`sec:${s.id}`===v.view);
       return <div key={v.view} draggable={!readOnly} onDragStart={e=>e.dataTransfer.setData('text/view',v.view)} className={`composer-item${sel===v.view?' active':''}${selBad(v.view)?' bad':''}`} onClick={()=>setSel(v.view)}>
@@ -262,11 +262,11 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
      <h4>ยังไม่ได้วาง</h4>
      {!unplaced.length&&<p className="muted">—</p>}
      {unplaced.map(k=><div key={k} className="composer-item unplaced" draggable={!readOnly} onDragStart={e=>e.dataTransfer.setData('text/view',k)}><span className="grip" aria-hidden>⋮⋮</span><span className="name"><b>{title(k)}</b></span><button disabled={readOnly} onClick={()=>placeFree(k)}>วาง</button></div>)}
-     <p className="muted composer-hint">ลากรายการลงแผ่นหรือแผ่นด้านล่าง · Delete = เอาออก · ลูกศร 1 mm · Shift 5 mm · Ctrl+Z / Ctrl+Y</p>
+     <p className="muted composer-hint">ลากรายการลงแผ่นหรือแผ่นด้านล่าง · Delete = เอาออก · ลูกศร 1 mm · Shift 5 mm · Ctrl+Z / Ctrl+Y</p></>}
     </aside>
     <main className="composer-canvas" onDragOver={e=>e.preventDefault()} onDrop={e=>{const k=e.dataTransfer.getData('text/view') as ViewKey;if(!k||readOnly)return;const [x,y]=pt(e),v=layout.sheets.flatMap(s=>s.views).find(q=>q.view===k),sz=v?{w:v.w,h:v.h}:sizeFor(k,planN());place(k,{x:x-sz.w/2,y:y-sz.h/2,...sz},page,v?.n);}}>
      <svg ref={svg} viewBox={`0 0 ${info.w} ${info.h}`} className={mode==='edit'?'edit':tool?'tool':''} style={mode==='edit'?{cursor:ed.cursor}:undefined}
-      onPointerMove={e=>{if(mode==='edit'){const [x,y]=pt(e);ed.move(x,y);setHover({x,y});return;}if(dt){const [x,y]=pt(e);dtMove(x,y);return;}onMove(e);}} onPointerUp={()=>{if(mode==='edit'){ed.up();return;}onUp();}} onPointerLeave={()=>setHover(undefined)} onContextMenu={e=>{if(mode==='edit'){e.preventDefault();return;}onContext(e);}}
+      onPointerMove={e=>{if(mode==='edit'){const [x,y]=pt(e);ed.move(x,y);setHover({x,y});return;}if(dt){const [x,y]=pt(e);dtMove(x,y);return;}onMove(e);}} onPointerUp={()=>{if(mode==='edit'){ed.up();return;}onUp();}} onPointerLeave={()=>setHover(undefined)} onContextMenu={e=>{if(mode==='edit'){e.preventDefault();const [x,y]=pt(e);ed.context(x,y,e.clientX,e.clientY);return;}onContext(e);}}
       onPointerDown={e=>{if(mode==='edit'){(e.currentTarget as Element).setPointerCapture?.(e.pointerId);const [x,y]=pt(e);ed.down(x,y);return;}if(dt){const [x,y]=pt(e);dtClick(x,y);return;}if(tool){const [x,y]=pt(e);toolClick(x,y);}else setSel(undefined);}} role="img" aria-label="แผ่นที่กำลังจัด" fontFamily="Sarabun, sans-serif">
       <rect x={0} y={0} width={info.w} height={info.h} fill="#fff"/><PrimsSvg prims={ed.filter(info.prims)}/>{qaShow&&<LabelQaOverlay reports={qa} focus={qaFocus}/>}
       {mode==='edit'&&ed.overlay}
@@ -291,6 +291,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
       {dt?.step===3&&dt.size&&dt.at&&<rect className="placing" x={dt.at[0]-dt.size.w/2} y={dt.at[1]-dt.size.h/2} width={dt.size.w} height={dt.size.h}/>}</>}
      </svg>
      {mode==='edit'&&ed.hint&&<div className="composer-tip">{ed.hint}</div>}
+     {mode==='edit'&&ed.menu}
      {mode==='layout'&&hover&&(drag||tool)&&<div className="composer-tip">{drag?`x ${drag.cur.x.toFixed(1)} · y ${drag.cur.y.toFixed(1)} mm`:tool?.step===1?hover.snap?`Snap: ${hover.snap}`:'คลิกจุดเริ่มบนแปลน / รูปตัด':tool?.step===2?`${tool.sec?`${tool.sec.label.replace('-','–')} · ${tool.sec.axis} = ${tool.sec.position.toLocaleString()} mm · มอง ${tool.sec.look==='-'?'−':'+'}${tool.sec.axis} (Tab สลับ)`:'นอกสมาชิก'}`:'คลิกบนแผ่นเพื่อวางรูปตัด · Esc ยกเลิก'}</div>}
      {mode==='layout'&&dt&&<div className="composer-toolbox"><b>+ รูปขยาย Detail · ขั้น {dt.step} / 3</b>
       <p>{dt.step===1?'คลิกจุดศูนย์กลางบนแปลนหรือรูปตัด (snap แนวเหล็ก / ขอบ)':dt.step===2?`ลากออกแล้วคลิกเพื่อกำหนดรัศมี · R = ${dt.r?.toLocaleString()} mm`:`คลิกวางบนแผ่น · มาตราส่วน 1:${dt.n}`}</p>

@@ -26,10 +26,14 @@ export const userLeaderSchema=z.object({id:userId,kind:z.literal('leader'),
  size:z.number().min(1.5).max(10).optional(),arrow:z.enum(['dot','closed','none']),
  /** phase 2: bar (Mark row id) the arrow points at; `fromMark` = text from that bar (Mark n-DB@s as the automatic labels),
   * `lines` are then the fallback; a bar no longer in the view = anchor lost (drawn red, `lines`) */
- bar:barRef.optional(),fromMark:z.literal(true).optional()}).strict();
+ bar:barRef.optional(),fromMark:z.literal(true).optional(),
+ /** arrow on the first / last bar of `bar` (as `anchorSchema`) */ pos:z.enum(['first','last']).optional(),t:z.number().min(0).max(1).optional()}).strict();
 /** Phase 2 anchor: a view model point (u, v mm); `eu` / `ev` = the coordinate follows the min / max edge of the concrete in
  * the view (resized members keep the dimension on the corner); `bar` = Mark row id the point lies on (lost when it is gone). */
-export const anchorSchema=z.object({u:model,v:model,eu:z.enum(['min','max']).optional(),ev:z.enum(['min','max']).optional(),bar:barRef.optional()}).strict();
+/** `pos` (with `bar`) = the point lies on the first / last bar of that Mark in the view (`t` = 0…1 along a bar line, absent on a
+ * bar dot): it follows that edge bar when the count / spacing changes (`barExtremes()`); (u, v) stays the fallback. */
+export const anchorSchema=z.object({u:model,v:model,eu:z.enum(['min','max']).optional(),ev:z.enum(['min','max']).optional(),bar:barRef.optional(),
+ pos:z.enum(['first','last']).optional(),t:z.number().min(0).max(1).optional()}).strict();
 export type Anchor=z.infer<typeof anchorSchema>;
 export const userDimSchema=z.object({id:userId,kind:z.literal('dim'),pts:z.array(anchorSchema).min(2).max(20),dir:z.enum(['h','v']),
  /** dimension line: paper mm from the first point (+y down for 'h', +x right for 'v') */ off:paper,
