@@ -3,7 +3,7 @@ import {remapUnderlay} from './slabFloor';
 import {memberSchema,attachmentSchema,specSchema,type SnapshotBundle,type Attachment} from './model';
 import {drawingProfileSchema,titleBlockSchema} from './drawingStandard';
 import {encodeStorage} from './storageCodec';
-import {historyFileReferences,restoredBoqChapters,restoredSheetTemplates,restoredLocations,validateBackupStructure,type BackupHistoryRecord} from './restorePreflight';
+import {historyFileReferences,restoredBoqChapters,restoredSheetTemplates,restoredTemplateDefaults,restoredTemplateEntries,restoredLocations,validateBackupStructure,type BackupHistoryRecord} from './restorePreflight';
 import {sourceScheduleFileProblems} from './sourceSchedule';
 
 export type RestoreFileRef={originalPath:string;path:string;name:string;size:number;contentType:string;sha256:string};
@@ -19,6 +19,7 @@ export function buildRestorePlan(bundle:SnapshotBundle,attachments:Attachment[],
  for(const value of attachments){const a=attachmentSchema.parse(value),next={...a,version:1};if(next.sourceIntake)next.sourceIntake={...next.sourceIntake,review:undefined};if(next.sourceRevision)next.sourceRevision={...next.sourceRevision,review:undefined};add('attachments',a.id,next);}
  const mappedFiles=entries.filter(e=>e.collection==='attachments').map(e=>e.data as Attachment);
  for(const e of entries.filter(e=>e.collection==='members')){const errors=sourceScheduleFileProblems(memberSchema.parse(e.data),mappedFiles);if(errors.length)throw Error(errors.join(' · '));}
+ for(const t of restoredTemplateEntries(bundle,bundle.project.id,bundle.project.code))add(t.collection,t.id,t.data);
  for(const s of bundle.stock||[])add('stock',s.id,{...s,reserved:0,version:1});
  for(const l of bundle.stockLedger||[])add('stockLedger',l.id,{...l,importedFrom:bundle.project.id});
  for(const c of bundle.cutPlans||[])add('cutPlans',c.id,{...c,status:c.status==='Consumed'?'Consumed':'Cancelled',importedFrom:bundle.project.id});
@@ -27,5 +28,5 @@ export function buildRestorePlan(bundle:SnapshotBundle,attachments:Attachment[],
  if(entries.length>20000)throw Error('แบ่ง Backup: จำนวนเอกสารกู้คืนเกิน20,000รายการ');
  if(new TextEncoder().encode(JSON.stringify(entries.map(e=>e.collection+'/'+e.id))).length>=700000)throw Error('แบ่ง Backup: ดัชนีรายการกู้คืนเกิน700KB');
  const spec=specSchema.parse(bundle.project.spec);
- return {entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null,...restoredLocations(bundle),...restoredBoqChapters(bundle),...restoredSheetTemplates(bundle)}};
+ return {entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null,...restoredLocations(bundle),...restoredBoqChapters(bundle),...restoredSheetTemplates(bundle),...restoredTemplateDefaults(bundle)}};
 }

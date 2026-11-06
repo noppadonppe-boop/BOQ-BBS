@@ -14,7 +14,7 @@ import {readManifest,writeManifest,chunk} from './manifests';
 import {verifiedAttachment} from './sources';
 import {canonical} from '../../domain/canonical';
 import {engineeringFixturesEnabled,engineeringHistoryProblem} from '../engineeringFeature';
-import {historyFileReferences,restoredBoqChapters,restoredSheetTemplates,restoredLocations,restoreEmptyCollections,restoreHistoryCollections,restoreTargetAnchor,validateBackupStructure} from '../../domain/restorePreflight';
+import {historyFileReferences,restoredBoqChapters,restoredSheetTemplates,restoredTemplateDefaults,restoredTemplateEntries,restoredLocations,restoreEmptyCollections,restoreHistoryCollections,restoreTargetAnchor,validateBackupStructure} from '../../domain/restorePreflight';
 import {sourceScheduleFileProblems} from '../../domain/sourceSchedule';
 
 type Entry={collection:string;id:string;data:Record<string,any>};
@@ -51,6 +51,7 @@ export async function beginDirectRestore(pid:string,data:Record<string,any>,id:s
  }
  const mappedFiles=entries.filter(e=>e.collection==='attachments').map(e=>e.data as Attachment);
  for(const e of entries.filter(e=>e.collection==='members')){const problems=sourceScheduleFileProblems(memberSchema.parse(e.data),mappedFiles);must(!problems.length,problems.join(' · '));}
+ for(const t of restoredTemplateEntries(bundle,pid,p.code))add(t.collection,t.id,t.data);
  for(const s of bundle.stock||[]){must(Number.isFinite(s.length)&&s.length>0&&s.length<=50000&&Number.isInteger(s.quantity)&&s.quantity>=0&&s.quantity<=100000&&s.diameter>0&&s.diameter<=100&&typeof s.grade==='string'&&s.grade.length>0,'ข้อมูลสต็อก Backup ไม่ถูกต้อง');add('stock',s.id,{...s,reserved:0,version:1});}
  for(const l of bundle.stockLedger||[])add('stockLedger',l.id,{...l,importedFrom:bundle.project.id});
  for(const c of bundle.cutPlans||[])add('cutPlans',c.id,{...c,status:c.status==='Consumed'?'Consumed':'Cancelled',importedFrom:bundle.project.id});
@@ -64,7 +65,7 @@ export async function beginDirectRestore(pid:string,data:Record<string,any>,id:s
  }
  must(entries.length<=20000,'แบ่ง Backup: จำนวนเอกสารกู้คืนเกิน 20,000 รายการ');
  must(new TextEncoder().encode(JSON.stringify(entries.map(e=>e.collection+'/'+e.id))).length<700000,'แบ่ง Backup: ดัชนีรายการกู้คืนเกิน 700 KB');
- const manifest:Manifest={id,projectId:pid,sourceProjectId:bundle.project.id,sourceVersion:p.version,entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null,...restoredLocations(bundle),...restoredBoqChapters(bundle),...restoredSheetTemplates(bundle)}},file=await writeManifest(pid,'restore-manifests',manifest);
+ const manifest:Manifest={id,projectId:pid,sourceProjectId:bundle.project.id,sourceVersion:p.version,entries,projectPatch:{spec:{...spec,approved:false,evidenceFileId:''},titleBlock:titleBlockSchema.parse(bundle.project.titleBlock),drawingProfile:bundle.project.drawingProfile?drawingProfileSchema.parse(bundle.project.drawingProfile):null,...restoredLocations(bundle),...restoredBoqChapters(bundle),...restoredSheetTemplates(bundle),...restoredTemplateDefaults(bundle)}},file=await writeManifest(pid,'restore-manifests',manifest);
  return projectTransaction('beginRestore',pid,data,id,['admin'],async(tx,current)=>{
   must(current.version===p.version&&current.stockEpoch===p.stockEpoch&&current.historyEpoch===p.historyEpoch,'โครงการเปลี่ยนระหว่างเตรียม Restore','aborted');const job={id,status:'Importing' as const,completed:0,total:entries.length,manifest:file,sourceVersion:p.version,createdBy:u.uid,createdAt:now(),recordKeys:entries.map(e=>e.collection+'/'+e.id)};
   tx.set(recordRef(pid,'restoreJobs',id),encode(job));tx.update(projectRef(pid),{restoreState:state(job),historyEpoch:id});return state(job);

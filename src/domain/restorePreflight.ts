@@ -6,6 +6,12 @@ import {validateSourceChains} from './sourceRevisions';
 import {locationIssues,locationsSchema,occurrenceLocProblems,type Locations} from './locations';
 import {boqChaptersSchema,type BoqChapters} from './boqChapters';
 import {projectSheetTemplatesSchema,type ProjectSheetTemplates} from './sheetLayoutSchema';
+import {backupTemplates,restoredDefaults,restoredTemplate} from './elementTemplates';
+import {templateDefaultsSchema,type TemplateDefaults} from './templateSource';
+/** T1: project element templates of a backup → restore entries of the target project (ids kept: the target is empty). */
+export const restoredTemplateEntries=(b:SnapshotBundle,pid:string,code:string)=>backupTemplates(b.elementTemplates).map(t=>({collection:'elementTemplates',id:t.id,data:restoredTemplate(t,pid,code) as unknown as Record<string,any>}));
+/** T1: project default templates of a backup (ids of restored templates kept; central ids kept as they are). */
+export const restoredTemplateDefaults=(b:SnapshotBundle):{templateDefaults?:TemplateDefaults}=>{const ids=new Map(backupTemplates(b.elementTemplates).map(t=>[t.id,t.id]));const d=restoredDefaults(b.project.templateDefaults,ids);return d?{templateDefaults:d}:{};};
 /** WBS tree of a backup for the restore patch (version is bumped when applied). */
 export const restoredLocations=(b:SnapshotBundle):{locations?:Locations}=>b.project.locations?{locations:locationsSchema.parse(b.project.locations)}:{};
 /** Owner BOQ chapters of a backup for the restore patch. */
@@ -14,7 +20,7 @@ export const restoredSheetTemplates=(b:SnapshotBundle):{sheetTemplates?:ProjectS
 export const restoredBoqChapters=(b:SnapshotBundle):{boqChapters?:BoqChapters}=>b.project.boqChapters?{boqChapters:boqChaptersSchema.parse(b.project.boqChapters)}:{};
 import type {z} from 'zod';
 
-export const restoreEmptyCollections=['members','attachments','stock','stockLedger','cutPlans','importedHistory'] as const;
+export const restoreEmptyCollections=['members','attachments','stock','stockLedger','cutPlans','importedHistory','elementTemplates'] as const;
 export const restoreHistoryCollections=['revisions','revisionStates','revisionEvents','exportJobs','importedHistory','specChangeJobs','submissionJobs','accessEvents','engineeringFixtures','engineeringFixtureRuns','operations'] as const;
 export const restoreTargetAnchor=(p:{version:number;stockEpoch?:string;historyEpoch?:string;revisionCounter?:number})=>({version:p.version,stockEpoch:p.stockEpoch??null,historyEpoch:p.historyEpoch??null,revisionCounter:p.revisionCounter??0});
 export type BackupHistoryRecord={collection:string;id:string;data:Record<string,any>};
@@ -37,6 +43,7 @@ export function validateBackupStructure(input:unknown,recordsInput:unknown=[],ar
  // WBS tree + every member link into it (links of a backup always point at the backup's own tree)
  if(b.project.boqChapters)checked(boqChaptersSchema,b.project.boqChapters,'หมวด BOQ');
  if(b.project.sheetTemplates)checked(projectSheetTemplatesSchema,b.project.sheetTemplates,'Template จัดหน้าแบบ');
+ if(b.project.templateDefaults)checked(templateDefaultsSchema,b.project.templateDefaults,'ค่ามาตรฐาน Template');backupTemplates(b.elementTemplates);
  if(b.project.locations){const issues=locationIssues(checked(locationsSchema,b.project.locations,'โครงสร้าง WBS'));ensure(!issues.length,'โครงสร้าง WBS: '+issues.slice(0,3).join(' · '));}
  for(const m of Array.isArray(b.members)?b.members:[])if(Array.isArray(m?.occurrences)&&m.occurrences.some(o=>o?.loc)){const p=occurrenceLocProblems(b.project.locations,m.occurrences);ensure(!p.length,`${m.code}: ${p.slice(0,2).join(' · ')}`);}
  const members=list(b.members,'สมาชิก'),attachments=list(b.attachments,'ไฟล์ต้นทาง'),stock=list(b.stock,'สต็อก',true),ledger=list(b.stockLedger,'รายการสต็อก',true),cuts=list(b.cutPlans,'แผนตัด',true),records=list(recordsInput,'ประวัติ'),artifacts=list(artifactsInput,'ไฟล์ประวัติ'),index=list(b.historyIndex,'ดัชนีประวัติ',true);
