@@ -13,6 +13,13 @@
   Single beam top / bottom bars: optional `ends {start, end}` = `ext` (+ past the beam end at the cover / − short of it) +
   `type` shape | straight | standard | leg (per-end override of the Shape code via `shapedEnds(…, over)`); bars past an end
   sit in reference regions `genbend-start|end`. Stirrup / tie hooks by size: `tieHook()` (Ø < 10 → 135°, else 90°). Test: `tmp/beamBarEnds.test.ts`.
+- Wall Run (docs/WALL_RUN.md): Wall input `layout` optional 'single' | 'run' + `run` (`src/domain/wallRunSchema.ts`; absent = old straight
+  wall, unchanged). `src/domain/wallRun.ts`: `runAxis` / `runLevels` (lifts, tank / pit / retaining bands), `wallRunShapeModel` (mitred
+  polygon per segment per level → corners once), `applyWallRun` (regions `genwr-*`, items `gen-wall-*`), bars `wallRunRaw` → `groupWallRaw`
+  (Marks `<code>-V/H/C/T/S/OP/B/K`, ids `gen-wr-…`), `wallRunSets` (lifts / faces per set), `wallRunLiftQuantities`, `wallRunProblems`,
+  `singleToRun`, `defaultWallRun(type)`. UI `WallRunEditor.tsx` (+ `WallTypePicker`), sheet `wallRunSheet.ts` + `WallRunSheetPreview.tsx`
+  (BBS wall | lift | face, PDF / DXF / Excel `data/wallRunExcel.ts`). Template keys `Wall:<type>`. Test `tests/wallRun.test.ts`;
+  UI emulators `tmp/wremu/` (5184).
 - Footing pour stages: input `pour {count, heights}` (last stage = rest, `footingPour()`), UI `FootingPourEditor.tsx`;
   apply writes `member.pourStages.levels`; `pourStageQuantities()` (`solids.ts`) gives concrete / formwork / joint area per
   stage from the box cells; deductions carry `zRange` so they split by height. Test: `tmp/pourStages.test.ts`.

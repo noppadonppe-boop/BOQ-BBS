@@ -11,6 +11,12 @@ const Svg=({children,label}:{children:ReactNode;label:string})=><svg viewBox="0 
  <defs><marker id="hf-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 8 4 0 8z" className="af"/></marker></defs>{children}</svg>;
 
 const figures:Record<FigureId,()=>ReactNode>={
+ 'wall-run':()=><><rect x={40} y={30} width={150} height={110} className="c"/><rect x={52} y={42} width={126} height={86} className="node"/>
+  <path d="M46 70 V36 H80" className="b"/><path d="M58 70 V48 H80" className="b"/><path d="M150 36 H184 V70" className="b"/><path d="M150 48 H172 V70" className="b"/>
+  <rect x={95} y={128} width={40} height={12} className="node"/><T x={115} y={158} s>ประตู / ช่องเปิด</T><T x={60} y={24} s>มุม U-bar</T>
+  {[214,240,266,292].map(x=><rect key={x} x={x} y={30} width={22} height={110} className="c"/>)}{[58,86,114].map(y=><line key={y} x1={214} x2={314} y1={y} y2={y} className="d dash"/>)}<T x={262} y={158} s>Elevation คลี่ · ช่วงเท</T></>,
+ 'wall-run-sheet':()=><><rect x={6} y={8} width={308} height={164} className="node"/>
+  {[[12,14,180,56,'Elevation คลี่ · ผิวนอก'],[12,74,180,56,'Elevation คลี่ · ผิวใน'],[198,14,110,40,'มุม / T 1:20'],[198,58,54,70,'รูปตัด A–A'],[254,58,54,70,'ช่องเปิด'],[12,134,180,32,'รายละเอียดมาตรฐาน · Key plan'],[198,134,110,32,'Title block']].map(([x,y,w,h,t])=><g key={String(t)}><rect x={x as number} y={y as number} width={w as number} height={h as number} className="c"/><T x={(x as number)+(w as number)/2} y={(y as number)+(h as number)/2+3} s>{t}</T></g>)}</>,
  workflow:()=>{const s=['Spec','WBS','สมาชิก','ตรวจ BBS','BOQ','แบบ A3','ตัดเหล็ก'];return <>{s.map((l,i)=>{const x=8+(i%4)*78,y=i<4?30:110;return <Box key={l} x={i<4?x:8+((6-i)+0.5)*78} y={y} w={66} h={34} label={`${i+1}. ${l}`} tone={i===2?'hl':''}/>;})}
   <Arrow d="M74 47h10"/><Arrow d="M152 47h10"/><Arrow d="M230 47h10"/><Arrow d="M281 64 v20 q0 8 -8 8 h-10 v18"/><Arrow d="M203 127h-10"/><Arrow d="M125 127h-10"/>
   <T x={160} y={172} s>ส่งตรวจ → Checked → IFC ก่อนออกแบบและตัดเหล็ก</T></>;},
