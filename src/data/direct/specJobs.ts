@@ -7,7 +7,7 @@ import {validateMember} from '../../domain/engine';
 import {applyElementInput,elementInputSchema,isGeneratedBar} from '../../domain/elementInput';
 import {applyArchInput} from '../../domain/archInput';
 import {detailingFromSpec} from '../../domain/specProfiles';
-import {syncColumnTemplate} from '../../domain/columnTemplates';
+import {syncColumnTemplate,syncFootingEmbedTies} from '../../domain/columnTemplates';
 import {syncBeamTemplates} from '../../domain/beamTemplates';
 import {sourceBarNames,sourceCurrent,memberSourceInfo,generalSourceInfo,validateSourceChains} from '../../domain/sourceRevisions';
 import {canonical} from '../../domain/canonical';
@@ -77,6 +77,8 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
   if(parsed.data.category==='Column')parsed.data=syncColumnTemplate(parsed.data,spec);
   // beam spans linked to a Project Beam Template likewise
   if(parsed.data.category==='Beam')parsed.data=syncBeamTemplates(parsed.data,spec);
+  // footing columns whose embedded ties follow their column type
+  if(parsed.data.category==='Foundation')parsed.data=syncFootingEmbedTies(parsed.data,spec);
   // input not applied yet: only refresh its detailing so the next apply uses the new spec
   if(!parsed.data.appliedAt)return {...m,elementInput:{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})}};
   try{const r=applyElementInput(m,{...parsed.data,detailing:detailingFromSpec(spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})},{rounding:spec.rounding,withBars:m.bars.some(isGeneratedBar)});return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}

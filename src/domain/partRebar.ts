@@ -189,7 +189,7 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
  }
  if(r.purpose==='column'&&r.main){
   // reference column (cast later): starter bars only, from the host up to its base + lap, ties in the host
-  const M=r.main,T=r.tie,dt=T?.d||(r.tieIn&&r.tieIn.s>0?r.tieIn.d:0),a=c+dt+M.d/2,A=(k:'x0'|'x1'|'y0'|'y1')=>fc[k]+dt+M.d/2,top=ref?b.z0+(r.ext||lapLength(det,M.d)):r.ext?b.z1+r.ext:b.z1-fc.top-M.d/2,tieTop=b.z1-Math.max(50,fc.top+dt/2);
+  const M=r.main,T=r.tie,stdIn=!!det.embedTie&&!!r.anchor&&(r.tieIn?r.tieIn.std===true:det.embedTie.enabled),dt=T?.d||(stdIn?det.embedTie!.diameter||r.tieIn?.d||12:r.tieIn&&r.tieIn.s>0?r.tieIn.d:0),a=c+dt+M.d/2,A=(k:'x0'|'x1'|'y0'|'y1')=>fc[k]+dt+M.d/2,top=ref?b.z0+(r.ext||lapLength(det,M.d)):r.ext?b.z1+r.ext:b.z1-fc.top-M.d/2,tieTop=b.z1-Math.max(50,fc.top+dt/2);
   const sup=r.anchor?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover,base=sup?Math.max(b.z0,sup.c.z1):b.z0;
   const zb=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+fc.bottom+M.d/2;
   const foot=sup?Math.min(hookDevLength(det,M.d),det.hook90*M.d+sketchRadius(M.d)):0;
@@ -212,11 +212,13 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    if(T&&T.s>0&&boxy){const rad=bendRadius(dt,det,true),z0=base+(sup?50:Math.max(50,fc.bottom+dt/2)),z1=tieTop,lk=(z:number)=>closedLink(0,1,2,b.x0+fc.x0+dt/2,b.x1-fc.x1-dt/2,b.y0+fc.y0+dt/2,b.y1-fc.y1-dt/2,z,det,rad,dt);
     if(!ref)out.push(bar('tie',{d:dt,tie:true,points:lk(z0),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:z0,to:z1,spacing:T.s},note:`ปลอก RB/DB${dt} @${T.s}`}));}
    // ties in the support stay under its top mesh
-   // (`r.tieIn`: own size / spacing, s 0 = none; absent = the column tie @300); inner face on the bars
-   const TI=r.tieIn??(T&&T.s>0?{d:dt,s:300}:{d:0,s:0});
-   if(boxy&&sup&&TI.s>0&&TI.d>0){const di=TI.d,ri=bendRadius(di,det,true),T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(base-75,sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-di-10);
+   // (`r.tieIn`: own size / spacing, s 0 = none, std = the General Spec standard `det.embedTie`; absent = the standard when it is
+   // on, else the column tie @300); inner face on the bars
+   const ES=det.embedTie,fromStd=!!ES&&(r.tieIn?r.tieIn.std===true:ES.enabled);
+   const TI=fromStd?{d:ES!.diameter||dt||r.tieIn?.d||12,s:ES!.spacing}:r.tieIn&&!r.tieIn.std?r.tieIn:r.tieIn?.std?{d:r.tieIn.d||dt,s:r.tieIn.s}:(T&&T.s>0?{d:dt,s:300}:{d:0,s:0});
+   if(boxy&&sup&&TI.s>0&&TI.d>0){const di=TI.d,ri=bendRadius(di,det,true),T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(base-(fromStd?Math.max(75,ES!.top):75),sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-di-10);
      const lki=(z:number)=>closedLink(0,1,2,b.x0+fc.x0+dt-di/2,b.x1-fc.x1-dt+di/2,b.y0+fc.y0+dt-di/2,b.y1-fc.y1-dt+di/2,z,det,ri,di);
-     if(zs1>zs0)out.push(bar('tie-in',{d:di,tie:true,points:lki(zs0),code:'99',axis:'Z',radius:ri,dist:{axis:2,from:zs0,to:zs1,spacing:TI.s},note:r.tieIn?`ปลอกยึดเหล็กยืนในฐาน ${di<=9?'RB':'DB'}${di} @ ≤ ${TI.s}`:'ปลอกยึดเหล็กยืนในฐาน @300'}));
+     if(zs1>zs0)out.push(bar('tie-in',{d:di,tie:true,points:lki(zs0),code:'99',axis:'Z',radius:ri,dist:{axis:2,from:zs0,to:zs1,spacing:TI.s},note:fromStd||r.tieIn?`ปลอกยึดเหล็กยืนในฐาน ${di<=9?'RB':'DB'}${di} @ ≤ ${TI.s}${fromStd?' (มาตรฐาน Spec)':''}`:'ปลอกยึดเหล็กยืนในฐาน @300'}));
      else notes.push(`${p.label}: ชิ้นด้านล่างตื้นเกินไปสำหรับปลอกในฐาน`);}
    else if(!boxy&&r.tieIn&&r.tieIn.s>0)notes.push(`${p.label}: ปลอกในฐานใช้กับเสาหน้าตัดกล่องเท่านั้น`);
    if(T&&T.s>0&&p.shape==='circle'&&!ref){const R=p.diameter/2-c-dt/2,n=24,lap=lapLength(det,dt),ring:Vec3[]=Array.from({length:n+1},(_,k)=>{const t=2*Math.PI*k/n;return [p.cx+R*Math.cos(t),p.cy+R*Math.sin(t),b.z0+50] as Vec3;});

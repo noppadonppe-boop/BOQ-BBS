@@ -14,6 +14,8 @@ import {FootingColumnsPlan} from './FootingColumnsPlan';
 import {BeamGroupEditor} from './BeamGroupEditor';
 import {ColumnStackEditor} from './ColumnStackEditor';
 import {ColumnTemplatePicker,FootingTemplatePicker} from './ColumnTemplatePicker';
+import {ColumnEmbedTieChoice,embedTieSummary} from './EmbedTieStandard';
+import {standardEmbedTie,type EmbedTieStandard} from '../domain/embedTie';
 import {FoundationTemplatePicker} from './FoundationTemplatePicker';
 import {applyFoundationTemplate,foundationTemplateCurrent,templateHasStage2} from '../domain/foundationTemplates';
 import {syncColumnTemplate} from '../domain/columnTemplates';
@@ -269,9 +271,16 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
    <FootingRebarGuide input={input}/></div></div>
    <h4>5. เสาตอม่อ / Starter bar</h4>
    <ColumnTemplateBar spec={spec} readOnly={readOnly} onPick={()=>setPicker(true)} note={input.column.type==='none'?'เลือกเสาตอม่อ หรือ Starter bar จากตารางเสาของโครงการ':`เติมให้${footingColumns(input).length>1?` ${footingColumnName(footingColumns(input)[Math.min(colSel,footingColumns(input).length-1)],Math.min(colSel,footingColumns(input).length-1),true)} (ที่เลือกอยู่)`:''}`}/>
-   {select('มีเสาร่วมกับฐานรากหรือไม่','column.type',[['none','ไม่มี'],['pedestal','มีเสาตอม่อ (คอนกรีต + เหล็กเสา)'],['starter','Starter bar (เหล็กรอเสา ไม่มีคอนกรีตตอม่อ)']])}
+   <label className="field"><span>มีเสาร่วมกับฐานรากหรือไม่</span><select disabled={readOnly} value={input.column.type} onChange={e=>{const v=e.target.value as FootingColumn['type'];setInput(prev=>{if(prev?.category!=='Foundation')return prev;const next=structuredClone(prev),was=next.column.type;next.column.type=v;
+    // a column newly placed on the footing gets the General Spec standard ties in the footing (when the standard is on)
+    if(was==='none'&&v!=='none'&&!next.column.embedTie){const et=standardEmbedTie(next.column.tie.diameter,next.detailing.embedTie??spec.columnEmbedTie);if(et){next.column.embedTie=et;next.detailing.embedTie??=spec.columnEmbedTie;}}
+    return next;});}}>{([['none','ไม่มี'],['pedestal','มีเสาตอม่อ (คอนกรีต + เหล็กเสา)'],['starter','Starter bar (เหล็กรอเสา ไม่มีคอนกรีตตอม่อ)']] as const).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
    {input.column.type!=='none'&&(()=>{
     const cols=footingColumns(input),n=cols.length,ext=footingExtent(input),sel=Math.min(colSel,n-1),ped=input.column.type==='pedestal',kind=ped?'เสาตอม่อ':'Starter bar';
+    const std=input.detailing.embedTie??spec.columnEmbedTie,typeName=(c:FootingColumn)=>c.template?spec.columnTemplates?.find(t=>t.id===c.template!.id)?.name:undefined;
+    // every column (unlinked copies own their values); a link to the standard also copies it into the detailing
+    const setEt=(k:number,et:FootingColumn['embedTie'])=>edit(i=>{const c=k?i.extraColumns[k-1]:i.column;if(k&&i.extraColumns[k-1].linked)return;if(et)c.embedTie=et;else delete c.embedTie;if(et?.link==='spec')i.detailing.embedTie??=spec.columnEmbedTie;});
+    const allEt=(how:'all'|'std')=>edit(i=>{[i.column,...i.extraColumns.filter(c=>!c.linked)].forEach(c=>{const et=standardEmbedTie(c.tie.diameter,std&&{...std,enabled:true})??{diameter:c.tie.diameter||12,spacing:500};if(how==='std'||!c.embedTie)c.embedTie=et;});if(std)i.detailing.embedTie??=spec.columnEmbedTie;});
     const fields={num,dia,select,spacing,bend,text:(label:string,path:string)=><Field key={path} label={label} value={get(path)} onChange={v=>set(path,String(v).slice(0,50))} disabled={readOnly}/>};
     const edit=(f:(i:FoundationInput)=>void)=>setInput(prev=>{if(prev?.category!=='Foundation')return prev;const next=structuredClone(prev);f(next);return next;});
     const place=(i:FoundationInput,pos:[number,number][])=>{[i.column,...i.extraColumns].forEach((c,k)=>{if(pos[k]){c.offsetX=pos[k][0];c.offsetY=pos[k][1];}});};
@@ -282,20 +291,22 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
     const off=(k:number,axis:'offsetX'|'offsetY',v:number)=>edit(i=>{(k?i.extraColumns[k-1]:i.column)[axis]=Math.round(v)||0;});
     return <div className="footing-columns">
      <div className="columns-toolbar"><label className="field"><span>จำนวน{kind}บนฐานนี้</span><select disabled={readOnly} value={n} onChange={e=>setCount(Number(e.target.value))}>{Array.from({length:10},(_,k)=><option key={k} value={k+1}>{k+1} ต้น</option>)}</select></label>
+      <div className="field"><span>ปลอกในฐานราก (ทุกต้น)</span><div className="actions"><button type="button" disabled={readOnly} onClick={()=>allEt('all')} title="ต้นที่ยังไม่มีปลอกในฐาน ใส่ตามมาตรฐาน Spec (ไม่มีมาตรฐาน: ขนาดปลอกเสา @ ≤ 500)">ใส่ปลอกในฐานทุกต้น</button>{std&&<button type="button" disabled={readOnly} onClick={()=>allEt('std')} title="ทุกต้นผูกกับมาตรฐาน Spec (ค่าที่กำหนดเอง / ตาม Type ถูกแทนที่)">ตามมาตรฐาน Spec ทุกต้น</button>}</div></div>
       {n>1&&<div className="field"><span>จัดตำแหน่งสำเร็จรูป</span><div className="segmented" role="group" aria-label="รูปแบบการวางเสา">{columnLayouts.filter(([id])=>id==='triangle'?n===3:id==='corners'?n===4:id==='grid'?n>=4:true).map(([id,t])=><button key={id} type="button" disabled={readOnly} onClick={()=>edit(i=>place(i,columnLayout(id,n,ext.w,ext.d)))}>{t}</button>)}</div></div>}</div>
      <div className={`columns-layout${n>1?'':' single'}`}><FootingColumnsPlan input={input} selected={sel} onSelect={setColSel} readOnly={readOnly} onMove={(k,x,y)=>edit(i=>{const c=k?i.extraColumns[k-1]:i.column;c.offsetX=x;c.offsetY=y;})}/>
-      {n>1&&<table className="subbase-table columns-table"><thead><tr><th>เสา</th><th>เหมือน C1</th><th>หน้าตัด</th><th>เยื้อง X</th><th>เยื้อง Y</th>{ped&&<th>สูง</th>}</tr></thead><tbody>
+      {n>1&&<table className="subbase-table columns-table"><thead><tr><th>เสา</th><th>เหมือน C1</th><th>หน้าตัด</th><th>เยื้อง X</th><th>เยื้อง Y</th>{ped&&<th>สูง</th>}<th>ปลอกในฐาน</th></tr></thead><tbody>
        {cols.map((c,k)=>{const x=k?input.extraColumns[k-1]:undefined,{w,d}=columnExtent(c);return <tr key={k} className={k===sel?'active':''} onClick={()=>setColSel(k)}>
         <td><input aria-label={`เลขเสา ${k+1}`} disabled={readOnly} maxLength={50} value={(k?x!.columnNo:input.column.columnNo)} onChange={e=>edit(i=>{(k?i.extraColumns[k-1]:i.column).columnNo=e.target.value.slice(0,50);})}/></td>
         <td>{k?<input type="checkbox" aria-label={`เสา ${k+1} เหมือน C1`} disabled={readOnly} checked={x!.linked} onChange={e=>link(k-1,e.target.checked)}/>:<small className="muted">ต้นแบบ</small>}</td>
         <td><small>{c.shape==='circle'?`Ø${c.diameter}`:`${w}×${d}`}</small></td>
         <td><NumInput aria-label={`เยื้อง X เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetX} onChange={e=>off(k,'offsetX',Number(e.target.value))}/></td>
         <td><NumInput aria-label={`เยื้อง Y เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetY} onChange={e=>off(k,'offsetY',Number(e.target.value))}/></td>
-        {ped&&<td><small>{c.height}</small></td>}</tr>;})}</tbody></table>}</div>
+        {ped&&<td><small>{c.height}</small></td>}
+        <td>{(()=>{const sm=embedTieSummary(c.embedTie,c.tie.diameter,std),lk=!!k&&x!.linked;return <span className="bar-cell"><input type="checkbox" aria-label={`ปลอกในฐาน เสา ${k+1}`} disabled={readOnly||lk} checked={!!c.embedTie} onChange={e=>setEt(k,e.target.checked?standardEmbedTie(c.tie.diameter,std&&{...std,enabled:true})??{diameter:c.tie.diameter||12,spacing:500}:undefined)}/><small>{sm.text}{sm.from?` · ${lk?'เหมือน C1':sm.from==='ตาม Type'&&typeName(c)?`ตาม ${typeName(c)}`:sm.from}`:''}</small></span>;})()}</td></tr>;})}</tbody></table>}</div>
      {n>1&&<h5 className="column-detail-title">รายละเอียด {sel===0?`${input.column.columnNo||'C1'} (ต้นแบบของเสาที่ติ๊ก “เหมือน C1”)`:footingColumnName(cols[sel],sel,true)}</h5>}
-     {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields} set={set} readOnly={readOnly}/>
+     {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields} set={set} readOnly={readOnly} std={std} typeName={typeName(input.column)} onEt={et=>setEt(0,et)}/>
       :input.extraColumns[sel-1].linked?<p className="notice">ใช้หน้าตัด เหล็กยืน เหล็กปลอก และความสูงเดียวกับ C1 · เอาติ๊ก “เหมือน C1” ออกเพื่อกำหนดเอง</p>
-      :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`} set={set} readOnly={readOnly}/>}
+      :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`} set={set} readOnly={readOnly} std={std} typeName={typeName(cols[sel])} onEt={et=>setEt(sel,et)}/>}
     </div>;})()}</>}
   {input.category==='Column'&&input.layout==='stack'&&<p className="muted">เสาหลายชั้น: เหล็กยืนและปลอกกำหนดต่อชั้นในตารางเสาด้านบน</p>}
   {input.category==='Column'&&input.layout!=='stack'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select} set={set}/>}
@@ -396,7 +407,7 @@ function ColumnPourFields({input,readOnly,edit}:{input:ColumnInput;readOnly:bool
  </div>;
 }
 type Fields={num:(label:string,path:string,unit?:string)=>ReactNode;dia:(label:string,path:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode;spacing:(label:string,path:string)=>ReactNode;bend:(label:string,path:string,d:number)=>ReactNode;text:(label:string,path:string)=>ReactNode};
-function FootingColumnFields({col,pedestal,field:f,base:P='column',set,readOnly}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string;set:(path:string,value:unknown)=>void;readOnly?:boolean}){
+function FootingColumnFields({col,pedestal,field:f,base:P='column',set,readOnly,std,typeName,onEt}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string;set:(path:string,value:unknown)=>void;readOnly?:boolean;std?:EmbedTieStandard;typeName?:string;onEt:(et:FootingColumn['embedTie'])=>void}){
  const kind=pedestal?'เสาตอม่อ':'Starter bar',cpl=col.splice?.type==='coupler',corners={rect:4,circle:0,L:6,U:8}[col.shape],bars=columnSectionPreview(col).bars,by=(k:string)=>bars.filter(b=>b.kind===k).length,name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
  return <div className="footing-column">
   <div className="form-grid">{f.text(pedestal?'Column no. (เลขเสา)':'Column no. (เสาที่รับ Starter)',`${P}.columnNo`)}{f.select(pedestal?'หน้าตัดเสา':'หน้าตัดการวาง Starter bar',`${P}.shape`,[['rect','สี่เหลี่ยม'],['circle','กลม'],['L','ตัวแอล (L)'],['U','ตัวยู (U)']])}{f.num(`cover ${kind}`,`${P}.cover`)}</div>
@@ -416,11 +427,10 @@ function FootingColumnFields({col,pedestal,field:f,base:P='column',set,readOnly}
     {col.shape!=='rect'&&<div className="form-grid">{f.num('ระยะห่างเหล็กด้านสูงสุด (ระหว่างมุม)',`${P}.main.spacing`)}</div>}</>}
    {!(col.shape==='rect'&&col.main.layout)&&<p className="muted column-total">รวม {bars.length} เส้น{col.shape==='circle'?` · ${name(col.main.diameter)}`:` · มุม ${corners} × ${col.main.corner.count} = ${by('corner')} เส้น ${name(col.main.corner.diameter)} · ด้าน X ${by('sideX')} เส้น ${name(col.main.sideX.diameter)} · ด้าน Y ${by('sideY')} เส้น ${name(col.main.sideY.diameter)}`}</p>}
    {pedestal&&f.spacing('เหล็กปลอกเสา',`${P}.tie`)}
-   {pedestal&&col.shape==='rect'&&<div className="form-grid">{f.select('ปลอกชุดที่ 2 (ปลอกใน / เหล็กรัดขวาง)',`${P}.tie.pattern`,tiePatterns.filter(p=>p!=='custom'||col.main.layout).map(p=>[p,tiePatternInfo[p].label] as [string,string]))}</div>}
+   {(pedestal||col.embedTie)&&col.shape==='rect'&&<div className="form-grid">{f.select(pedestal?'ปลอกชุดที่ 2 (ปลอกใน / เหล็กรัดขวาง)':'ปลอกชุดที่ 2 ในฐาน (ปลอกใน / เหล็กรัดขวาง)',`${P}.tie.pattern`,tiePatterns.filter(p=>p!=='custom'||col.main.layout).map(p=>[p,tiePatternInfo[p].label] as [string,string]))}</div>}
    <h5>การฝังในฐานราก</h5>
    <div className="form-grid">{f.select('ระยะล้วงในฐาน',`${P}.embed.mode`,[['standard','ล้วงถึงตะแกรงเหล็กล่าง (มาตรฐาน)'],['custom','กำหนดระยะฝังเอง']])}{col.embed.mode==='custom'&&f.num('ระยะฝังจากผิวบนฐาน',`${P}.embed.depth`)}{f.bend('ปลายในฐาน','column',maxMainDiameter(col))}</div>
-   <label className="check" title="ปลอกรอบเหล็กยืนช่วงที่ฝังในฐานราก: จากเหนือขางอขึ้นไปถึงใต้ตะแกรงบน (≥ 100 mm จากผิวบนฐาน) ระยะห่างไม่เกินที่กำหนด"><input type="checkbox" disabled={readOnly} checked={!!col.embedTie} onChange={e=>set(`${P}.embedTie`,e.target.checked?{diameter:pedestal?col.tie.diameter:9,spacing:500}:undefined)}/>ใส่เหล็กปลอกในฐานราก (ช่วง{kind}ที่ฝังในฐาน)</label>
-   {col.embedTie&&f.spacing('ปลอกในฐาน (@ ไม่เกิน)',`${P}.embedTie`)}
+   <ColumnEmbedTieChoice et={col.embedTie} tieD={col.tie.diameter} std={std} typeName={typeName} readOnly={readOnly} onChange={onEt}/>
   </div><ColumnSectionSketch col={col}/></div>
  </div>;
 }

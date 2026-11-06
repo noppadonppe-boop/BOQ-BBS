@@ -25,7 +25,13 @@
   BOQ items `gen-coupler-<d>` (siteWork, rebuilt on apply); sections draw a box at the bar end + "COUPLER", and
   cover marks `C=…` (`buildView` → `covers`). Ties round the embedded pedestal / starter bars: `column.embedTie {diameter, spacing}`
   (absent = none; roles `column-etie…`, above the bent feet to ≥ 100 under the footing top / under the top mesh; a starter's bars move in
-  by the tie); Custom column presets `part.rebar.tieIn` (absent = tie size @300 as before, s 0 = none). Test: `tmp/embedTie.test.ts`. Single columns: `rebar.top|bottom.mode = 'coupler'` (bar ends `lap` mm above
+  by the tie); Custom column presets `part.rebar.tieIn` (absent = the standard when it is on, else tie size @300; s 0 = none; `std` = standard). Test: `tmp/embedTie.test.ts`.
+  Standard (General Spec › Column Template card `EmbedTieStandardCard`, `src/components/EmbedTieStandard.tsx`): `spec.columnEmbedTie {enabled, diameter 0 = column tie, spacing, top, source}`
+  (`src/domain/embedTie.ts`, zod only) → `detailing.embedTie` (`detailingFromSpec`); spec import key `columnEmbedTie`. Per type `columnTemplate.embedTie {mode std|own|off}`
+  (Excel column 17 STD / NONE / Y12@500). Footing column `embedTie.link` spec (read live from the detailing) | type (`template {id,row}` set by `applyTemplateFooting(…, std)`,
+  re-resolved by `syncFootingEmbedTies` in the spec job) | absent = own; `resolveEmbedTie()`. Set-2 ties inside the footing follow `col.tie.pattern` (rect, also starters;
+  roles `column-etie-in<k>`). UI: footing section 5 choice + table column + “ใส่ปลอกในฐานทุกต้น”, picker tick, Custom preset select. Tests `tmp/embedTieStandard.test.ts`,
+  J-078 file `tmp/j078EmbedTie.test.ts` (writes columnEmbedTie + columnTemplates into `tmp/Spec-Project-J-078.json`); harness `tmp/preview/etie.html#spec|footing`. Single columns: `rebar.top|bottom.mode = 'coupler'` (bar ends `lap` mm above
   the joint; top couplers counted as `gen-coupler-<d>`). Coupled bar ends for every graphic come from `barCouplerEnds()`
   (sections, BBS sketch, `Shape` thumbnail, 3D via `coupler3d.ts`). Test: `tmp/columnCoupler.test.tsx`.
 - Bar layer shapes (footing/slab mesh, beam top/bottom, wall vertical/horizontal): `shape` = BS 8666:2020 code from

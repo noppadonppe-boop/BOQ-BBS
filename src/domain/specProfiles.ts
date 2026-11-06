@@ -13,6 +13,7 @@ import {sheetTemplatesSchema} from './sheetLayoutSchema';
 import {mergeBuildings,specBuildingsSchema} from './specBuildings';
 import {mergeByName,slabTemplatesSchema,wallTemplatesSchema} from './slabWallTemplates';
 import {columnTemplatesSchema} from './columnTemplates';
+import {embedTieStandardSchema} from './embedTie';
 import {beamTemplatesSchema} from './beamTemplates';
 export {DEFAULT_DESIGN,designOf,detailingFromSpec,specLabel,type ProjectDesign} from './specDetailing';
 
@@ -61,6 +62,8 @@ export const specImportSchema=z.object({format:z.literal('form-spec-import'),sou
  /** buildings (replace those of the same code, others kept) */
  buildings:specBuildingsSchema.optional(),
  /** column schedule types / slab list / RC wall list marks (replace those of the same name, others kept) */
+ /** ties round column bars embedded in footings (replaces the spec's) */
+ columnEmbedTie:embedTieStandardSchema.optional(),
  columnTemplates:columnTemplatesSchema.optional(),slabTemplates:slabTemplatesSchema.optional(),wallTemplates:wallTemplatesSchema.optional()}).strict();
 export type SpecImport=z.infer<typeof specImportSchema>;
 /** Apply an import file to a spec; returns the new spec and a short list of what changed. */
@@ -84,6 +87,7 @@ export function applySpecImport(spec:Spec,input:SpecImport){
  const merged=(['columnTemplates','slabTemplates','wallTemplates'] as const).reduce<Partial<Pick<Spec,'columnTemplates'|'slabTemplates'|'wallTemplates'>>>((o,k)=>{const v=input[k];if(!v)return o;notes.push(`${{columnTemplates:'Column Template',slabTemplates:'Slab Template',wallTemplates:'Wall Template'}[k]} ${v.length} แบบ`);return {...o,[k]:mergeByName(spec[k] as {name:string}[]|undefined,v)};},{});
  if(input.sheetLayoutTemplates)notes.push(`Template จัดหน้าแบบ ${input.sheetLayoutTemplates.length} แบบ`);
  if(input.cadStandard)notes.push('CAD Standard (Layer / Dimension)');
+ if(input.columnEmbedTie)notes.push('มาตรฐานเหล็กปลอกในฐานราก');
  if(input.concrete)notes.push(`คอนกรีต ${input.concrete.mixes.length} Mix · ${input.concrete.uses.length} ประเภทชิ้นส่วน`);
- return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(input.cadStandard?{cadStandard:input.cadStandard}:{}),...(input.slabAccessories?{slabAccessories:input.slabAccessories}:{}),...(input.sheetLayoutTemplates?{sheetLayoutTemplates:mergeByName(spec.sheetLayoutTemplates,input.sheetLayoutTemplates)}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{}),...(buildings?{buildings}:{}),...merged},notes};
+ return {spec:{...spec,codeData,...(input.aciEdition?{aciEdition:input.aciEdition}:{}),...(input.concrete?{concrete:input.concrete}:{}),...(input.cadStandard?{cadStandard:input.cadStandard}:{}),...(input.columnEmbedTie?{columnEmbedTie:input.columnEmbedTie}:{}),...(input.slabAccessories?{slabAccessories:input.slabAccessories}:{}),...(input.sheetLayoutTemplates?{sheetLayoutTemplates:mergeByName(spec.sheetLayoutTemplates,input.sheetLayoutTemplates)}:{}),...(foundationTemplates?{foundationTemplates}:{}),...(beamTemplates?{beamTemplates}:{}),...(finishes?{finishes}:{}),...(buildings?{buildings}:{}),...merged},notes};
 }

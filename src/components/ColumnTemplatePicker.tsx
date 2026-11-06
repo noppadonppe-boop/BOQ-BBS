@@ -3,6 +3,7 @@ import type {Spec} from '../domain/model';
 import {columnTieLayout,defaultElementInput,tiePatternInfo,type ColumnInput,type FootingColumn,type TieZoneKey} from '../domain/elementInput';
 import {applyTemplateFooting,applyTemplateRow,applyTemplateStack,fractionText,mainText,rowPattern,templateBarName,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
 import {Modal,NumInput} from './EditorControls';
+import {embedTieFromLabel,embedTieFromType,embedTieText,resolveEmbedTie,standardEmbedTie} from '../domain/embedTie';
 import {TieElevation,TiePlan} from './ColumnTieEditor';
 
 /** Pick a section from the Project Column Template: one level range → single column (tie zones from the zone rules
@@ -57,6 +58,13 @@ export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Sp
  const [type,setType]=useState<'pedestal'|'starter'>(col.type==='starter'?'starter':'pedestal');
  const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0,r=t?.rows[k];
  const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
+ // ties in the footing: default from the type (standard / own / none), else the column's current choice; tick overrides per pick
+ const std=spec.columnEmbedTie,[etOver,setEtOver]=useState<Record<string,boolean>>({}),pick=`${id}/${k}`;
+ const auto=t&&r?embedTieFromType(t.embedTie,r.tie.diameter,std):undefined,etOn=etOver[pick]??(auto===null?!!col.embedTie:!!auto);
+ const build=():FootingColumn=>{if(!t||!r)return col;const next=applyTemplateFooting(col,t,k,type,std);
+  if(!etOn){const {embedTie:_,...rest}=next;return rest;}
+  return next.embedTie?next:{...next,embedTie:standardEmbedTie(r.tie.diameter,std&&{...std,enabled:true})??{diameter:r.tie.diameter,spacing:500}};};
+ const preview=etOn?resolveEmbedTie(build().embedTie,r?.tie.diameter??0,std):undefined;
  return <Modal title="ตารางหน้าตัดเสา · เสาตอม่อ / Starter bar บนฐานราก" onClose={onClose}>
   <div className="ct-picker">
    {!list.length?<p className="notice">โครงการนี้ยังไม่มี Project Column Template · เพิ่มได้ที่ General Spec ของโครงการ → ปุ่ม “Project Column Template”</p>:<>
@@ -66,8 +74,9 @@ export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Sp
    <ScheduleGrid list={shown} input={base} rules={rules} id={id} row={k} onPick={(x,i)=>{setId(x);setRow(i<0?firstRow(list.find(y=>y.id===x)):i);}} bottom/>
    {t&&r&&<div className="ct-summary"><b>{target} ← {t.name} · {r.level}</b>
     <p>{type==='pedestal'?'เสาตอม่อ':'Starter bar'} · หน้าตัด {r.width} × {r.depth} · เหล็กยืน {mainText(r)}{type==='pedestal'?` · ปลอก ${templateBarName(r.tie.diameter)}@${r.tie.s2||r.tie.s1} (ระยะโซนปลายเสา S2)`:''}</p>
-    <p className="muted">จะเติมให้: ประเภท · Column no. = {t.name} · หน้าตัดสี่เหลี่ยม · {r.layout?'ตำแหน่งเหล็กยืนตามรูปในแบบ':'เหล็กมุม / ด้าน X / ด้าน Y'}{type==='pedestal'?' · เหล็กปลอก':''} · ค่าอื่น (ตำแหน่ง, ความสูงตอม่อ, ระยะโผล่, การฝัง, ปลายบน) คงเดิม{type==='starter'?' · Starter bar ไม่มีเหล็กปลอก':''}</p></div>}
-   <footer className="actions"><span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!t||!r} onClick={()=>{if(t){onApply(applyTemplateFooting(col,t,k,type));onClose();}}}>ใช้หน้าตัดนี้</button></footer></>}
+    <p className="muted">จะเติมให้: ประเภท · Column no. = {t.name} · หน้าตัดสี่เหลี่ยม · {r.layout?'ตำแหน่งเหล็กยืนตามรูปในแบบ':'เหล็กมุม / ด้าน X / ด้าน Y'}{type==='pedestal'?' · เหล็กปลอก':''} · ค่าอื่น (ตำแหน่ง, ความสูงตอม่อ, ระยะโผล่, การฝัง, ปลายบน) คงเดิม{type==='starter'?' · Starter bar ไม่มีเหล็กปลอกเหนือฐาน':''}</p></div>}
+   {t&&r&&<label className="check ct-etie"><input type="checkbox" checked={etOn} onChange={e=>setEtOver({...etOver,[pick]:e.target.checked})}/>ใส่เหล็กปลอกในฐานราก <span className="muted">{etOn&&preview?`${embedTieText(preview)} · ${embedTieFromLabel[preview.from]} · ปลอกชุดที่ 2 ตามรูปแบบหน้าตัด`:auto===undefined&&t.embedTie?.mode==='off'?'(Type นี้กำหนด “ไม่ใส่”)':''}</span></label>}
+   <footer className="actions"><span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!t||!r} onClick={()=>{if(t){onApply(build());onClose();}}}>ใช้หน้าตัดนี้</button></footer></>}
   </div>
  </Modal>;
 }

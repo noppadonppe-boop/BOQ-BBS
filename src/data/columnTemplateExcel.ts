@@ -4,7 +4,11 @@ import {columnTemplatesSchema,mainText,newTemplateRow,parseMain,parseTie,splitMa
 function download(blob:Blob,name:string){const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 // Project Column Template ⇄ Excel: one row per level of a column type, as on the column schedule
 // (main bars "32Y32", ties "5Y12@200(12@100)"); side bar counts may be left blank (split by the section sides).
-const head=['Type','Inner tie pattern','Note','Level (bottom → top)','First storey on footing (Y/N)','B (mm)','D (mm)','Storey height (mm, 0 = per column)','Beam depth (mm, 0 = per column)','Main bars (nYd)','Bars per corner (1-3)','Side bars per X face','Side bars per Y face','Side bars in pairs (Y/N)','Ties nYd@S1(d@S2)','Section as drawn (JSON: bar positions + inner ties)'];
+const head=['Type','Inner tie pattern','Note','Level (bottom → top)','First storey on footing (Y/N)','B (mm)','D (mm)','Storey height (mm, 0 = per column)','Beam depth (mm, 0 = per column)','Main bars (nYd)','Bars per corner (1-3)','Side bars per X face','Side bars per Y face','Side bars in pairs (Y/N)','Ties nYd@S1(d@S2)','Section as drawn (JSON: bar positions + inner ties)','Ties in footing (STD / NONE / Y12@500)'];
+// column 17 (first row of a type): STD / blank = General Spec standard, NONE = no ties in the footing, Y12@500 = own
+const embedTieCell=(t:ColumnTemplate)=>{const e=t.embedTie;return !e||e.mode==='std'?'STD':e.mode==='off'?'NONE':`Y${e.diameter}@${e.spacing}`;};
+function readEmbedTie(v:string):ColumnTemplate['embedTie']|null{const s=v.toUpperCase().replace(/\s/g,'');if(!s||s==='STD')return undefined;if(/^(NONE|NO|OFF|-|ไม่ใส่)$/.test(s))return {mode:'off',diameter:0,spacing:0};
+ const m=s.match(/^(?:Y|DB|RB|D|Ø)?(\d+)@(\d+)$/);return m?{mode:'own',diameter:+m[1],spacing:+m[2]}:null;}
 const yes=(v:unknown)=>/^(y|yes|true|1|ใช่)$/i.test(String(v??'').trim());
 const num=(v:unknown)=>{const n=Number(String(v??'').replace(/,/g,''));return Number.isFinite(n)?n:NaN;};
 const text=(v:unknown)=>{if(v&&typeof v==='object'&&'result'in v)return String((v as {result:unknown}).result??'');if(v&&typeof v==='object'&&'richText'in v)return (v as {richText:{text:string}[]}).richText.map(r=>r.text).join('');return String(v??'').trim();};
@@ -13,9 +17,9 @@ export async function exportColumnTemplates(list:ColumnTemplate[],name:string){
  const {default:ExcelJS}=await import('exceljs'),wb=new ExcelJS.Workbook();wb.creator='FORM BOQ & BBS';
  const ws=wb.addWorksheet('Column Templates'),info=wb.addWorksheet('Patterns');
  ws.addRow(head);
- for(const t of list)t.rows.forEach((r,k)=>ws.addRow([t.name,k?'':t.pattern,k?'':t.note,r.level,r.first?'Y':'N',r.width,r.depth,r.height,r.beamDepth,mainText(r).replace(/\/.*$/,''),r.main.corner.count,r.main.sideX.count,r.main.sideY.count,r.main.sideBundle===2?'Y':'N',tieText(r),r.layout?JSON.stringify(r.layout):'']));
+ for(const t of list)t.rows.forEach((r,k)=>ws.addRow([t.name,k?'':t.pattern,k?'':t.note,r.level,r.first?'Y':'N',r.width,r.depth,r.height,r.beamDepth,mainText(r).replace(/\/.*$/,''),r.main.corner.count,r.main.sideX.count,r.main.sideY.count,r.main.sideBundle===2?'Y':'N',tieText(r),r.layout?JSON.stringify(r.layout):'',k?'':embedTieCell(t)]));
  if(!list.length)ws.addRow(['C1','rectXY','fc\' 450 ksc','Footing → 2nd','Y',700,700,0,0,'32Y32',2,6,6,'N','5Y12@200(12@100)']);
- ws.views=[{state:'frozen',ySplit:1}];ws.columns.forEach((c,i)=>{c.width=[10,16,22,20,14,9,9,14,14,12,12,12,12,12,20,24][i];});
+ ws.views=[{state:'frozen',ySplit:1}];ws.columns.forEach((c,i)=>{c.width=[10,16,22,20,14,9,9,14,14,12,12,12,12,12,20,24,18][i];});
  ws.getRow(1).height=44;ws.getRow(1).eachCell(c=>{c.font={name:'Sarabun',bold:true,color:{argb:'FFFFFFFF'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF203940'}};c.alignment={wrapText:true,vertical:'middle'};});
  info.addRows([['Inner tie pattern id'],...tiePatterns.map(p=>[p])]);info.getColumn(1).width=20;
  const bytes=await wb.xlsx.writeBuffer();download(new Blob([bytes as BlobPart],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`${name}-column-templates.xlsx`);
@@ -31,7 +35,7 @@ export async function importColumnTemplates(file:File,current:ColumnTemplate[]):
   const c=(k:number)=>text(row.getCell(k+1).value),name=c(0).slice(0,40);if(!name)return;
   const key=name.toUpperCase(),old=current.find(t=>t.name.toUpperCase()===key);
   const t=map.get(key)??{id:old?.id||crypto.randomUUID().replace(/-/g,'').slice(0,12),name,note:'',pattern:'auto' as TiePattern,rows:[]};
-  if(!map.has(key)){const p=c(1);if(p&&!(tiePatterns as readonly string[]).includes(p))errors.push(`แถว ${i}: รูปแบบปลอกใน “${p}” ไม่รู้จัก`);else if(p)t.pattern=p as TiePattern;t.note=c(2).slice(0,300);map.set(key,t);}
+  if(!map.has(key)){const p=c(1);if(p&&!(tiePatterns as readonly string[]).includes(p))errors.push(`แถว ${i}: รูปแบบปลอกใน “${p}” ไม่รู้จัก`);else if(p)t.pattern=p as TiePattern;t.note=c(2).slice(0,300);const e=readEmbedTie(c(16));if(e===null)errors.push(`แถว ${i}: อ่านปลอกในฐาน “${c(16)}” ไม่ได้ (STD / NONE / Y12@500)`);else if(e)t.embedTie=e;map.set(key,t);}
   const main=parseMain(c(9)),tie=parseTie(c(14)),w=num(c(5)),d=num(c(6));
   if(!main)return void errors.push(`แถว ${i}: อ่านเหล็กยืน “${c(9)}” ไม่ได้ (เช่น 32Y32)`);
   if(!tie)return void errors.push(`แถว ${i}: อ่านเหล็กปลอก “${c(14)}” ไม่ได้ (เช่น 5Y12@200(12@100))`);

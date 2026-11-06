@@ -15,10 +15,12 @@ const step=(v:number,s=.05)=>Number((Math.round(v/s)*s).toFixed(2));
  * per-diameter lap lengths (FTL tension) from the f'c lap table of each bar's grade, main grade = project grade.
  * `member` = category / own mix: the spec's concrete mix of the member sets f'c (lap table) instead of the project f'c. */
 export function detailingFromSpec(spec:Spec,base:Detailing,member:{category?:string;mix?:string}={}):Detailing{
- const mix=concreteMixFor(spec.concrete,member.category,member.mix),{concrete:_c,slabAccessories:_a,...plain}=base;
+ const mix=concreteMixFor(spec.concrete,member.category,member.mix),{concrete:_c,slabAccessories:_a,embedTie:_e,...plain}=base;
  // slab chairs / spacers (BOQ items of slab floors) follow the spec; absent in the spec = no key (detailing unchanged)
  const acc=spec.slabAccessories&&member.category==='Slab'&&(spec.slabAccessories.chair.enabled||spec.slabAccessories.spacer.enabled)?{slabAccessories:spec.slabAccessories}:{};
- const withMix=(d:Detailing):Detailing=>({...(mix?{...d,concrete:{mix:mix.id,name:mix.name.slice(0,80),fc:mix.fc}}:d),...acc});
+ // ties round embedded column bars (footings): the spec standard, absent = no key
+ const et=spec.columnEmbedTie?{embedTie:{...spec.columnEmbedTie}}:{};
+ const withMix=(d:Detailing):Detailing=>({...(mix?{...d,concrete:{mix:mix.id,name:mix.name.slice(0,80),fc:mix.fc}}:d),...acc,...et});
  const code=spec.designCode,specRef=[specLabel(spec),mix?`${mix.name} f'c ${mix.fc} ksc`:''].filter(Boolean).join(' · ').slice(0,200);
  if(!tableCode(code)){const {lapTable:_l,...rest}=plain;return withMix({...rest,mainGrade:spec.projectDesign?designOf(spec).grade:base.mainGrade,specRef});}
  const v=codeValues(spec.codeData,code),fcs=[...new Set(Object.keys(v.lap).map(k=>Number(k.split('-')[0])).filter(Number.isFinite))];

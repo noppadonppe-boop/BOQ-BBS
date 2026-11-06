@@ -6,6 +6,7 @@ import {DEFAULT_ZONE_RULES,applyTemplateRow,fractionText,mainText,newTemplate,ne
 import {exportColumnTemplates,importColumnTemplates} from '../data/columnTemplateExcel';
 import {Modal,NumInput} from './EditorControls';
 import {TiePlan} from './ColumnTieEditor';
+import {EmbedTieStandardCard,TypeEmbedTieSelect} from './EmbedTieStandard';
 
 const diameters=[12,16,20,25,28,32,36,40];
 const tieDiameters=[9,10,12,16];
@@ -22,7 +23,7 @@ export function templatePreview(spec:Spec,t:ColumnTemplate,k:number){
 export function ColumnTemplateEditor({spec,readOnly,onChange,onSave,onClose,title}:{spec:Spec;readOnly:boolean;onChange:(next:Spec)=>void;onSave?:(next:Spec)=>void;onClose:()=>void;title:string}){
  const list=spec.columnTemplates||[],rules=zoneRulesOf(spec);
  // edits only change the draft spec: projects get the templates after the profile is saved
- const key=(x:Spec)=>JSON.stringify([x.columnTemplates||[],x.columnZoneRules||null]),[opened]=useState(()=>key(spec)),changed=key(spec)!==opened;
+ const key=(x:Spec)=>JSON.stringify([x.columnTemplates||[],x.columnZoneRules||null,x.columnEmbedTie||null]),[opened]=useState(()=>key(spec)),changed=key(spec)!==opened;
  const save=()=>{onSave?.(spec);onClose();};
  const close=()=>{if(!changed||!onSave||confirm('Template ยังไม่ได้บันทึก · โครงการจะยังไม่เห็น Template นี้จนกว่าจะกด “บันทึก Spec”\nปิดโดยไม่บันทึกตอนนี้? (ค่าที่แก้ยังอยู่ในฉบับร่างของหน้านี้)'))onClose();};
  const [sel,setSel]=useState(list[0]?.id||''),[filter,setFilter]=useState(''),[msg,setMsg]=useState(''),[err,setErr]=useState('');
@@ -61,6 +62,7 @@ export function ColumnTemplateEditor({spec,readOnly,onChange,onSave,onClose,titl
    <details className="ct-rules" open><summary>กฎโซนเหล็กปลอก (Typical detail column) · H = ความสูงชั้น − ความลึกคาน</summary>
     <table className="subbase-table"><thead><tr><th>ชั้น</th><th>โซนล่าง</th><th>โซนกลาง</th><th>โซนบน</th></tr></thead><tbody>{rulesRow('first','ชั้นแรก (บนฐานราก)')}{rulesRow('typical','ชั้นทั่วไป')}</tbody></table>
     <p className="muted">ค่าเริ่มต้นตามแบบ: ชั้นแรก H/3 · H/2 · H/6 · ชั้นทั่วไป H/6 · 2H/3 · H/6 · ความยาวโซนปัดขึ้นทีละ 50 mm {JSON.stringify(rules)!==JSON.stringify(DEFAULT_ZONE_RULES)&&<button type="button" disabled={readOnly} onClick={()=>setRules(DEFAULT_ZONE_RULES)}>คืนค่าตามแบบ</button>}</p></details>
+   <EmbedTieStandardCard spec={spec} readOnly={readOnly} onChange={onChange}/>
    <div className="ct-layout">
     <aside className="ct-list" aria-label="ประเภทเสา">
      {list.length>8&&<input placeholder="ค้นหา C1…" value={filter} onChange={e=>setFilter(e.target.value)}/>}
@@ -73,6 +75,7 @@ export function ColumnTemplateEditor({spec,readOnly,onChange,onSave,onClose,titl
       <div className="form-grid">
        <label className="field"><span>ประเภทเสา (Mark)</span><input maxLength={40} disabled={readOnly} value={t.name} onChange={e=>rename(e.target.value)}/></label>
        <label className="field"><span>รูปแบบปลอกใน (ชุดที่ 2)</span><select disabled={readOnly} value={t.pattern} onChange={e=>put(x=>{x.pattern=e.target.value as TiePattern;})}>{tiePatterns.map(p=><option key={p} value={p}>{tiePatternInfo[p].label}</option>)}</select></label>
+       <label className="field"><span>ปลอกในฐานราก (เสาตอม่อ / Starter)</span><TypeEmbedTieSelect type={t.embedTie} tieD={t.rows[0].tie.diameter} readOnly={readOnly} onChange={e=>put(x=>{if(e&&e.mode!=='std')x.embedTie=e;else delete x.embedTie;})}/></label>
        <label className="field full"><span>หมายเหตุ (คอนกรีต / เกรดเหล็ก ตามแบบ)</span><input maxLength={300} disabled={readOnly} value={t.note} placeholder="fc' 450 ksc · Y12–Y20 SD40 · Y25–Y32 SD50" onChange={e=>put(x=>{x.note=e.target.value;})}/></label>
       </div>
       <div className="actions"><button disabled={readOnly} onClick={()=>add(t)}><Copy size={14}/>ทำสำเนา</button><button className="danger-text" disabled={readOnly} onClick={remove}><Trash2 size={14}/>ลบ</button></div>

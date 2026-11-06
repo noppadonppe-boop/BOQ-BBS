@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {layoutBarCount,sectionLayoutSchema,tiePatterns,type ColumnInput,type ColumnStorey,type FootingColumn,type TiePattern} from './elementInput';
 import type {Spec} from './model';
+import {embedTieFromType,embedTieTypeSchema,type EmbedTieStandard} from './embedTie';
 
 // Project Column Template: the column schedule of a project (one entry per column mark, one row per level range
 // as on the drawings: section, main bars, ties nYd@S1(d@S2)). Kept in the spec (spec.columnTemplates) so a
@@ -26,6 +27,8 @@ export type ColumnTemplateRow=z.infer<typeof columnTemplateRowSchema>;
 export const columnTemplateSchema=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),name:z.string().trim().min(1).max(40),note:z.string().max(300),
  /** set-2 (inner tie) pattern of the section */
  pattern:z.enum(tiePatterns),
+ /** ties round the bars embedded in a footing (pedestal / starter of this type); absent = the General Spec standard */
+ embedTie:embedTieTypeSchema.optional(),
  /** rows bottom → top */
  rows:z.array(columnTemplateRowSchema).min(1).max(20)}).strict();
 export type ColumnTemplate=z.infer<typeof columnTemplateSchema>;
@@ -113,11 +116,25 @@ export function applyTemplateStack(i:ColumnInput,t:ColumnTemplate,rules:ColumnZo
 const withoutLayout=<T extends {layout?:unknown}>(m:T):Omit<T,'layout'>=>{const {layout:_,...rest}=m;return rest;};
 /** Pedestal / starter bar on a footing from row `k` of a template: rect section, column no. = template name, main bars;
  * pedestal ties at the end-zone spacing S2 (the pedestal is below the first storey). Position, height, embedment kept. */
-export function applyTemplateFooting(c:FootingColumn,t:ColumnTemplate,k:number,type:'pedestal'|'starter'):FootingColumn{
+export function applyTemplateFooting(c:FootingColumn,t:ColumnTemplate,k:number,type:'pedestal'|'starter',std?:EmbedTieStandard):FootingColumn{
  const r=t.rows[k];if(!r)return c;
- return {...structuredClone(c),type,columnNo:t.name.slice(0,50),shape:'rect',width:r.width,depth:r.depth,
+ // embedded ties follow the type (no General Spec standard and type “standard” → the column's own choice is kept)
+ const et=embedTieFromType(t.embedTie,r.tie.diameter,std),{embedTie:_e,...rest}=structuredClone(c);
+ return {...rest,...(et===null?(c.embedTie?{embedTie:{...c.embedTie}}:{}):et?{embedTie:et}:{}),template:{id:t.id,row:k},type,columnNo:t.name.slice(0,50),shape:'rect',width:r.width,depth:r.depth,
   main:{...withoutLayout(c.main),corner:{...r.main.corner},sideX:{...r.main.sideX},sideY:{...r.main.sideY},diameter:r.main.corner.diameter,count:templateMainCount(r),...(r.layout?{layout:structuredClone(r.layout)}:{})},
   tie:{diameter:r.tie.diameter,spacing:r.tie.s2||r.tie.s1,pattern:rowPattern(t,r)}};
+}
+/** Embedded ties of footing columns that follow their column type (`embedTie.link 'type'`), re-resolved after a spec change. */
+export function syncFootingEmbedTies<T extends {column:FootingColumn;extraColumns:(FootingColumn&{linked:boolean})[]}>(i:T,spec:Pick<Spec,'columnTemplates'|'columnEmbedTie'>):T{
+ const one=(c:FootingColumn):FootingColumn=>{
+  if(c.embedTie?.link!=='type'||!c.template)return c;
+  const t=spec.columnTemplates?.find(x=>x.id===c.template!.id),r=t?.rows[c.template.row];if(!t||!r)return c;
+  const et=embedTieFromType(t.embedTie,r.tie.diameter,spec.columnEmbedTie);if(et===null)return c;
+  if(et&&et.diameter===c.embedTie.diameter&&et.spacing===c.embedTie.spacing)return c;
+  const {embedTie:_e,...rest}=c;return et?{...rest,embedTie:et}:rest;
+ };
+ const column=one(i.column),extra=i.extraColumns.map(c=>c.linked?c:one(c) as typeof c);
+ return column===i.column&&extra.every((c,k)=>c===i.extraColumns[k])?i:{...i,column,extraColumns:extra};
 }
 /** Re-apply the linked template (spec change / template edit); unlinked or missing templates leave the input as is. */
 export function syncColumnTemplate(i:ColumnInput,spec:Pick<Spec,'columnTemplates'|'columnZoneRules'>):ColumnInput{
