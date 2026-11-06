@@ -22,7 +22,8 @@ export const sheetLayoutSchema=z.object({version:z.literal(1),sheets:sheetsOf(pl
 export type SheetLayout=z.infer<typeof sheetLayoutSchema>;
 
 /** Template roles: plan views / notes as is, sections by role (sec-x = X–X, sec-y = Y–Y, col-z = Z–Z, user-1 … = added cuts). */
-export const roleKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|revs|iso|schedule|legend|keyplan|stddet|sec-x|sec-y|col-z|user-[0-9]{1,2})$/,'role ไม่ถูกต้อง');
+/** Template roles: … `wall-…` = Wall Run views (`sec:wall-…`: elevations per storey group, details, section, opening detail). */
+export const roleKeySchema=z.string().regex(/^(plan|plan-bottom|plan-top|notes|revs|iso|schedule|legend|keyplan|stddet|sec-x|sec-y|col-z|user-[0-9]{1,2}|wall-[a-z0-9-]{1,20})$/,'role ไม่ถูกต้อง');
 export type RoleKey=z.infer<typeof roleKeySchema>;
 export const sheetTemplateSchema=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/),name:z.string().trim().min(1).max(80),category:z.string().min(1).max(40),
  match:z.object({foundationType:z.string().max(20).optional(),layout:z.string().max(20).optional()}).strict().optional(),size:z.enum(['A3','A2','A1']),

@@ -1,4 +1,6 @@
 import type {Bar,Member,Project,Vec3} from './model';
+import {isWallRunMember} from './wallRun';
+import {wallPagesOf,wallPaperOf,wallSheetArea,wallViewList,type WallBbsMode,type WallLabelMode} from './wallRunSheet';
 import {barPaths} from './engine';
 import {shapePileQuantities} from './shapeGeometry';
 import {shapeStageVolumes} from './shapeApply';
@@ -22,6 +24,7 @@ import {drawFloorPaper,floorColors,floorCtx,floorDetails,floorFocus,floorPaperSi
 export const SHEET={w:420,h:297,left:20,margin:10,strip:135,title:72,bbsRow:9,bbsHead:6,boqRow:4.4};
 /** Paper of a sheet (A3 / A2 landscape): same frame, text and tables; the views and the BBS table get the extra room. */
 export const sheetFormat=(s:Pick<SheetData,'project'|'member'>)=>{const setup=sheetSetupOf(s.project,s.member);
+ if(isWallRunMember(s.member)){const size=wallPaperOf(s.member);return {...SHEET,...sheetSizes[size],...setup,size,layout:'split' as const,split:true};}
  // slab floor (S2): views sheet(s) first then the BBS tables (split, plans bottom / top); paper A2 unless the member chooses
  // one (whole floor on A1 when its plan does not fit A2 at 1:100)
  if(floorCtx(s.member)){const size=s.member.drawingSetup?.sheetSize||floorPaperSize(s.member);return {...SHEET,...sheetSizes[size],...setup,size,layout:'split' as const,split:true};}
@@ -41,7 +44,9 @@ export type SheetData={member:Member;rows:SheetRow[];input?:ElementInput;project
  /** one sheet set of a custom element split per Tag (`tagSheets.ts`): a tag's bars, or the summary of the tags */
  scope?:SheetScope;
  /** slab floor sheet set (S2): one slab mark or the whole floor / several marks (grouped BBS + steel summary page) */
- floor?:FloorSet};
+ floor?:FloorSet;
+ /** Wall Run sheet options of this rendering (absent = member drawingSetup.wallBbs / wallLabels) */
+ wall?:{mode?:WallBbsMode;labels?:WallLabelMode}};
 type BoqLine={item:string;unit:string;each:number;total:number;bold?:boolean;count?:boolean};
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
 const fmt=(v:number,d=2)=>v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -87,7 +92,8 @@ function floorItems(s:SheetData):FloorTableItem<SheetRow>[]|undefined{
  return itemCache.get(s.rows)||undefined;
 }
 const floorTitleOf=(s:SheetData)=>{const fs=floorSetOf(s);return fs?floorTitle(s.member,fs.marks):undefined;};
-type SheetView={key:ViewKey;title:string;spec:ViewSpec;cuts?:{x:number;y:number};plan:boolean;sec?:SheetSection};
+type SheetView={key:ViewKey;title:string;spec:ViewSpec;cuts?:{x:number;y:number};plan:boolean;sec?:SheetSection;
+ /** Wall Run views: box size at a scale (Sheet Composer), paper view */ sizeAt?:(n:number)=>{w:number;h:number};paper?:boolean};
 const lying=(r:SheetRow)=>r.paths.some(p=>p.some((q,i)=>i>0&&Math.hypot(q[0]-p[i-1][0],q[1]-p[i-1][1])>=1));
 /** Title of a section view: the default X–X / Y–Y / Z–Z titles as before, added cuts by their label. */
 function sectionTitle(T:typeof sheetText['th'],lang:string,sec:SheetSection,colKind:'pedestal'|'starter'){
@@ -104,6 +110,7 @@ function sheetCuts(s:SheetData){
 /** Views of the sheet. `extras` = also the views only a composed layout places: ISO 3D (`iso`) and Detail views (`det:<id>`,
  * member.drawingEdits.details). Automatic sheets leave them out, so their drawing is unchanged. */
 export function sheetViews(s:SheetData,extras=true):SheetView[]{
+ if(isWallRunMember(s.member))return wallViewList(s.member,s.rows as never,{...s.wall,qty:s.quantity}).map(v=>({key:v.key,title:v.title,spec:{axes:[0,2] as [number,number]},plan:false,sizeAt:v.paper?()=>v.natural:v.size,paper:v.paper}));
  const S=sheetFormat(s),m=s.member,input=s.input,lang=sheetLangOf(s.project),T=sheetText[lang],{secs,cuts}=sheetCuts(s),colCut=columnSectionCut(input,s.rows),rep=S.bars==='representative';
  // slab floor (S2): plans of the bottom / top bars (grids, beams, other marks faded), sections through the representative panel,
  // one Detail view per opening (automatic, `det:op-<id>`, + the user's details)
@@ -155,10 +162,11 @@ function layout(s:SheetData){
  const fs=floorSetOf(s),viewsFirst=!!fs,sumPages=fs?.mode==='floor'&&s.scope?.kind!=='summary'?1:0,viewPages=custom?custom.sheets.length:groups.length;
  return {...base,split:true,tablePages,sumPages,viewPages,firstView:viewsFirst?0:tablePages,firstTable:viewsFirst?viewPages:0,groups:custom?[]:groups,tRow,tHead,tTop,tPer,custom,pages:tablePages+sumPages+viewPages};
 }
-export function sheetPageCount(s:SheetData){return layout(s).pages;}
+export function sheetPageCount(s:SheetData){return isWallRunMember(s.member)?wallPagesOf(s).length:layout(s).pages;}
 /** Page of a layout sheet (split layout: after the table pages; slab floors: the drawing sheets come first) and the drawing area / keep-out boxes of a view sheet. */
-export function layoutPage(s:SheetData,sheet:number){const L=layout(s);return (L.split?L.firstView:0)+sheet;}
+export function layoutPage(s:SheetData,sheet:number){if(isWallRunMember(s.member))return sheet;const L=layout(s);return (L.split?L.firstView:0)+sheet;}
 export function sheetArea(s:SheetData){
+ if(isWallRunMember(s.member)){const w=wallSheetArea(wallPaperOf(s.member));return {...w,split:true,notes:false};}
  const S=sheetFormat(s),L=layout(s),sx=S.w-S.margin-S.strip,area={x:S.left,y:S.margin,w:S.w-S.left-S.margin,h:S.h-2*S.margin},head={x:S.left,y:S.margin,w:area.w,h:15};
  return {area,keep:L.split?[head,{x:S.left,y:S.h-S.margin-12,w:area.w,h:12}]:[head,{x:sx,y:S.margin,w:S.w-S.margin-sx,h:S.h-2*S.margin}],split:L.split,notes:!L.split};
 }
@@ -175,6 +183,9 @@ export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page
 /** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */
 export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetViewScale[];views:SheetViewInfo[];notes?:{x:number;y:number;w:number;h:number};revs?:{x:number;y:number;w:number;h:number};
  /** slab floor paper views placed on this page */ paper?:{key:ViewKey;box:{x:number;y:number;w:number;h:number}}[];size:keyof typeof sheetSizes;w:number;h:number}{
+ // Wall Run (docs/WALL_RUN.md W1.1): drawing sheets of its layout + BBS pages from wallRunSheet.ts
+ if(isWallRunMember(s.member)){const ps=wallPagesOf(s),pg=ps[Math.min(page,ps.length-1)];
+  return {prims:pg.prims,scales:pg.views.map(v=>({title:v.title,n:v.n,fits:v.fits})),views:pg.views,paper:pg.paper||[],size:pg.size,w:pg.w,h:pg.h};}
  const S=sheetFormat(s),L=layout(s),{sx}=L,out:Prim[]=[],ink='#22393f',grid='#9fb2ad',k=.26,lang=sheetLangOf(s.project),T=sheetText[lang];
  // 'one' = views + tables; split layout: 'tables' sheets (BBS on the left) then 'views' sheets (views + title strip)
  const kind=!L.split?'one':page>=L.firstView&&page<L.firstView+L.viewPages?'views':'tables',right=S.w-S.margin,tp=page-L.firstTable,fset=floorSetOf(s);
