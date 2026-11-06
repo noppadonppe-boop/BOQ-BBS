@@ -81,7 +81,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const graphic=useMemo(()=>preview&&previewInput&&!('error' in preview)?<ElementGraphic member={preview.member} rows={preview.q.rows} input={previewInput}/>:null,[preview,previewInput]);
  if(!input)return <section className="panel padded element-input"><h3>ข้อมูลพื้นฐาน</h3><p className="notice">องค์ประกอบอื่น (Custom) ใช้เครื่องมือขั้นสูง “ชิ้นส่วน / ช่องเปิด” หรือหน้าตัดหลายเหลี่ยม และเพิ่มชุดเหล็กในแท็บ “แบบ & BBS”</p></section>;
 
- const set=(path:string,value:unknown)=>setInput(prev=>{const next=structuredClone(prev) as any,keys=path.split('.');let o=next;for(const k of keys.slice(0,-1))o=o[k];o[keys.at(-1)!]=value;return next;});
+ const set=(path:string,value:unknown)=>setInput(prev=>{const next=structuredClone(prev) as any,keys=path.split('.');let o=next;for(const k of keys.slice(0,-1))o=o[k];if(value===undefined)delete o[keys.at(-1)!];else o[keys.at(-1)!]=value;return next;});
  const get=(path:string):any=>path.split('.').reduce((o:any,k)=>o?.[k],input);
  const num=(label:string,path:string,unit='mm')=><Field key={path} label={`${label}${unit?` (${unit})`:''}`} type="number" value={get(path)} onChange={v=>set(path,/offset[XY]$/.test(path)?Number(v)||0:Math.max(0,Number(v)||0))} disabled={readOnly}/>;
  const dia=(label:string,path:string)=><label className="field" key={path}><span>{label}</span><select disabled={readOnly} value={get(path)} onChange={e=>set(path,Number(e.target.value))}>{[...new Set([...diameters,get(path)])].sort((a,b)=>a-b).map(d=><option key={d} value={d}>{d<=9?'RB':'DB'}{d}</option>)}</select></label>;
@@ -293,9 +293,9 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
         <td><NumInput aria-label={`เยื้อง Y เสา ${k+1}`} type="number" step={25} disabled={readOnly} value={c.offsetY} onChange={e=>off(k,'offsetY',Number(e.target.value))}/></td>
         {ped&&<td><small>{c.height}</small></td>}</tr>;})}</tbody></table>}</div>
      {n>1&&<h5 className="column-detail-title">รายละเอียด {sel===0?`${input.column.columnNo||'C1'} (ต้นแบบของเสาที่ติ๊ก “เหมือน C1”)`:footingColumnName(cols[sel],sel,true)}</h5>}
-     {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields} set={set}/>
+     {sel===0?<FootingColumnFields col={input.column} pedestal={ped} field={fields} set={set} readOnly={readOnly}/>
       :input.extraColumns[sel-1].linked?<p className="notice">ใช้หน้าตัด เหล็กยืน เหล็กปลอก และความสูงเดียวกับ C1 · เอาติ๊ก “เหมือน C1” ออกเพื่อกำหนดเอง</p>
-      :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`} set={set}/>}
+      :<FootingColumnFields col={cols[sel]} pedestal={ped} field={fields} base={`extraColumns.${sel-1}`} set={set} readOnly={readOnly}/>}
     </div>;})()}</>}
   {input.category==='Column'&&input.layout==='stack'&&<p className="muted">เสาหลายชั้น: เหล็กยืนและปลอกกำหนดต่อชั้นในตารางเสาด้านบน</p>}
   {input.category==='Column'&&input.layout!=='stack'&&<>{input.shape==='circle'?count('เหล็กยืน','rebar.main'):<ColumnMainFields input={input} dia={dia} int={(label,path,unit='เส้น')=><Field key={path} label={`${label} (${unit})`} type="number" value={get(path)} onChange={v=>set(path,Math.max(0,Math.min(200,Math.trunc(Number(v)||0))))} disabled={readOnly}/>} select={select} set={set}/>}
@@ -396,7 +396,7 @@ function ColumnPourFields({input,readOnly,edit}:{input:ColumnInput;readOnly:bool
  </div>;
 }
 type Fields={num:(label:string,path:string,unit?:string)=>ReactNode;dia:(label:string,path:string)=>ReactNode;select:(label:string,path:string,options:[string,string][],numeric?:boolean)=>ReactNode;spacing:(label:string,path:string)=>ReactNode;bend:(label:string,path:string,d:number)=>ReactNode;text:(label:string,path:string)=>ReactNode};
-function FootingColumnFields({col,pedestal,field:f,base:P='column',set}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string;set:(path:string,value:unknown)=>void}){
+function FootingColumnFields({col,pedestal,field:f,base:P='column',set,readOnly}:{col:FootingColumn;pedestal:boolean;field:Fields;base?:string;set:(path:string,value:unknown)=>void;readOnly?:boolean}){
  const kind=pedestal?'เสาตอม่อ':'Starter bar',cpl=col.splice?.type==='coupler',corners={rect:4,circle:0,L:6,U:8}[col.shape],bars=columnSectionPreview(col).bars,by=(k:string)=>bars.filter(b=>b.kind===k).length,name=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
  return <div className="footing-column">
   <div className="form-grid">{f.text(pedestal?'Column no. (เลขเสา)':'Column no. (เสาที่รับ Starter)',`${P}.columnNo`)}{f.select(pedestal?'หน้าตัดเสา':'หน้าตัดการวาง Starter bar',`${P}.shape`,[['rect','สี่เหลี่ยม'],['circle','กลม'],['L','ตัวแอล (L)'],['U','ตัวยู (U)']])}{f.num(`cover ${kind}`,`${P}.cover`)}</div>
@@ -419,6 +419,8 @@ function FootingColumnFields({col,pedestal,field:f,base:P='column',set}:{col:Foo
    {pedestal&&col.shape==='rect'&&<div className="form-grid">{f.select('ปลอกชุดที่ 2 (ปลอกใน / เหล็กรัดขวาง)',`${P}.tie.pattern`,tiePatterns.filter(p=>p!=='custom'||col.main.layout).map(p=>[p,tiePatternInfo[p].label] as [string,string]))}</div>}
    <h5>การฝังในฐานราก</h5>
    <div className="form-grid">{f.select('ระยะล้วงในฐาน',`${P}.embed.mode`,[['standard','ล้วงถึงตะแกรงเหล็กล่าง (มาตรฐาน)'],['custom','กำหนดระยะฝังเอง']])}{col.embed.mode==='custom'&&f.num('ระยะฝังจากผิวบนฐาน',`${P}.embed.depth`)}{f.bend('ปลายในฐาน','column',maxMainDiameter(col))}</div>
+   <label className="check" title="ปลอกรอบเหล็กยืนช่วงที่ฝังในฐานราก: จากเหนือขางอขึ้นไปถึงใต้ตะแกรงบน (≥ 100 mm จากผิวบนฐาน) ระยะห่างไม่เกินที่กำหนด"><input type="checkbox" disabled={readOnly} checked={!!col.embedTie} onChange={e=>set(`${P}.embedTie`,e.target.checked?{diameter:pedestal?col.tie.diameter:9,spacing:500}:undefined)}/>ใส่เหล็กปลอกในฐานราก (ช่วง{kind}ที่ฝังในฐาน)</label>
+   {col.embedTie&&f.spacing('ปลอกในฐาน (@ ไม่เกิน)',`${P}.embedTie`)}
   </div><ColumnSectionSketch col={col}/></div>
  </div>;
 }

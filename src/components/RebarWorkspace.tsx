@@ -272,6 +272,9 @@ function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;sp
    {r.purpose==='wall'&&<>{at('vert','เหล็กตั้ง')}{at('horz','เหล็กนอน')}<label className="field"><span>ชั้นเหล็ก</span><select disabled={readOnly} value={r.layers??2} onChange={e=>setR({...r,layers:Number(e.target.value) as 1|2})}><option value={2}>2 ชั้น (2 ผิว)</option><option value={1}>1 ชั้น (กลาง)</option></select></label><span/></>}
    {(r.purpose==='column'||r.purpose==='wall'||r.purpose==='beam')&&<>{num(r.purpose==='beam'?'ยื่นพ้นปลายคาน (mm)':'ยื่นพ้นหัว (mm)',r.ext||0,ext=>setR({...r,ext}))}<button type="button" className="link-button" disabled={readOnly} onClick={()=>setR({...r,ext:lap})}>= Lap {fmt(lap)}</button></>}
    {(r.purpose==='column'||r.purpose==='wall')&&<label className="check"><input type="checkbox" disabled={readOnly} checked={!!r.anchor} onChange={e=>setR({...r,anchor:e.target.checked})}/>ยึดลงชิ้นด้านล่าง (ขา 90°)</label>}
+   {r.purpose==='column'&&r.anchor&&(()=>{const ti=r.tieIn??(r.tie&&r.tie.s>0?{d:r.tie.d,s:300}:{d:r.tie?.d||9,s:0});return <>
+    <label className="check" title="ปลอกรอบเหล็กยืนช่วงที่ฝังในชิ้นด้านล่าง (ฐานราก): จากเหนือขางอถึงใต้ตะแกรงบน"><input type="checkbox" disabled={readOnly} checked={ti.s>0} onChange={e=>setR({...r,tieIn:{d:ti.d,s:e.target.checked?(ti.s||500):0}})}/>ใส่ปลอกในฐาน (ช่วงเหล็กยืนที่ฝัง)</label>
+    {ti.s>0?<>{dsel('ปลอกในฐาน ขนาด',ti.d,d=>setR({...r,tieIn:{...ti,d}}))}{num('ปลอกในฐาน @ ไม่เกิน (mm)',ti.s,s=>setR({...r,tieIn:{...ti,s:Math.max(50,s)}}),50)}</>:<span/>}</>;})()}
    {r.purpose!=='other'&&num(`Cover ชิ้นนี้ (≥ ${m.cover})`,r.cover??m.cover,c=>setR({...r,cover:Math.max(m.cover,c)}))}
   </div>
   {r.purpose==='other'?<p className="muted">ไม่มี Preset · ใช้ “วาดเหล็ก” ในมุมมอง (เหล็กที่วาดขณะโฟกัสชิ้นนี้จะย้ายตามชิ้น)</p>:null}

@@ -33,6 +33,8 @@ export const partRebarSchema=z.object({
  loopsJoined:z.boolean().optional(),
  vert:barAt.optional(),horz:barAt.optional(),layers:z.union([z.literal(1),z.literal(2)]).optional(),
  ext:mm.optional(),anchor:z.boolean().optional(),
+ /** column anchored in the part below: ties round the bars inside it (absent = tie size @300, s 0 = none) */
+ tieIn:barAt.optional(),
  /** preset bar sets taken over as drawn bars (key = id after `pp-<part>-`): no longer built from the preset */
  off:z.array(z.string().max(30)).max(40).optional(),
 }).strict();

@@ -84,6 +84,9 @@ const footingColumnSchema=z.object({
  /** pedestal ties: perimeter hoop + set-2 pattern (rect; 'custom' = ties of `main.layout`) at the same levels */
  tie:z.object({diameter:dia,spacing:mm,pattern:z.enum(tiePatterns).optional()}).strict(),
  embed:z.object({mode:z.enum(['standard','custom']),depth:mm}).strict(),
+ /** ties round the main bars inside the footing (pedestal or starter): from above the bent feet to under the top mesh,
+  * spacing ≤ `spacing` (roles `column-etie…`); absent = none */
+ embedTie:z.object({diameter:dia,spacing:mm}).strict().optional(),
  bend:bendMode,leg:mm,
  /** Top end of the main bars: lap (plain end) or a mechanical coupler at the end (top + projection); stagger > 0 moves
   * every second bar up by that much (50 % per level). */
@@ -1465,7 +1468,10 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  const cols=footingColumns(i),many=cols.length>1;
  for(const [ci,col] of cols.entries()){const sfx=ci?`-c${ci+1}`:'';
  const pedestal=col.type==='pedestal',name=many?footingColumnName(col,ci,true):col.columnNo?`${pedestal?'เสาตอม่อ':'Starter'} ${col.columnNo}`:pedestal?'เสาตอม่อ':'Starter bar';
- const {w,d:depth}=columnExtent(col),ox=(X-w)/2+col.offsetX,oy=(Y-depth)/2+col.offsetY,dt=pedestal?col.tie.diameter:0;
+ // ties in the footing: a starter's bars move in by the tie (as under a column hoop)
+ const et=col.embedTie&&col.embedTie.diameter>0&&col.embedTie.spacing>0?col.embedTie:undefined;
+ const {w,d:depth}=columnExtent(col),ox=(X-w)/2+col.offsetX,oy=(Y-depth)/2+col.offsetY,dt=pedestal?col.tie.diameter:et?.diameter||0;
+ let zFoot=-Infinity;
  const tp=pedestal&&col.shape==='rect'?col.tie.pattern??'none':'none';
  // with set-2 ties the bars sit where the column tie layout puts them (symmetric spacing)
  const all=columnBarPositions(col,col.cover+dt,tp!=='none').map(b=>({...b,x:ox+b.x,y:oy+b.y}));
@@ -1484,6 +1490,7 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
   const cx=ox+w/2,cy=oy+depth/2,dirOf=(b:ColumnBarPos):Pt=>{const dx=b.x-cx,dy=b.y-cy;if(b.kind==='sideX')return [0,Math.sign(dy)||1];if(b.kind==='sideY')return [Math.sign(dx)||1,0];if(b.kind==='corner')return [(Math.sign(dx)||1)/Math.SQRT2,(Math.sign(dy)||1)/Math.SQRT2];const l=Math.hypot(dx,dy)||1;return [dx/l,dy/l];};
   const room=inset(plan,c.side+dm/2),dirs=set.map(dirOf),fits=(len:number)=>set.every((b,k)=>pointInPolygon([b.x+dirs[k][0]*len,b.y+dirs[k][1]*len],room));
   let leg=want>rad*1.5?want:0;while(leg>0&&!fits(leg)){leg-=10;if(leg<=rad*1.5)leg=0;}
+  zFoot=Math.max(zFoot,zBend+(leg?rad+dm:dm/2));
   if(want>0&&!leg)warn(`${name} DB${dm}: พื้นที่ฐานรากไม่พอสำหรับขางอ ใช้เหล็กตรง`);
   else if(leg&&leg<want-.5)warn(`${name} DB${dm}: ขางอถูกจำกัดเป็น ${Math.round(leg)} mm ให้อยู่ในฐานราก`);
   // staggered couplers: every second bar (around the section) ends `stag` higher, as its own Mark
@@ -1498,6 +1505,16 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
  }
  const minGap=Math.min(Infinity,...all.flatMap((a,i)=>all.slice(i+1).map(b=>Math.hypot(a.x-b.x,a.y-b.y)-(a.d+b.d)/2)));
  if(minGap<-0.5)warn(`${name}: ตำแหน่งเหล็กยืนซ้อนกัน ลดจำนวนหรือขนาดเหล็ก`);
+ if(et){
+  // perimeter hoops round the bars inside the footing: inner face on the bars, from above the bent feet up to under the
+  // top mesh (≥ 100 below the footing top), spacing ≤ et.spacing
+  const de=et.diameter,erad=radius(de,det,true),tc=col.cover+dt-de/2,fTop=topAt(ox+w/2,oy+depth/2);
+  const under=c.top+(r.topX.enabled?r.topX.diameter:0)+(r.topY.enabled?r.topY.diameter:0)+de/2+10;
+  const ez=spread(zFoot+de/2+25,fTop-Math.max(100,under),et.spacing),ext=tieHook(de,det).ext;
+  if(!ez)warn(`${name}: ความลึกฐานไม่พอสำหรับปลอกในฐาน`);
+  else if(col.shape==='circle'){const Rt=col.diameter/2-tc,ctr=[ox+col.diameter/2,oy+col.diameter/2];out.push({role:'column-etie'+sfx,note:`ปลอกวงกลมในฐาน ${name} @ ≤ ${et.spacing} (ยาว = เส้นรอบวง + ขอ ${tieHook(de,det).angle}° 2 × ${Math.round(ext)} mm)`,diameter:de,grade:det.tieGrade,count:ez.count,points:Array.from({length:37},(_,k)=>[ctr[0]+Rt*Math.cos(2*Math.PI*k/36),ctr[1]+Rt*Math.sin(2*Math.PI*k/36),ez.from] as V3),axis:'Z',face:'side',radius:0,shapeCode:'99',distributionAxis:'Z',from:ez.from,to:ez.to,cut:roundUp(2*Math.PI*Rt+2*ext,rounding)});}
+  else columnBoxes(col).forEach((b,k,boxes)=>{const full=col.shape==='L'||col.shape==='U'?(k===0?{...b}:{...b,y0:0}):b;out.push({role:`column-etie-${k+1}${sfx}`,note:`ปลอกในฐาน ${name} @ ≤ ${et.spacing}${boxes.length>1?` · ${k===0?'ขาแนว X':`ขาแนว Y${boxes.length>2?` ${k}`:''}`}`:''}`,diameter:de,grade:det.tieGrade,count:ez.count,points:link(0,1,2,ox+full.x0+tc,ox+full.x1-tc,oy+full.y0+tc,oy+full.y1-tc,ez.from,det,erad,de),axis:'Z',face:'side',radius:erad,shapeCode:'99',distributionAxis:'Z',from:ez.from,to:ez.to});});
+ }
  if(pedestal){
   const ext=tieHook(dt,det).ext,trad=radius(dt,det,true),tc=col.cover+dt/2,tz=spread(T+50,top-col.cover-dt/2,col.tie.spacing);
   if(!tz)warn(`${name}: ความสูงไม่พอสำหรับเหล็กปลอก`);

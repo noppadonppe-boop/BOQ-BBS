@@ -105,6 +105,7 @@ export function layerDefs(input:ElementInput):Def[]{
      fields:()=>[...spacingF(`walls.${k}.dowels`),{k:'num',label:'ระยะทาบเหนือผิวฐาน (mm, 0 = ตามตาราง)',path:`walls.${k}.dowels.lap`}],remove:d=>{delete d.walls[k].dowels;},removeLabel:'ลบเหล็กผนังในฐาน'})),
     {key:'colMain',label:c.type==='starter'?`Starter bar${c.columnNo?` ${c.columnNo}`:''}`:`เหล็กยืนเสาตอม่อ${c.columnNo?` ${c.columnNo}`:''}`,present:c.type!=='none',match:roleIs('column-main'),fields:colMainF,remove:d=>{d.column.type='none';},removeLabel:'ลบเสาตอม่อ / Starter bar ทั้งชุด',adds:[['เพิ่ม Starter bar',d=>{d.column.type='starter';}],['เพิ่มเสาตอม่อ',d=>{d.column.type='pedestal';}]]},
     {key:'colTie',label:'เหล็กปลอกเสาตอม่อ',present:c.type==='pedestal',match:roleIs('column-tie'),fields:()=>spacingF('column.tie')},
+    {key:'colETie',label:'เหล็กปลอกในฐาน (เหล็กยืนที่ฝัง)',present:c.type!=='none'&&!!c.embedTie,match:roleIs('column-etie'),fields:()=>spacingF('column.embedTie'),remove:d=>{delete d.column.embedTie;},removeLabel:'ลบปลอกในฐาน',adds:c.type!=='none'?[['เพิ่มปลอกในฐาน',d=>{d.column.embedTie={diameter:c.type==='pedestal'?c.tie.diameter:9,spacing:500};}]]:undefined},
     {key:'pile',label:'เสาเข็ม',present:input.foundationType==='pile',match:()=>false,fields:pileF,remove:d=>{d.foundationType='spread';},removeLabel:'ลบเสาเข็ม (เปลี่ยนเป็นฐานแผ่)',adds:[['เพิ่มเสาเข็ม',d=>{d.foundationType='pile';}]]},
    ];}
   case 'Column':if(input.layout==='stack')return [];return [

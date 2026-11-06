@@ -23,7 +23,9 @@
   `column-main|tie` bars only), under the notes when they leave ≥ 48 mm, else beside section Y–Y. Test: `tmp/starterSheet.test.tsx`.
   Column / starter top end `column.splice` lap | coupler (+ `stagger`: every 2nd bar higher, own Mark `column-main…-cpl2`):
   BOQ items `gen-coupler-<d>` (siteWork, rebuilt on apply); sections draw a box at the bar end + "COUPLER", and
-  cover marks `C=…` (`buildView` → `covers`). Single columns: `rebar.top|bottom.mode = 'coupler'` (bar ends `lap` mm above
+  cover marks `C=…` (`buildView` → `covers`). Ties round the embedded pedestal / starter bars: `column.embedTie {diameter, spacing}`
+  (absent = none; roles `column-etie…`, above the bent feet to ≥ 100 under the footing top / under the top mesh; a starter's bars move in
+  by the tie); Custom column presets `part.rebar.tieIn` (absent = tie size @300 as before, s 0 = none). Test: `tmp/embedTie.test.ts`. Single columns: `rebar.top|bottom.mode = 'coupler'` (bar ends `lap` mm above
   the joint; top couplers counted as `gen-coupler-<d>`). Coupled bar ends for every graphic come from `barCouplerEnds()`
   (sections, BBS sketch, `Shape` thumbnail, 3D via `coupler3d.ts`). Test: `tmp/columnCoupler.test.tsx`.
 - Bar layer shapes (footing/slab mesh, beam top/bottom, wall vertical/horizontal): `shape` = BS 8666:2020 code from
