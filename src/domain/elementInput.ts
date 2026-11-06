@@ -8,6 +8,7 @@ import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
 import {slabAccessoriesSchema,slabFloorSchema} from './slabFloorSchema';
 import {applySlabFloor,retagPanels,slabFloorProblems} from './slabFloor';
+import {wallRunSchema} from './wallRunSchema';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
 // single per-category pattern; applyElementInput() converts it to the existing
@@ -491,6 +492,10 @@ const wallSchema=z.object({...base,category:z.literal('Wall'),
   opening:z.object({count:z.number().int().min(0).max(6),diameter:dia,ext:mm,diagonal:z.boolean()}).strict().optional()}).strict(),
  /** openings through the wall (x from the wall start, z from the wall bottom): concrete void, bars cut at the cover */
  openings:z.array(z.object({label:z.string().max(40),x:mm,z:mm,width:mm,height:mm}).strict()).max(20).optional(),
+ /** single (absent) = the straight wall above; run = Wall Run (`run`, docs/WALL_RUN.md): wall axis on plan over levels / pour
+  * lifts, wall type defaults; the fields above stay as the cover settings (length / thickness / height follow the run) */
+ layout:z.enum(['single','run']).optional(),
+ run:wallRunSchema.optional(),
 }).strict();
 export const elementInputUnion=z.discriminatedUnion('category',[foundationSchema,columnSchema,beamSchema,slabSchema,wallSchema]);
 export const elementInputSchema=z.preprocess(migrateElementInput,elementInputUnion);
