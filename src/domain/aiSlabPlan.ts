@@ -14,12 +14,11 @@ import type {DiffItem,FloorProposal,LayerRoles,ProposalBeam,ProposalColumn,Propo
 /** Project switch “อนุญาตส่งแบบให้ AI” (default off, admin only). */
 export const aiConsentSchema=z.object({enabled:z.boolean(),by:z.string().max(200),at:z.string().max(40)}).strict();
 export type AiConsent=z.infer<typeof aiConsentSchema>;
-/** One send to the AI (who, when, which file / page / window, provider, model, task). Last 200 kept on the project. */
+/** One send to the AI (who, when, which file / page / window, provider, model, task): `projects/{pid}/aiSendLog/{id}`, append-only. */
 export const aiSendLogEntrySchema=z.object({at:z.string().max(40),uid:z.string().max(128),email:z.string().max(200),task:z.enum(['slabPlan','slabSchedule']),
  attachmentId:z.string().max(80),fileName:z.string().max(250),page:z.number().int().min(1).max(9999),box:z.tuple([z.number(),z.number(),z.number(),z.number()]).optional(),
  views:z.number().int().min(0).max(20),provider:z.string().max(40),model:z.string().max(120),memberId:z.string().max(80).optional()}).strict();
 export type AiSendLogEntry=z.infer<typeof aiSendLogEntrySchema>;
-export const AI_LOG_KEEP=200;
 export const aiAllowed=(p:{aiConsent?:AiConsent|null})=>p.aiConsent?.enabled===true;
 
 // ---------------------------------------------------------------- the AI answer

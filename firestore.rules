@@ -1,8 +1,291 @@
 rules_version = '2';
+// FORM BOQ & BBS — Firestore rules (SEC1, docs/SECURITY_RULES.md).
+// Authority = the signed-in user's profile `my-boq-app/root/users/{email}` (status / roles / assignedProjects / projectRoles),
+// the same source the web commands check (`assignedRoles`, src/domain/authAccess.ts). MasterAdmin may do everything a client
+// command can do. Every request needs a signed-in, non-anonymous account with an email. Append-only records: create only.
+// APP root name: `my-boq-app` (VITE_APP_NAME default) — change APP() if the deployment uses another name.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+    function APP() { return 'my-boq-app'; }
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function userPath(email) { return /databases/$(database)/documents/$(APP())/root/users/$(email); }
+    function myPath() { return userPath(myEmail()); }
+    function me() { return get(myPath()).data; }
+    function hasProfile() { return signedIn() && exists(myPath()); }
+    function rolesOf(p) { return ('roles' in p && p.roles is list) ? p.roles : (('role' in p && p.role is string) ? [p.role] : []); }
+    function approved() { return hasProfile() && me().uid == request.auth.uid && me().status == 'approved'; }
+    function master() { return approved() && rolesOf(me()).hasAny(['MasterAdmin']); }
+    /** global admin (General Spec / templates / new projects): MasterAdmin, Admin, SuperAdmin or admin in the profile roles */
+    function globalAdmin() { return approved() && rolesOf(me()).hasAny(['MasterAdmin', 'Admin', 'SuperAdmin', 'admin']); }
+    function ALL() { return ['admin', 'qs', 'detailer', 'checker', 'approver', 'viewer']; }
+    function known() { return ['admin', 'qs', 'detailer', 'checker', 'approver', 'viewer', 'Admin', 'SuperAdmin']; }
+    function rawRolesP(p, pid) {
+      return ('projectRoles' in p && p.projectRoles is map && pid in p.projectRoles) ? p.projectRoles[pid] : rolesOf(p);
+    }
+    /** as `assignedRoles`: projectRoles[pid] when present, else the profile roles; Admin / SuperAdmin = admin; nothing known = viewer */
+    function normRoles(r) { return r.hasAny(known()) ? (r.hasAny(['Admin', 'SuperAdmin']) ? r.concat(['admin']) : r) : ['viewer']; }
+    /** the caller's effective roles in project pid ([] = none): evaluated once per rule */
+    function rolesIn(pid) {
+      let p = me();
+      return !(p.uid == request.auth.uid && p.status == 'approved') ? []
+        : rolesOf(p).hasAny(['MasterAdmin']) ? ALL()
+        : !(('assignedProjects' in p) && p.assignedProjects is list && pid in p.assignedProjects) ? []
+        : normRoles(rawRolesP(p, pid));
+    }
+    function member(pid) { return signedIn() && rolesIn(pid).size() > 0; }
+    function hasRole(pid, allowed) { return signedIn() && rolesIn(pid).hasAny(allowed); }
+    function writer(pid) { return member(pid); }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function adminKeys() { return ['acl', 'roleSets', 'aiConsent', 'deleted', 'code', 'name', 'location', 'owner', 'notes', 'contractor', 'subcontractor',
+      'logo', 'titleBlock', 'drawingProfile', 'disciplines', 'activeRuleSetId', 'restoreState', 'id', 'createdAt']; }
+    function qsKeys() { return ['locations', 'boqChapters', 'sheetTemplates', 'specChangeState', 'stockEpoch']; }
+    function anyKeys() { return ['version', 'historyEpoch', 'revisionCounter', 'engineeringFixtureEpoch', 'updatedAt']; }
+    /** project document: keys by role (every command bumps version; it never goes back); aiSendLog (old array) frozen */
+    function projectUpdate(r, k) {
+      return r.size() > 0
+        && (!('version' in request.resource.data) || !('version' in resource.data) || request.resource.data.version >= resource.data.version)
+        && (!k.hasAny(adminKeys()) || r.hasAny(['admin']))
+        && (!k.hasAny(qsKeys()) || r.hasAny(['admin', 'qs']))
+        && (!k.hasAny(['spec']) || r.hasAny(['admin', 'qs', 'approver']))
+        && k.hasOnly(anyKeys().concat(adminKeys()).concat(qsKeys()).concat(['spec']));
+    }
+    /** members: admin / QS anything; detailer the drawing only; checker / approver the review only */
+    function memberUpdate(r, k) {
+      return r.hasAny(['admin', 'qs'])
+        || (r.hasAny(['detailer']) && k.hasOnly(['sheetLayout', 'drawingEdits', 'version', 'updatedAt']))
+        || (r.hasAny(['checker', 'approver']) && k.hasOnly(['status', 'review', 'drawingSetup', 'version', 'updatedAt']));
+    }
+    function byMe() { return request.resource.data.uid == request.auth.uid; }
+
+    // ---------------------------------------------------------------- projects
+    match /projects/{pid} {
+      allow read: if member(pid);
+      // createProject: a global admin creates it with themself as its admin (own profile updated in the same transaction)
+      allow create: if globalAdmin() && request.resource.data.id == pid
+        && request.resource.data.acl[request.auth.uid] == 'admin' && request.resource.data.version == 1;
+      // keys by role (every command bumps version; it never goes back)
+      allow update: if signedIn() && projectUpdate(rolesIn(pid), changed());
+      allow delete: if false;   // soft delete only (deleteProject)
+
+      // operation receipts of every command (request-id idempotency): own, create only
+      match /operations/{id} {
+        allow read: if member(pid);
+        allow create: if writer(pid) && byMe();
+        allow update, delete: if false;
+      }
+      // append-only history
+      match /accessEvents/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin']) && request.resource.data.actorUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+      match /revisionEvents/{id} {
+        allow read: if member(pid);
+        allow create: if writer(pid);
+        allow update, delete: if false;
+      }
+      match /importedHistory/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin']);
+        allow update, delete: if false;
+      }
+      // S4b: each send of a drawing window to the AI — by the sender, only while the project allows it
+      match /aiSendLog/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin', 'qs', 'detailer']) && byMe()
+          && request.resource.data.email == myEmail()
+          && get(/databases/$(database)/documents/projects/$(pid)).data.get('aiConsent', {}).get('enabled', false) == true;
+        allow update, delete: if false;
+      }
+      // frozen revisions: written once
+      match /revisions/{id} {
+        allow read: if member(pid);
+        allow create: if writer(pid);
+        allow update, delete: if false;
+      }
+      match /revisionStates/{id} {
+        allow read: if member(pid);
+        allow create, update: if writer(pid);
+        allow delete: if false;
+      }
+      match /exportJobs/{id} {
+        allow read: if member(pid);
+        allow create, update: if writer(pid);
+        allow delete: if false;
+      }
+      match /members/{mid} {
+        allow read: if member(pid);
+        allow create, delete: if hasRole(pid, ['admin', 'qs']);
+        allow update: if signedIn() && memberUpdate(rolesIn(pid), changed());
+      }
+      match /attachments/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin', 'qs']);
+        allow delete: if false;   // sources are superseded, never removed
+      }
+      match /beamMarks/{id} {
+        allow read: if member(pid);
+        allow create, update, delete: if hasRole(pid, ['admin', 'qs', 'detailer']);
+      }
+      match /specChangeJobs/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin', 'qs']);
+        allow delete: if false;
+      }
+      match /restoreJobs/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin']);
+        allow delete: if false;
+      }
+      match /submissionJobs/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin', 'qs', 'approver']);
+        allow delete: if false;
+      }
+      match /submissionNumbers/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin', 'qs']);
+        allow update, delete: if false;
+      }
+      match /stock/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin', 'qs']);
+        allow delete: if false;
+      }
+      match /cutPlans/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin', 'qs']);
+        allow delete: if false;
+      }
+      match /stockLedger/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin', 'qs']);
+        allow update, delete: if false;
+      }
+      match /engineeringFixtures/{id} {
+        allow read: if member(pid);
+        allow create, update: if hasRole(pid, ['admin', 'qs']);
+        allow delete: if false;
+      }
+      match /engineeringFixtureRuns/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin', 'qs', 'checker', 'approver']);
+        allow update, delete: if false;
+      }
+      match /code99Reviews/{id} {
+        allow read: if member(pid);
+        allow create: if hasRole(pid, ['admin', 'qs', 'checker', 'approver']);
+        allow update, delete: if false;
+      }
+      // any other project record: members read, admin / QS write, never deleted (named collections above keep their own rules)
+      match /{coll}/{id} {
+        allow read: if member(pid);
+        allow create, update: if !(coll in ['operations', 'accessEvents', 'revisionEvents', 'importedHistory', 'aiSendLog', 'revisions', 'revisionStates',
+            'exportJobs', 'members', 'attachments', 'beamMarks', 'specChangeJobs', 'restoreJobs', 'submissionJobs', 'submissionNumbers', 'stock', 'cutPlans',
+            'stockLedger', 'engineeringFixtures', 'engineeringFixtureRuns', 'code99Reviews']) && hasRole(pid, ['admin', 'qs']);
+        allow delete: if false;
+      }
+    }
+
+    // ---------------------------------------------------------------- workspace root
+    match /my-boq-app/root {
+      // profiles: own (registration / own names), MasterAdmin (approval / roles), a project admin (that project's entry only)
+      match /users/{email} {
+        allow read: if signedIn() && (email == myEmail() || master());
+        // registration: own e-mail and uid, pending Staff — or the very first account (no appMeta yet) as the approved MasterAdmin
+        allow create: if signedIn() && email == myEmail() && byMe() && request.resource.data.email == myEmail()
+          && request.resource.data.assignedProjects.size() == 0
+          && ((request.resource.data.status == 'pending' && request.resource.data.roles == ['Staff'] && request.resource.data.isFirstUser == false)
+              || (request.resource.data.status == 'approved' && request.resource.data.roles == ['MasterAdmin'] && request.resource.data.isFirstUser == true
+                  && !exists(/databases/$(database)/documents/my-boq-app/root/appMeta/config)
+                  && getAfter(/databases/$(database)/documents/my-boq-app/root/appMeta/config).data.firstUid == request.auth.uid));
+        allow update: if master()
+          // own optional fields
+          || (signedIn() && email == myEmail() && resource.data.uid == request.auth.uid
+              && changed().hasOnly(['firstName', 'lastName', 'position', 'department', 'photoURL', 'profileVersion', 'updatedAt']))
+          // own new project (createProject): the project is created in the same transaction with me as its admin
+          || (signedIn() && email == myEmail() && resource.data.uid == request.auth.uid && approved() && globalAdmin()
+              && changed().hasOnly(['assignedProjects', 'projectRoles', 'profileVersion', 'updatedAt', 'accessChange'])
+              && request.resource.data.accessChange.kind == 'CreateProject'
+              && !exists(/databases/$(database)/documents/projects/$(request.resource.data.accessChange.projectId))
+              && getAfter(/databases/$(database)/documents/projects/$(request.resource.data.accessChange.projectId)).data.acl[request.auth.uid] == 'admin'
+              && request.resource.data.projectRoles.diff(resource.data.projectRoles).affectedKeys().hasOnly([request.resource.data.accessChange.projectId]))
+          // a project admin sets / removes this user's role in that project only
+          || (approved() && changed().hasOnly(['assignedProjects', 'projectRoles', 'profileVersion', 'updatedAt', 'accessChange'])
+              && hasRole(request.resource.data.accessChange.projectId, ['admin'])
+              && request.resource.data.projectRoles.diff(resource.data.projectRoles).affectedKeys().hasOnly([request.resource.data.accessChange.projectId])
+              && request.resource.data.assignedProjects.toSet().difference(resource.data.assignedProjects.toSet()).hasOnly([request.resource.data.accessChange.projectId])
+              && resource.data.assignedProjects.toSet().difference(request.resource.data.assignedProjects.toSet()).hasOnly([request.resource.data.accessChange.projectId]));
+        allow delete: if false;
+      }
+      // public directory (names / status for the team lists): approved users read; own entry follows the own profile
+      match /directory/{uid} {
+        allow read: if approved() || (signedIn() && uid == request.auth.uid);
+        allow create, update: if master()
+          || (signedIn() && uid == request.auth.uid && request.resource.data.uid == request.auth.uid
+              && request.resource.data.status == getAfter(myPath()).data.status)
+          || (approved() && resource != null && changed().hasOnly(['profileVersion']));
+        allow delete: if false;
+      }
+      match /directoryEmails/{email} {
+        allow read: if approved() || (signedIn() && email == myEmail());
+        allow create, update: if signedIn() && email == myEmail() && request.resource.data.uid == request.auth.uid;
+        allow delete: if false;
+      }
+      // first-user marker + registration counter (+1 per new profile in the same transaction)
+      match /appMeta/config {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.totalUsers == 1 && !exists(myPath()) && existsAfter(myPath());
+        allow update: if signedIn() && !exists(myPath()) && existsAfter(myPath())
+          && request.resource.data.totalUsers == resource.data.get('totalUsers', 0) + 1
+          && changed().hasOnly(['totalUsers', 'firstUserRegistered', 'firstUid', 'createdAt'])
+          && request.resource.data.firstUid == resource.data.get('firstUid', '');
+        allow delete: if false;
+      }
+      match /profileOperations/{id} {
+        allow read: if signedIn() && (resource.data.uid == request.auth.uid || master());
+        allow create: if approved() && byMe();
+        allow update, delete: if false;
+      }
+      match /activityLogs/{id} {
+        allow read: if master();
+        allow create: if signedIn() && byMe();
+        allow update, delete: if false;
+      }
+      // AI provider settings: no secret here (hasApiKey flag only) — every approved user reads the active provider, MasterAdmin writes
+      match /apiProviders/{doc} {
+        allow read: if approved();
+        allow write: if master();
+      }
+      // API keys: never readable by any client; MasterAdmin writes; the gateway reads with the Admin SDK
+      match /apiProviderSecrets/{provider} {
+        allow read: if false;
+        allow create, update: if master();
+        allow delete: if false;
+      }
+      match /apiProviderOperations/{id} {
+        allow read: if master();
+        allow create: if master() && byMe();
+        allow update, delete: if false;
+      }
+      // workspace General Spec profiles / element templates: everyone approved reads, global admins write
+      match /specProfiles/{id} {
+        allow read: if approved();
+        allow create, update: if globalAdmin();
+        allow delete: if master();
+        match /{sub=**} {
+          allow read: if approved();
+          allow write: if globalAdmin();
+        }
+      }
+      match /elementTemplates/{id} {
+        allow read: if approved();
+        allow create, update, delete: if globalAdmin();
+      }
     }
   }
 }

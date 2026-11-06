@@ -1,9 +1,10 @@
 import {z} from 'zod';
-import {AI_LOG_KEEP,aiSendLogEntrySchema} from '../../domain/aiSlabPlan';
-import {encode,must,now,projectRef,projectTransaction} from './common';
+import {aiSendLogEntrySchema} from '../../domain/aiSlabPlan';
+import {encode,must,now,projectRef,projectTransaction,recordRef} from './common';
 
-// S4b: project switch “อนุญาตส่งแบบให้ AI” (admin only, default off; project version + 1) and the send log (every send of
-// a drawing window to the AI gateway; editors; last 200 kept; no version bump so open project forms stay valid).
+// S4b: project switch “อนุญาตส่งแบบให้ AI” (admin only, default off; project version + 1) and the send log — one append-only
+// record per send in `projects/{pid}/aiSendLog/{requestId}` (SEC1: rules allow create by the sender only, never edit /
+// delete; no project version bump so open project forms stay valid).
 export async function setDirectAiConsent(pid:string,data:Record<string,any>,id:string){
  const enabled=z.boolean().parse(data.enabled);
  return projectTransaction('setAiConsent',pid,data,id,['admin'],async(tx,p,u)=>{
@@ -15,7 +16,7 @@ export async function logDirectAiSend(pid:string,data:Record<string,any>,id:stri
  const e=aiSendLogEntrySchema.omit({at:true,uid:true,email:true}).parse(data.entry);
  return projectTransaction('logAiSend',pid,data,id,['admin','qs','detailer'],async(tx,p,u)=>{
   must(p.aiConsent?.enabled===true,'โครงการนี้ยังไม่อนุญาตส่งแบบให้ AI (ผู้ดูแลโครงการเปิดได้ที่ ตั้งค่าโครงการ)','permission-denied');
-  const entry={...e,at:now(),uid:u.uid,email:u.email};
-  tx.update(projectRef(pid),encode({aiSendLog:[...(p.aiSendLog||[]),entry].slice(-AI_LOG_KEEP)}));return {logged:true,at:entry.at};
+  const entry={...e,at:now(),uid:u.uid,email:u.email.toLowerCase()};
+  tx.set(recordRef(pid,'aiSendLog',id),encode({id,...entry}));return {logged:true,at:entry.at};
  });
 }

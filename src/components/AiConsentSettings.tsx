@@ -1,11 +1,15 @@
+import {useEffect,useState} from 'react';
 import type {Project} from '../domain/model';
+import type {AiSendLogEntry} from '../domain/aiSlabPlan';
+import {readAiSendLog} from '../data/aiSendLog';
 import {aiAllowed} from '../domain/aiSlabPlan';
 import {command} from '../data/firebase';
 import {HelpButton} from './HelpCenter';
 
 // S4b: project switch “อนุญาตส่งแบบให้ AI” (admin only, default off) + the last sends (who, when, file, page, provider).
 export function AiConsentSettings({project,canAdmin,run}:{project:Project;canAdmin:boolean;run:(fn:()=>Promise<void>,done?:string)=>void}){
- const on=aiAllowed(project),log=[...(project.aiSendLog||[])].reverse().slice(0,20);
+ const on=aiAllowed(project),[log,setLog]=useState<AiSendLogEntry[]>([]);
+ useEffect(()=>{let live=true;readAiSendLog(project.id).then(l=>{if(live)setLog(l);}).catch(()=>{});return ()=>{live=false;};},[project.id,project.version]);
  return <section className="ai-consent"><h4>การส่งแบบให้ AI <HelpButton topic="slab-floor-pdf-ai"/></h4>
   <label className="check"><input type="checkbox" checked={on} disabled={!canAdmin} onChange={e=>{const enabled=e.target.checked;run(async()=>{await command('setAiConsent',project.id,{enabled,version:project.version});},enabled?'อนุญาตส่งแบบให้ AI แล้ว':'ปิดการส่งแบบให้ AI แล้ว');}}/>
    อนุญาตส่งแบบให้ AI (ผู้ให้บริการภายนอกตามหน้า “จัดการ API”)</label>

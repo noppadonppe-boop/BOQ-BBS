@@ -102,12 +102,14 @@ describe('S4b consent, send log, gateway call',()=>{
   store.set(userDocPath('u1@test.local'),{uid:'u1',email:'u1@test.local',firstName:'U',lastName:'1',status:'approved',roles:['Staff'],assignedProjects:['p1'],projectRoles:{p1:[role]},profileVersion:1});
   store.set('projects/p1',encodeStorage({...base(over),code:'P1',name:'P1',acl:{u1:role},titleBlock:{company:'',drawnBy:'',checkedBy:'',drawingPrefix:''}}));};
  const project=()=>decodeStorage(store.get('projects/p1')) as Project;
- it('setAiConsent: admin only (version + 1); logAiSend: refused while off, kept on the project when on (last 200, no version bump)',async()=>{
+ it('setAiConsent: admin only (version + 1); logAiSend: refused while off, one record per send when on (no version bump)',async()=>{
   seed('qs');await expect(setDirectAiConsent('p1',{enabled:true,version:3},'r1')).rejects.toThrow(/สิทธิ์/);
   await expect(logDirectAiSend('p1',{entry:{task:'slabPlan',attachmentId:'pdf1',fileName:'plan.pdf',page:1,views:7,provider:'anthropic',model:'m1'}},'r2')).rejects.toThrow(/ยังไม่อนุญาต/);
   seed('admin');await setDirectAiConsent('p1',{enabled:true,version:3},'r3');expect(project()).toMatchObject({aiConsent:{enabled:true,by:'u1@test.local'},version:4});
   for(let i=0;i<203;i++)await logDirectAiSend('p1',{entry:{task:'slabPlan',attachmentId:'pdf1',fileName:'plan.pdf',page:1,views:7,provider:'anthropic',model:'m1'}},`l${i}`);
-  const p=project();expect(p.version).toBe(4);expect(p.aiSendLog).toHaveLength(200);expect(p.aiSendLog![0]).toMatchObject({uid:'u1',email:'u1@test.local',task:'slabPlan',fileName:'plan.pdf',provider:'anthropic'});
+  // one append-only record per send (projects/{pid}/aiSendLog/{requestId}); the project is not touched
+  const logs=[...store.keys()].filter(k=>k.startsWith('projects/p1/aiSendLog/'));expect(logs).toHaveLength(203);expect(project().version).toBe(4);
+  expect(decodeStorage(store.get('projects/p1/aiSendLog/l0'))).toMatchObject({id:'l0',uid:'u1',email:'u1@test.local',task:'slabPlan',fileName:'plan.pdf',provider:'anthropic'});
   await setDirectAiConsent('p1',{enabled:false,version:4},'r4');expect(project().aiConsent?.enabled).toBe(false);
  });
 });
