@@ -106,7 +106,8 @@ anyone under the old rules. Now:
    permission prompt for Storage).
 4. **Move the keys** (either):
    - in the app: MasterAdmin › จัดการ API › banner “API Key ยังเก็บในที่ที่เว็บอ่านได้” › **ย้าย API Key ไปที่เก็บลับ**; or
-   - with the Admin SDK: `node tools/security/migrateApiKeys.mjs --project my-boq-app` (`--dry-run` first).
+   - with the Admin SDK: `node tools/security/migrateApiKeys.mjs --project my-boq-app` (dry run by default), then
+     `… --apply --backup <folder outside the repo>` (rollback: `tools/security/restoreBackup.mjs`).
 5. **Deploy the gateway**: `firebase deploy --only functions:analyseDrawing --project my-boq-app` (reads the secrets).
 6. **Rotate every AI key at the provider** (OpenAI / Anthropic / Google) — the old keys may already have been read while the
    config was public — and save the new keys in “จัดการ API”.
@@ -185,7 +186,8 @@ Changes to the rules (on top of SEC1):
 3. **Move the AI keys** (SEC1 step 4) if not done yet.
 4. **Move the old project templates** (either):
    - in the app: MasterAdmin › จัดการผู้ใช้งาน › “ย้าย Template เดิม (เฉพาะโครงการ) เข้าโครงการ” › **ตรวจก่อนย้าย** › **ย้ายเข้าโครงการ**; or
-   - with the Admin SDK: `node tools/security/migrateElementTemplates.mjs --project my-boq-app` (`--dry-run` first).
+   - with the Admin SDK: `node tools/security/migrateElementTemplates.mjs --project my-boq-app` (dry run by default), then
+     `… --apply --backup <folder>` (rollback: `tools/security/restoreBackup.mjs`; emulator check `tools/security/migrationCheck.emu.mjs`).
    Both are idempotent (a copy already there with the same or a newer version is skipped) and delete the originals only after
    every copy exists; run again after an interruption.
 5. **Functions** (SEC1 step 5, the gateway) — no T1 change in functions.

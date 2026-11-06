@@ -1,0 +1,2 @@
+{"firestore":{},
+ "emulators":{"firestore":{"port":8489},"hub":{"port":4489},"logging":{"port":4589},"eventarc":{"port":9389},"ui":{"enabled":false},"singleProjectMode":true}}
