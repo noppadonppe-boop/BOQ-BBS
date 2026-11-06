@@ -200,7 +200,10 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    const {lay,ox,oy}=boxColumnTieLayout({x0:b.x0,x1:b.x1,y0:b.y0,y1:b.y1,cx0:fc.x0+dCol-d,cx1:fc.x1+dCol-d,cy0:fc.y0+dCol-d,cy1:fc.y1+dCol-d,tieD:d,mainD:M.d,nx:M.nx,ny:M.ny,layout:lay0},tp,det);
    innerTieBars(lay,levels,ox,oy,d,det,key,label,s,t=>notes.push(`${p.label}: ${t}`)).forEach(g=>out.push(bar(g.role,{d,tie:true,points:g.points as Vec3[],code:'99',axis:'Z',radius:g.radius,offsets:g.offsets as Vec3[],note:g.note})));};
   const sup=r.anchor?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover,base=sup?Math.max(b.z0,sup.c.z1):b.z0;
-  const zb=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+fc.bottom+M.d/2;
+  // embedment in the support: standard = down onto its bottom mesh; custom = `embed.depth` below its top (never past the mesh)
+  const zMesh=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+fc.bottom+M.d/2;
+  let zb=zMesh;
+  if(sup&&r.embed?.mode==='custom'&&r.embed.depth>0){zb=base-r.embed.depth;if(zb<zMesh){notes.push(`${p.label}: ระยะฝัง ${Math.round(r.embed.depth)} ลึกเกินตะแกรงล่าง ใช้ระดับบนตะแกรงแทน`);zb=zMesh;}}
   const foot=sup?Math.min(hookDevLength(det,M.d),det.hook90*M.d+sketchRadius(M.d)):0;
   const pos:{p:P2;n:P2}[]=[];
   if(p.shape==='circle'&&p.inner===0){const R=p.diameter/2-a,n=Math.max(4,M.nx);for(let k=0;k<n;k++){const t=2*Math.PI*k/n,u:P2=[Math.cos(t),Math.sin(t)];pos.push({p:[p.cx+u[0]*R,p.cy+u[1]*R],n:u});}}
@@ -223,7 +226,7 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    const first=pos[0],pts=tpl(first),pivot=pts.at(-1)!,ang=(n:P2)=>Math.atan2(n[1],n[0]);
    const turns=pos.map(q=>{let t=(ang(q.n)-ang(first.n))*180/Math.PI;if(t>180)t-=360;if(t<-180)t+=360;return Math.round(t*1000)/1000;});
    out.push(bar('main',{d:M.d,points:pts,code:pts.length>2?'11':'00',axis:'Z',offsets:pos.map(q=>[q.p[0]-pivot[0],q.p[1]-pivot[1],0] as Vec3),turns,
-    note:`เหล็กยืน ${pos.length}-DB${M.d}${room>2*M.d?` · ขา 90° ${Math.round(room)} ในฐาน`:''}${r.ext?` · ยื่นพ้นหัว ${Math.round(r.ext)} (ต่อทาบ)`:''}`}));
+    note:`เหล็กยืน ${pos.length}-DB${M.d}${sup&&r.embed?.mode==='custom'?` · ฝัง ${Math.round(base-zb)} (กำหนดเอง)`:''}${room>2*M.d?` · ขา 90° ${Math.round(room)} ในฐาน`:''}${r.ext?` · ยื่นพ้นหัว ${Math.round(r.ext)} (ต่อทาบ)`:''}`}));
    if(T&&T.s>0&&boxy){const rad=bendRadius(dt,det,true),z0=base+(sup?50:Math.max(50,fc.bottom+dt/2)),z1=tieTop,lk=(z:number)=>closedLink(0,1,2,b.x0+fc.x0+dt/2,b.x1-fc.x1-dt/2,b.y0+fc.y0+dt/2,b.y1-fc.y1-dt/2,z,det,rad,dt);
     if(!ref)out.push(bar('tie',{d:dt,tie:true,points:lk(z0),code:'99',axis:'Z',radius:rad,dist:{axis:2,from:z0,to:z1,spacing:T.s},note:`ปลอก RB/DB${dt} @${T.s}`}));
     // set 2 of the section pattern (from a column type): just above each hoop, below it at the top level

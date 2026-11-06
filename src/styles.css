@@ -656,3 +656,4 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .part-type-state{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.part-type-state .chip{background:var(--brand-soft,#e6f1fb);color:var(--brand,#185fa5);border-radius:var(--r);padding:2px 8px;font-size:12px}
 .part-bulk{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
 .part-type-pick{display:flex;gap:10px;align-items:center}.part-type-pick>div{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.part-tiein h5+p{margin-top:0}.part-tiein .form-grid+p+h5{margin-top:12px}

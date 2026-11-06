@@ -452,6 +452,8 @@ function PartTieInFields({part,m,r,det,spec,readOnly,setR:put}:{part:ShapePart;m
  // a choice here asks for the ties: preset keys switched off by “แยกจาก Preset” (outer hoop / set 2) come back
  const setR=(x:PartRebar)=>{const y={...x};restoreTieKeys(y);put(y);},off=offTieKeys(r);
  const ES=det.embedTie,st=partTieInState(r,det),host=m.shapeModel?hostOf(m.shapeModel,part):undefined,t=r.template&&spec.columnTemplates?.find(x=>x.id===r.template!.id);
+ // depth down to the support's bottom mesh (the standard embedment), for the custom default and the hint
+ const embedDefault=host?Math.round(Math.max(host.c.z1,partBox(part).z0)-(host.c.z0+(host.q.rebar?.cover??m.cover)+2*(host.q.rebar?.meshB?.d||16)+(r.main?.d||16)/2)):0;
  const tz=r.tieIn?.ties?{ties:r.tieIn.ties}:{};
  const set=(mode:string)=>{
   if(mode==='off'){setR({...r,tieIn:{d:st.d,s:0}});return;}
@@ -460,8 +462,15 @@ function PartTieInFields({part,m,r,det,spec,readOnly,setR:put}:{part:ShapePart;m
   setR({...r,anchor:true,tieIn});};
  const boxy=part.shape==='box'||part.shape==='polygon';
  return <div className="part-tiein full">
-  <h5>เหล็กปลอกในฐานราก (ช่วงเหล็กยืนที่ฝังในชิ้นด้านล่าง)</h5>
+  <h5>การฝังในฐานราก (เหล็กยืน / Starter bar)</h5>
   <p className="muted">ชิ้นด้านล่าง: {host?<b>{host.q.tag?`${host.q.tag} · `:''}{host.q.label}</b>:'ไม่พบ (ต้องวางบน / ในชิ้นฐาน)'}</p>
+  <div className="form-grid">
+   <label className="field"><span>ระยะล้วงในฐาน</span><select disabled={readOnly} value={r.embed?.mode??'standard'} onChange={e=>{const v=e.target.value;if(v==='standard'){const {embed:_,...rest}=r;put({...rest,anchor:true});}else put({...r,anchor:true,embed:{mode:'custom',depth:r.embed?.depth||embedDefault}});}}>
+    <option value="standard">ล้วงถึงตะแกรงเหล็กล่าง (มาตรฐาน)</option><option value="custom">กำหนดระยะฝังเอง</option></select></label>
+   {r.embed?.mode==='custom'?<Field label="ระยะฝังจากผิวบนฐาน (mm)" type="number" disabled={readOnly} value={r.embed.depth} onChange={x=>put({...r,anchor:true,embed:{mode:'custom',depth:Math.max(0,Math.round(Number(x)||0))}})}/>:<span/>}
+  </div>
+  <p className="muted">{host?r.embed?.mode==='custom'?`ฝัง ${r.embed.depth} mm จากผิวบน ${host.q.label}${r.embed.depth>=embedDefault?' · ลึกเกินตะแกรงล่าง ใช้ระดับบนตะแกรงแทน':''} · ขางอ 90° ที่ปลายล่าง`:`ล้วงถึงบนตะแกรงล่าง ≈ ${embedDefault} mm จากผิวบน · ขางอ 90° ที่ปลายล่าง`:'ไม่มีชิ้นฐานด้านล่าง'}</p>
+  <h5>เหล็กปลอกในฐานราก (ช่วงเหล็กยืนที่ฝังในชิ้นด้านล่าง)</h5>
   <div className="form-grid">
    <label className="field"><span>ปลอกในฐาน</span><select disabled={readOnly} value={st.mode} onChange={e=>set(e.target.value)}>
     <option value="off">ไม่ใส่</option>{ES&&<option value="std">ตามมาตรฐาน Spec ({ES.diameter?barName(ES.diameter):'= ปลอกเสา'} @ ≤ {ES.spacing})</option>}{t&&<option value="type">ตาม Type {t.name}</option>}<option value="own">กำหนดเอง</option></select></label>
