@@ -1,8 +1,60 @@
 rules_version = '2';
+// FORM BOQ & BBS — Storage rules (SEC1, docs/SECURITY_RULES.md). Project files are readable by the project's members and
+// written once by the roles whose commands upload them: an object is never overwritten or deleted (`resource == null`).
+// Membership / roles are read from the Firestore profile `my-boq-app/root/users/{email}` (cross-service rules: the deployed
+// Storage service account needs Firestore read access — the console offers it on the first deploy).
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if true;
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function profilePath() { return /databases/(default)/documents/my-boq-app/root/users/$(request.auth.token.email.lower()); }
+    function me() { return firestore.get(profilePath()).data; }
+    function rolesOf(p) { return ('roles' in p && p.roles is list) ? p.roles : (('role' in p && p.role is string) ? [p.role] : []); }
+    function approved() { return signedIn() && firestore.exists(profilePath()) && me().uid == request.auth.uid && me().status == 'approved'; }
+    function master() { return approved() && rolesOf(me()).hasAny(['MasterAdmin']); }
+    function assigned(pid) { return approved() && ('assignedProjects' in me()) && pid in me().assignedProjects; }
+    function member(pid) { return master() || assigned(pid); }
+    function rawRoles(pid) {
+      let p = me();
+      return ('projectRoles' in p && p.projectRoles is map && pid in p.projectRoles) ? p.projectRoles[pid] : rolesOf(p);
+    }
+    function hasRole(pid, allowed) {
+      return master() || (assigned(pid) && (
+        rawRoles(pid).hasAny(allowed)
+        || (allowed.hasAny(['admin']) && rawRoles(pid).hasAny(['Admin', 'SuperAdmin']))
+        || (allowed.hasAny(['viewer']) && !rawRoles(pid).hasAny(['admin', 'qs', 'detailer', 'checker', 'approver', 'viewer', 'Admin', 'SuperAdmin']))));
+    }
+    function writer(pid) { return hasRole(pid, ['admin', 'qs', 'detailer', 'checker', 'approver', 'viewer']); }
+    function mb(n) { return n * 1024 * 1024; }
+    function sized(n) { return request.resource.size > 0 && request.resource.size <= mb(n); }
+    function fresh() { return resource == null; }
+
+    match /projects/{pid}/{folder}/{rest=**} {
+      allow read: if member(pid);
+      allow update, delete: if false;
+      // drawing / source files (PDF, PNG, JPEG, DWG, DXF, IFC) — also the restored copies
+      allow create: if fresh() && folder == 'files' && hasRole(pid, ['admin', 'qs']) && sized(200)
+        && request.resource.contentType.matches('application/pdf|image/(png|jpeg|vnd[.]dwg|vnd[.]dxf)|application/x-step|application/octet-stream');
+      // project logo
+      allow create: if fresh() && folder == 'branding' && hasRole(pid, ['admin']) && sized(2)
+        && request.resource.contentType.matches('image/(png|jpeg)');
+      // exported Excel / PDF / DXF / ZIP (export jobs: every project role incl. viewer)
+      allow create: if fresh() && folder == 'exports' && writer(pid) && sized(100);
+      // frozen revision snapshots / release reports (JSON)
+      allow create: if fresh() && folder == 'snapshots' && writer(pid) && sized(50);
+      // submission packages
+      allow create: if fresh() && folder == 'submissions' && hasRole(pid, ['admin', 'qs', 'approver']) && sized(60);
+      // backup restore: history files and the restore bundle
+      allow create: if fresh() && folder == 'archive' && hasRole(pid, ['admin']) && sized(200);
+      // job manifests (JSON)
+      allow create: if fresh() && folder in ['spec-manifests', 'submission-manifests'] && hasRole(pid, ['admin', 'qs', 'approver']) && sized(40);
+      allow create: if fresh() && folder == 'restore-manifests' && hasRole(pid, ['admin']) && sized(40);
+    }
+    // nothing else is readable or writable by clients
+    match /{all=**} {
+      allow read, write: if false;
     }
   }
 }
