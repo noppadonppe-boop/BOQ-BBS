@@ -66,8 +66,12 @@ Outer face: closed path = outside of the loop; open path = **right** of the trav
   U-bar legs stop before openings. Retaining: soil-face main bars, curtailment groups at `at · H + Ld`, base transverse
   bars hooked (21), distribution bars, key U bars. Tank: bottom / cover meshes (cut at manholes + trimmers), haunch
   diagonals, sleeve trims.
-- Marks `<code>-V01 / H / C / T / S / OP1 / B / K`; equal bars (translation) share one Mark (distribution or offsets);
-  `wallRunSets(member)` recomputes the sets with **lifts and faces per set** (BBS per lift / per face).
+- Marks `<code>-V01 / H / C / T / S / OP1 / B / K`. **W1.1:** equal bars share one Mark across lifts, faces and wall
+  directions: shape relative to its last point turned about Z to a canonical heading (either polyline direction) →
+  offsets + `offsetTurns` (engine turns the template about its last point), else distribution / offsets as before. The
+  note drops segment / corner names when they differ (`commonWhat`) and says “ทุกช่วงเท” when the set has bars in every
+  lift (`WallSet.every`). `wallRunSets(member)` keeps **lifts and faces per set**, so BBS per lift / per face are unchanged
+  (weights equal to v0.119.0: `tests/fixtures/wallRun-v0119.json`); Marks drop e.g. lift 34 → 17, tank + door 58 → 29.
 
 ## UI
 
@@ -78,7 +82,31 @@ elevation (lifts, levels, openings draggable, repeated ghosts) / 3D; right = bar
 free end, type note, summary + per-lift table. Wall Run members hide the shape / rebar-sketch tabs (derived model).
 Element templates: keys `Wall:tank|lift|general|retaining`; generated `gen-wall-*` items stay out of the payload.
 
-## Sheet (`src/domain/wallRunSheet.ts`, `components/WallRunSheetPreview.tsx`)
+## Sheet (`src/domain/wallRunSheet.ts`, `components/WallRunSheetPreview.tsx`) — W1.1
+
+The wall sheet runs through the normal sheet engine: `bbsSheet.ts` branches for Wall Run members (`sheetFormat`,
+`sheetViews`, `sheetPageCount`, `layoutPage`, `sheetArea`, `drawSheetInfo` → `wallPagesOf`), so the Sheet Composer, the
+A3 preview, PDF and DXF (B = one viewport per view box) draw the same pages. Layout resolution (`resolveSheetLayout`):
+member's own (Composer) → project default template (category Wall) → **system layout “ผนัง (Wall Run)”** (`wallPlanOf`).
+
+- **ViewKeys**: `sec:wall-out-<g>` / `sec:wall-in-<g>` (elevation per storey group g), `sec:wall-det-<k>` (corner / T /
+  free end, 1:20), `sec:wall-sec` (section A–A), `sec:wall-op` (opening detail 1:20: window = opening + Ld, other bars
+  faded, only OP labelled), paper `stddet`, `keyplan`, `schedule` (steel per lift / face × size). Template roles
+  `wall-…` (`roleKeySchema`) ↔ `sec:wall-…`. Composer boxes get their size from `sizeAt(n)` (`sheetViews`).
+- **Planner** (`planWall`): elevation 1:50, else 1:75; paper A3 (≤ 2 lifts, ≤ 6 m), A2, else A1; both faces side by side
+  when they fit, else stacked; storey groups (`storeyGroups`, pit with the first storey, a storey never splits) so each
+  elevation fits its box — break lines at the cuts, levels continue (absolute). Details / section / opening detail /
+  paper views are packed (MaxRects) into the free space, else on a further sheet; boxes never overlap; title block
+  (150 × 40, bottom right) and header band are keep-outs (`wallSheetArea`).
+- **Labels inside the views** (`placeLabels`, rules of the slab S2.1 placer): next to the representative bar, leaders ≤ 70
+  mm, never crossing, never on a drawn line / text / other label; full label once per Mark per face (+ `TYP.` when the
+  Mark repeats on other segments, “· ทุกช่วงเท”), short code (`V01`) elsewhere; toolbar option **ป้ายทุกจุด**
+  (`drawingSetup.wallLabels 'all'`). Labels that find no spot are counted (`WallSheetPage.miss`, 0 on the samples).
+- BBS presentation `drawingSetup.wallBbs` (or the toolbar), title block on every page, page numbers over the whole set.
+- Mark label check: 0 issues of any level (incl. leaders > 75 mm) on the 4 samples (lift 5 storeys, tank + door, general,
+  retaining). Images before / after: `output/wall-run-verification/after-w1-1/`.
+
+### W1 sheet (kept for reference)
 
 Drawing page (A3, A2 for > 2 lifts / > 6 m / > 14 m): unfolded elevations outer + inner (one representative bar and one
 distribution line per Mark per face and segment, labels in a column with elbow leaders in anchor order — no crossings,
@@ -97,6 +125,6 @@ templates / backup, sheets: elevations, label check, 3 presentations, DXF → `o
 
 ## Limits / next rounds
 
-Sheet layout is automatic (not yet arranged in the Sheet Composer); long leaders flagged as low-severity. Haunch = equal
+Projection lock between wall views is not offered (unfolded elevations have no shared plan axis). Haunch = equal
 area band; sleeves do not deduct concrete or cut wall bars. Next: counterfort / basement / curved / septic / box culvert
 types, walls placed from a slab floor plan or read from drawings (AI), thicker-above detailing.

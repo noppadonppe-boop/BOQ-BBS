@@ -13,12 +13,14 @@ import type {WallRun,WallType} from '../src/domain/wallRunSchema';
 import {BEND_COVER_POLICY} from '../src/domain/bendCover';
 import {memberFromTemplate,templateKey,templatePayload} from '../src/domain/elementTemplates';
 import {devLength} from '../src/domain/slabFloor';
-import {mkdirSync,writeFileSync} from 'node:fs';
-import {wallBbsItems,wallBbsSummary,wallRunSheets,wallSheetLabelViews,type WallRow} from '../src/domain/wallRunSheet';
-import {labelReport} from '../src/domain/labelQa';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {wallBbsItems,wallBbsSummary,wallPagesOf,wallPlanOf,wallSheetLabelViews,type WallRow} from '../src/domain/wallRunSheet';
+import {labelIssues} from '../src/domain/labelQa';
+import {drawSheetInfo,layoutPage,sheetPageCount,sheetViews,type SheetData} from '../src/domain/bbsSheet';
+import {resolveSheetLayout,templateFrom,templateLayout} from '../src/domain/sheetLayout';
+import {sheetLayoutSchema,type SheetLayout} from '../src/domain/sheetLayoutSchema';
 import {buildBbsDxf} from '../src/data/dxf';
 import {defaultCadStandard} from '../src/domain/cadStandard';
-import {expandPrims} from '../src/domain/drawingPrims';
 
 const spec:Spec={...currentStarterSpec,designCode:'ACI',rounding:25,rebarCoverPolicy:BEND_COVER_POLICY} as Spec;
 const wall=()=>defaultElementInput('Wall','manual',spec) as WallInput;
@@ -61,11 +63,11 @@ describe('geometry and corners',()=>{
   expect(q.concrete).toBeCloseTo(7.5,6);
   // formwork: outer 2 × (2,850 + 2,650) + inner 2 × (2,350 + 2,150) = 20,000 × 3,000
   expect(q.formwork).toBeCloseTo(60,6);
-  const corners=new Set(m.bars.filter(b=>/U-bar มุม/.test(b.note)).map(b=>b.note.match(/มุม (\w+–\w+)/)![1]));
-  expect([...corners].sort()).toEqual(['A–B','B–C','C–D','D–A']);
-  for(const b of m.bars.filter(b=>/U-bar มุม/.test(b.note))){expect(b.shapeCode).toBe('21');expect(b.points).toHaveLength(4);}
-  // U legs in both faces: two legs at different offsets across the wall
-  const u=m.bars.find(b=>/U-bar มุม A–B/.test(b.note))!;expect(Math.abs(u.points[0][1]-u.points[3][1])).toBeGreaterThan(100);
+  const ri=runInput(run),raw=wallRunRaw(ri,ri.detailing),us=raw.filter(r=>/U-bar มุม/.test(r.what));
+  expect([...new Set(us.map(r=>r.what.match(/มุม (\w+–\w+)/)![1]))].sort()).toEqual(['A–B','B–C','C–D','D–A']);
+  for(const r of us){expect(r.pts).toHaveLength(4);expect(Math.hypot(r.pts[0][0]-r.pts[3][0],r.pts[0][1]-r.pts[3][1])).toBeGreaterThan(100);}
+  // every corner U-bar is one Mark (same shape, turned per corner), shape 21
+  const uSets=m.bars.filter(b=>/U-bar มุม/.test(b.note));expect(uSets).toHaveLength(1);expect(uSets[0].shapeCode).toBe('21');expect(uSets[0].count).toBe(us.length);
   for(const r of schedule(m,spec).filter(r=>/^W1-H/.test(r.mark)))expect(r.cutLength).toBeLessThanOrEqual(12000);
   ok(m);
   // big box with bars round the corners (lap-l): pieces ≤ stock length, laps between
@@ -164,10 +166,10 @@ describe('thickness steps between levels',()=>{
   levels:[{id:'L1',name:'1F',bottom:0,top:3,lifts:1},{id:'L2',name:'2F',bottom:3,top:6,lifts:1,thickness:t2}]});
  it('50 mm thinner above → cranked bars 1:6; 150 mm → bars stop under the joint + new dowels',()=>{
   const a=apply(two(250)).member,b=apply(two(150)).member;
-  const cr=a.bars.filter(x=>/คอม้า/.test(x.note));expect(cr.length).toBeGreaterThan(0);
-  for(const x of cr){expect(x.shapeCode).toBe('26');const dz=x.points[2][2]-x.points[1][2],doff=Math.hypot(x.points[2][0]-x.points[1][0],x.points[2][1]-x.points[1][1]);expect(dz/doff).toBeCloseTo(6,6);expect(doff).toBeCloseTo(25,6);}
+  const cr=a.bars.filter(x=>/คอม้า/.test(x.note));expect(cr.length).toBeGreaterThan(0);expect(cr.every(x=>x.shapeCode==='26')).toBe(true);
+  const ia=two(250);for(const x of wallRunRaw(ia,ia.detailing).filter(r=>/คอม้า/.test(r.what))){const p=x.pts,dz=p[2][2]-p[1][2],doff=Math.hypot(p[2][0]-p[1][0],p[2][1]-p[1][1]);expect(dz/doff).toBeCloseTo(6,6);expect(doff).toBeCloseTo(25,6);}
   expect(b.bars.some(x=>/^W1-S/.test(x.mark)&&/เดือยใหม่/.test(x.note))).toBe(true);
-  expect(b.bars.some(x=>/หยุดใต้รอยต่อ/.test(x.note))).toBe(true);
+  const ib=two(150);expect(wallRunRaw(ib,ib.detailing).some(x=>/หยุดใต้รอยต่อ/.test(x.what))).toBe(true);
   expect(b.bars.some(x=>/คอม้า/.test(x.note))).toBe(false);
   ok(a);ok(b);
  });
@@ -201,28 +203,61 @@ describe('templates and backup',()=>{
  });
 });
 
-describe('Wall Run sheet: unfolded elevations, label check, 3 BBS presentations, DXF',()=>{
+describe('Wall Run sheet (W1.1): merged Marks, labels in the views, ≥ 1:75 by storey groups, Sheet Composer, DXF',()=>{
  const project={id:'p',code:'J-099',name:'Wall Run test',spec,version:1,titleBlock:{}} as unknown as Project;
  const liftRun:WallRun={...defaultWallRun('lift'),levels:[1,2,3,4,5].map((n,k)=>({id:`L${n}`,name:`${n}F`,bottom:k*3.2,top:(k+1)*3.2,lifts:2}))};
  const tankDoor:WallRun={...defaultWallRun('tank'),openings:[{id:'O1',label:'O1',segment:'A',face:'through',x:2425,z:275,w:1000,h:2100,level:'L1',trim:{count:2,diameter:12,ext:'ld',diagonal:true}}]};
- const cases:[WallType|'tank-door',WallRun][]=[['general',defaultWallRun('general')],['tank',defaultWallRun('tank')],['tank-door',tankDoor],['lift',liftRun],['retaining',defaultWallRun('retaining')]];
+ const cases:[string,WallRun][]=[['general',defaultWallRun('general')],['tank',defaultWallRun('tank')],['tankDoor',tankDoor],['lift',liftRun],['retaining',defaultWallRun('retaining')]];
+ const base=JSON.parse(readFileSync('tests/fixtures/wallRun-v0119.json','utf8')) as Record<string,{kg:number;marks:number;lifts:Record<string,number>;faces:Record<string,number>}>;
+ const sd=(m:Member,q:ReturnType<typeof takeoff>,extra:Partial<SheetData>={})=>({member:m,rows:q.rows,input:m.elementInput,project,quantity:1,takeoff:q,status:'DRAFT',revision:'D1',date:'2026-11-06',provisional:false,...extra}) as unknown as SheetData;
  mkdirSync('output/dxf-verification',{recursive:true});
  for(const [t,run] of cases)it(t,()=>{
-  const m=apply(runInput(run)).member,q=takeoff(m,spec),rows=q.rows as unknown as WallRow[];ok(m);
-  const pages=wallRunSheets(m,rows,project,{mode:'lift',status:'DRAFT',date:'2026-11-06',revision:'D1'}),p0=pages[0];
-  // unfolded elevations: outer + inner face, every segment named in both
-  for(const id of ['elev-out','elev-in']){const v=p0.views.find(x=>x.id===id)!;expect(v).toBeTruthy();
-   const texts=expandPrims(p0.prims.filter(x=>x.view===id)).flatMap(x=>x.t==='text'?[x.text]:[]);
-   for(const s of runAxis(run).segs)expect(texts.some(x=>x.startsWith(`${s.id} · ${s.len}`))).toBe(true);}
-  expect(p0.views.some(v=>v.id==='sec-a')).toBe(true);
-  // Mark label check: no high (misreadable) issue on the drawing page
-  expect(labelReport(p0.prims,wallSheetLabelViews(p0)).reduce((n,r)=>n+r.high,0)).toBe(0);
-  // the 3 presentations add up to the member's steel (× 2 sets)
-  for(const mode of ['wall','lift','face'] as const){const it2=wallBbsItems(m,rows,mode,2),kg=it2.reduce((n,x)=>n+('row' in x?x.weight:0),0);expect(kg).toBeCloseTo(q.rebar*2,6);expect(wallBbsSummary(m,rows,mode,2).total).toBeCloseTo(q.rebar*2,6);}
-  // DXF: B (viewport per view), C, A
+  const m=apply(runInput(run)).member,q=takeoff(m,spec),rows=q.rows as unknown as WallRow[],b=base[t];ok(m);
+  // 1. same steel as v0.119.0: total, per lift, per face; fewer Marks where equal bars repeat across lifts / walls
+  expect(q.rebar).toBeCloseTo(b.kg,1);
+  for(const l of wallRunLiftQuantities(m,q.rows))expect(l.kg).toBeCloseTo(b.lifts[l.id],1);
+  for(const g of wallBbsSummary(m,rows,'face').groups)expect(g.total).toBeCloseTo(b.faces[g.name],1);
+  expect(m.bars.length).toBeLessThanOrEqual(b.marks);if(['tank','tankDoor','lift'].includes(t))expect(m.bars.length).toBeLessThan(b.marks);
+  for(const mode of ['wall','lift','face'] as const){const it2=wallBbsItems(m,rows,mode,2);expect(it2.reduce((n,x)=>n+('row' in x?x.weight:0),0)).toBeCloseTo(q.rebar*2,6);}
+  // 2. every drawing page: no label issue of any level, no label left out; 3. elevations at 1:75 or larger
+  const s=sd(m,q),pages=wallPagesOf(s);expect(sheetPageCount(s)).toBe(pages.length);
+  const drawing=pages.filter(p=>p.views.length);expect(drawing.length).toBeGreaterThan(0);
+  for(const p of drawing){expect(labelIssues(p.prims,wallSheetLabelViews(p))).toEqual([]);expect(p.miss||0).toBe(0);
+   for(const v of p.views.filter(v=>/^wall-(out|in)-/.test(v.id))){expect(v.n).toBeLessThanOrEqual(75);expect(v.fits).toBe(true);}}
+  const elevs=drawing.flatMap(p=>p.views).filter(v=>/^wall-(out|in)-/.test(v.id));
+  expect(new Set(elevs.map(v=>v.id.replace(/-\d+$/,''))).size).toBe(2);
+  // 4. DXF: B = one viewport per view
   const sheets=pages.map(p=>({prims:p.prims,views:p.views,w:p.w,h:p.h,size:p.size}));
-  const b=buildBbsDxf(sheets,{mode:'B',cad:defaultCadStandard()});expect(b.summary.viewports).toBeGreaterThanOrEqual(p0.views.length);expect(b.summary.leaders).toBeGreaterThan(0);
-  writeFileSync(`output/dxf-verification/wallRun-${t}-B.dxf`,b.text);
+  const dx=buildBbsDxf(sheets,{mode:'B',cad:defaultCadStandard()});expect(dx.summary.viewports).toBe(pages.reduce((n,p)=>n+p.views.length,0));
+  writeFileSync(`output/dxf-verification/wallRun-${t}-B.dxf`,dx.text);
   for(const mode of ['A','C'] as const)writeFileSync(`output/dxf-verification/wallRun-${t}-${mode}.dxf`,buildBbsDxf(sheets,{mode,cad:defaultCadStandard()}).text);
+ });
+ it('lift 5 storeys: elevations split by storey groups on A2 at 1:50, every storey once',()=>{
+  const m=apply(runInput(liftRun)).member,q=takeoff(m,spec),plan=wallPlanOf(m,q.rows as never)!;
+  expect(plan.size).toBe('A2');expect(plan.n).toBe(50);expect(plan.groups.length).toBeGreaterThanOrEqual(2);
+  const lv=runLevels(liftRun);expect(plan.groups[0].z0).toBeLessThanOrEqual(lv.pit![0]);expect(plan.groups[plan.groups.length-1].z1).toBeGreaterThanOrEqual(lv.zTop);
+  for(let k=1;k<plan.groups.length;k++)expect(plan.groups[k].z0).toBeLessThan(plan.groups[k-1].z1);
+  expect(plan.groups[0].breakHi&&plan.groups[1].breakLo).toBe(true);
+  const keys=plan.layout.sheets.flatMap(s=>s.views.map(v=>v.view));
+  for(const g of plan.groups)for(const f of ['out','in'])expect(keys).toContain(`sec:wall-${f}-${g.id}`);
+  expect(keys).toEqual(expect.arrayContaining(['sec:wall-sec','sec:wall-op','stddet','keyplan','schedule']));
+  // no two boxes overlap; the opening detail is 1:20
+  for(const sh of plan.layout.sheets){const bs=sh.views;for(let i=0;i<bs.length;i++)for(let j=i+1;j<bs.length;j++){const a=bs[i],c=bs[j];expect(a.x+a.w<=c.x+.01||c.x+c.w<=a.x+.01||a.y+a.h<=c.y+.01||c.y+c.h<=a.y+.01).toBe(true);}}
+  expect(plan.layout.sheets.flatMap(s=>s.views).find(v=>v.view==='sec:wall-op')!.n).toBe(20);
+ });
+ it('Sheet Composer: views listed with sizes, a moved view is drawn there, template round trip',()=>{
+  const m=apply(runInput(tankDoor)).member,q=takeoff(m,spec),s=sd(m,q),views=sheetViews(s);
+  expect(views.map(v=>v.key)).toEqual(expect.arrayContaining(['sec:wall-out-1','sec:wall-in-1','sec:wall-sec','sec:wall-op','stddet','keyplan','schedule']));
+  const sys=resolveSheetLayout(s,'A3');expect(sys.from).toBe('system');
+  const lay=structuredClone(sys.layout!) as SheetLayout,sh=lay.sheets.findIndex(x=>x.views.some(v=>v.view==='sec:wall-sec')),pv=lay.sheets[sh].views.find(v=>v.view==='sec:wall-sec')!;pv.x+=20;pv.y+=5;
+  const moved={...m,sheetLayout:sheetLayoutSchema.parse(lay)},s2=sd(moved,q),info=drawSheetInfo(s2,layoutPage(s2,sh)).views.find(v=>v.key==='sec:wall-sec')!;
+  expect(info.box.x).toBeCloseTo(pv.x,6);expect(info.box.y).toBeCloseTo(pv.y,6);expect(resolveSheetLayout(s2,'A3').from).toBe('member');
+  const tpl=templateFrom({id:'wall-tpl',name:'ผนัง (Wall Run)',category:'Wall',size:'A3'},moved.sheetLayout!,[],moved);
+  expect(tpl.sheets.flatMap(x=>x.views.map(v=>v.view))).toEqual(expect.arrayContaining(['wall-out-1','wall-sec','stddet']));
+  const back=templateLayout(tpl,[]);expect(back.sheets.flatMap(x=>x.views.map(v=>v.view)).sort()).toEqual(moved.sheetLayout!.sheets.flatMap(x=>x.views.map(v=>v.view)).sort());
+  const p2={...project,sheetTemplates:{version:1,templates:[tpl],defaults:[{category:'Wall',id:'wall-tpl'}]}} as unknown as Project;
+  const other=apply(runInput(tankDoor),'W2').member,s3=sd(other,takeoff(other,spec),{project:p2});
+  expect(resolveSheetLayout(s3,'A3').from).toBe('template');
+  expect(drawSheetInfo(s3,layoutPage(s3,sh)).views.find(v=>v.key==='sec:wall-sec')!.box.x).toBeCloseTo(pv.x,6);
  });
 });

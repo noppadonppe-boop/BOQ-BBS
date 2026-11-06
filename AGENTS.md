@@ -18,7 +18,10 @@
   polygon per segment per level → corners once), `applyWallRun` (regions `genwr-*`, items `gen-wall-*`), bars `wallRunRaw` → `groupWallRaw`
   (Marks `<code>-V/H/C/T/S/OP/B/K`, ids `gen-wr-…`), `wallRunSets` (lifts / faces per set), `wallRunLiftQuantities`, `wallRunProblems`,
   `singleToRun`, `defaultWallRun(type)`. UI `WallRunEditor.tsx` (+ `WallTypePicker`), sheet `wallRunSheet.ts` + `WallRunSheetPreview.tsx`
-  (BBS wall | lift | face, PDF / DXF / Excel `data/wallRunExcel.ts`). Template keys `Wall:<type>`. Test `tests/wallRun.test.ts`;
+  (BBS wall | lift | face, PDF / DXF / Excel `data/wallRunExcel.ts`). Template keys `Wall:<type>`. W1.1: Marks merged across lifts /
+  faces / directions (offsetTurns), sheet through `bbsSheet` branches (`wallPagesOf`, Composer ViewKeys `sec:wall-…`, roles `wall-…`,
+  system layout `wallPlanOf`: 1:50 / 1:75, A3 / A2 / A1, storey groups), labels in the views (`placeLabels`). Baseline weights
+  `tests/fixtures/wallRun-v0119.json`. Test `tests/wallRun.test.ts`;
   UI emulators `tmp/wremu/` (5184).
 - Footing pour stages: input `pour {count, heights}` (last stage = rest, `footingPour()`), UI `FootingPourEditor.tsx`;
   apply writes `member.pourStages.levels`; `pourStageQuantities()` (`solids.ts`) gives concrete / formwork / joint area per
