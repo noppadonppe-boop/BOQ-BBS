@@ -140,7 +140,7 @@ async function loadAttachmentFromStorage(projectId, context) {
   let buffer;
   try {
     // CAD / BIM files are read in the browser (views + text); the raw file is never sent to the AI provider
-    if (CAD_TYPES.includes(attachment.contentType)) buffer = Buffer.alloc(0);
+    if (CAD_TYPES.includes(attachment.contentType) || context.task === 'slabPlan') buffer = Buffer.alloc(0);
     else [buffer] = await admin.storage().bucket().file(path).download();
   } catch (error) {
     logger.error('AI drawing source download failed', {projectId, attachmentId, message: error instanceof Error ? error.message : String(error)});
@@ -263,6 +263,58 @@ ${cadText}` : '',
       conflicts: [], warnings: []}),
     'ค่า 0 ในตัวอย่างแสดงชนิดข้อมูลเท่านั้น ต้องตอบเป็น JSON หนึ่ง object',
   ].filter(Boolean).join('\n');
+}
+// ---------- task "slabPlan" (S4b): read a slab floor plan window, or a slab / beam schedule, from zoomed views + page text ----------
+// The original file is never downloaded or sent (only the views of the chosen window and the texts / pseudo-layers the browser
+// read); the project must allow sending drawings to AI (project.aiConsent.enabled). The browser validates the answer (zod).
+function slabPlanInstruction(context) {
+  const part = context.part === 'schedule' ? 'schedule' : 'plan';
+  const frames = (Array.isArray(context.frames) ? context.frames : []).slice(0, VIEW_LIMITS.count)
+    .map((f, i) => `ภาพ ${i}: ${stringValue(f?.label).slice(0, 80)} · ${Number(f?.px?.[0]) || 0} × ${Number(f?.px?.[1]) || 0} px`).join('\n');
+  const texts = (Array.isArray(context.texts) ? context.texts : []).slice(0, 2500)
+    .map((t) => `${stringValue(t?.id).slice(0, 12)} "${stringValue(t?.text).slice(0, 80)}" @ (${Math.round(Number(t?.x) || 0)}, ${Math.round(Number(t?.y) || 0)})`).join('\n');
+  const layers = (Array.isArray(context.layers) ? context.layers : []).slice(0, 120)
+    .map((l) => `"${stringValue(l?.name).slice(0, 120)}" · ${Number(l?.count) || 0} เส้น${l?.role ? ` · ผู้ใช้ตั้งเป็น ${stringValue(l.role).slice(0, 20)}` : ''}`).join('\n');
+  const answers = (Array.isArray(context.answers) ? context.answers : []).slice(0, 20)
+    .map((a) => `- ${stringValue(a?.question).slice(0, 300)} → ${stringValue(a?.answer).slice(0, 300)}`).join('\n');
+  const rule = stringValue(context.ruleSummary).slice(0, 20000);
+  const common = [
+    `ภาพที่แนบเป็นภาพขยายของกรอบที่ผู้ใช้เลือกในแบบ (ภาพ 0 = ทั้งกรอบ ภาพถัดไป = ส่วนย่อย):\n${frames}`,
+    'ตำแหน่งทุกค่าที่ตอบ = {view, x, y} เป็นพิกเซลในภาพนั้น (x ไปขวา y ลงล่าง จากมุมซ้ายบน) · ใช้ภาพ 0 ถ้าทำได้',
+    texts ? `ข้อความที่ระบบอ่านจากไฟล์ได้จริง (id "ข้อความ" @ พิกเซลในภาพ 0) — ใช้ค่าเหล่านี้แทนการอ่านจากภาพ และอ้าง id ใน evidence.textIds:\n${texts}` : 'ไฟล์นี้ไม่มีข้อความที่อ่านได้ (ภาพสแกน) ให้อ่านจากภาพ และใส่ข้อความที่อ่านใน evidence.quote',
+    answers ? `คำตอบของผู้ใช้ต่อคำถามรอบก่อน (ใช้เป็นข้อมูลจริง ห้ามถามซ้ำ):\n${answers}` : '',
+    'ทุกรายการต้องมี confidence (0–1) และ evidence (view + box [x0,y0,x1,y1] พิกเซล และ/หรือ quote / textIds) · ห้ามเดาค่าที่ไม่มีในแบบ ให้ใส่ null แล้วถามใน questions',
+  ];
+  if (part === 'schedule') return [
+    'คุณเป็นวิศวกรตรวจแบบโครงสร้าง อ่าน "ตาราง" ในภาพ (ตารางพื้น Slab schedule หรือ ตารางคาน Beam schedule) เป็นแถว / คอลัมน์ ตามที่เขียนในแบบทุกตัวอักษร ห้ามคำนวณหรือแปลความ',
+    `ชนิดตารางตามผู้ใช้: ${context.scheduleKind === 'beam' ? 'ตารางคาน' : 'ตารางพื้น'}`,
+    ...common,
+    'ตอบ JSON หนึ่ง object:',
+    JSON.stringify({version: 1, task: 'slabSchedule', kind: 'slab', header: ['MARK', 'THICK', 'SHORT BOT', 'LONG BOT', 'SHORT TOP', 'LONG TOP', 'EXTRA TOP'],
+      rows: [['S1', '150', 'DB12@200', 'DB12@200', '-', '-', 'DB12@200 L/4']], confidence: 0.9, evidence: {view: 0, box: [0, 0, 0, 0]}, questions: [], warnings: []}),
+  ].filter(Boolean).join('\n');
+  return [
+    'คุณเป็นวิศวกรตรวจแบบโครงสร้าง อ่าน "แปลนพื้นโครงสร้าง" ในภาพ: กริด (ชื่อในวงกลม + ตำแหน่งเส้น), คาน (Mark เช่น B1 / 2B3, ขนาด กว้าง × ลึก mm, เส้นศูนย์กลางจากปลายถึงปลาย), เสา (ศูนย์กลาง + ขนาด mm), ช่องเปิด (มุมตรงข้ามสองมุม), ป้ายเบอร์พื้น (S1, FS2, S1 (t=150) ตำแหน่งป้าย)',
+    'และบอกบทบาทของกลุ่มเส้น (pseudo-layer) ด้านล่าง: grid | gridLabel | beam | column | opening | slabMark | text | none',
+    `กลุ่มเส้นในไฟล์:\n${layers || '(ไม่มี)'}`,
+    rule ? `ผลจากกฎอัตโนมัติ (ยืนยัน / เติมส่วนที่ขาด / แก้ที่ผิด · ค่าที่ต่างจากกฎให้ตอบตามที่เห็นในแบบ ระบบจะแสดงทั้งสองค่าให้ผู้ใช้เลือก):\n${rule}` : '',
+    ...common,
+    'ตอบ JSON หนึ่ง object:',
+    JSON.stringify({version: 1, task: 'slabPlan', layers: [{name: '#FF0000 · 0.18 · dashdot', role: 'grid', confidence: 0.9}],
+      grids: [{axis: 'X', label: 'A', at: {view: 0, x: 0, y: 0}, confidence: 0.9, evidence: {view: 0, box: [0, 0, 0, 0], textIds: ['t1']}}],
+      beams: [{mark: 'B1', width: 300, depth: 600, a: {view: 0, x: 0, y: 0}, b: {view: 0, x: 0, y: 0}, confidence: 0.8, evidence: {view: 0, quote: 'B1 (300x600)'}}],
+      columns: [{mark: 'C1', at: {view: 0, x: 0, y: 0}, sx: 400, sy: 400, confidence: 0.8, evidence: {view: 0, box: [0, 0, 0, 0]}}],
+      openings: [{label: 'OP-1', shape: 'rect', a: {view: 0, x: 0, y: 0}, b: {view: 0, x: 0, y: 0}, confidence: 0.8, evidence: {view: 0, box: [0, 0, 0, 0]}}],
+      panelMarks: [{mark: 'S1', thickness: null, at: {view: 0, x: 0, y: 0}, confidence: 0.9, evidence: {textIds: ['t5']}}],
+      questions: [{id: 'q1', text: 'คาน B3 ไม่ระบุความลึก', about: 'B3'}], warnings: []}),
+    'ค่า 0 ในตัวอย่างแสดงชนิดข้อมูลเท่านั้น',
+  ].filter(Boolean).join('\n');
+}
+function normaliseSlabPlan(raw, context, providerName, model) {
+  const r = raw?.result || raw || {};
+  const task = context.part === 'schedule' ? 'slabSchedule' : 'slabPlan';
+  // shape is checked in the browser (aiFloorProposalSchema / aiScheduleSchema); here only the envelope
+  return {...r, version: 1, task, provider: providerName, model, attachmentId: stringValue(context.attachmentId), page: Number(context.page) || 1};
 }
 // ---------- task "inventory": list the element marks in a drawing file and whether each can be modelled ----------
 function inventoryInstruction(context, file) {
@@ -633,11 +685,18 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
       if(!clientClosed){writeSse(res,{type:'result',result:{...result,provider:activeProvider,model:provider.model}});res.end();}
       return;
     }
+    const slabTask = context.task === 'slabPlan';
+    if (slabTask) {
+      const project = decodeStorage((await db.doc(`projects/${projectId}`).get()).data() || {});
+      if (project?.aiConsent?.enabled !== true) throw new GatewayError('โครงการนี้ไม่อนุญาตส่งแบบให้ AI', 403, 'permission-denied');
+      stored.file.views = readViews(parsed.context);
+      if (!stored.file.views.length) throw new GatewayError('ต้องส่งภาพของกรอบที่เลือกอย่างน้อย 1 ภาพ', 400, 'invalid-argument');
+    }
     const shapeTask = context.task === 'shape', inventoryTask = context.task === 'inventory';
     if (shapeTask || inventoryTask) stored.file.views = readViews(parsed.context);
-    if (CAD_TYPES.includes(stored.file.mimeType) && (!(shapeTask || inventoryTask) || !stored.file.views?.length)) throw new GatewayError('ไฟล์ CAD / BIM ต้องอ่านผ่านแท็บรูปทรง (ระบบแปลงเป็นภาพและข้อมูลในเบราว์เซอร์ก่อน)', 400, 'invalid-argument');
+    if (CAD_TYPES.includes(stored.file.mimeType) && !slabTask && (!(shapeTask || inventoryTask) || !stored.file.views?.length)) throw new GatewayError('ไฟล์ CAD / BIM ต้องอ่านผ่านแท็บรูปทรง (ระบบแปลงเป็นภาพและข้อมูลในเบราว์เซอร์ก่อน)', 400, 'invalid-argument');
     context.views = (stored.file.views || []).map((v) => ({label: v.label}));
-    const prompt = inventoryTask ? inventoryInstruction(context, stored.file) : shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
+    const prompt = slabTask ? slabPlanInstruction(context) : inventoryTask ? inventoryInstruction(context, stored.file) : shapeTask ? shapeInstruction(context, stored.file) : providerInstruction(context, stored.file);
     writeSse(res, {type: 'progress', phase: 'sending-to-ai', label: 'ดึงไฟล์จาก Storage แล้ว กำลังส่งไฟล์ต้นฉบับให้ AI อ่าน…', detail: `${stored.file.filename} · ${(stored.file.size / 1024 / 1024).toFixed(2)} MiB`});
     writeSse(res, {type: 'progress', phase: 'analyzing', label: `AI กำลังอ่านและวิเคราะห์แบบ…`, detail: `${activeProvider === 'openai' ? 'OpenAI' : activeProvider === 'anthropic' ? 'Anthropic' : 'Google AI Studio'} · ${provider.model}`});
     providerController = new AbortController();
@@ -648,7 +707,7 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     if (activeProvider === 'google-ai-studio') raw = await callGoogle(provider.apiKey, provider.model, provider.thinking, stored.file, prompt, providerController.signal);
     if (clientClosed) return;
     writeSse(res, {type: 'progress', phase: 'preparing-json', label: 'AI อ่านแบบเสร็จแล้ว กำลังเตรียมผลลัพธ์ JSON…'});
-    const result = inventoryTask ? normaliseInventory(parseModelJson(raw), context, activeProvider, provider.model) : shapeTask ? normaliseShapeProposal(parseModelJson(raw), context, activeProvider, provider.model) : normaliseAnalysis(parseModelJson(raw), context, stored.file, activeProvider, provider.model);
+    const result = slabTask ? normaliseSlabPlan(parseModelJson(raw), context, activeProvider, provider.model) : inventoryTask ? normaliseInventory(parseModelJson(raw), context, activeProvider, provider.model) : shapeTask ? normaliseShapeProposal(parseModelJson(raw), context, activeProvider, provider.model) : normaliseAnalysis(parseModelJson(raw), context, stored.file, activeProvider, provider.model);
     logger.info('AI drawing analysis completed', {requestId, uid: authContext.decodedToken.uid, projectId, provider: activeProvider, model: provider.model, fileSize: stored.file.size});
     writeSse(res, {type: 'progress', phase: 'complete', label: 'วิเคราะห์เสร็จแล้ว กำลังนำผลไปแสดง…'});
     writeSse(res, {type: 'result', result});
