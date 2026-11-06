@@ -39,7 +39,11 @@ import {categoryDefaults,centralTemplatesPath,elementTemplateSchema,memberFromTe
  type ElementTemplate,type TemplateProposal} from '../src/domain/elementTemplates';
 import {restoredTemplateDefaults,restoredTemplateEntries,validateBackupStructure} from '../src/domain/restorePreflight';
 import {buildRestorePlan} from '../src/domain/restorePlan';
-import type {Member,Project,Role,SnapshotBundle,Spec} from '../src/domain/model';
+import {blankBar,blankMember,type Bar,type Member,type Project,type Role,type SnapshotBundle,type Spec} from '../src/domain/model';
+import {applyShapeModel} from '../src/domain/shapeApply';
+import type {ShapeModel,ShapePart} from '../src/domain/shapeModelSchema';
+import {applyPartPresets,defaultPartRebar,detailingFor,guessPurpose} from '../src/domain/partRebar';
+import {barOwner,withAutoTags} from '../src/domain/partTags';
 import {footingData} from './fixtures/sheets';
 
 const PID='p1',base=footingData(3000,2600);
@@ -213,5 +217,31 @@ describe('8 · include options',()=>{
   expect(tpl(none).payload.sheetLayout).toBeUndefined();expect(tpl(none).payload.bars).toEqual([]);
   // old payloads (no include) = inputs + own bars + BOQ items, no drawing
   const legacy=elementTemplateSchema.parse({...tpl(all),payload:{...templatePayload(m),sheetLayout:undefined}});expect(memberFromTemplate(legacy,'C',sourceProject).sheetLayout).toBeUndefined();
+ });
+});
+
+describe('9 · Custom shape-model template (reference part, drawn bars, starters past the concrete)',()=>{
+ it('the new member keeps bar ids / owners / Marks, rebuilds presets and placement regions, and passes validateMember',()=>{
+  const det=detailingFor(sourceProject.spec),part=(id:string,label:string,role:'solid'|'reference',x:number,y:number,z0:number,w:number,d:number,h:number):ShapePart=>({id,label,role,stage:1,z0,height:h,formSides:true,formBottom:false,source:'',shape:'box',x,y,w,d});
+  const foot=part('pf','ฐาน','solid',0,0,0,3000,3000,800),col=part('pc','เสา (อ้างอิง)','reference',1200,1200,800,600,600,1500);
+  const sm:ShapeModel={version:1,confirmed:true,note:'',parts:[{...foot,rebar:defaultPartRebar('footing',foot,det)},{...col,rebar:defaultPartRebar('column',col,det)}]};
+  let src=applyShapeModel({...blankMember('Custom','F10-02'),cover:75,bars:[]},withAutoTags(sm,p=>guessPurpose(p,sm)));
+  src=applyPartPresets(src,sourceProject.spec).member;
+  // a bar drawn in the reference part (owned by it) running down into the footing
+  const drawn={...blankBar(),id:'sk-pc-a1',mark:'Z-99',diameter:20,points:[[1300,1300,200],[1300,1300,2200]] as Bar['points'],count:1};
+  src=applyPartPresets({...src,bars:[...src.bars,drawn]},sourceProject.spec).member;
+  expect(validateMember(src,sourceProject.spec)).toEqual([]);
+  expect(src.bars.some(b=>b.id.startsWith('pp-'))).toBe(true);
+  const t=elementTemplateSchema.parse({id:'tc',name:'F10-02',description:'',category:'Custom',scope:'project',projectId:PID,projectCode:'J-078',payload:payloadOf(src),version:1,createdAt:'a',updatedAt:'a',createdBy:'u',updatedBy:'u'});
+  expect(t.payload.shapeModel).toBeDefined();
+  const m=memberFromTemplate(t,'F10-03',sourceProject);
+  expect(validateMember(m,sourceProject.spec)).toEqual([]);
+  expect(m.bars.map(b=>b.id).sort()).toEqual(src.bars.map(b=>b.id).sort());
+  expect(barOwner(m.shapeModel,m.bars.find(b=>b.id==='sk-pc-a1')!)).toBe('pc');
+  expect(marks(m)).toEqual(marks(src));
+  expect(m.placementContext?.regions.some(r=>r.id==='genref-pc')).toBe(true);
+  // generated (preset) bars off: presets are not rebuilt, own drawn bars stay
+  const off=memberFromTemplate(elementTemplateSchema.parse({...t,payload:payloadOf(src,sourceProject.spec,{generated:false,manual:true,siteItems:true,sheetLayout:false,drawingEdits:false})}),'F10-04',sourceProject);
+  expect(off.bars.some(b=>b.id.startsWith('pp-'))).toBe(false);expect(off.bars.some(b=>b.id==='sk-pc-a1')).toBe(true);
  });
 });

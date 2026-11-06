@@ -6,6 +6,7 @@ import {applyElementInput,elementInputSchema,isGeneratedBar,supportsElementInput
 import {detailingFromSpec} from './specDetailing';
 import {shapeModelSchema,type ShapeModel} from './shapeModelSchema';
 import {applyShapeModel} from './shapeApply';
+import {applyPartPresets,isPresetBar} from './partRebar';
 import {boqCategorySchema} from './reportCategory';
 import {emptySiteWork,siteItemSchema,withSiteWork} from './siteWork';
 import {provisionalQuantityBasis} from './quantityBasis';
@@ -146,7 +147,9 @@ export type FromTemplateOptions={level?:TemplateLevel;occurrence?:{quantity?:num
  * everything is copied, nothing stays linked (`templateSource` records the origin only). */
 export function memberFromTemplate(t:ElementTemplate,code:string,project:Project,o:FromTemplateOptions={}):Member{
  const p=templatePayloadSchema.parse(t.payload),category=t.category as Category,inc=p.include??defaultInclude;
- let m:Member={...blankMember(category,code),description:p.description,cover:p.cover,quantityBasis:provisionalQuantityBasis(),bars:p.bars.map(b=>({...b,id:b.id.startsWith('sk-')?`sk-${crypto.randomUUID()}`:crypto.randomUUID(),placementConfirmed:false}))};
+ // bar ids are kept: they are unique within the template, and `sk-<part>-…` / `pp-<part>-…` carry the owning part / preset
+ const ids=new Set<string>(),bars=p.bars.map(b=>{const id=ids.has(b.id)?crypto.randomUUID():b.id;ids.add(id);return {...b,id,placementConfirmed:false};});
+ let m:Member={...blankMember(category,code),description:p.description,cover:p.cover,quantityBasis:provisionalQuantityBasis(),bars};
  if(p.siteItems.length)m=withSiteWork(m,{...emptySiteWork(),items:p.siteItems.map(i=>({...i,id:crypto.randomUUID()}))});
  if(p.boqCategory&&category==='Custom')m={...m,boqCategory:p.boqCategory};
  const parsed=p.elementInput!==undefined?elementInputSchema.safeParse(p.elementInput):undefined;
@@ -154,7 +157,13 @@ export function memberFromTemplate(t:ElementTemplate,code:string,project:Project
   const input={...parsed.data,detailing:detailingFromSpec(project.spec,parsed.data.detailing,{category:parsed.data.category,mix:parsed.data.concreteMix})} as ElementInput;
   m=applyElementInput(m,input,{rounding:project.spec.rounding}).member;
   if(!inc.generated)m={...m,bars:m.bars.filter(b=>!isGeneratedBar(b))};
- }else if(p.shapeModel&&freeFormCategory(category))m={...applyShapeModel(m,p.shapeModel),cover:p.cover};
+ }else if(p.shapeModel&&freeFormCategory(category)){
+  // as the shape editor's apply: part presets rebuilt with the target spec, reference parts (genref-*) and bar ends past
+  // the concrete (genext-*) become placement regions again (the template does not carry the placement context)
+  m={...applyShapeModel(m,p.shapeModel),cover:p.cover};
+  m=applyPartPresets(m,project.spec).member;
+  if(!inc.generated)m={...m,bars:m.bars.filter(b=>!isPresetBar(b))};
+ }
  if(p.sheetLayout)m={...m,sheetLayout:structuredClone(p.sheetLayout)};
  if(p.drawingEdits)m={...m,drawingEdits:structuredClone(p.drawingEdits)};
  const occ=o.occurrence;if(occ&&m.occurrences.length){const [first,...rest]=m.occurrences;m={...m,occurrences:[{...first,...(occ.quantity?{quantity:Math.max(1,Math.min(100000,Math.round(occ.quantity)))}:{}),...(occ.zone!==undefined?{zone:occ.zone.slice(0,80)}:{}),...(occ.floor!==undefined?{floor:occ.floor.slice(0,80)}:{})},...rest]};}

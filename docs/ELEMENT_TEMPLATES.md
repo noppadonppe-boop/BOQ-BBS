@@ -17,7 +17,9 @@ Previous versions: `<template>/versions/{n}` (append-only). Rules and deploy ord
   `sourceSpec`; `elementTemplateSchema` + `tags`, `key`, `origin`; `templateVersionSchema`; `proposalSchema`), paths,
   `templatePayload(m, {include, spec})`, `memberFromTemplate(t, code, project, {level, occurrence})` (always an independent
   member; input bars regenerated with the target spec, own bars copied; `include.generated = false` drops the generated bars;
-  sets `member.templateSource`), `templateKey()` (category or `Foundation:spread|pile`, `Beam:single|group`,
+  sets `member.templateSource`; bar ids are kept so `sk-<part>-…` / `pp-<part>-…` keep their owner / preset; shape-model members
+  run `applyPartPresets` like the shape editor's apply: presets rebuilt with the target spec, `genref-*` / `genext-*` placement
+  regions rebuilt — the payload does not carry the placement context), `templateKey()` (category or `Foundation:spread|pile`, `Beam:single|group`,
   `Column:single|stack`, `Slab:single|floor`), `categoryDefaults()` / `withDefault()`, `specDifferences()`, `templateFacts()`,
   `newerVersion()`, `nextTemplate()` (version + 1, previous version record), `templateMigrationPlan()`, backup helpers
   `backupTemplates()` / `restoredTemplate()` / `restoredDefaults()`.
