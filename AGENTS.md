@@ -448,6 +448,15 @@
   (pile / cut by length when the unit is m, rebar ÷ 1000 for ตัน). Excel sheet “BOQ” (A–L rules, M–O quantity / rate /
   amount) `src/data/boqChaptersExcel.ts`; command `saveBoqChapters` (admin / QS, null clears); in backup / restore.
   UI: BOQ Summary tab “ตามหมวด BOQ เจ้าของงาน” `components/OwnerBoq.tsx` (uses the page scope). Test: `tmp/boqChapters.test.tsx`.
+- Element templates (T1, docs `docs/ELEMENT_TEMPLATES.md`): project templates `projects/{pid}/elementTemplates` (admin / QS),
+  project defaults `project.templateDefaults[key]` (key = category or `Foundation:pile` …, `templateKey()`), central templates
+  `${APP}/root/elementTemplates` (MasterAdmin; others `proposeTemplate` → `elementTemplateProposals`, `decideProposal`); saving
+  over = version + 1, previous in `versions/{n}` (append-only). Domain `src/domain/elementTemplates.ts` (payload `include` /
+  `sheetLayout` / `drawingEdits` / `sourceSpec`, `memberFromTemplate` = independent member + `member.templateSource`, not in the
+  drawing hash), data `src/data/elementTemplates.ts` (`useTemplateLibrary` also reads old central `scope:'project'` docs until
+  `migrateLegacyTemplates` / `tools/security/migrateElementTemplates.mjs`), UI `components/ElementTemplates.tsx` (save dialog,
+  `CreateMemberDialog` used by App `CreateMember`, `TemplateSourceNote`, `CentralTemplateAdmin` on the Admin page). Backup carries
+  `bundle.elementTemplates` + `templateDefaults` (`restoredTemplateEntries`). Test `tests/elementTemplates.test.ts` + rules cases.
 - Help (คู่มือ): topics in `src/help/helpContent.ts` (`helpTopics`: group, summary, where, steps, tips, limits, related,
   figure, `updated`; `helpChanges` = “มีอะไรใหม่”; `contextTopic()` maps page / category → topic), schematic SVGs in
   `src/help/HelpFigures.tsx`, drawer `src/components/HelpCenter.tsx` (top-bar “คู่มือ” button / F1 opens the current page's

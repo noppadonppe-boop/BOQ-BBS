@@ -12,7 +12,8 @@ Authority is the signed-in user's profile `my-boq-app/root/users/{email}` — th
 - **MasterAdmin** = approved + `roles` contains `MasterAdmin` → every project, every role.
 - **project roles** = `projectRoles[pid]` when present, else the profile `roles`; `Admin` / `SuperAdmin` count as `admin`; nothing
   known → `viewer`; only for projects in `assignedProjects`.
-- **global admin** (General Spec, element templates, new projects) = `roles` contains MasterAdmin / Admin / SuperAdmin / admin.
+- **global admin** (General Spec, new projects) = `roles` contains MasterAdmin / Admin / SuperAdmin / admin. Central element
+  templates (T1) are MasterAdmin only.
 
 `project.acl` / `roleSets` are kept for display / history; they are not the authority (as in the commands).
 The app root name is `my-boq-app` (`VITE_APP_NAME` default). If the deployment uses another name, change `APP()` / the
@@ -25,7 +26,7 @@ R = read, C = create, U = update, D = delete. “member” = any role in the pro
 | Path | R | C | U | D | Commands (roles checked in the web code) |
 |---|---|---|---|---|---|
 | `projects/{pid}` | member | global admin, `acl[me]=='admin'`, version 1 | member, keys by role (below) | ✗ (soft delete) | createProject (global admin), every command bumps `version` |
-| ↳ project keys | | | `version` (never back), `historyEpoch`, `revisionCounter`, `engineeringFixtureEpoch`, `updatedAt`: member · `spec`: admin / qs / approver · `locations`, `boqChapters`, `sheetTemplates`, `specChangeState`, `stockEpoch`: admin / qs · `acl`, `roleSets`, `aiConsent`, `deleted`, names / title block / logo / disciplines, `restoreState`: admin · anything else ✗ (incl. the old `aiSendLog` array) | | saveProject / setProjectAccess / setAiConsent / deleteProject (admin), saveLocations / BoqChapters / SheetTemplates, spec jobs (admin, qs), approveEngineeringSpec (approver), exports (all roles) |
+| ↳ project keys | | | `version` (never back), `historyEpoch`, `revisionCounter`, `engineeringFixtureEpoch`, `updatedAt`: member · `spec`: admin / qs / approver · `locations`, `boqChapters`, `sheetTemplates`, `templateDefaults` (T1), `specChangeState`, `stockEpoch`: admin / qs · `acl`, `roleSets`, `aiConsent`, `deleted`, names / title block / logo / disciplines, `restoreState`: admin · anything else ✗ (incl. the old `aiSendLog` array) | | saveProject / setProjectAccess / setAiConsent / deleteProject (admin), saveLocations / BoqChapters / SheetTemplates, spec jobs (admin, qs), approveEngineeringSpec (approver), exports (all roles) |
 | `…/operations/{id}` | member | member, `uid == me` | ✗ | ✗ | request receipt of every command (append-only) |
 | `…/accessEvents/{id}` | member | admin, `actorUid == me` | ✗ | ✗ | setProjectAccess, updateProfile (append-only) |
 | `…/revisionEvents/{id}` | member | member | ✗ | ✗ | snapshot / release / submission (append-only) |
@@ -44,6 +45,8 @@ R = read, C = create, U = update, D = delete. “member” = any role in the pro
 | `…/stockLedger/{id}` | member | admin / qs | ✗ | ✗ | stock ledger (append-only) |
 | `…/engineeringFixtures/{id}` | member | admin / qs | admin / qs | ✗ | engineering fixtures |
 | `…/engineeringFixtureRuns/{id}`, `…/code99Reviews/{id}` | member | admin / qs / checker / approver | ✗ | ✗ | fixture runs, Code 99 reviews |
+| `…/elementTemplates/{tid}` (T1) | member | admin / qs | admin / qs | admin / qs | project element templates: saveTemplate / deleteTemplate (admin, qs), migration (MasterAdmin) |
+| `…/elementTemplates/{tid}/versions/{n}` (T1) | member | admin / qs | ✗ | ✗ | previous versions (append-only) |
 | `…/{other}/{id}` | member | admin / qs | admin / qs | ✗ | anything not listed (default) |
 | `my-boq-app/root/users/{email}` | own, MasterAdmin | own: pending Staff, no projects — or the very first account (no `appMeta`) as approved MasterAdmin | own: `firstName`, `lastName`, `position`, `department`, `photoURL`, `profileVersion`, `updatedAt` · own new project (`accessChange.kind == 'CreateProject'`, project created in the same write with me as admin) · a project admin: that project's entry only (`accessChange.projectId`) · MasterAdmin: any | ✗ | register, updateProfile, createProject, setProjectAccess |
 | `…/directory/{uid}` | approved, own | own (status = own profile status), MasterAdmin | same, + approved: `profileVersion` only | ✗ | names / status for team lists |
@@ -55,11 +58,14 @@ R = read, C = create, U = update, D = delete. “member” = any role in the pro
 | `…/apiProviderSecrets/{provider}` | **✗ (nobody)** | MasterAdmin | MasterAdmin | ✗ | the API keys; read only by the gateway (Admin SDK) |
 | `…/apiProviderOperations/{id}` | MasterAdmin | MasterAdmin, own | ✗ | ✗ | receipts |
 | `…/specProfiles/{id}` (+ sub) | approved | global admin | global admin | MasterAdmin | General Spec profiles |
-| `…/elementTemplates/{id}` | approved | global admin | global admin | global admin | element templates |
+| `…/elementTemplates/{id}` (T1: central) | approved | MasterAdmin | MasterAdmin | MasterAdmin | central templates (old documents with `scope: 'project'` stay readable here until migrated) |
+| `…/elementTemplates/{id}/versions/{n}` (T1) | approved | MasterAdmin | ✗ | ✗ | previous versions (append-only) |
+| `…/elementTemplateProposals/{id}` (T1) | own (`uid == me`), MasterAdmin | admin / qs of `projectId`, own `uid` / `email`, `status == 'pending'`, no decision fields | MasterAdmin, once: `pending` → `approved` (+ `centralId`) / `rejected` (+ non-empty `reason`); only `status`, `decidedAt`, `decidedBy == me`, `reason`, `centralId`, `centralVersion` | ✗ | proposeTemplate (admin, qs) · decideProposal (MasterAdmin) |
 
 Append-only (create only, never update / delete — also not by MasterAdmin): operations, accessEvents, revisionEvents,
 importedHistory, aiSendLog, revisions, submissionNumbers, stockLedger, engineeringFixtureRuns, code99Reviews,
-profileOperations, activityLogs, apiProviderOperations.
+profileOperations, activityLogs, apiProviderOperations, element template `versions` (project and central). Template proposals are
+never deleted and are decided only once.
 
 ## Storage paths × roles
 
@@ -93,7 +99,7 @@ anyone under the old rules. Now:
 
 ## What the owner does, in this order
 
-1. **Review** `firestore.rules` / `storage.rules` (and run `npm run test:rules` locally: 18 cases, all pass).
+1. **Review** `firestore.rules` / `storage.rules` (and run `npm run test:rules` locally: 26 cases, all pass).
 2. **Deploy the web app of this branch first** (hosting, as usual): the build now online still writes the AI keys into the
    readable config and the AI log as a project array, which the new rules refuse.
 3. **Deploy the rules**: `firebase deploy --only firestore:rules,storage --project my-boq-app` (accept the cross-service
@@ -119,7 +125,7 @@ key in either place; the previous web build does not work with the new rules (st
 
 ## Tests
 
-`npm run test:rules` (18 cases, role × action): no sign-in / anonymous / no profile / pending see nothing; members read,
+`npm run test:rules` (26 cases, role × action): no sign-in / anonymous / no profile / pending see nothing; members read,
 outsiders not (also `documentId() in` list queries); project keys by role (version only forward, spec admin / QS / approver,
 ACL / aiConsent admin, no delete, unknown keys refused); create project (global admin with self as admin, nobody can grant
 themself an existing project); members by role (detailer drawing keys only, checker / approver review keys only, viewer
@@ -128,6 +134,13 @@ none); sources never deleted; spec-change jobs admin / QS; append-only (update /
 QS not), registration (pending Staff; first account only when no `appMeta`), directory; AI config / secrets (nobody reads a
 secret, MasterAdmin writes); General Spec / activity log; Storage (members read, files once by admin / QS with type / size,
 no overwrite / delete, exports by any role, logo admin ≤ 2 MB image, other paths closed, manifests by role).
+T1 element templates (8 cases): project templates (members read, outsiders not, admin / QS write + delete, viewer / detailer /
+checker / approver / outsider not); versions append-only in the project and central (also MasterAdmin); central templates
+(approved read, pending not, only MasterAdmin writes — not a global Admin, not QS); proposals (QS / admin of the project, own,
+pending, no decision fields; viewer / outsider / as someone else refused; proposer + MasterAdmin read, list only with the own
+`uid` filter); decision (MasterAdmin only, once, rejection needs a reason, no other key, never deleted); rejected proposal
+readable by the proposer; `templateDefaults` admin / QS (viewer / detailer not); the migration writes (copy into the project,
+delete the old central document).
 
 UI on separate emulators **running the new rules** (`tmp/secemu/`, project `demo-boq-sec`, Vite 5183, empty workspace):
 
@@ -152,3 +165,52 @@ UI on separate emulators **running the new rules** (`tmp/secemu/`, project `demo
 | Backup ZIP | MasterAdmin | ✓ (694 KB) |
 | Restore into an empty project SEC-2 | MasterAdmin | ✓ (“Restore แล้ว”) |
 | Beams from the slab floor | qs | ✗ **not reached** — stopped before any write by member validation (default beam bars without a Beam Template fail the cover check on the Y lines); reproduced in Node without Firebase, so not a rules effect; its writes (member create, project version, operation) are the paths covered above |
+
+## T1 — element templates (project / project defaults / central)
+
+Changes to the rules (on top of SEC1):
+- `projects/{pid}/elementTemplates/{tid}` (+ `versions/{n}` append-only): project templates, members read, admin / QS write.
+- `projects/{pid}.templateDefaults` (key → template id) joins the admin / QS project keys.
+- `my-boq-app/root/elementTemplates/{id}` (+ `versions/{n}` append-only): central templates, **MasterAdmin only** writes
+  (before: any global admin). Old documents with `scope: 'project'` stay here, readable, until they are migrated.
+- `my-boq-app/root/elementTemplateProposals/{id}`: proposals to the central library (see the table).
+
+### Deploy order (web → rules → keys → templates → functions)
+
+1. **Web app of this branch** (hosting): it reads templates from both places (project + old central documents) and writes the
+   new paths; the previous build would write project templates into the central collection, which the new rules refuse for
+   everyone but MasterAdmin.
+2. **Rules**: `firebase deploy --only firestore:rules,storage --project my-boq-app` (the SEC1 rules plus T1; if SEC1 was not
+   deployed yet, follow its steps above in the same pass).
+3. **Move the AI keys** (SEC1 step 4) if not done yet.
+4. **Move the old project templates** (either):
+   - in the app: MasterAdmin › จัดการผู้ใช้งาน › “ย้าย Template เดิม (เฉพาะโครงการ) เข้าโครงการ” › **ตรวจก่อนย้าย** › **ย้ายเข้าโครงการ**; or
+   - with the Admin SDK: `node tools/security/migrateElementTemplates.mjs --project my-boq-app` (`--dry-run` first).
+   Both are idempotent (a copy already there with the same or a newer version is skipped) and delete the originals only after
+   every copy exists; run again after an interruption.
+5. **Functions** (SEC1 step 5, the gateway) — no T1 change in functions.
+
+Rollback: redeploy the previous rules (as above). Migrated templates stay in their projects (the previous web build only read
+the central collection: it would then not show them — re-deploying the previous web build after the migration is not supported;
+keep this build or copy the documents back with the Admin SDK).
+
+### UI check with the new rules (2026-11-06)
+
+Separate emulators `tmp/secemu/` (`demo-boq-sec`, rules copied from this branch), seed `tmp/secemu/templatesSeed.test.ts`:
+projects T1-A (ACI, footing F-01) and T1-B (design code BS), an old central template with `scope: 'project'` of T1-A.
+
+| Flow | Account | Result |
+|---|---|---|
+| Save F-01 as a project template (preview 4 Mark · 217.6 kg · 6.34 m³ per set) | qs | ✓ `projects/tplA/elementTemplates/…` v1 |
+| Same name again + “ตั้งเป็นค่ามาตรฐานของโครงการ” | qs | ✓ v2, `versions/1` kept, `templateDefaults['Foundation:spread']` set |
+| “เสนอเข้า Template กลาง”; own request list shows “รอพิจารณา” | qs | ✓ (list query with the own `uid`) |
+| “เพิ่มสมาชิก” opens on the default; duplicate code F-01 flagged; create F-05 (6 pcs, Zone C, FDN) | qs | ✓ “สร้างจาก Template … v2” |
+| Edit F-05 (width 3000 → 3200, apply, save) | qs | ✓ member v2, `templateSource` kept |
+| Open the template dialog / add member | viewer | ✓ reads templates and the source note; save disabled with notice; add member disabled |
+| Approve the proposal (preview + spec facts) | MasterAdmin | ✓ central template v1, request approved |
+| Migration: check → move → check again | MasterAdmin | ✓ 1 moved, original deleted; re-run 0 |
+| T1-B (BS): add member from the central template | MasterAdmin | ✓ warning “Design code ACI → BS”, FB-01 “สร้างจาก Template กลาง … v1” |
+| ★ make the migrated template the default | admin | ✓ default replaced |
+| Propose as a new version of the central template; delete a project template | admin | ✓ request pending; template deleted, its `versions/1` kept |
+| Reject with a reason | MasterAdmin | ✓ |
+| Proposer sees “ไม่อนุมัติ” + the reason | admin | ✓ |
