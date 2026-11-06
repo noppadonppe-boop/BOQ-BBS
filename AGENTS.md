@@ -454,4 +454,8 @@
 - Windows PowerShell 5 `Get-Content`/`Set-Content` corrupts Thai UTF-8 text — edit files with the editor tools only.
 - Storage reads use `getBlob`, which needs bucket CORS: `cors.json` (applied to `my-boq-app.firebasestorage.app`;
   add new web origins there and re-apply with `gcloud storage buckets update gs://my-boq-app.firebasestorage.app --cors-file=cors.json`).
-- Do not edit or deploy `firestore.rules`, `storage.rules`, `.env` or Firebase config; the owner manages them.
+- Do not deploy `firestore.rules` / `storage.rules`, and do not edit `.env` or Firebase config; the owner deploys. Since SEC1 the rules
+  in the repo are the real ones (project roles from the user profile, append-only records, AI keys in `apiProviderSecrets`):
+  docs/SECURITY_RULES.md (path × role table, deploy order, rollback). A new collection / project key / Storage folder needs a rule
+  and a case in `tests/rules/securityRules.emu.ts` (`npm run test:rules`, separate demo emulators). UI check with the new rules:
+  `tmp/secemu/` (copies of the rules, ports 9397 / 8382 / 9597, `node tmp/secemu/dev.mjs` on 5183).
