@@ -306,7 +306,72 @@ per page, operator list ≤ 0.5 s, reading + index < 0.1 s (ad-hoc `tmp/s4real.t
 Limits: no AI (S4b), no schedule / table reading, DWG = Save As DXF, oblique grids not read, columns only at crossings
 (no offset), one underlay per floor, PDF text not used for snap, HATCH not read (dxf-parser), images (PNG / JPEG) without snap.
 
+## Import from PDF + AI help (round S4b)
+
+**PDF without AI.** The import window is now “นำเข้าจากแบบ (DXF / PDF)” (`components/FloorImport.tsx`). A PDF page is read like
+a DXF: `pdfDoc(opList, OPS, view, {texts, ocName})` (`cadEntities.ts`) keeps every painted path with its **pseudo-layer** —
+the optional-content layer (OCG) name when the path is marked with one, else `#RRGGBB · width mm · dash|dashdot` (stroke
+colour, width on paper, dash kind); closed paths of 4+ curves round one centre become circles; `page.getTextContent()` items
+become texts on `TEXT` (page points, size = font height, `w` = measured width, so text centres are exact; page `/Rotate`
+does not move them — everything stays in page space). Step 1 lists the pseudo-layers with a colour swatch and a red preview
+of the chosen one; roles come from the saved maps / names (OCG) then `guessPdfRoles()`: dashed long runs (or the layer with
+the most long axis-parallel runs) = grid, equal circles = bubbles, small closed rectangles = columns, rectangles crossed corner
+to corner = openings, lines with a close parallel partner = beam faces. Collinear pieces are joined first (`axisRuns`, a
+plotted centre line is often thousands of dashes). Step 2 = page scale: the underlay alignment (same file / page), the page
+calibration, or 1 : N; positions rounded to 1 / 5 / 10 / 25 mm (default 5); the window. Source → floor = `docToFloor(doc, T)`
+then the same `readFloorPlan` / review / `applyProposal` as DXF; the import can set the PDF page as the underlay.
+
+**AI help (only on request).** Project switch “อนุญาตส่งแบบให้ AI” (`project.aiConsent {enabled, by, at}`, default off, admin
+only, command `setAiConsent`, UI `AiConsentSettings.tsx` in the project settings) and the send log `project.aiSendLog` (last
+200: who, when, task, file, page, window, views, provider, model; command `logAiSend`, no project version bump). Every send
+is confirmed in a box naming provider / model / file / page / window and what is sent. Sent: the overview + 3 × 2 tiles of the
+window cut from the page image (`windowViews`, JPEG ≤ 1,800 px), the page texts inside it with view-0 pixel positions and ids
+(`textsForAi`), the pseudo-layers with their roles, the rule result as text (`ruleSummary`) and earlier answers — never the
+file. Gateway task `slabPlan` (see docs/AI_DRAWING_ANALYSIS.md); the answer is checked with `aiFloorProposalSchema`
+(`src/domain/aiSlabPlan.ts`, wrong shape → error naming the fields), converted with `aiToProposal()` (view pixels → page →
+floor through the same T, origin of the rule result) and merged by `mergeProposals()`:
+- found by both and equal → origin `both`, the higher confidence; different → the **rule value is kept and the AI reading is
+  shown as the second value** (`alt`), the user switches per row (`withAlternatives`); where the rule only guessed (mark
+  `B?`, low confidence) the AI value fills it and the guess becomes the second value;
+- AI only → added (origin `ai`, confidence × 0.85, ticked only when ≥ 0.8); rule only → kept;
+- a scan / picture (no vectors) → AI only, confidence × 0.7, **nothing ticked in advance**;
+- AI layer roles can be taken into step 1 (“ใช้บทบาท layer จาก AI”) and the rules re-run; AI questions are answered in the
+  review and sent again (new confirmation).
+Without consent, gateway URL or provider / key the AI buttons are off with the reason; part 1 works fully.
+
+**Schedules → templates.** Mode “ตาราง (Template)”: drag a window round a slab or beam schedule. A ruled table (row / column
+lines + texts in the cells) is read by `readRuledTable()` (`src/domain/scheduleImport.ts`); otherwise “ให้ AI อ่านตาราง”
+(same task, part `schedule`, `aiScheduleSchema`: header + rows as written). Header words pick the columns —
+slab: MARK, THICK / t, SHORT / LONG × BOT / TOP (B1 B2 T1 T2), EXTRA TOP (“DB12@200 L/4” | “… L/3” | “… 1000” from the face),
+TYPE (SOG / on ground); beam: MARK, SIZE “300x600” or B / D, TOP, BOTTOM, STIRRUP, SIDE (one ALL SPAN section, bars by
+`beamRebarFromSections`). Rows are compared with the project spec by name (add / edit / same, `templateDiff`); the ticked
+ones go to the spec **only through the spec-change job** (`importTemplatesViaSpecJob` → `changeSpec`: old / new spec in the
+manifest, members re-checked / regenerated; admin / QS). AI-read rows are never pre-ticked.
+
+Real drawings (J-074 `Referrence/J-074 Standard`, ad-hoc `tmp/s4bReal.test.ts`, report + SVG overlays in
+`output/slab-pdf-ai-verification/`): every plan page is vector (50,000–212,000 pieces) but has **no PDF text** (CAD text
+plotted as strokes) and no OCG layers; pens differ by width / colour. The rules (1:100 assumed, whole page) find the grid
+lines (e.g. ISB DWG-013 p9: 10 × 13, p10 / p12: 8 × 13; GIS DWG-043 p3 / p5: 9 × 10 / 9 × 14) and some beam pairs, no
+labels / marks / sizes (no text) — the grid labels come out A, B … / 1, 2 … (warned) and a window is needed to leave out the
+title block. Reading the bubbles / marks / sizes there is the AI's job.
+
+Limits: no PDF text on real CAD plots (labels / marks only with AI), page scale must be known (alignment / calibration / 1 : N),
+views are cut from the 4,096 px page image (a small window gives a coarse view), one page per import, schedule rules need
+ruled tables, the AI task is not deployed (owner), AI never applies anything itself.
+
 ## Tests
+
+`tests/slabPdfImport.test.ts` (S4b part 1): colour-plot PDF (jsPDF fixture, styles per layer) → pseudo-layers and guessed
+roles, proposal = the DXF proposal, floor = the hand floor; hand-written PDF with OCG layers (names = roles); the same PDF
+without layers (styles only); page `/Rotate 90` keeps texts at their page positions. `tests/slabPdfAi.test.ts` (part 2):
+schema accept / reject (envelope fields allowed), view pixels → floor mm (grids exact), merge (both / alternative / AI-only,
+switch to the AI value, ticks, scan = none ticked, rule guess filled by the AI), consent off = no log and no gateway call /
+on = log then send / bad answer rejected, `setAiConsent` admin only and `logAiSend` (refused when off, last 200, no version
+bump) against an in-memory Firestore, ruled slab / beam schedules (PDF) → rows → Slab / Beam Templates (valid by schema) →
+diff → the spec handed to the spec-change job. UI check on the separate emulators with a **mock** gateway
+(`tmp/s4emu/mockGateway.mjs` on 5199, `node tmp/s4emu/dev.mjs` on 5182, seed `tmp/s4seed.test.ts`): consent switch, PDF
+pseudo-layers + preview, rule import, AI confirmation / both readings / question, send log, consent off = AI off, schedule →
+real spec-change job (Complete).
 
 `tests/slabTrace.test.ts` (S4a): layer-name roles / beam + slab texts, DXF fixture (mm) → grids, 7 beam lines with mark /
 size / offset, 12 columns, opening, S1 × 4 / S2 × 2 = the hand floor (`tests/fixtures/slabPlan.ts` `handFloor()`) with equal

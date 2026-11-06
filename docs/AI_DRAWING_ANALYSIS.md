@@ -61,3 +61,35 @@ The final result should have this shape (the `analysis` or `result` wrapper is a
 ```
 
 AI results are always shown as **Needs review**. Applying them only updates the member's draft dimensions/cover and stored drawing-extraction evidence; it does not approve the member, create BBS bars, or release a BOQ/BBS revision. The actual concrete/formwork/rebar values shown after applying are recalculated by the existing application engine.
+
+## Task `slabPlan` (S4b · slab floor import from a PDF / DXF window, schedules)
+
+Request `context`: `task: 'slabPlan'`, `part: 'plan' | 'schedule'`, `scheduleKind: 'slab' | 'beam'`, `page`, `views` (overview
++ up to 6 tiles of the chosen window, JPEG base64, each ≤ 5 MB, ≤ 20 MB total), `frames` (label, pixel size, window in page
+points), `texts` ([{id, text, x, y}] page texts with view-0 pixel positions), `layers` ([{name, count, role?}] pseudo-layers),
+`ruleSummary` (the rule result as text), `answers` (earlier questions answered by the user), plus the usual project / member /
+attachment ids and the provider selection. The gateway **does not download or send the original file** for this task
+(`loadAttachmentFromStorage` skips it; `sendsOriginal` false) and refuses unless `projects/{id}.aiConsent.enabled === true`
+(403). The prompt is `slabPlanInstruction()`; the answer is returned with an envelope (`provider`, `model`, `attachmentId`,
+`page`) by `normaliseSlabPlan()` and checked in the browser (`aiFloorProposalSchema` / `aiScheduleSchema` in
+`src/domain/aiSlabPlan.ts`). Plan answer: `layers [{name, role, confidence}]`, `grids [{axis, label, at:{view,x,y}}]`, `beams
+[{mark, width, depth, a, b}]`, `columns [{mark, at, sx, sy}]`, `openings [{label, shape, a, b}]`, `panelMarks [{mark, thickness,
+at}]`, `questions`, `warnings`; every item has `confidence` (0–1) and `evidence` (`view` + `box` pixels and / or `quote` /
+`textIds`). Schedule answer: `{task:'slabSchedule', kind, header, rows, confidence, questions, warnings}`.
+
+The browser asks only when the user presses an AI button, after a confirmation naming provider / model / file / page /
+window, and logs every send on the project (`logAiSend`). Results always go to the review step; nothing is applied
+automatically.
+
+### Deploy (owner)
+
+The task is in `functions/index.js` but **not deployed**. To enable it:
+1. Review the diff of `functions/index.js` (`slabPlanInstruction`, `normaliseSlabPlan`, the `slabTask` branch, the download
+   skip in `loadAttachmentFromStorage`).
+2. `firebase deploy --only functions:analyseDrawing --project my-boq-app` (Hosting is unchanged; add `hosting:site-02` only
+   when deploying a new web build as usual).
+3. Make sure `VITE_AI_DRAWING_ANALYSIS_ENDPOINT` points at the function in the web build and the active provider / model /
+   API key are set in “จัดการ API”.
+4. In each project that may use it, an admin switches on “อนุญาตส่งแบบให้ AI” (project settings).
+5. Check: import window › step 3 › “ให้ AI ช่วยตรวจ / เติม…” → the confirmation → the result rows marked AI; the project
+   settings show the send in the log. Until then the AI buttons say why they are off and the rest of the import works.

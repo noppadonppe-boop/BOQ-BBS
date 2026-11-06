@@ -310,6 +310,13 @@
   `floor.importMap` → `readFloorPlan` / `proposalDiff` / `applyProposal` in `src/domain/slabPlanImport.ts`, `FloorProposal` =
   contract for S4b AI). Zoom Ctrl + wheel, pan by dragging the background. Test: `tests/slabTrace.test.ts` (fixtures
   `tests/fixtures/slabPlan.ts`, files `tests/fixtures/slab-plan/`); UI seed `tmp/s4seed.test.ts` (project s4proj on `tmp/s3emu/`).
+  S4b PDF import / AI help: PDF pseudo-layers (OCG, else colour · width · dash) + texts in `pdfDoc(…, {texts, ocName})`,
+  `guessPdfRoles()` / `axisRuns()` / `docToFloor()`, import window `components/FloorImport.tsx` (DXF / PDF, plan | schedule);
+  AI: project `aiConsent` / `aiSendLog` (commands `setAiConsent` admin, `logAiSend`; UI `AiConsentSettings.tsx`), gateway task
+  `slabPlan` in `functions/index.js` (never deploy it yourself), client `src/data/aiSlabPlan.ts` (views of the window only),
+  schema / conversion / merge `src/domain/aiSlabPlan.ts` (rule value kept, AI reading as `alt`), schedules
+  `src/domain/scheduleImport.ts` → `importTemplatesViaSpecJob` (spec-change job). Tests `tests/slabPdfImport.test.ts`,
+  `tests/slabPdfAi.test.ts`; mock UI gateway `tmp/s4emu/mockGateway.mjs` + `tmp/s4emu/dev.mjs` (5182).
   UI `components/SlabFloorEditor.tsx` in the Slab input panel;
   floor members hide the shape / rebar tabs (`isSlabFloorMember`). Slab List column “บนเสริม” (`topExtra`, `TopExtraCell`).
   Test: `tests/slabFloor.test.ts` (+ DXF `output/dxf-verification/slabFloor-*.dxf`).
