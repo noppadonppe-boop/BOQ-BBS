@@ -1,0 +1,2 @@
+{"firestore":{"rules":"placeholder.firestore.rules"},"storage":{"rules":"placeholder.storage.rules"},
+ "emulators":{"firestore":{"port":8481},"storage":{"port":9681},"hub":{"port":4481},"logging":{"port":4581},"eventarc":{"port":9381},"ui":{"enabled":false},"singleProjectMode":true}}
