@@ -681,3 +681,6 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .wall-type-card{display:flex;flex-direction:column;gap:6px;text-align:left;padding:12px;border:1px solid #e2e7ec;border-radius:10px;background:#fff;font-size:13px;line-height:1.45;cursor:pointer}
 .wall-type-card:hover{border-color:#7c3aed;box-shadow:0 4px 14px rgba(124,58,237,.12)}.wall-type-card code{color:#7c3aed}
 .wall-type-card.plain{background:#f8fafc}.wall-type-card.later{opacity:.55;cursor:default}.wall-type-card .tag{font-size:11px;background:#eef2f6;border-radius:999px;padding:1px 8px;align-self:flex-start}
+.wall-type-card{align-items:flex-start;text-align:left!important;justify-content:flex-start}
+.wall-run .wr-grid{grid-template-columns:minmax(300px,330px) minmax(0,1fr) minmax(260px,320px)}
+.wall-run .wr-table input,.wall-run .wr-table select{font-size:12px;padding:3px 4px}

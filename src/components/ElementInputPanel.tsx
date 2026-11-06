@@ -65,7 +65,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const isFloor=m.category==='Slab'&&(m.elementInput as {layout?:string}|undefined)?.layout==='floor';
  const proj=useProjectMembers(project.id,isFloor),linkedLines=isFloor?floorLinks(proj.members?.find(x=>x.id===m.id),proj.members,project).map(l=>`${l.input.placement?.along}|${l.input.placement?.line}`):undefined;
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
- const [wallPick,setWallPick]=useState(false);
+ // new wall member: pick the wall type first (Wall Run types or the old straight wall)
+ const [wallPick,setWallPick]=useState(()=>m.category==='Wall'&&!m.bars.length&&(m.elementInput as {layout?:string}|undefined)?.layout!=='run'&&!readOnly);
  const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0),[picker,setPicker]=useState(false),[ftPicker,setFtPicker]=useState(false);
  const spec=project.spec;
  // typed but not yet applied = unsaved work (the member popup asks before closing)

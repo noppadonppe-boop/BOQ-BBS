@@ -61,7 +61,7 @@ type LabelReq={x:number;y:number;text:string;mark:string;color:string;n:number;d
 function labelColumn(reqs:LabelReq[],box:Box,colX:number,view:string):Prim[]{
  const out:Prim[]=[],top=box.y+8,bottom=box.y+box.h-2,n=reqs.length;if(!n)return out;
  // fit the column: step 3.2 mm, compressed down to 2.2 mm (smaller text) before anything is clamped
- const step=Math.max(2.2,Math.min(3.2,(bottom-top)/n)),size=Math.min(2.1,step*.68),need=n*step;
+ const step=Math.max(1.5,Math.min(3.2,(bottom-top)/n)),size=Math.min(2.1,step*.68),need=n*step;
  // distinct anchor heights first, then the order (elbow leaders in anchor order never cross)
  const used:number[]=[],list=[...reqs].sort((a,b)=>a.y-b.y||a.x-b.x).map(r=>{let y=r.y;while(used.some(u=>Math.abs(u-y)<.6))y+=.6;used.push(y);return {...r,y};}).sort((a,b)=>a.y-b.y||a.x-b.x);
  let y0=Math.max(top,Math.min(list[0].y-step,bottom-need));if(y0+need>bottom)y0=top;
@@ -102,7 +102,7 @@ function elevation(c:Ctx,face:'out'|'in',box:Box,id:string,title:string,o:{n?:nu
    const list=bySeg.get(at.k)||[];list.push({path:p,a:{u:c.offs[at.k]+at.u,z:p[0][2]}});bySeg.set(at.k,list);}
   let labelled=false;
   for(const [k,list] of [...bySeg].sort((a,b)=>a[0]-b[0])){
-   const rep=list[Math.floor(list.length/2)],pts:P2[]=[];
+   const wc=o.win?{u:(o.win.u0+o.win.u1)/2,z:(o.win.z0+o.win.z1)/2}:undefined,rep=wc?list.reduce((b,x)=>Math.hypot(x.a.u-wc.u,x.a.z-wc.z)<Math.hypot(b.a.u-wc.u,b.a.z-wc.z)?x:b):list[Math.floor(list.length/2)],pts:P2[]=[];
    for(let j=1;j<rep.path.length;j++){const a=rep.path[j-1],b=rep.path[j],mid:V3=[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2],L=locate(c,mid);if(!L)continue;const s2=c.segs[L.k];
     const ua=c.offs[L.k]+(a[0]-s2.a[0])*s2.dir[0]+(a[1]-s2.a[1])*s2.dir[1],ub=c.offs[L.k]+(b[0]-s2.a[0])*s2.dir[0]+(b[1]-s2.a[1])*s2.dir[1];
     if(Math.abs(ua-ub)<1&&Math.abs(a[2]-b[2])<1)continue;
@@ -115,7 +115,7 @@ function elevation(c:Ctx,face:'out'|'in',box:Box,id:string,title:string,o:{n?:nu
     else{const xx=(pts[0][0]+pts[pts.length-1][0])/2+.9;out.push(line(xx,Y(Math.max(...zs)),xx,Y(Math.min(...zs)),color,.18),{t:'circle',cx:xx,cy:Y(Math.max(...zs)),r:.35,stroke:color,width:.15} as Prim,{t:'circle',cx:xx,cy:Y(Math.min(...zs)),r:.35,stroke:color,width:.15} as Prim);}}
    if(labels&&!labelled){const seg=pts.reduce((b,p,j)=>j&&Math.hypot(p[0]-pts[j-1][0],p[1]-pts[j-1][1])>b.l?{l:Math.hypot(p[0]-pts[j-1][0],p[1]-pts[j-1][1]),j}:b,{l:0,j:1});
     const f=.3+.4*((reqs.length*.37)%1),ax=pts[seg.j-1][0]+(pts[seg.j][0]-pts[seg.j-1][0])*f,ay=pts[seg.j-1][1]+(pts[seg.j][1]-pts[seg.j-1][1])*f;
-    reqs.push({x:ax,y:ay,text:`${setText(c.i,s,row,face)}${bySeg.size>1?' TYP.':''}`,mark:s.mark,color,n:row.count,d:row.diameter});labelled=true;}
+    if(ax>box.x+2&&ax<box.x+box.w-labW-2&&ay>box.y+8&&ay<box.y+box.h-2)reqs.push({x:ax,y:ay,text:`${setText(c.i,s,row,face)}${bySeg.size>1?' TYP.':''}`,mark:s.mark,color,n:row.count,d:row.diameter});labelled=reqs.some(q=>q.mark===s.mark);}
    void k;}}
  out.push(...labelColumn(reqs,box,box.x+box.w-labW+1,id));
  const info:SheetViewInfo={id,title,box,n,s:1/n,fits:true,axes:[0,2],origin:{sheet:[ox,oy],model:[W.u0,W.z1]}};
@@ -161,7 +161,7 @@ function section(c:Ctx,box:Box,id:string):View{
  const joints=[...(wallJoints(run).base?[lv.zBase]:[]),...lv.lifts.slice(1).map(l=>l.z0),...(lv.cover?[lv.cover[0]]:[])];
  for(const z of joints){out.push({...line(X(t/2+150),Y(z),X(-t/2-150),Y(z),JOINT,.25,[1.4,.7]),layer:'symbol'} as Prim);
   if(run.waterstop?.joints)out.push({t:'rect',x:X(15)-0,y:Y(z+100),w:30/n,h:200/n,stroke:'#0f766e',width:.2,fill:'#99f6e4',layer:'symbol'} as Prim);}
- out.push(text(X(-t/2-160),Y(lv.zBase)+2.6,`C.J.${run.waterstop?.joints?` + WATERSTOP ${run.waterstop.material}`:''}${run.base.kicker?` · KICKER ${run.base.kicker}`:''}`,1.8,{color:JOINT}));
+ out.push(text(X(t/2+170),Y(lv.zBase)+.6,'C.J.',1.8,{color:JOINT,anchor:'end'}));
  // bars: lines of the nearest instance in the cut plane, dots where bars cross it
  const reqs:LabelReq[]=[];
  for(const row of c.rows){const st=c.sets.get(row.id);if(!st)continue;const color=KIND_COLOR[st.kind];let best:{p:V3[];d:number}|undefined;const dots:P2[]=[];
@@ -174,7 +174,7 @@ function section(c:Ctx,box:Box,id:string):View{
   for(const d of dots)out.push({t:'circle',cx:d[0],cy:d[1],r:Math.max(.3,row.diameter/2/n),fill:color,stroke:color,width:.1,layer:'barMain'} as Prim);
   if(!best&&dots.length&&(st.kind==='H'||st.kind==='B'||st.kind==='K')&&reqs.length<40){const d=dots[Math.floor(dots.length/2)];reqs.push({x:d[0],y:d[1],text:`${st.mark} ${barName(row.diameter)}`,mark:st.mark,color,n:row.count,d:row.diameter});}}
  out.push(...labelColumn(reqs,box,box.x+box.w-labW+1,id));
- out.push(text(box.x+1,box.y+box.h-1.5,`ทาบ (Lap) ${barName(run.rebar.outer.vertical.diameter)} = ${Math.round(lapLength(det,run.rebar.outer.vertical.diameter))} mm · ทาบทุกช่วงเท${run.rebar.stagger?' (เหลื่อม 50%)':''}`,1.9,{color:MUTED}));
+ out.push(text(box.x+1,box.y+box.h-1.5,`C.J. = รอยต่อการเท${run.waterstop?.joints?` + WATERSTOP ${run.waterstop.material}`:''}${run.base.kicker?` · KICKER ${run.base.kicker}`:''} · ทาบ ${barName(run.rebar.outer.vertical.diameter)} = ${Math.round(lapLength(det,run.rebar.outer.vertical.diameter))} mm ทุกช่วงเท${run.rebar.stagger?' (เหลื่อม 50%)':''}`,1.8,{color:MUTED}));
  const info:SheetViewInfo={id,title:'รูปตัด A–A',box,n,s:1/n,fits:true,axes:[1,2],origin:{sheet:[ox,oy],model:[oR,zHi]}};
  return {info,prims:tagPrims(clipPrims(out,{kind:'rect',x0:box.x,y0:box.y,x1:box.x+box.w,y1:box.y+box.h}),{view:id})};
 }

@@ -318,6 +318,9 @@ export function wallRunRaw(i:WallInput,det:Detailing,rounding=25,warn:(s:string)
     else if(baseKind==='ret'&&lv.base&&rt){const sg=rt.soilSide==='out'?1:-1,dir=P.face===soil?sg:-sg,zf=lv.base[0]+c.face+rt.rebar.bottom.diameter+rt.rebar.dist.diameter+d/2;
      pts=[at(s,e.u,oo+dir*hookLeg(d),zf),at(s,e.u,oo,zf),at(s,e.u,oo,L.z0+kick+lap(d)+sB)];lift='BASE';what=`เหล็กยึด stem เข้าฐาน (งอ L ด้าน${dir===sg?'ส้นหลัง (heel)':'ปลายเท้า (toe)'})`;
      if(lv.base[1]-lv.base[0]-c.face*2<hookDevLength(det,d)*.7)warn(`ฐานกันดินหนา ${Math.round(lv.base[1]-lv.base[0])} mm: ระยะฝังเหล็ก stem ${barName(d)} น้อยกว่า Ldh ${hookDevLength(det,d)} mm`);}
+    // an opening over the dowel: it stops under the opening (cover), or is left out when that leaves no lap
+    if(pts){const hz=opensOf(s,P.face).filter(h=>e.u>h.u0-c.edge-d/2&&e.u<h.u1+c.edge+d/2).map(h=>h.z0-c.edge-d/2),zTop=pts[pts.length-1][2];
+     if(hz.length){const cap=Math.min(...hz);if(cap<zTop){const zj=mode==='step'?L.z1:target.z0;if(cap<zj+12*d)pts=undefined;else pts[pts.length-1]=[pts[pts.length-1][0],pts[pts.length-1][1],cap];what+=' (สั้นลงใต้ช่องเปิด)';}}}
     if(pts)push({kind:'S',d,pts,lift,face:P.face,what:`${what}${B?' · ชุด B':''}`});}}
   if(!last&&N&&N.level!==L.level&&tIn(s,N)>t+CRANK_LIMIT)warn(`Segment ${s.id}: ผนังชั้น ${N.name} หนาขึ้น ${Math.round(tIn(s,N)-t)} mm เกิน ${CRANK_LIMIT} mm · ใส่เดือย / รายละเอียดเองตามแบบ`);
  })));
