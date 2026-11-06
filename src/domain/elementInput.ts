@@ -8,6 +8,8 @@ import {REGION_LIMIT} from './placementContext';
 import type {DrawingExtraction} from './drawingExtraction';
 import {slabAccessoriesSchema,slabFloorSchema} from './slabFloorSchema';
 import {applySlabFloor,retagPanels,slabFloorProblems} from './slabFloor';
+import {wallRunSchema} from './wallRunSchema';
+import {applyWallRun,wallRunProblems} from './wallRun';
 
 // Structured element input. Both entry modes ("manual" and "drawing") end in this
 // single per-category pattern; applyElementInput() converts it to the existing
@@ -491,6 +493,10 @@ const wallSchema=z.object({...base,category:z.literal('Wall'),
   opening:z.object({count:z.number().int().min(0).max(6),diameter:dia,ext:mm,diagonal:z.boolean()}).strict().optional()}).strict(),
  /** openings through the wall (x from the wall start, z from the wall bottom): concrete void, bars cut at the cover */
  openings:z.array(z.object({label:z.string().max(40),x:mm,z:mm,width:mm,height:mm}).strict()).max(20).optional(),
+ /** single (absent) = the straight wall above; run = Wall Run (`run`, docs/WALL_RUN.md): wall axis on plan over levels / pour
+  * lifts, wall type defaults; the fields above stay as the cover settings (length / thickness / height follow the run) */
+ layout:z.enum(['single','run']).optional(),
+ run:wallRunSchema.optional(),
 }).strict();
 export const elementInputUnion=z.discriminatedUnion('category',[foundationSchema,columnSchema,beamSchema,slabSchema,wallSchema]);
 export const elementInputSchema=z.preprocess(migrateElementInput,elementInputUnion);
@@ -742,6 +748,7 @@ export function elementInputProblems(input:ElementInput):string[]{
    layer(input.rebar.bottomX,'เหล็กล่างทิศ X');layer(input.rebar.bottomY,'เหล็กล่างทิศ Y');
    if(input.rebar.topX.enabled)layer(input.rebar.topX,'เหล็กบนทิศ X');if(input.rebar.topY.enabled)layer(input.rebar.topY,'เหล็กบนทิศ Y');break;}
   case 'Wall':{
+   if(input.layout==='run'){p.push(...wallRunProblems(input));break;}
    need(input.length,'ความยาวผนัง');need(input.thickness,'ความหนาผนัง');need(input.height,'ความสูงผนัง');
    need(input.cover.face,'cover ผิวผนัง');need(input.cover.edge,'cover ขอบ');
    fits(input.thickness,input.cover.face,input.cover.face,'ความหนาผนัง');
@@ -2284,7 +2291,8 @@ export function applyElementInput(m:Member,input:ElementInput,opts:{rounding?:nu
    gen=beamBars(input,det,warn);break;}
   case 'Slab':if(input.layout==='floor'&&input.floor){const r=applySlabFloor(next,input,det,warn);next=r.member;gen=r.bars;break;}
    next={...next,x:input.lengthX,y:input.lengthY,z:input.thickness,cover:Math.min(input.cover.top,input.cover.bottom,input.cover.edge),faces:[true,true,true,true,true,false],pedestal:{x:0,y:0,z:0},deductions};gen=slabBars(input,det,warn);break;
-  case 'Wall':{const opens=wallOpenings(input);next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions,...(opens.length?{geometry:{solids:[{id:'wall',label:'ผนัง',origin:[0,0,0] as V3,size:[input.length,input.thickness,input.height] as V3,faces:[true,true,true,true,false,false]}],voids:opens.map((o,k)=>({id:`opening${k+1}`,label:(o.label||`ช่องเปิด ${k+1}`).slice(0,80),origin:[o.x0,0,o.z0] as V3,size:[o.x1-o.x0,input.thickness,o.z1-o.z0] as V3,faces:[true,true,false,false,false,o.z1<input.height-1]}))}}:{})};}gen=wallBars(input,det,rounding,warn);break;
+  case 'Wall':if(input.layout==='run'&&input.run){const r=applyWallRun(next,input,det,warn,rounding);next=r.member;gen=r.bars;break;}
+   {const opens=wallOpenings(input);next={...next,x:input.length,y:input.thickness,z:input.height,cover:Math.min(input.cover.face,input.cover.edge),faces:[true,true,true,true,false,false],pedestal:{x:0,y:0,z:0},deductions,...(opens.length?{geometry:{solids:[{id:'wall',label:'ผนัง',origin:[0,0,0] as V3,size:[input.length,input.thickness,input.height] as V3,faces:[true,true,true,true,false,false]}],voids:opens.map((o,k)=>({id:`opening${k+1}`,label:(o.label||`ช่องเปิด ${k+1}`).slice(0,80),origin:[o.x0,0,o.z0] as V3,size:[o.x1-o.x0,input.thickness,o.z1-o.z0] as V3,faces:[true,true,false,false,false,o.z1<input.height-1]}))}}:{})};}gen=wallBars(input,det,rounding,warn);break;
  }
  if(m.category!=='Foundation')next={...next,excavation:{bottomX:0,bottomY:0,topX:0,topY:0,depth:0,buriedConcrete:0},lean:{x:0,y:0,thickness:0}};
  if(m.category!=='Foundation')next=withSiteWork(next,next.siteWork&&{...emptySiteWork(),items:next.siteWork.items});

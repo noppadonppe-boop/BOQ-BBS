@@ -1,4 +1,5 @@
 import {freeFormCategory} from './disciplines';
+import {wallTypeLabels} from './wallRunSchema';
 import {z} from 'zod';
 import {APP_NAME} from './auth';
 import {barSchema,blankMember,categories,labels,type Category,type Member,type Project,type Spec} from './model';
@@ -98,10 +99,12 @@ export function specDifferences(source:TemplateSourceSpec|undefined,spec:Spec):s
  * columns (single / stack) and slabs (single / floor). */
 export function templateKey(category:Category,input?:unknown):string{
  const i=elementInputSchema.safeParse(input);if(!i.success||i.data.category!==category)return category;const v=i.data as ElementInput&Record<string,unknown>;
- const sub=category==='Foundation'?v.foundationType:['Beam','Column','Slab'].includes(category)?v.layout:undefined;
+ // Wall Run: key by wall type (Wall:tank / lift / general / retaining)
+ const run=category==='Wall'&&v.layout==='run'?(v.run as {wallType?:string}|undefined):undefined;
+ const sub=category==='Foundation'?v.foundationType:run?run.wallType:['Beam','Column','Slab'].includes(category)?v.layout:undefined;
  return typeof sub==='string'&&/^[a-z]{1,20}$/.test(sub)?`${category}:${sub}`:category;
 }
-const subLabels:Record<string,string>={spread:'ฐานแผ่',pile:'เข็ม',single:'เดี่ยว',group:'กลุ่มคาน',stack:'หลายชั้น',floor:'ทั้งชั้น'};
+const subLabels:Record<string,string>={spread:'ฐานแผ่',pile:'เข็ม',single:'เดี่ยว',group:'กลุ่มคาน',stack:'หลายชั้น',floor:'ทั้งชั้น',tank:'ผนังบ่อน้ำ',lift:'ผนังลิฟต์',general:'ผนัง RC ทั่วไป',retaining:'ผนังกันดิน'};
 export function templateKeyLabel(key:string){const [c,s]=key.split(':');return `${labels[c as Category]||c}${s?` (${subLabels[s]||s})`:''}`;}
 /** Project default template ids of a category (exact `category` key first, then the subtype keys). */
 export function categoryDefaults(defaults:TemplateDefaults|null|undefined,category:Category):{key:string;id:string}[]{
@@ -123,7 +126,7 @@ export function templatePayload(m:Member,over:{elementInput?:ElementInput;shapeM
  const inc=over.include,shape=over.shapeModel??m.shapeModel,bars=(over.bars??m.bars).filter(b=>!isGeneratedBar(b));
  return templatePayloadSchema.parse({description:m.description,cover:over.cover??m.cover,...(input?{elementInput:{...cleanInput,mode:'manual'}}:{}),
   ...(freeFormCategory(m.category)&&shape?{shapeModel:{...structuredClone(shape),confirmed:false}}:{}),...(m.category==='Custom'&&(over.boqCategory??m.boqCategory)?{boqCategory:over.boqCategory??m.boqCategory}:{}),
-  siteItems:inc&&!inc.siteItems?[]:over.siteItems??m.siteWork?.items??[],bars:inc&&!inc.manual?[]:bars.map(b=>({...b,placementConfirmed:false})),
+  siteItems:inc&&!inc.siteItems?[]:(over.siteItems??m.siteWork?.items??[]).filter(it=>!/^gen-wall-/.test(it.id)),bars:inc&&!inc.manual?[]:bars.map(b=>({...b,placementConfirmed:false})),
   ...(inc?{include:inc}:{}),...(inc?.sheetLayout&&m.sheetLayout?{sheetLayout:structuredClone(m.sheetLayout)}:{}),...(inc?.drawingEdits&&m.drawingEdits?{drawingEdits:(({check:_c,...e})=>structuredClone(e))(m.drawingEdits)}:{}),
   ...(over.spec?{sourceSpec:templateSourceSpec(over.spec)}:{})});
 }
@@ -135,7 +138,7 @@ export function templateSummary(t:Pick<ElementTemplate,'payload'>){
   case 'Beam':return v.layout==='group'?`กลุ่มคาน ${v.spans.length} ช่วง · ${[...new Set(v.spans.map(s=>s.mark))].join(', ')}`:`${v.width}×${v.depth} ยาว ${v.length}`;
   case 'Column':return `${v.shape==='circle'?`Ø${v.diameter}`:`${v.width}×${v.depth}`} สูง ${v.height}`;
   case 'Slab':return v.layout==='floor'?'พื้นทั้งชั้น':`${v.lengthX}×${v.lengthY} หนา ${v.thickness}${v.ground.support==='ground'?' · บนดิน':''}`;
-  case 'Wall':return `ยาว ${v.length} หนา ${v.thickness} สูง ${v.height}`;}}
+  case 'Wall':return v.layout==='run'&&v.run?`Wall Run · ${wallTypeLabels[v.run.wallType]} · ${v.run.path.segments.length} segment${v.run.path.closed?' (ปิด)':''} · ${v.run.levels.length} ชั้น`:`ยาว ${v.length} หนา ${v.thickness} สูง ${v.height}`;}}
  return p.shapeModel?`${p.shapeModel.parts.length} ชิ้นส่วน${p.shapeModel.piles?` · เข็ม ${p.shapeModel.piles.positions.length} ต้น`:''}`:'';
 }
 /** Search text of a template (name, description, tags, summary). */

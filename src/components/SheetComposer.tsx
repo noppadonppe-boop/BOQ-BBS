@@ -65,7 +65,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const layout=useMemo(()=>draft.layout||resolveSheetLayout(data,size).layout||autoLayout(draft),[draft,data]);
  const shown=useMemo(()=>({...data,member:{...data.member,sheetLayout:layout}}),[data,layout]);
  const area=useMemo(()=>sheetArea(shown),[shown]),page=Math.min(sheet,layout.sheets.length-1),info=useMemo(()=>drawSheetInfo(shown,layoutPage(shown,page)),[shown,page]);
- const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':isFloorPaper(k)?floorPaperTitles[k]:all.find(v=>v.key===k)?.title||k;
+ const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':all.find(v=>v.key===k&&v.paper)?.title||(isFloorPaper(k)?floorPaperTitles[k]:all.find(v=>v.key===k)?.title||k);
  // slab floor: paper views (slab schedule, legend, key plan, standard details)
  const paperKeys=useMemo(()=>floorCtx(member)?[...FLOOR_PAPER] as ViewKey[]:[],[member]);
  const placed=layout.sheets[page]?.views||[],boxOf=(k:ViewKey)=>info.views.find(v=>v.key===k)?.box||placed.find(v=>v.view===k);
@@ -92,7 +92,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const unplace=(k:ViewKey)=>editLayout(l=>({...l,sheets:l.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k)})),unplaced:[...l.unplaced.filter(x=>x!==k),k]}));
  const place=(k:ViewKey,box:Box,on=page,n:PlacedView['n']='auto')=>editLayout(l=>{const sheets=l.sheets.map(s=>({...s,views:s.views.filter(v=>v.view!==k)}));while(sheets.length<=on)sheets.push({id:`s${uid()}`,views:[]});sheets[on].views.push({view:k,...box,n});return {...l,sheets,unplaced:l.unplaced.filter(x=>x!==k)};});
  const moveTo=(k:ViewKey,to:number)=>{const v=layout.sheets.flatMap(s=>s.views).find(x=>x.view===k);if(v)place(k,{x:v.x,y:v.y,w:v.w,h:v.h},to,v.n);};
- const sizeFor=(k:ViewKey,n:number):{w:number;h:number}=>{if(k==='notes')return {w:120,h:80};if(k==='revs')return {w:110,h:Math.min(110,5*((draft.edits?.revisions?.length||0)+1)+3)};if(isFloorPaper(k))return k==='stddet'?{w:200,h:90}:{w:150,h:k==='keyplan'?110:80};const v=all.find(x=>x.key===k);if(!v)return {w:120,h:90};const d=buildView(base.member,base.rows,base.input,v.spec);
+ const sizeFor=(k:ViewKey,n:number):{w:number;h:number}=>{if(k==='notes')return {w:120,h:80};if(k==='revs')return {w:110,h:Math.min(110,5*((draft.edits?.revisions?.length||0)+1)+3)};if(isFloorPaper(k))return k==='stddet'?{w:200,h:90}:{w:150,h:k==='keyplan'?110:80};const v=all.find(x=>x.key===k);if(!v)return {w:120,h:90};if(v.sizeAt)return v.sizeAt(n);const d=buildView(base.member,base.rows,base.input,v.spec);
   return {w:Math.min(area.area.w-4,(d.u[1]-d.u[0])/n*1.25+30),h:Math.min(area.area.h-30,(d.v[1]-d.v[0])/n+30)};};
  const planN=()=>info.views.find(v=>v.key?.startsWith('plan'))?.n||50;
  const placeFree=(k:ViewKey,sz=sizeFor(k,planN()))=>{const taken=[...info.views.map(v=>v.box),...(info.notes?[info.notes]:[]),...(info.paper||[]).map(p=>p.box),...area.keep],spot=freeSpot(sz,area.area,taken);

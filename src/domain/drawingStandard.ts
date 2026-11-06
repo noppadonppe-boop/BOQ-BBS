@@ -30,7 +30,9 @@ export const drawingSetupSchema=z.object({number:text(80),revision:text(16),titl
  floorMerge:z.boolean().optional(),
  /** slab floor plan labels: 'typ' (default) = full label once per Mark (+ TYP. on the first of equal panels), short code elsewhere;
   * 'all' = full label in every panel */
- floorLabels:z.enum(['typ','all']).optional()});
+ floorLabels:z.enum(['typ','all']).optional(),
+ /** Wall Run sheet: BBS presentation (whole wall / by lift / by face) and Mark labels ('typ' = full once per Mark per face + short code, 'all' = full at every segment) */
+ wallBbs:z.enum(['wall','lift','face']).optional(),wallLabels:z.enum(['typ','all']).optional()});
 export type DrawingSetup=z.infer<typeof drawingSetupSchema>;
 export const drawingProfileSchema=z.object({template:z.literal('owner-v1'),language:z.enum(['th','en']),projectName:text(80).min(1),company:text(80),owner:text(80),location:text(80),contract:text(50),discipline:text(50),preparedBy:text(60),checkedBy:text(60),indexNumber:text(80),indexRevision:text(16)});
 export type DrawingProfile=z.infer<typeof drawingProfileSchema>;
