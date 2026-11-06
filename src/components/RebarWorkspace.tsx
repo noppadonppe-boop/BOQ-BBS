@@ -7,7 +7,10 @@ import {buildView,markColors} from '../domain/elementViews';
 import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
 import {hookDevLength,lapLength,tiePatternInfo,tiePatterns} from '../domain/elementInput';
-import {mainText,rowPattern,tieText} from '../domain/columnTemplates';
+import {mainText,rowPattern,tieText,type ColumnTemplate} from '../domain/columnTemplates';
+import {PartTemplatePicker} from './ColumnTemplatePicker';
+import {TiePlan} from './ColumnTieEditor';
+import {templatePreview} from './ColumnTemplateEditor';
 import {embedTiesLabel,partTieInFromType} from '../domain/embedTie';
 import {partRebarFromType,partTieInState} from '../domain/partTemplates';
 import {applyShapeModel} from '../domain/shapeApply';
@@ -286,7 +289,8 @@ function PartPanel({part,m,spec,det,readOnly,onSave,onResize}:{part:ShapePart;m:
   <div className="form-grid">
    {r.purpose==='column'&&<ColumnTypePick part={part} r={r} spec={spec} det={det} readOnly={readOnly} onPick={setR} onResize={onResize}/>}
    {r.purpose==='column'&&<>{dsel('เหล็กยืน ขนาด',r.main?.d||16,d=>setR({...r,main:{...r.main!,d}}))}<span/>{num('จำนวนต่อด้าน X (รวมมุม)',r.main?.nx||2,n=>setR({...r,main:{...r.main!,nx:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{num('จำนวนต่อด้าน Y (รวมมุม)',r.main?.ny||2,n=>setR({...r,main:{...r.main!,ny:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{at('tie','ปลอก')}
-    <label className="field"><span>ปลอกชุดที่ 2 (ปลอกใน / เหล็กรัดขวาง)</span><select disabled={readOnly} value={r.tiePattern??'none'} onChange={e=>{const v=e.target.value;const {tiePattern:_,...rest}=r;setR(v==='none'?rest:{...rest,tiePattern:v});}}>{tiePatterns.filter(t=>t!=='custom').map(t=><option key={t} value={t}>{tiePatternInfo[t].label}</option>)}</select></label><span/></>}
+    <label className="field"><span>ปลอกชุดที่ 2 (ปลอกใน / เหล็กรัดขวาง)</span><select disabled={readOnly} value={r.tiePattern??'none'} onChange={e=>{const v=e.target.value;const {tiePattern:_,...rest}=r;setR(v==='none'?rest:{...rest,tiePattern:v});}}>{tiePatterns.filter(t=>t!=='custom'||r.layout).map(t=><option key={t} value={t}>{tiePatternInfo[t].label}</option>)}</select></label>
+    {r.layout?<p className="muted">ตำแหน่งเหล็ก {r.layout.bars.reduce((n,b)=>n+(b.n||1),0)} เส้น + ปลอกใน {r.layout.ties.length} ชิ้นตามรูปในแบบ (จำนวนต่อด้านไม่ใช้) <button type="button" className="link-button" disabled={readOnly} onClick={()=>{const {layout:_,...rest}=r;setR({...rest,...(rest.tiePattern==='custom'?{tiePattern:undefined}:{})});}}>เลิกใช้รูปตามแบบ</button></p>:<span/>}</>}
    {r.purpose==='beam'&&<>{cnt('top','เหล็กบน')}{cnt('bottom','เหล็กล่าง')}{at('stirrup','ปลอก')}</>}
    {(r.purpose==='slab'||r.purpose==='footing')&&<>{at('meshB','ตะแกรงล่าง')}{at('meshT','ตะแกรงบน')}</>}
    {r.purpose==='footing'&&<>{at('loops','ลูปรอบผิว')}<label className="check"><input type="checkbox" disabled={readOnly} checked={!!r.legs} onChange={e=>setR({...r,legs:e.target.checked})}/>ตะแกรงล่างงอขึ้น (U)</label>
@@ -425,16 +429,20 @@ function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean})
 function ColumnTypePick({part,r,spec,det,readOnly,onPick,onResize}:{part:ShapePart;r:PartRebar;spec:Project['spec'];det:ReturnType<typeof detailingFor>;readOnly:boolean;onPick:(r:PartRebar)=>void;onResize:(w:number,d:number,r:PartRebar)=>void}){
  const list=spec.columnTemplates||[],cur=r.template,t=cur&&list.find(x=>x.id===cur.id),row=t?.rows[cur!.row];
  if(!list.length)return <div className="notice full ct-empty"><b>หน้าตัดเสาจาก Template</b> · General Spec ของโครงการนี้ยังไม่มี Column Template · นำเข้าไฟล์ Spec (เช่น Spec-Project-J-078.json) หรือเพิ่มประเภทเสาที่ General Spec › Column Template แล้วใช้ Spec นั้นในหน้าตั้งค่าโครงการ</div>;
- const pick=(v:string)=>{if(!v){const {template:_,...rest}=r;onPick(rest);return;}const [id,k]=v.split('/'),x=list.find(y=>y.id===id);if(x)onPick(partRebarFromType(r,x,Number(k),det.embedTie??spec.columnEmbedTie));};
+ const [open,setOpen]=useState(false);
+ // unlink keeps the values (section as drawn included) but stops following the type
+ const pick=(v:string)=>{if(!v){const {template:_,...rest}=r;onPick(rest);}};
  const w=part.shape==='box'?part.w:undefined,d=part.shape==='box'?part.d:undefined,off=!!row&&w!==undefined&&(Math.abs(row.width-w)>1||Math.abs(row.depth-d!)>1);
  return <div className="part-type full">
   <h5>หน้าตัดเสาจาก Template <HelpButton topic="column-templates"/></h5>
-  <label className="field"><span>Type · ช่วงชั้น</span><select disabled={readOnly} value={cur&&t?`${cur.id}/${cur.row}`:''} onChange={e=>pick(e.target.value)}>
-   <option value="">— กำหนดเอง (ไม่ผูก Type) —</option>{list.map(x=><optgroup key={x.id} label={x.name}>{x.rows.map((q,k)=><option key={k} value={`${x.id}/${k}`}>{x.name} · {q.level} · {q.width}×{q.depth} · {mainText(q)} · {tieText(q)}</option>)}</optgroup>)}</select></label>
+  <div className="part-type-pick">{row&&<TiePlanOf t={t!} k={cur!.row} spec={spec}/>}<div>
+   <b>{row?`${t!.name} · ${row.level}`:'ยังไม่ได้เลือก Type'}</b>{row&&<small className="muted">{row.width} × {row.depth} · {mainText(row)} · {tieText(row)}</small>}
+   <button type="button" disabled={readOnly} onClick={()=>setOpen(true)}><Grid3x3 size={13}/>{row?'เปลี่ยน Type':'เลือกจากตารางหน้าตัดเสา'}</button></div></div>
+  {open&&<PartTemplatePicker spec={spec} current={cur} target={part.tag||part.label} size={part.shape==='box'?{w:part.w,d:part.d}:undefined} onClose={()=>setOpen(false)} onApply={(x,k)=>onPick(partRebarFromType(r,x,k,det.embedTie??spec.columnEmbedTie))}/>}
   {cur&&!t&&<p className="notice warning">Type ที่ผูกไว้ไม่มีใน Spec แล้ว · ค่าที่ใส่ยังอยู่ <button type="button" disabled={readOnly} onClick={()=>pick('')}>เลิกผูก</button></p>}
   {row&&<>
    <p className="part-type-state"><span className="chip">ผูกกับ {t!.name} · {row.level}</span> <button type="button" className="link-button" disabled={readOnly} onClick={()=>pick('')}>เลิกผูก</button> <small className="muted">อัปเดตตาม Spec เมื่อบันทึก Spec</small></p>
-   <p className="muted">เติมให้: เหล็กยืน {mainText(row)} · ปลอก {barName(row.tie.diameter)} @{row.tie.s2||row.tie.s1} (S2) · ปลอกชุดที่ 2 {tiePatternInfo[rowPattern(t!,row)].label.split(' (')[0]} · ระยะยื่นพ้นหัวคงเดิม{row.main.corner.count>1||row.main.sideBundle===2?' · เหล็กมัดรวมใช้เป็นเส้นเดี่ยว':''}{row.layout?' · ตำแหน่งเหล็กแบ่งเท่าต่อด้าน (ไม่ใช้รูปตามแบบ)':''}</p>
+   <p className="muted">เติมให้: เหล็กยืน {mainText(row)} · ปลอก {barName(row.tie.diameter)} @{row.tie.s2||row.tie.s1} (S2) · ปลอกชุดที่ 2 {tiePatternInfo[rowPattern(t!,row)].label.split(' (')[0]} · ระยะยื่นพ้นหัวคงเดิม{row.main.corner.count>1||row.main.sideBundle===2?' · เหล็กมัดรวมใช้เป็นเส้นเดี่ยว':''}{row.layout?' · ตำแหน่งเหล็กและปลอกในตามรูปในแบบ':''}</p>
    {off&&part.shape==='box'&&<p className="notice warning">ชิ้นนี้ {w} × {d} ไม่เท่ากับ Type {row.width} × {row.depth} <button type="button" disabled={readOnly} onClick={()=>{if(confirm(`ปรับขนาดชิ้น “${part.label}” เป็น ${row.width} × ${row.depth} (คงจุดศูนย์กลาง)?\nเหล็กของชิ้นจะสร้างใหม่ตามขนาดใหม่`))onResize(row.width,row.depth,r);}}>ปรับขนาดชิ้นตาม Type</button></p>}</>}
  </div>;
 }
@@ -464,4 +472,10 @@ function PartTieInFields({part,m,r,det,spec,readOnly,setR}:{part:ShapePart;m:Mem
   {st.mode!=='off'&&st.ties==='all'&&!r.tiePattern&&<p className="muted">ชิ้นนี้ยังไม่มีรูปแบบปลอกชุดที่ 2 · ใส่เฉพาะปลอกนอก</p>}
   {!boxy&&st.mode!=='off'&&<p className="notice warning">ปลอกในฐานใช้กับเสาหน้าตัดกล่องเท่านั้น</p>}
  </div>;
+}
+
+/** Tie plan sketch of a type row (section, bars, ties) for the part panel. */
+function TiePlanOf({t,k,spec}:{t:ColumnTemplate;k:number;spec:Project['spec']}){
+ const pv=useMemo(()=>templatePreview(spec,t,k),[spec,t,k]);
+ return pv?<TiePlan lay={pv.lay} size={84}/>:null;
 }

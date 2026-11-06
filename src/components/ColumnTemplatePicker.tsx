@@ -83,6 +83,27 @@ export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Sp
  </Modal>;
 }
 
+/** Custom column part: pick a type / level range from the schedule grid (as the footing picker); the summary shows what is filled in. */
+export function PartTemplatePicker({spec,current,target,size,onApply,onClose}:{spec:Spec;current?:{id:string;row:number};target:string;size?:{w:number;d:number};onApply:(t:ColumnTemplate,k:number)=>void;onClose:()=>void}){
+ const list=spec.columnTemplates||[],rules=zoneRulesOf(spec),base=useMemo(()=>defaultElementInput('Column','manual',spec) as ColumnInput,[spec]);
+ const firstRow=(t?:ColumnTemplate)=>Math.max(0,t?.rows.findIndex(r=>r.first)??0);
+ const [id,setId]=useState(current?.id&&list.some(x=>x.id===current.id)?current.id:list[0]?.id||''),[row,setRow]=useState(current?.row??firstRow(list[0])),[filter,setFilter]=useState('');
+ const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0,r=t?.rows[k];
+ const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
+ const off=!!r&&!!size&&(Math.abs(r.width-size.w)>1||Math.abs(r.depth-size.d)>1);
+ return <Modal title="ตารางหน้าตัดเสา · เสาในรูปทรงอิสระ (Custom)" onClose={onClose}>
+  <div className="ct-picker">
+   <div className="ct-viewbar">{list.length>8&&<input placeholder="ค้นหา C1…" value={filter} onChange={e=>setFilter(e.target.value)}/>}
+    <small className="muted">คลิกช่องหน้าตัด = ใช้หน้าตัดช่วงชั้นนั้น · คลิกชื่อเสา = ช่วงชั้นแรก (บนฐานราก)</small></div>
+   <ScheduleGrid list={shown} input={base} rules={rules} id={id} row={k} onPick={(x,i)=>{setId(x);setRow(i<0?firstRow(list.find(y=>y.id===x)):i);}} bottom/>
+   {t&&r&&<div className="ct-summary"><b>{target} ← {t.name} · {r.level}</b>
+    <p>หน้าตัด {r.width} × {r.depth} · เหล็กยืน {mainText(r)} · ปลอก {tieText(r)} → ใช้ {templateBarName(r.tie.diameter)}@{r.tie.s2||r.tie.s1} (S2){r.layout?' · ตำแหน่งเหล็กและปลอกในตามรูปในแบบ':''}</p>
+    <p className="muted">จะเติมให้: เหล็กยืน · ปลอก · ปลอกชุดที่ 2 · ปลอกในฐานตาม Type · ผูกกับ Type (อัปเดตตาม Spec) · ระยะยื่นพ้นหัวคงเดิม{off?` · ขนาดชิ้น ${size!.w} × ${size!.d} ≠ ${r.width} × ${r.depth} (ปรับได้ด้วยปุ่มหลังเลือก)`:''}</p></div>}
+   <footer className="actions"><span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!t||!r} onClick={()=>{if(t){onApply(t,k);onClose();}}}>ใช้หน้าตัดนี้</button></footer>
+  </div>
+ </Modal>;
+}
+
 /** Level names of all types in drawing order (bottom → top), each type's own order kept. */
 export function scheduleLevels(list:ColumnTemplate[]){
  const out:string[]=[];
@@ -91,7 +112,7 @@ export function scheduleLevels(list:ColumnTemplate[]){
 }
 
 /** Column schedule as on the drawings: types across, level ranges down (top storey first), section sketch + text per cell. */
-function ScheduleGrid({list,input,rules,id,row,onPick,bottom}:{list:ColumnTemplate[];input:ColumnInput;rules:ColumnZoneRules;id:string;row:number;onPick:(id:string,row:number)=>void;bottom?:boolean}){
+export function ScheduleGrid({list,input,rules,id,row,onPick,bottom}:{list:ColumnTemplate[];input:ColumnInput;rules:ColumnZoneRules;id:string;row:number;onPick:(id:string,row:number)=>void;bottom?:boolean}){
  const box=useRef<HTMLDivElement>(null);
  useEffect(()=>{if(bottom&&box.current)box.current.scrollTop=box.current.scrollHeight;},[bottom]);
  const levels=useMemo(()=>scheduleLevels(list).reverse(),[list]);

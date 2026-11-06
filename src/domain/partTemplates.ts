@@ -16,7 +16,9 @@ export function partRebarFromType(r:PartRebar,t:ColumnTemplate,k:number,std?:Emb
  const keep=r.tieIn&&!r.tieIn.type,tieIn=keep?r.tieIn:ti?{...ti,type:true as const}:r.tieIn;
  const next:PartRebar={...r,purpose:'column',main:{d:q.main.corner.diameter,nx:Math.min(20,q.main.sideX.count+2),ny:Math.min(20,q.main.sideY.count+2)},
   tie:{d:q.tie.diameter,s:q.tie.s2||q.tie.s1},template:{id:t.id,row:k}};
- const pat=rowPattern(t,q);if(pat==='none'||pat==='custom'){delete next.tiePattern;}else next.tiePattern=pat;
+ // section as drawn: bar positions + inner ties of the row (pattern 'custom'); else counts per face + the type's pattern
+ if(q.layout)next.layout=structuredClone(q.layout);else delete next.layout;
+ const pat=rowPattern(t,q);if(pat==='none'||(pat==='custom'&&!q.layout)){delete next.tiePattern;}else next.tiePattern=pat;
  // ties in the support need the anchorage into it
  if(tieIn&&tieIn.s>0)next.anchor=true;
  if(tieIn)next.tieIn=tieIn;else delete next.tieIn;

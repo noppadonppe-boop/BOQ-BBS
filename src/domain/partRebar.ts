@@ -192,17 +192,23 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
   // reference column (cast later): starter bars only, from the host up to its base + lap, ties in the host
   const M=r.main,T=r.tie,stdIn=!!det.embedTie&&!!r.anchor&&(r.tieIn?r.tieIn.std===true:det.embedTie.enabled),dt=T?.d||(stdIn?det.embedTie!.diameter||r.tieIn?.d||12:r.tieIn&&r.tieIn.s>0?r.tieIn.d:0),a=c+dt+M.d/2,A=(k:'x0'|'x1'|'y0'|'y1')=>fc[k]+dt+M.d/2,top=ref?b.z0+(r.ext||lapLength(det,M.d)):r.ext?b.z1+r.ext:b.z1-fc.top-M.d/2,tieTop=b.z1-Math.max(50,fc.top+dt/2);
   // set-2 pattern of the section (column type) and which ties go into the support: outer only / all (tieIn.ties, else the standard)
-  const tp:TiePattern=boxy&&r.tiePattern&&(tiePatterns as readonly string[]).includes(r.tiePattern)?r.tiePattern as TiePattern:'none';
+  const lay0=boxy?r.layout:undefined,tp:TiePattern=boxy&&r.tiePattern&&(tiePatterns as readonly string[]).includes(r.tiePattern)&&(r.tiePattern!=='custom'||!!lay0)?r.tiePattern as TiePattern:'none';
   const tiesIn=(stdIn?det.embedTie?.ties:undefined)??r.tieIn?.ties??det.embedTie?.ties??'all';
   // pieces of the pattern (inner face on the bars: cover + column tie − own tie) at the given levels
   const inner=(key:string,dCol:number,d:number,levels:number[],s:number,label:string)=>{
-   const {lay,ox,oy}=boxColumnTieLayout({x0:b.x0,x1:b.x1,y0:b.y0,y1:b.y1,cx0:fc.x0+dCol-d,cx1:fc.x1+dCol-d,cy0:fc.y0+dCol-d,cy1:fc.y1+dCol-d,tieD:d,mainD:M.d,nx:M.nx,ny:M.ny},tp,det);
+   const {lay,ox,oy}=boxColumnTieLayout({x0:b.x0,x1:b.x1,y0:b.y0,y1:b.y1,cx0:fc.x0+dCol-d,cx1:fc.x1+dCol-d,cy0:fc.y0+dCol-d,cy1:fc.y1+dCol-d,tieD:d,mainD:M.d,nx:M.nx,ny:M.ny,layout:lay0},tp,det);
    innerTieBars(lay,levels,ox,oy,d,det,key,label,s,t=>notes.push(`${p.label}: ${t}`)).forEach(g=>out.push(bar(g.role,{d,tie:true,points:g.points as Vec3[],code:'99',axis:'Z',radius:g.radius,offsets:g.offsets as Vec3[],note:g.note})));};
   const sup=r.anchor?hostOf(sm,p):undefined,sc=sup?.q.rebar?.cover??m.cover,base=sup?Math.max(b.z0,sup.c.z1):b.z0;
   const zb=sup?sup.c.z0+sc+2*(sup.q.rebar?.meshB?.d||16)+M.d/2:b.z0+fc.bottom+M.d/2;
   const foot=sup?Math.min(hookDevLength(det,M.d),det.hook90*M.d+sketchRadius(M.d)):0;
   const pos:{p:P2;n:P2}[]=[];
   if(p.shape==='circle'&&p.inner===0){const R=p.diameter/2-a,n=Math.max(4,M.nx);for(let k=0;k<n;k++){const t=2*Math.PI*k/n,u:P2=[Math.cos(t),Math.sin(t)];pos.push({p:[p.cx+u[0]*R,p.cy+u[1]*R],n:u});}}
+  else if(boxy&&lay0){
+   // bars as drawn (column type layout): feet turn out through the nearest face (corner bars along Y, as the counted layout)
+   const {bars}=boxColumnTieLayout({x0:b.x0,x1:b.x1,y0:b.y0,y1:b.y1,cx0:fc.x0,cx1:fc.x1,cy0:fc.y0,cy1:fc.y1,tieD:dt,mainD:M.d,nx:M.nx,ny:M.ny,layout:lay0},'none',det);
+   const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2;
+   for(const q of bars){const dx=Math.min(q.x-b.x0,b.x1-q.x),dy=Math.min(q.y-b.y0,b.y1-q.y);
+    pos.push({p:[q.x,q.y],n:q.kind==='sideY'||(q.kind==='inner'&&dx<dy)?[q.x<cx?-1:1,0]:[0,q.y<cy?-1:1]});}}
   else if(boxy){const xs=Array.from({length:M.nx},(_,k)=>b.x0+A('x0')+(b.x1-A('x1')-b.x0-A('x0'))*k/(M.nx-1)),ys=Array.from({length:M.ny},(_,k)=>b.y0+A('y0')+(b.y1-A('y1')-b.y0-A('y0'))*k/(M.ny-1));
    // corner bars sit in the tie bend (its inner radius exceeds the bar radius): moved in along the diagonal
    const k=T&&T.s>0?cornerInset(bendRadius(dt,det,true),dt,M.d):0;

@@ -39,6 +39,9 @@ export const partRebarSchema=z.object({
   type:z.literal(true).optional()}).optional(),
  /** column: set-2 tie pattern (`tiePatterns` of elementInput) of the ties above and, with tieIn ties 'all', in the part below */
  tiePattern:z.string().max(20).optional(),
+ /** column: bar positions + inner ties as drawn (copy of a Column Template row `layout`: u / v fractions of the bar-centre box) */
+ layout:z.object({bars:z.array(z.object({u:z.number().min(0).max(1),v:z.number().min(0).max(1),n:z.number().int().min(2).max(3).optional(),dir:z.tuple([z.number().int().min(-1).max(1),z.number().int().min(-1).max(1)]).optional()}).strict()).min(1).max(200),
+  ties:z.array(z.object({u0:z.number().min(0).max(1),v0:z.number().min(0).max(1),u1:z.number().min(0).max(1),v1:z.number().min(0).max(1)}).strict()).max(40)}).strict().optional(),
  /** column: project Column Template type / row it was filled from */
  template:z.object({id:z.string().max(40),row:z.number().int().min(0).max(19)}).strict().optional(),
  /** preset bar sets taken over as drawn bars (key = id after `pp-<part>-`): no longer built from the preset */

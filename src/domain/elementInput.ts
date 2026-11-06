@@ -1559,11 +1559,13 @@ function foundationBars(i:FoundationInput,det:Detailing,rounding:number,warn:(s:
 
 /** Tie layout of a box column given by its bar box: covers per side folded into one cover `k` (origin moves by fc − k),
  * nx / ny = bars per face along X / Y incl. corners (Custom column presets). Returns the layout and its plan origin. */
-export function boxColumnTieLayout(o:{x0:number;x1:number;y0:number;y1:number;cx0:number;cx1:number;cy0:number;cy1:number;tieD:number;mainD:number;nx:number;ny:number},pattern:TiePattern,det:Detailing){
+export function boxColumnTieLayout(o:{x0:number;x1:number;y0:number;y1:number;cx0:number;cx1:number;cy0:number;cy1:number;tieD:number;mainD:number;nx:number;ny:number;layout?:SectionLayout},pattern:TiePattern,det:Detailing){
  const k=o.cx0,v=defaultElementInput('Column') as ColumnInput,W=o.x1-o.x0-o.cx0-o.cx1+2*k,D=o.y1-o.y0-o.cy0-o.cy1+2*k,m=v.rebar.main;
- const i:ColumnInput={...v,shape:'rect',width:W,depth:D,cover:{...v.cover,side:k},rebar:{...v.rebar,main:{...m,corner:{diameter:o.mainD,count:1},sideX:{...m.sideX,diameter:o.mainD,count:Math.max(0,o.nx-2)},sideY:{...m.sideY,diameter:o.mainD,count:Math.max(0,o.ny-2)}},
+ const i:ColumnInput={...v,shape:'rect',width:W,depth:D,cover:{...v.cover,side:k},rebar:{...v.rebar,main:{...m,corner:{diameter:o.mainD,count:1},sideX:{...m.sideX,diameter:o.mainD,count:Math.max(0,o.nx-2)},sideY:{...m.sideY,diameter:o.mainD,count:Math.max(0,o.ny-2)},...(o.layout?{layout:o.layout}:{})},
   tie:{...v.rebar.tie,diameter:o.tieD,inner:{...v.rebar.tie.inner,diameter:o.tieD}}}};
- return {lay:columnTieLayout(i,pattern,det),ox:o.x0+o.cx0-k,oy:o.y0+o.cy0-k};
+ const ox=o.x0+o.cx0-k,oy=o.y0+o.cy0-k;
+ // bars: as drawn (`layout`, bundles + pushed apart) or corner + side counts; plan coordinates
+ return {lay:columnTieLayout(i,pattern,det),ox,oy,bars:columnInputBars(i).map(b=>({...b,x:b.x+ox,y:b.y+oy}))};
 }
 /** Set-2 tie pieces of a column tie layout repeated at `levels` (one Mark per piece shape; roles `<role><k>`), plan origin ox / oy. */
 export function innerTieBars(lay:ReturnType<typeof columnTieLayout>,levels:number[],ox:number,oy:number,d:number,det:Detailing,role:string,note:string,spacing:number,warn:(s:string)=>void):GenBar[]{

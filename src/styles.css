@@ -655,3 +655,4 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .part-type,.part-tiein{border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;margin:6px 0;background:#fff}.part-type h5,.part-tiein h5{margin:0 0 6px}
 .part-type-state{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.part-type-state .chip{background:var(--brand-soft,#e6f1fb);color:var(--brand,#185fa5);border-radius:var(--r);padding:2px 8px;font-size:12px}
 .part-bulk{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.part-type-pick{display:flex;gap:10px;align-items:center}.part-type-pick>div{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
