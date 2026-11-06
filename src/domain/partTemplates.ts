@@ -19,6 +19,8 @@ export function partRebarFromType(r:PartRebar,t:ColumnTemplate,k:number,std?:Emb
  // section as drawn: bar positions + inner ties of the row (pattern 'custom'); else counts per face + the type's pattern
  if(q.layout)next.layout=structuredClone(q.layout);else delete next.layout;
  const pat=rowPattern(t,q);if(pat==='none'||(pat==='custom'&&!q.layout)){delete next.tiePattern;}else next.tiePattern=pat;
+ // the type rebuilds the column's preset sets: keys switched off by “แยกจาก Preset” come back
+ restoreTieKeys(next,/^(main|tie|tie2-\d+|tie-in|tie-in2-\d+)$/);
  // ties in the support need the anchorage into it
  if(tieIn&&tieIn.s>0)next.anchor=true;
  if(tieIn)next.tieIn=tieIn;else delete next.tieIn;
@@ -44,3 +46,10 @@ export function partTieInState(r:PartRebar,det:Pick<Detailing,'embedTie'>):{mode
  const mode=ti.type?'type':ti.std?'std':'own';
  return ti.std&&ES?{mode,d:ES.diameter||dt||ti.d,s:ES.spacing,ties:ti.ties??ES.ties??'all'}:{mode,d:ti.d,s:ti.s,ties:ti.ties??ES?.ties??'all'};
 }
+/** Removes preset keys matching `re` from `r.off` (in place); true when something was restored. */
+export function restoreTieKeys(r:PartRebar,re=/^(tie-in|tie-in2-\d+)$/):boolean{
+ if(!r.off?.length)return false;const keep=r.off.filter(k=>!re.test(k));if(keep.length===r.off.length)return false;
+ if(keep.length)r.off=keep;else delete r.off;return true;
+}
+/** Preset keys of the column's ties in the support that are switched off (detached). */
+export const offTieKeys=(r:PartRebar)=>(r.off||[]).filter(k=>/^(tie-in|tie-in2-\d+)$/.test(k));

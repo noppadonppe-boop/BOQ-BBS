@@ -12,7 +12,7 @@ import {PartTemplatePicker} from './ColumnTemplatePicker';
 import {TiePlan} from './ColumnTieEditor';
 import {templatePreview} from './ColumnTemplateEditor';
 import {embedTiesLabel,partTieInFromType} from '../domain/embedTie';
-import {partRebarFromType,partTieInState} from '../domain/partTemplates';
+import {offTieKeys,partRebarFromType,partTieInState,restoreTieKeys} from '../domain/partTemplates';
 import {applyShapeModel} from '../domain/shapeApply';
 import {TiesSelect} from './EmbedTieStandard';
 import {faceLabels,partPurposeLabels,partPurposes,type FaceKey,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
@@ -155,7 +155,7 @@ export function RebarSketch({member:m,project,readOnly,onChange}:{member:Member;
    {pickedCols.length>0&&!readOnly&&<span className="part-bulk">
     {(spec.columnTemplates?.length??0)>0&&<select aria-label="Type เสาสำหรับชิ้นที่ติ๊ก" value={bulkType} onChange={e=>setBulkType(e.target.value)}><option value="">— Type · ช่วงชั้น —</option>{spec.columnTemplates!.map(x=><optgroup key={x.id} label={x.name}>{x.rows.map((q,k)=><option key={k} value={`${x.id}/${k}`}>{x.name} · {q.level} · {q.width}×{q.depth}</option>)}</optgroup>)}</select>}
     {(spec.columnTemplates?.length??0)>0&&<button type="button" disabled={!bulkType} onClick={()=>{const [id,k]=bulkType.split('/'),t=spec.columnTemplates!.find(x=>x.id===id);if(t)bulk(r=>partRebarFromType(r,t,Number(k),det.embedTie??spec.columnEmbedTie));}}>ใช้ Type กับเสาที่ติ๊ก ({pickedCols.length})</button>}
-    {det.embedTie&&<button type="button" onClick={()=>bulk(r=>({...r,anchor:true,tieIn:{d:det.embedTie!.diameter||r.tie?.d||12,s:det.embedTie!.spacing,std:true,...(r.tieIn?.ties?{ties:r.tieIn.ties}:{})}}))}>ปลอกในฐานตามมาตรฐาน ({pickedCols.length})</button>}
+    {det.embedTie&&<button type="button" onClick={()=>bulk(r0=>{const r={...r0};restoreTieKeys(r);return {...r,anchor:true,tieIn:{d:det.embedTie!.diameter||r.tie?.d||12,s:det.embedTie!.spacing,std:true,...(r.tieIn?.ties?{ties:r.tieIn.ties}:{})}};})}>ปลอกในฐานตามมาตรฐาน ({pickedCols.length})</button>}
    </span>}
    {sm.parts.some(p=>!p.tag)&&<span className="muted">ตั้ง Tag no. ได้ในตาราง หรือปุ่ม “ตั้ง Tag อัตโนมัติ” ในแท็บรูปทรง</span>}
   </div>
@@ -448,7 +448,9 @@ function ColumnTypePick({part,r,spec,det,readOnly,onPick,onResize}:{part:ShapePa
 }
 
 /** Ties in the part below (footing) of a column part: always shown; choosing ties turns the anchorage on. */
-function PartTieInFields({part,m,r,det,spec,readOnly,setR}:{part:ShapePart;m:Member;r:PartRebar;det:ReturnType<typeof detailingFor>;spec:Project['spec'];readOnly:boolean;setR:(r:PartRebar)=>void}){
+function PartTieInFields({part,m,r,det,spec,readOnly,setR:put}:{part:ShapePart;m:Member;r:PartRebar;det:ReturnType<typeof detailingFor>;spec:Project['spec'];readOnly:boolean;setR:(r:PartRebar)=>void}){
+ // a choice here asks for the ties: preset keys switched off by “แยกจาก Preset” (outer hoop / set 2) come back
+ const setR=(x:PartRebar)=>{const y={...x};restoreTieKeys(y);put(y);},off=offTieKeys(r);
  const ES=det.embedTie,st=partTieInState(r,det),host=m.shapeModel?hostOf(m.shapeModel,part):undefined,t=r.template&&spec.columnTemplates?.find(x=>x.id===r.template!.id);
  const tz=r.tieIn?.ties?{ties:r.tieIn.ties}:{};
  const set=(mode:string)=>{
@@ -469,7 +471,9 @@ function PartTieInFields({part,m,r,det,spec,readOnly,setR}:{part:ShapePart;m:Mem
     <Field label="@ ไม่เกิน (mm)" type="number" disabled={readOnly} value={st.s} onChange={x=>setR({...r,anchor:true,tieIn:{...r.tieIn,d:st.d,s:Math.max(50,Number(x)||300)}})}/></>}
   </div>
   <p className="muted">{st.mode==='off'?'ไม่มีปลอกในฐาน':`${barName(st.d)} @ ≤ ${st.s} · ${embedTiesLabel[st.ties]} · ตั้งแต่เหนือขางอถึงใต้ตะแกรงบน`}{st.mode!=='off'&&!r.anchor?' · จะเปิด “ยึดลงชิ้นด้านล่าง” ให้':''}</p>
+  {st.mode!=='off'&&<p className="muted">จะสร้าง: ปลอกนอก{st.ties==='all'&&r.tiePattern?' + ปลอกใน (ชุดที่ 2 ตามรูปแบบหน้าตัด)':''}</p>}
   {st.mode!=='off'&&st.ties==='all'&&!r.tiePattern&&<p className="muted">ชิ้นนี้ยังไม่มีรูปแบบปลอกชุดที่ 2 · ใส่เฉพาะปลอกนอก</p>}
+  {off.length>0&&<p className="notice warning">ชุดปลอกในฐานที่ “แยกจาก Preset” แล้ว ({off.map(k=>k==='tie-in'?'ปลอกนอก':'ปลอกใน').join(' · ')}) จะไม่ถูกสร้างใหม่ <button type="button" disabled={readOnly} onClick={()=>setR(r)}>คืนชุดที่แยกออก</button></p>}
   {!boxy&&st.mode!=='off'&&<p className="notice warning">ปลอกในฐานใช้กับเสาหน้าตัดกล่องเท่านั้น</p>}
  </div>;
 }

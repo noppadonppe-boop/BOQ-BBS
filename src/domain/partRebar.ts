@@ -7,6 +7,7 @@ import {coverRings,layoutOf,loopBars,meshBars,sketchRadius,verticalFaceBars,type
 import {editablePlacementContext,REGION_LIMIT} from './placementContext';
 import {schedule} from './engine';
 import {barOwner,markFor,tagMarks} from './partTags';
+import {partTieInState} from './partTemplates';
 
 // Reinforcement per shape-model part (custom elements): a part's purpose (column / beam / slab / wall / footing)
 // picks preset bar sets built from the part geometry. Preset bars have ids `pp-<part id>-<key>` and are rebuilt
@@ -235,9 +236,10 @@ export function partPresetBars(m:Member,p:ShapePart,spec:Spec):{bars:Bar[];notes
    const TI=fromStd?{d:ES!.diameter||dt||r.tieIn?.d||12,s:ES!.spacing}:r.tieIn&&!r.tieIn.std?r.tieIn:r.tieIn?.std?{d:r.tieIn.d||dt,s:r.tieIn.s}:(T&&T.s>0?{d:dt,s:300}:{d:0,s:0});
    if(boxy&&sup&&TI.s>0&&TI.d>0){const di=TI.d,ri=bendRadius(di,det,true),T2=sup.q.rebar?.meshT,zs0=zb+150,zs1=Math.min(base-(fromStd?Math.max(75,ES!.top):75),sup.c.z1-sc-(T2&&T2.s>0?2*T2.d:0)-di-10);
      const lki=(z:number)=>closedLink(0,1,2,b.x0+fc.x0+dt-di/2,b.x1-fc.x1-dt+di/2,b.y0+fc.y0+dt-di/2,b.y1-fc.y1-dt+di/2,z,det,ri,di);
-     if(zs1>zs0&&tp!=='none'&&tiesIn==='all'){const L=layoutOf({rule:'spacing',spacing:TI.s,count:0,from:zs0,to:zs1}),lv=Array.from({length:L.count},(_,k)=>(L.count===1?L.from:L.from+(L.to-L.from)*k/(L.count-1))+di);inner('tie-in2-',dt,di,lv,TI.s,'ปลอกในฐาน ชุดที่ 2');}
+     // outer hoop first (always), then set 2 with “all ties” (a bar-set limit drops set 2 before the hoop)
      if(zs1>zs0)out.push(bar('tie-in',{d:di,tie:true,points:lki(zs0),code:'99',axis:'Z',radius:ri,dist:{axis:2,from:zs0,to:zs1,spacing:TI.s},note:fromStd||r.tieIn?`ปลอกยึดเหล็กยืนในฐาน ${di<=9?'RB':'DB'}${di} @ ≤ ${TI.s}${fromStd?' (มาตรฐาน Spec)':''}`:'ปลอกยึดเหล็กยืนในฐาน @300'}));
-     else notes.push(`${p.label}: ชิ้นด้านล่างตื้นเกินไปสำหรับปลอกในฐาน`);}
+     else notes.push(`${p.label}: ชิ้นด้านล่างตื้นเกินไปสำหรับปลอกในฐาน`);
+     if(zs1>zs0&&tp!=='none'&&tiesIn==='all'){const L=layoutOf({rule:'spacing',spacing:TI.s,count:0,from:zs0,to:zs1}),lv=Array.from({length:L.count},(_,k)=>(L.count===1?L.from:L.from+(L.to-L.from)*k/(L.count-1))+di);inner('tie-in2-',dt,di,lv,TI.s,'ปลอกในฐาน ชุดที่ 2');}}
    else if(!boxy&&r.tieIn&&r.tieIn.s>0)notes.push(`${p.label}: ปลอกในฐานใช้กับเสาหน้าตัดกล่องเท่านั้น`);
    if(T&&T.s>0&&p.shape==='circle'&&!ref){const R=p.diameter/2-c-dt/2,n=24,lap=lapLength(det,dt),ring:Vec3[]=Array.from({length:n+1},(_,k)=>{const t=2*Math.PI*k/n;return [p.cx+R*Math.cos(t),p.cy+R*Math.sin(t),b.z0+50] as Vec3;});
     const t1=lap/R;ring.push([p.cx+R*Math.cos(t1),p.cy+R*Math.sin(t1),b.z0+50]);
@@ -456,6 +458,13 @@ export function outsideLengths(m:Member):Map<string,number>{
 const joinedLooped=(m:Member,p:ShapePart)=>{const sm=m.shapeModel;if(!sm||!p.rebar?.loopsJoined)return false;const lead=joinedGroup(sm,p)[0];return m.bars.some(b=>b.id.startsWith(`${PRESET_PREFIX}${lead.id}-gloop`));};
 export type CoverageItem={label:string;ok:boolean|'warn';hint?:string};
 /** What a part of this purpose needs and whether its bars have it (preset sets by key, drawn bars count as extra). */
+/** Ties in the part below of a column part: outer hoop and (all ties) set 2 built, or switched off as detached preset keys. */
+function tieInCoverage(m:Member,p:ShapePart,det:Detailing,ids:Set<string>):CoverageItem[]{
+ const r=p.rebar!,st=partTieInState(r,det);if(st.mode==='off'||!m.shapeModel||!hostOf(m.shapeModel,p))return [];
+ const off=new Set(r.off||[]),id=(k:string)=>`${PRESET_PREFIX}${p.id}-${k}`,set2=!!r.tiePattern&&r.tiePattern!=='none'&&st.ties==='all';
+ return [{label:'ปลอกในฐาน: ปลอกนอก',ok:ids.has(id('tie-in')),hint:off.has('tie-in')?'แยกจาก Preset แล้ว (ไม่สร้างใหม่) · กด “คืนชุดที่แยกออก”':undefined},
+  ...(set2?[{label:'ปลอกในฐาน: ปลอกใน (ชุดที่ 2)',ok:[...ids].some(x=>x.startsWith(id('tie-in2-'))),hint:[...off].some(k=>k.startsWith('tie-in2-'))?'บางชุดแยกจาก Preset แล้ว':undefined}]:[])];
+}
 export function partCoverage(m:Member,p:ShapePart,spec:Spec):CoverageItem[]{
  const r=p.rebar;if(!r||r.purpose==='other')return [];
  const ids=new Set(m.bars.filter(b=>barPart(m.shapeModel,b)===p.id).map(b=>b.id)),has=(k:string)=>[...ids].some(id=>id.startsWith(`${PRESET_PREFIX}${p.id}-${k}`)),drawn=[...ids].some(id=>id.startsWith('sk-'));
@@ -465,10 +474,10 @@ export function partCoverage(m:Member,p:ShapePart,spec:Spec):CoverageItem[]{
  if(p.role==='reference'){const sup=m.shapeModel&&hostOf(m.shapeModel,p),key=r.purpose==='column'?'main':'vert',d=r.main?.d||r.vert?.d||16,lap=lapLength(det,d),len=r.ext||lap;
   return r.purpose!=='column'&&r.purpose!=='wall'?[{label:'ชิ้นอ้างอิงใช้ได้เฉพาะเสา / ผนัง',ok:false}]:[{label:r.purpose==='column'?'เหล็กเริ่มเสา (starter)':'เหล็กเดือยผนัง',ok:has(key)},
    {label:sup?`ฝังใน${sup.q.label}`:'มีชิ้นคอนกรีตรองรับด้านล่าง',ok:!!sup&&has(key),hint:sup?undefined:'ชิ้นอ้างอิงต้องวางบนผิวบนของชิ้นคอนกรีต'},
-   {label:`ยื่นเข้าชิ้นอ้างอิง ≥ Lap ${Math.round(lap)}`,ok:len>=lap-1?true:'warn',hint:len>=lap-1?undefined:`${Math.round(len)} < ${Math.round(lap)}`}];}
+   {label:`ยื่นเข้าชิ้นอ้างอิง ≥ Lap ${Math.round(lap)}`,ok:len>=lap-1?true:'warn',hint:len>=lap-1?undefined:`${Math.round(len)} < ${Math.round(lap)}`},...(r.purpose==='column'?tieInCoverage(m,p,det,ids):[])];}
  switch(r.purpose){
   case 'column':{const lap=r.main?lapLength(det,r.main.d):0,ext=r.ext||0;return [{label:'เหล็กยืน (main)',ok:has('main')},{label:'ปลอก',ok:has('tie')},{label:'ยึดลงชิ้นด้านล่าง (ขา 90°)',ok:!r.anchor?'warn':has('main')&&!!m.bars.find(b=>b.id===`${PRESET_PREFIX}${p.id}-main`&&b.points.length>2),hint:r.anchor?undefined:'ไม่ได้เลือกยึดลงฐาน'},
-   {label:`ต่อทาบด้านบน ≥ Lap ${Math.round(lap)}`,ok:ext>=lap-1?true:ext>0?'warn':'warn',hint:ext>=lap-1?undefined:ext>0?`ยื่น ${Math.round(ext)} < ${Math.round(lap)}`:'ไม่มีเหล็กยื่นพ้นหัว (ถ้าเป็นชั้นบนสุดถือว่าถูก)'}];}
+   {label:`ต่อทาบด้านบน ≥ Lap ${Math.round(lap)}`,ok:ext>=lap-1?true:ext>0?'warn':'warn',hint:ext>=lap-1?undefined:ext>0?`ยื่น ${Math.round(ext)} < ${Math.round(lap)}`:'ไม่มีเหล็กยื่นพ้นหัว (ถ้าเป็นชั้นบนสุดถือว่าถูก)'},...tieInCoverage(m,p,det,ids)];}
   case 'beam':return [{label:'เหล็กบน',ok:has('top')},{label:'เหล็กล่าง',ok:has('bot')},{label:'ปลอก',ok:has('stirrup')}];
   case 'slab':return [onLower?{label:'ตะแกรงล่าง (หล่อบนคอนกรีตชิ้นล่าง)',ok:true,hint:has('bx')?undefined:'ไม่ต้องใช้ · รอยต่อใช้ตะแกรงบนของชิ้นล่าง'}:{label:'ตะแกรงล่าง 2 ทาง',ok:has('bx')&&has('by')},{label:'ตะแกรงบน',ok:has('tx')&&has('ty')?true:'warn',hint:has('tx')?undefined:'ไม่มี (พื้นช่วงสั้น / บางอาจไม่ต้องใช้)'}];
   case 'wall':{const sup=m.shapeModel&&hostOf(m.shapeModel,p);return [{label:'เหล็กตั้ง',ok:has('vert')},{label:'เหล็กนอน',ok:has('horz')},{label:'2 ชั้น (ผนังหนา ≥ 200)',ok:(r.layers??2)===2||Math.min(partBox(p).x1-partBox(p).x0,partBox(p).y1-partBox(p).y0)<200?true:'warn'},
