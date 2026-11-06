@@ -65,7 +65,7 @@ export function SheetComposer({member,project,readOnly,onApply,onSaveDrawing,mem
  const layout=useMemo(()=>draft.layout||resolveSheetLayout(data,size).layout||autoLayout(draft),[draft,data]);
  const shown=useMemo(()=>({...data,member:{...data.member,sheetLayout:layout}}),[data,layout]);
  const area=useMemo(()=>sheetArea(shown),[shown]),page=Math.min(sheet,layout.sheets.length-1),info=useMemo(()=>drawSheetInfo(shown,layoutPage(shown,page)),[shown,page]);
- const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':isFloorPaper(k)?floorPaperTitles[k]:all.find(v=>v.key===k)?.title||k;
+ const all=useMemo(()=>sheetViews(shown),[shown]),title=(k:ViewKey)=>k==='notes'?'หมายเหตุ':k==='revs'?'ตาราง Revision':all.find(v=>v.key===k&&v.paper)?.title||(isFloorPaper(k)?floorPaperTitles[k]:all.find(v=>v.key===k)?.title||k);
  // slab floor: paper views (slab schedule, legend, key plan, standard details)
  const paperKeys=useMemo(()=>floorCtx(member)?[...FLOOR_PAPER] as ViewKey[]:[],[member]);
  const placed=layout.sheets[page]?.views||[],boxOf=(k:ViewKey)=>info.views.find(v=>v.key===k)?.box||placed.find(v=>v.view===k);
