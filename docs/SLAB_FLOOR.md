@@ -204,9 +204,10 @@ command `syncFloorBeams` in `src/data/direct/floorBeams.ts`, UI `components/Floo
   template size gives a warning), else **fitted defaults** (fix 0.114.1): `DEFAULT_BEAM_BARS` largest first — top / bottom
   2-DB16 / 3-DB16, 2-DB16 / 2-DB16, 2-DB12 / 3-DB12, 2-DB12 / 2-DB12, 2-DB10 / 2-DB10, each with RB9@200 then DB10@200
   stirrups — and the first set whose member passes `validateMember` (the command's own check) is used for the spans without
-  a template (on update: spans whose mark the member did not have). Stirrups under Ø10 get 135° hooks (`tieHook`); with a
-  spec without the flat-end cover policy (e.g. the starter spec, BS) the cover check measures the hook corner point as drawn,
-  so RB9 fails and DB10 (90° hooks) is taken. Warning “คาน B2 ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นที่วางได้ในหน้าตัด):
+  a template (on update: spans whose mark the member did not have). Stirrups under Ø10 get 135° hooks (`tieHook`) whose
+  filleted arc lies exactly on the cover line: under the bend cover policy `rebar-bend-tolerance-1.0` (default for new
+  projects since 0.114.2, `docs/REBAR_PERIMETER_AND_FLAT_ENDS.md`) and ACI, RB9 passes and is used; on the legacy check of
+  older starter / BS specs the arc fails by 0.0001–0.0003 mm of rounding, so DB10 (90° hooks) is taken. Warning “คาน B2 ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นที่วางได้ในหน้าตัด):
   บน 2-DB16 · ล่าง 3-DB16 · ปลอก DB10@200” names the set(s) used.
 - **Member check in the preview** (fix 0.114.1): `planFloorBeams()` runs `validateMember` on every member it would write; a
   failing line gets `errors` and no `member` (shown “ตรวจไม่ผ่าน · ข้ามแนวนี้” with the reasons, never sent). The dialog has a

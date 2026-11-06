@@ -2,6 +2,7 @@ import {quantityOnlyCategories} from './civilInputSchema';
 import {declaredNoRebar} from './reinforcementScopeSchema';
 import {CODE99_HOLD,CODE99_REVIEW_POLICY,type Code99Review} from './code99ReviewSchema';
 import {FLAT_END_COVER_POLICY,polylineCoverSagitta} from './flatEndCover';
+import {bendCoverSlack} from './bendCover';
 import {supportsPrismPolicy} from './prismSchema';
 import {drawingViewProblems} from './drawingViews';
 import {placeTemplate,placementProblems,coincidentPaths} from './barPlacement';
@@ -134,7 +135,7 @@ export function validateMember(m:Member,spec:Spec):string[]{
   if(row.placementLayout&&coincidentPaths(row.paths))errors.push(`${row.mark}: มีแท่งเหล็กวางทับตำแหน่งเดียวกัน`);
   if(row.cutLength<=0)errors.push(`${row.mark}: ความยาวไม่ถูกต้อง`);
   if(row.targetSolidId&&!solids.some(s=>s.id===row.targetSolidId))errors.push(`${row.mark}: ไม่พบชิ้นส่วนเป้าหมาย`);
-  if(row.paths.some(path=>!placementPathInside(m,path)))errors.push(`${row.mark}: ตำแหน่งเหล็กออกนอกคอนกรีตหรือผ่านช่องเปิด`);else if(row.paths.some(path=>!placementClearance(m,path,placement.surfaces,(row.outsideDiameter??row.diameter)/2+(row.shape==='helix'?helixGeometry(row).sagitta:row.shape==='arc'?arcGeometry(row).sagitta:spec.rebarCoverPolicy===FLAT_END_COVER_POLICY?polylineCoverSagitta(barPaths(m,row)[0]||[],row.radius):0),spec.rebarCoverPolicy===FLAT_END_COVER_POLICY&&!['arc','helix','link'].includes(row.shape))))errors.push(`${row.mark}: ระยะหุ้มถึงผิวเหล็กน้อยกว่า cover ที่ระบุ`);
+  if(row.paths.some(path=>!placementPathInside(m,path)))errors.push(`${row.mark}: ตำแหน่งเหล็กออกนอกคอนกรีตหรือผ่านช่องเปิด`);else if(row.paths.some(path=>!placementClearance(m,path,placement.surfaces,-bendCoverSlack(spec,path,row.radius||0)+(row.outsideDiameter??row.diameter)/2+(row.shape==='helix'?helixGeometry(row).sagitta:row.shape==='arc'?arcGeometry(row).sagitta:spec.rebarCoverPolicy===FLAT_END_COVER_POLICY?polylineCoverSagitta(barPaths(m,row)[0]||[],row.radius):0),spec.rebarCoverPolicy===FLAT_END_COVER_POLICY&&!['arc','helix','link'].includes(row.shape))))errors.push(`${row.mark}: ระยะหุ้มถึงผิวเหล็กน้อยกว่า cover ที่ระบุ`);
  }
  return errors;
 }

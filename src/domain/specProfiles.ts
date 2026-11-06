@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {currentStarterSpec,specSchema,type Spec} from './model';
+import {withNewCoverPolicy} from './bendCover';
 import {APP_NAME} from './auth';
 import {codeDataSchema,codeValues,designCodeIdSchema,lapConcrete,lapGrades,type DesignCodeId} from './designCodes';
 import type {ProjectDesign} from './specDetailing';
@@ -35,7 +36,8 @@ export function projectSpecFrom(profile:Pick<SpecProfile,'id'|'name'|'version'|'
 }
 /** Linked profile has a newer version than the project's copy. */
 export const specOutdated=(spec:Spec,profiles:SpecProfile[])=>{const p=spec.profileRef&&profiles.find(x=>x.id===spec.profileRef!.id);return !!p&&p.version>spec.profileRef!.version;};
-export const starterProfileSpec=():Spec=>({...currentStarterSpec,designCode:'ACI'});
+/** New General Spec profiles: current starter + ACI + the bend cover policy (`rebar-bend-tolerance-1.0`). */
+export const starterProfileSpec=():Spec=>withNewCoverPolicy({...currentStarterSpec,designCode:'ACI'});
 
 // Spec import file (e.g. values read from a project's General Notes): per code, lap rows are merged by
 // bar size into the current table, beam / grades replace, provisions are merged by id.

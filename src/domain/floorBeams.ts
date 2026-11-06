@@ -103,8 +103,9 @@ export type BeamPlanRow={key:string;code:string;status:BeamPlanStatus;line?:stri
  existing?:Member;note?:string;
  /** the planned member fails `validateMember` (the command's check): not written, the line is skipped */ errors?:string[]};
 /** Default bars for spans without a Beam Template, largest first: the first set the member check accepts is used
- * (top / bottom count × Ø, stirrup Ø @ spacing). Each bar set is tried with RB9 then DB10 stirrups: stirrups under Ø10 get
- * 135° hooks (`tieHook`), whose corner point the cover check measures as drawn unless the spec has the flat-end cover policy. */
+ * (top / bottom count × Ø, stirrup Ø @ spacing). Each bar set is tried with RB9 then DB10 stirrups: RB9 (135° hooks,
+ * `tieHook`) passes under the bend cover policy `rebar-bend-tolerance-1.0` (new projects) and ACI; specs on the legacy
+ * cover check (0.0001 mm) reject the hook arc that sits on the cover line by rounding, so DB10 (90° hooks) is taken there. */
 export const DEFAULT_BEAM_BARS:{top:[number,number];bottom:[number,number];stirrup:[number,number]}[]=([
  [[2,16],[3,16]],[[2,16],[2,16]],[[2,12],[3,12]],[[2,12],[2,12]],[[2,10],[2,10]]] as [number,number][][]).flatMap(([top,bottom])=>
  [{top,bottom,stirrup:[9,200] as [number,number]},{top,bottom,stirrup:[10,200] as [number,number]}]);

@@ -2,6 +2,7 @@ import {doc,runTransaction} from 'firebase/firestore';
 import {z} from 'zod';
 import {db} from '../firebase';
 import {currentStarterSpec,Project,specSchema} from '../../domain/model';
+import {withNewCoverPolicy} from '../../domain/bendCover';
 import {userDocPath} from '../../domain/auth';
 import {projectProfileRoles,profileMaster} from '../../domain/authAccess';
 import {drawingProfileSchema,sheetStyleSchema} from '../../domain/drawingStandard';
@@ -26,7 +27,7 @@ export async function createDirectProject(data:Record<string,any>,id:string){
   must(!ps.exists(),'มีโครงการที่ใช้รหัสคำขอนี้แล้ว','aborted');
   const {company,spec,...fields}=parsed;
   // spec = resolved copy of the chosen workspace General Spec profile (+ project f'c / grade)
-  const p:Project={...fields,logo:fields.logo||null,id,acl:{[u.uid]:'admin'},roleSets:{[u.uid]:['admin']},version:1,createdAt:now(),spec:spec?{...spec,approved:false,evidenceFileId:''}:currentStarterSpec,titleBlock:{company,drawnBy:'',checkedBy:'',drawingPrefix:parsed.code}},next={...u,assignedProjects:[...new Set([...u.assignedProjects,id])],projectRoles:{...u.projectRoles,[id]:['admin'] as const},profileVersion:(u.profileVersion||1)+1};
+  const p:Project={...fields,logo:fields.logo||null,id,acl:{[u.uid]:'admin'},roleSets:{[u.uid]:['admin']},version:1,createdAt:now(),spec:spec?{...spec,approved:false,evidenceFileId:''}:withNewCoverPolicy(currentStarterSpec),titleBlock:{company,drawnBy:'',checkedBy:'',drawingPrefix:parsed.code}},next={...u,assignedProjects:[...new Set([...u.assignedProjects,id])],projectRoles:{...u.projectRoles,[id]:['admin'] as const},profileVersion:(u.profileVersion||1)+1};
   tx.set(pr,encode(p));tx.update(doc(db,userDocPath(u.email)),{assignedProjects:next.assignedProjects,projectRoles:next.projectRoles,profileVersion:next.profileVersion,updatedAt:now(),accessChange:{projectId:id,operationId:id,kind:'CreateProject'}});
   tx.set(directoryRef(u.uid),directory({...next,projectRoles:{...u.projectRoles,[id]:['admin']}}));
   const result={id};tx.set(or,encode({id,uid:u.uid,email:u.email,action:'createProject',inputHash,createdAt:now(),result}));return result;

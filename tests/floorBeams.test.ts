@@ -200,6 +200,9 @@ describe('beams from the slab floor: no Beam Template',()=>{
    for(const r of rows)expect(validateMember(r.member!,s)).toEqual([]);
    for(const mk of ['B1','B2'])expect(warnings.find(w=>w.startsWith(`คาน ${mk} ยังไม่มี Template`))).toMatch(/: บน \d-DB\d+ · ล่าง \d-DB\d+ · ปลอก (RB|DB)\d+@\d+/);}
   const fl=floorMember(b1b2());expect(planFloorBeams(fl,[fl],plain).warnings.join()).toContain('ปลอก DB10@200');
+  // bend cover policy (new projects): RB9 is the first set again
+  const bend={...plain,rebarCoverPolicy:'rebar-bend-tolerance-1.0'} as Spec,pb=planFloorBeams(fl,[fl],bend);
+  expect(pb.rows.every(r=>r.member&&!r.errors)).toBe(true);expect(pb.warnings.join()).toContain('ปลอก RB9@200');expect(pb.warnings.join()).not.toContain('DB10');
  });
  it('templates still win: B1 keeps its template bars, only B2 gets defaults',()=>{
   const fl=floorMember(b1b2()),{rows}=planFloorBeams(fl,[fl],spec),x=bin(rows.find(r=>r.code==='FL2-B-1')!.member!),y=bin(rows.find(r=>r.code==='FL2-B-A')!.member!);
