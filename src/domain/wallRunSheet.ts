@@ -201,7 +201,10 @@ function section(c:Ctx,box:Box,id:string,want:number|'auto'):Rendered{
  const ox=box.x+2+(iw-(oR-oL)/n)/2,oy=box.y+TITLE,X=(o:number)=>ox+(oR-o)/n,Y=(z:number)=>oy+(zHi-z)/n,g:Prim[]=[];
  const conc=(o0:number,o1:number,z0:number,z1:number,fill='#f5f3ff',ref=false)=>g.push({t:'rect',x:X(Math.max(o0,o1)),y:Y(z1),w:Math.abs(o1-o0)/n,h:(z1-z0)/n,stroke:CONC,width:ref?.18:.35,fill,...(ref?{dash:[1.2,.8]}:{}),layer:ref?'concreteHidden':'concrete'} as Prim);
  for(const l of lv.lifts){const tl=l.t&&l.t>0?l.t:t;conc(-tl/2,tl/2,l.z0,l.z1);}
- if(lv.bottom&&run.tank)conc(-(t/2+run.tank.bottom.projection),oL+300,lv.bottom[0],lv.bottom[1],'#eef2f6');
+ // bottom slab: outer projection (+o) across the wall to the interior (−o)
+ if(lv.bottom&&run.tank){conc(t/2+run.tank.bottom.projection,oL+300,lv.bottom[0],lv.bottom[1],'#eef2f6');
+  // haunch fillet at the inner wall / slab corner (45°, as drawn on site; the model counts an equal-area band)
+  const hs=run.tank.haunch?.size||0;if(hs>0)g.push({t:'poly',pts:[[X(-t/2),Y(lv.zBase+hs)],[X(-t/2),Y(lv.zBase)],[X(-t/2-hs),Y(lv.zBase)]],closed:true,stroke:CONC,width:.3,fill:'#f5f3ff',layer:'concrete'} as Prim);}
  if(lv.cover&&run.tank?.cover)conc(t/2,oL+300,lv.cover[0],lv.cover[1],'#eef2f6');
  if(lv.pit&&run.liftPit)conc(t/2,oL+300,lv.pit[0],lv.pit[1],'#eef2f6');
  if(lv.base&&rt){const sg=rt.soilSide==='out'?1:-1;conc(-sg*(t/2+rt.toe),sg*(t/2+rt.heel),lv.base[0],lv.base[1],'#eef2f6');if(lv.key)conc(-rt.key!.width/2,rt.key!.width/2,lv.key[0],lv.key[1],'#eef2f6');}
