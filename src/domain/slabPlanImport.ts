@@ -41,6 +41,44 @@ export function guessLayerRoles(layers:CadLayer[],saved:FloorImportMap[]=[]):Lay
  for(const l of layers){if(!l.count)continue;const r=fromSaved.get(l.name)??roleFromName(l.name);if(r)(out[r]||=[]).push(l.name);}
  return out;
 }
+/** Roles of PDF pseudo-layers: saved maps / layer names (OCG) first, then the geometry — dashed long lines = grid, equal
+ * circles = grid bubbles, small closed rectangles = columns, rectangles crossed corner to corner = openings, lines with a
+ * close parallel partner = beam faces, `TEXT` = text. Source units (page points); `extent` = the drawing size. */
+export function guessPdfRoles(doc:{ents:CadEnt[];layers:CadLayer[];bounds:[number,number,number,number]},saved:FloorImportMap[]=[]):LayerRoles{
+ const out=guessLayerRoles(doc.layers,saved),named=new Set(Object.values(out).flat());const add=(r:ImportRole,l:string)=>{(out[r]||=[]).push(l);named.add(l);};
+ if(doc.layers.some(l=>l.name==='TEXT'&&l.count)&&!named.has('TEXT'))add('text','TEXT');
+ const E=Math.max(doc.bounds[2]-doc.bounds[0],doc.bounds[3]-doc.bounds[1])||1,segLen=(s:number[])=>Math.hypot(s[2]-s[0],s[3]-s[1]);
+ const all=doc.ents.filter(e=>e.k!=='text').flatMap(e=>entSegments(e,[])),longest=all.reduce((m,s)=>Math.max(m,segLen(s)),1e-9);
+ type St={name:string;segs:number[][];circles:number[];rects:{x0:number;y0:number;x1:number;y1:number}[];crossed:number;paired:number;dashed:boolean};
+ const stats=doc.layers.filter(l=>l.count&&!named.has(l.name)&&l.name!=='TEXT').map(l=>{const ents=doc.ents.filter(e=>e.layer===l.name);
+  const segs=ents.filter(e=>e.k==='line'||e.k==='poly'&&!e.closed).flatMap(e=>entSegments(e,[]));
+  const rects=ents.flatMap(e=>e.k==='poly'&&e.closed&&e.pts.length===4?[bbox(e.pts)]:[]);
+  // corner-to-corner crossings by endpoint keys (grid of E·1e-4), axis-parallel partners by a sorted sweep — n log n
+  const q=E*1e-4+1e-9,key=(p:P2)=>`${Math.round(p[0]/q)},${Math.round(p[1]/q)}`,diag=new Set<string>();
+  for(const s of segs){const a=key([s[0],s[1]]),b=key([s[2],s[3]]);diag.add(`${a}|${b}`);diag.add(`${b}|${a}`);}
+  const crossed=rects.filter(b=>diag.has(`${key([b.x0,b.y0])}|${key([b.x1,b.y1])}`)&&diag.has(`${key([b.x1,b.y0])}|${key([b.x0,b.y1])}`)).length;
+  let paired=0;
+  for(const v of [true,false]){const list=segs.filter(s=>v?Math.abs(s[2]-s[0])<1e-6&&s[1]!==s[3]:Math.abs(s[3]-s[1])<1e-6&&s[0]!==s[2]).map(s=>({c:v?s[0]:s[1],u0:v?Math.min(s[1],s[3]):Math.min(s[0],s[2]),u1:v?Math.max(s[1],s[3]):Math.max(s[0],s[2])})).sort((a,b)=>a.c-b.c);
+   for(let i=0;i<list.length;i++){const a=list[i];let hit=false;
+    for(const dir of [1,-1]){for(let j=i+dir,n=0;j>=0&&j<list.length&&n<60&&!hit;j+=dir,n++){const b=list[j],d=Math.abs(b.c-a.c);if(d>=E*0.03)break;if(d>E*0.002&&Math.min(a.u1,b.u1)>Math.max(a.u0,b.u0))hit=true;}if(hit)break;}
+    if(hit)paired++;}}
+  return {name:l.name,segs,circles:ents.flatMap(e=>e.k==='circle'?[e.r]:[]),rects,crossed,paired,dashed:/· dash/.test(l.name)} as St;});
+ for(const st of stats){
+  const runs=axisRuns(st.segs,E*0.01),dashedRuns=runs.filter(r=>r.pieces>=5&&segLen(r.s)>=longest*0.5).length;
+  const long=st.segs.filter(s=>segLen(s)>=longest*0.5).length,n=st.segs.length+st.rects.length+st.circles.length;
+  if(dashedRuns>=2&&dashedRuns*5>=st.segs.length*0.5){add('grid',st.name);continue;}
+  if(st.circles.length>=2&&st.circles.length>=n*0.5){const r=st.circles.slice().sort((a,b)=>a-b),m=r[r.length>>1];if(r.filter(v=>Math.abs(v-m)<=m*0.05).length>=r.length*0.8){add('gridLabel',st.name);continue;}}
+  if(st.segs.length>=2&&long>=st.segs.length*0.6&&(st.dashed||st.segs.length<=60)){add('grid',st.name);continue;}
+  if(st.crossed>=1&&st.rects.length<=st.crossed*2+2){add('opening',st.name);continue;}
+  if(st.rects.length>=3&&st.rects.length>=n*0.6&&st.rects.every(b=>Math.max(b.x1-b.x0,b.y1-b.y0)<E*0.08)){add('column',st.name);continue;}
+  if(st.segs.length>=4&&st.paired>=st.segs.length*0.5){add('beam',st.name);continue;}
+ }
+ // no grid yet: the layer with the most long axis-parallel runs (grids are the longest lines of a plan)
+ if(!out.grid?.length){const allRuns=axisRuns(all,E*0.01),longRun=allRuns.reduce((m,r)=>Math.max(m,segLen(r.s)),0);let best:{name:string;n:number}|undefined;
+  for(const st of stats){if(Object.values(out).some(l=>l?.includes(st.name)&&!out.beam?.includes(st.name)))continue;const n=axisRuns(st.segs,E*0.01).filter(r=>segLen(r.s)>=longRun*0.4).length;if(n>=4&&(!best||n>best.n))best={name:st.name,n};}
+  if(best){for(const r of IMPORT_ROLES)if(out[r]){out[r]=out[r]!.filter(l=>l!==best!.name);if(!out[r]!.length)delete out[r];}(out.grid||=[]).push(best.name);}}
+ return out;
+}
 export const roleOfLayer=(roles:LayerRoles,layer:string):ImportRole|undefined=>IMPORT_ROLES.find(r=>roles[r]?.includes(layer));
 
 // ---------------------------------------------------------------- helpers
@@ -48,7 +86,7 @@ const ANG=1e-3;// axis-parallel: |sin| below this (0.06°)
 type Seg={x0:number;y0:number;x1:number;y1:number;h:string};
 const r1=(v:number)=>Math.round(v*10)/10;
 /** Text centre (insertion point + half the text box along its direction; character width ≈ 0.7 × height). */
-export function textCentre(t:Extract<CadEnt,{k:'text'}>):P2{const w=0.7*t.size*t.text.length,c=Math.cos(t.rot),s=Math.sin(t.rot);return [t.at[0]+c*w/2-s*t.size/2,t.at[1]+s*w/2+c*t.size/2];}
+export function textCentre(t:Extract<CadEnt,{k:'text'}>):P2{const w=t.w??0.7*t.size*t.text.length,c=Math.cos(t.rot),s=Math.sin(t.rot);return [t.at[0]+c*w/2-s*t.size/2,t.at[1]+s*w/2+c*t.size/2];}
 const BEAM_RE=/^(\d+)?\s*([A-Z]*B[A-Z]*\d+[A-Z]?)\s*(?:[(\[]?\s*(\d{2,4})\s*[X×*]\s*(\d{2,4})\s*[)\]]?)?$/;
 const COL_RE=/^([A-Z]*C[A-Z]*\d+[A-Z]?)\s*(?:[(\[]?\s*(\d{2,4})\s*[X×*]\s*(\d{2,4})\s*[)\]]?)?$/;
 const SLAB_RE=/^(F?S)\s*(-?)\s*(\d+[A-Z]?)\s*(?:[(\[]?\s*T\s*=\s*(\d{2,4})\s*(?:MM)?\s*[)\]]?)?$/;
@@ -57,19 +95,36 @@ export const parseSlabText=(t:string)=>{const m=t.trim().toUpperCase().match(SLA
 const parseColText=(t:string)=>{const m=t.trim().toUpperCase().match(COL_RE);return m?{mark:m[1],sx:m[2]?Number(m[2]):undefined,sy:m[3]?Number(m[3]):undefined}:undefined;};
 const letters=(k:number)=>{let s='';k++;while(k>0){const r=(k-1)%26;s=String.fromCharCode(65+r)+s;k=Math.floor((k-1)/26);}return s;};
 
+/** Collinear axis-parallel pieces joined into runs (gap ≤ `gap`): a centre line plotted as exploded dashes becomes one line.
+ * Returns the runs as segments [x0,y0,x1,y1] with the number of pieces. */
+export function axisRuns(segs:number[][],gap:number,tol=gap*1e-3):{s:[number,number,number,number];pieces:number;handles:number[]}[]{
+ const out:{s:[number,number,number,number];pieces:number;handles:number[]}[]=[];
+ for(const v of [true,false]){
+  const list=segs.map((s,i)=>({i,c:v?(s[0]+s[2])/2:(s[1]+s[3])/2,u0:v?Math.min(s[1],s[3]):Math.min(s[0],s[2]),u1:v?Math.max(s[1],s[3]):Math.max(s[0],s[2]),ok:v?Math.abs(s[2]-s[0])<=tol&&s[1]!==s[3]:Math.abs(s[3]-s[1])<=tol&&s[0]!==s[2]}))
+   .filter(x=>x.ok).sort((a,b)=>a.c-b.c||a.u0-b.u0);
+  let k=0;while(k<list.length){let j=k;while(j+1<list.length&&list[j+1].c-list[k].c<=tol)j++;
+   const line=list.slice(k,j+1).sort((a,b)=>a.u0-b.u0),c=line.reduce((n,x)=>n+x.c,0)/line.length;let cur={u0:line[0].u0,u1:line[0].u1,n:1,h:[line[0].i]};
+   const push=()=>out.push({s:v?[c,cur.u0,c,cur.u1]:[cur.u0,c,cur.u1,c],pieces:cur.n,handles:cur.h});
+   for(const x of line.slice(1)){if(x.u0-cur.u1<=gap){cur.u1=Math.max(cur.u1,x.u1);cur.n++;cur.h.push(x.i);}else{push();cur={u0:x.u0,u1:x.u1,n:1,h:[x.i]};}}push();k=j+1;}
+ }
+ return out;
+}
+
 // ---------------------------------------------------------------- read
 export type ReadOptions={source:FloorProposal['source'];
  /** current floor: its grid labels fix the origin (same label = same place) */ floor?:Pick<SlabFloor,'gridsX'|'gridsY'>;
  /** slab marks of the project (spec.slabTemplates names): a label not among them is warned */ slabMarks?:string[];
- /** beam sizes by mark (Beam Templates) when the drawing gives no size text */ beamSizes?:Record<string,{width:number;depth:number}>};
+ /** beam sizes by mark (Beam Templates) when the drawing gives no size text */ beamSizes?:Record<string,{width:number;depth:number}>;
+ /** rounding of positions / sizes in mm (PDF: 5 — a 1:100 page is read to ~0.4 mm; default 0.1 = DXF) */ round?:number};
 /** Reads one plan (entities already in mm and inside the chosen window). */
 export function readFloorPlan(ents:CadEnt[],roles:LayerRoles,o:ReadOptions):FloorProposal{
- const warnings:string[]=[],role=(l:string)=>roleOfLayer(roles,l);
+ const warnings:string[]=[],role=(l:string)=>roleOfLayer(roles,l),q=o.round&&o.round>0.1?o.round:0,rr=(v:number)=>(q?Math.round(v/q)*q:r1(v))||0,rs=(v:number)=>(Math.round(v/Math.max(1,q))*Math.max(1,q))||0;
  const texts=ents.filter((e):e is Extract<CadEnt,{k:'text'}>=>e.k==='text');
  const segsOf=(want:(e:CadEnt)=>boolean):Seg[]=>ents.filter(want).flatMap(e=>entSegments(e,[]).map(s=>({x0:s[0],y0:s[1],x1:s[2],y1:s[3],h:e.h})));
  // ---------- grids
  const gridLayer=(e:CadEnt)=>role(e.layer)==='grid'||(!roles.grid?.length&&(e.k==='line'||e.k==='poly')&&/CENT|DASHDOT/i.test(('lt' in e&&e.lt)||''));
- const gsegs=segsOf(e=>(e.k==='line'||e.k==='poly')&&gridLayer(e)),longest=Math.max(0,...gsegs.map(s=>Math.hypot(s.x1-s.x0,s.y1-s.y0)));
+ const graw=segsOf(e=>(e.k==='line'||e.k==='poly')&&gridLayer(e)),gruns=axisRuns(graw.map(s=>[s.x0,s.y0,s.x1,s.y1]),1500,0.5),
+  gsegs:Seg[]=[...gruns.map(r=>({x0:r.s[0],y0:r.s[1],x1:r.s[2],y1:r.s[3],h:r.handles.slice(0,6).map(i=>graw[i].h).join(',')})),...graw.filter(s=>Math.abs(s.x1-s.x0)>0.5&&Math.abs(s.y1-s.y0)>0.5)],longest=gsegs.reduce((m,s)=>Math.max(m,Math.hypot(s.x1-s.x0,s.y1-s.y0)),0);
  let oblique=0;const vert:Seg[]=[],hori:Seg[]=[];
  for(const s of gsegs){const L=Math.hypot(s.x1-s.x0,s.y1-s.y0);if(L<Math.max(1000,longest*.25))continue;const sin=Math.abs(s.x1-s.x0)/L,cos=Math.abs(s.y1-s.y0)/L;
   if(sin<ANG)vert.push(s);else if(cos<ANG)hori.push(s);else oblique++;}
@@ -99,7 +154,7 @@ export function readFloorPlan(ents:CadEnt[],roles:LayerRoles,o:ReadOptions):Floo
  const shift=(list:ProposalGrid[],cur:{label:string;at:number}[]|undefined)=>{const d=list.flatMap(g=>{const c=cur?.find(x=>x.label===g.label);return c?[g.at-c.at]:[];}).sort((a,b)=>a-b);
   return d.length?d[Math.floor(d.length/2)]:list.length?Math.min(...list.map(g=>g.at)):0;};
  const origin:P2=[shift(gx,o.floor?.gridsX),shift(gy,o.floor?.gridsY)];
- for(const g of gx)g.at=r1(g.at-origin[0]);for(const g of gy)g.at=r1(g.at-origin[1]);
+ for(const g of gx)g.at=rr(g.at-origin[0]);for(const g of gy)g.at=rr(g.at-origin[1]);
  const F=(p:P2):P2=>[p[0]-origin[0],p[1]-origin[1]];
  const sx=sortGrids(gx),sy=sortGrids(gy),near=(list:{label:string;at:number}[],v:number,tol:number)=>{let b:{label:string;at:number}|undefined,d=tol;for(const g of list){const e=Math.abs(g.at-v);if(e<=d){d=e;b=g;}}return b;};
  // ---------- columns
@@ -115,7 +170,7 @@ export function readFloorPlan(ents:CadEnt[],roles:LayerRoles,o:ReadOptions):Floo
   if(columns.some(k=>k.x===x.label&&k.y===y.label))continue;
   if(Math.abs(c[0]-x.at)>5||Math.abs(c[1]-y.at)>5)off++;
   const t=colTexts.map(t=>({t,d:dist(F(textCentre(t)),c)})).filter(q=>q.d<=Math.max(1000,w*2)).sort((a,b)=>a.d-b.d)[0];
-  columns.push({id:`c:${x.label}/${y.label}`,x:x.label,y:y.label,sx:Math.round(w),sy:Math.round(h),...(t?{mark:parseColText(t.t.text)!.mark}:{}),confidence:e.k==='circle'?0.7:0.95,
+  columns.push({id:`c:${x.label}/${y.label}`,x:x.label,y:y.label,sx:rs(w),sy:rs(h),...(t?{mark:parseColText(t.t.text)!.mark}:{}),confidence:e.k==='circle'?0.7:0.95,
    evidence:{handles:[e.h,...(t?[t.t.h]:[])],at:c,...(t?{text:t.t.text}:{})}});
   if(e.k==='circle')warnings.push(`เสากลม ${x.label}/${y.label} Ø${Math.round(w)}: เก็บเป็นสี่เหลี่ยม ${Math.round(w)} × ${Math.round(w)}`);
  }
@@ -164,24 +219,24 @@ export function readFloorPlan(ents:CadEnt[],roles:LayerRoles,o:ReadOptions):Floo
   if(!depth){depth=600;conf=Math.min(conf,0.5);warnings.push(`คาน ${mark} ไม่มีความลึกในแบบหรือ Beam Template: ใช้ 600 ตรวจก่อนใช้`);}
   if(r.tw&&Math.abs(r.tw-r.w)>10)warnings.push(`คาน ${mark}: ป้ายกว้าง ${r.tw} แต่เส้นในแบบกว้าง ${Math.round(r.w)} (ใช้ค่าจากเส้น)`);
   seq[r.along]++;
-  beams.push({id:`b:${r.along}:${line.label}:${a.label}-${b.label}`,mark,along:r.along,line:line.label,from:a.label,to:b.label,width:Math.round(r.w),depth,offset:Math.round(r.c-line.at),confidence:conf,
+  beams.push({id:`b:${r.along}:${line.label}:${a.label}-${b.label}`,mark,along:r.along,line:line.label,from:a.label,to:b.label,width:rs(r.w),depth,offset:rs(r.c-line.at),confidence:conf,
    evidence:{handles:[...r.h,...r.th],at:(r.along==='X'?[(r.u0+r.u1)/2,r.c]:[r.c,(r.u0+r.u1)/2]) as P2,...(r.tt?{text:r.tt}:{})}});
  }
  // ---------- openings: closed outlines on the opening layer, circles there, or rectangles crossed corner to corner
  const lines=segsOf(e=>e.k==='line'||e.k==='poly'&&!e.closed);
- const crossed=(b:{x0:number;y0:number;x1:number;y1:number})=>{const hit=(p:P2,q:P2)=>lines.some(s=>dist([s.x0,s.y0],p)<=2&&dist([s.x1,s.y1],q)<=2||dist([s.x0,s.y0],q)<=2&&dist([s.x1,s.y1],p)<=2);
+ const tol=Math.max(2,q/2),crossed=(b:{x0:number;y0:number;x1:number;y1:number})=>{const hit=(p:P2,q:P2)=>lines.some(s=>dist([s.x0,s.y0],p)<=tol&&dist([s.x1,s.y1],q)<=tol||dist([s.x0,s.y0],q)<=tol&&dist([s.x1,s.y1],p)<=tol);
   return hit([b.x0,b.y0],[b.x1,b.y1])&&hit([b.x1,b.y0],[b.x0,b.y1]);};
  const openTexts=texts.filter(t=>/^(OP|O|H|OPENING)\s*[-.]?\s*\d+/i.test(t.text.trim()));
  const openings:ProposalOpening[]=[];
  for(const e of ents){
   const onLayer=role(e.layer)==='opening';
-  if(e.k==='circle'&&onLayer){const c=F(e.c);openings.push({id:'',shape:'circle',x:r1(c[0]-e.r),y:r1(c[1]-e.r),w:r1(2*e.r),h:r1(2*e.r),label:'',confidence:0.9,evidence:{handles:[e.h],at:c}});continue;}
+  if(e.k==='circle'&&onLayer){const c=F(e.c);openings.push({id:'',shape:'circle',x:rr(c[0]-e.r),y:rr(c[1]-e.r),w:rr(2*e.r),h:rr(2*e.r),label:'',confidence:0.9,evidence:{handles:[e.h],at:c}});continue;}
   if(e.k!=='poly'||!e.closed)continue;const rl=role(e.layer);if(rl==='column'||rl==='beam'||rl==='grid')continue;
   const b=bbox(e.pts),rect=e.pts.length===4&&e.pts.every((p,i)=>{const q=e.pts[(i+1)%4];return Math.abs(p[0]-q[0])<1e-6||Math.abs(p[1]-q[1])<1e-6;});
   const isX=rect&&crossed(b);if(!onLayer&&!isX)continue;
   if(b.x1-b.x0<50||b.y1-b.y0<50)continue;
   if(!rect)warnings.push(`ช่องเปิดรูปหลายเหลี่ยม (${e.pts.length} จุด): เก็บเป็นกรอบสี่เหลี่ยมล้อมรอบ`);
-  const p=F([b.x0,b.y0]);openings.push({id:'',shape:'rect',x:r1(p[0]),y:r1(p[1]),w:r1(b.x1-b.x0),h:r1(b.y1-b.y0),label:'',confidence:onLayer?(isX?0.95:0.85):0.7,evidence:{handles:[e.h],at:F([(b.x0+b.x1)/2,(b.y0+b.y1)/2])}});
+  const p=F([b.x0,b.y0]);openings.push({id:'',shape:'rect',x:rr(p[0]),y:rr(p[1]),w:rr(b.x1-b.x0),h:rr(b.y1-b.y0),label:'',confidence:onLayer?(isX?0.95:0.85):0.7,evidence:{handles:[e.h],at:F([(b.x0+b.x1)/2,(b.y0+b.y1)/2])}});
  }
  openings.forEach((op,k)=>{const c:P2=[op.x+op.w/2,op.y+op.h/2],t=openTexts.map(t=>({t,d:dist(F(textCentre(t)),c)})).filter(q=>q.d<=Math.max(op.w,op.h)+1000).sort((a,b)=>a.d-b.d)[0];
   op.id=`o:${k+1}`;op.label=(t?.t.text.trim()||`OP-${k+1}`).slice(0,40);if(t){op.evidence.handles.push(t.t.h);op.evidence.text=t.t.text;}});
@@ -201,7 +256,9 @@ function bbox(pts:P2[]){let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;fo
 // ---------------------------------------------------------------- diff / apply
 export type DiffOp='add'|'edit'|'remove'|'same';
 export type ProposalKind='grid'|'beam'|'column'|'opening'|'panelMark';
-export type DiffItem={id:string;kind:ProposalKind;op:DiffOp;text:string;confidence:number;evidence?:Evidence};
+export type DiffItem={id:string;kind:ProposalKind;op:DiffOp;text:string;confidence:number;evidence?:Evidence;
+ /** S4b: who read it (rule / ai / both) and the other reading when rule and AI disagree */ origin?:string;alt?:string};
+const meta=(x:object)=>{const m=x as {origin?:string;alt?:{text:string}};return {...(m.origin?{origin:m.origin}:{}),...(m.alt?{alt:m.alt.text}:{})};};
 const beamKey=(b:{along:string;line:string})=>`${b.along}|${b.line}`;
 const sameBeam=(a:FloorBeam,b:ProposalBeam)=>a.mark===b.mark&&a.from===b.from&&a.to===b.to&&a.width===b.width&&a.depth===b.depth&&(a.offset||0)===b.offset;
 const oBox=(o:{x:number;y:number;w:number;h:number;shape:string})=>({x0:o.x,y0:o.y,x1:o.x+o.w,y1:o.y+(o.shape==='circle'?o.w:o.h)});
@@ -215,20 +272,20 @@ function beamMatches(f:SlabFloor,p:ProposalBeam){
  * (remove; grids, beams, columns, openings). Panel marks: label inside a current panel of another mark = edit. */
 export function proposalDiff(f:SlabFloor,p:FloorProposal):DiffItem[]{
  const out:DiffItem[]=[];
- for(const g of p.grids){const cur=(g.axis==='X'?f.gridsX:f.gridsY).find(x=>x.label===g.label);out.push({id:g.id,kind:'grid',op:!cur?'add':Math.abs(cur.at-g.at)>0.5?'edit':'same',text:`กริด ${g.axis} ${g.label} @ ${Math.round(g.at).toLocaleString('en-US')}${cur&&Math.abs(cur.at-g.at)>0.5?` (เดิม ${Math.round(cur.at).toLocaleString('en-US')})`:''}`,confidence:g.confidence,evidence:g.evidence});}
+ for(const g of p.grids){const cur=(g.axis==='X'?f.gridsX:f.gridsY).find(x=>x.label===g.label);out.push({id:g.id,kind:'grid',op:!cur?'add':Math.abs(cur.at-g.at)>0.5?'edit':'same',text:`กริด ${g.axis} ${g.label} @ ${Math.round(g.at).toLocaleString('en-US')}${cur&&Math.abs(cur.at-g.at)>0.5?` (เดิม ${Math.round(cur.at).toLocaleString('en-US')})`:''}`,confidence:g.confidence,evidence:g.evidence,...meta(g)});}
  for(const axis of ['X','Y'] as const)for(const g of axis==='X'?f.gridsX:f.gridsY)if(!p.grids.some(x=>x.axis===axis&&x.label===g.label))out.push({id:`-g:${axis}:${g.label}`,kind:'grid',op:'remove',text:`กริด ${axis} ${g.label} (ไม่มีในแบบ)`,confidence:0.5});
  const matched=new Set<string>();
  for(const b of p.beams){const m=beamMatches(f,b);m.forEach(x=>matched.add(x.id));
-  out.push({id:b.id,kind:'beam',op:!m.length?'add':m.length===1&&sameBeam(m[0],b)?'same':'edit',text:`คาน ${b.mark} ${b.width}×${b.depth} บนกริด ${b.line} (${b.from}–${b.to})${b.offset?` เยื้อง ${b.offset}`:''}`,confidence:b.confidence,evidence:b.evidence});}
+  out.push({id:b.id,kind:'beam',op:!m.length?'add':m.length===1&&sameBeam(m[0],b)?'same':'edit',text:`คาน ${b.mark} ${b.width}×${b.depth} บนกริด ${b.line} (${b.from}–${b.to})${b.offset?` เยื้อง ${b.offset}`:''}`,confidence:b.confidence,evidence:b.evidence,...meta(b)});}
  for(const b of f.beams)if(!matched.has(b.id))out.push({id:`-b:${b.id}`,kind:'beam',op:'remove',text:`คาน ${b.mark} บนกริด ${b.line} (${b.from}–${b.to}) (ไม่มีในแบบ)`,confidence:0.5});
- for(const c of p.columns){const cur=(f.columns||[]).find(x=>x.x===c.x&&x.y===c.y);out.push({id:c.id,kind:'column',op:!cur?'add':cur.sx===c.sx&&cur.sy===c.sy?'same':'edit',text:`เสา${c.mark?` ${c.mark}`:''} ${c.x}/${c.y} ${c.sx}×${c.sy}`,confidence:c.confidence,evidence:c.evidence});}
+ for(const c of p.columns){const cur=(f.columns||[]).find(x=>x.x===c.x&&x.y===c.y);out.push({id:c.id,kind:'column',op:!cur?'add':cur.sx===c.sx&&cur.sy===c.sy?'same':'edit',text:`เสา${c.mark?` ${c.mark}`:''} ${c.x}/${c.y} ${c.sx}×${c.sy}`,confidence:c.confidence,evidence:c.evidence,...meta(c)});}
  for(const c of f.columns||[])if(!p.columns.some(x=>x.x===c.x&&x.y===c.y))out.push({id:`-c:${c.id}`,kind:'column',op:'remove',text:`เสา ${c.x}/${c.y} (ไม่มีในแบบ)`,confidence:0.5});
  const usedO=new Set<string>();
  for(const o of p.openings){const cur=f.openings.find(x=>!usedO.has(x.id)&&x.shape===o.shape&&iou(oBox(x),oBox(o))>0.5);if(cur)usedO.add(cur.id);
   const same=cur&&Math.abs(cur.x-o.x)<0.5&&Math.abs(cur.y-o.y)<0.5&&Math.abs(cur.w-o.w)<0.5&&(o.shape==='circle'||Math.abs(cur.h-o.h)<0.5);
-  out.push({id:o.id,kind:'opening',op:!cur?'add':same?'same':'edit',text:`ช่องเปิด ${o.label} ${o.shape==='circle'?`Ø${o.w}`:`${o.w}×${o.h}`}`,confidence:o.confidence,evidence:o.evidence});}
+  out.push({id:o.id,kind:'opening',op:!cur?'add':same?'same':'edit',text:`ช่องเปิด ${o.label} ${o.shape==='circle'?`Ø${o.w}`:`${o.w}×${o.h}`}`,confidence:o.confidence,evidence:o.evidence,...meta(o)});}
  for(const o of f.openings)if(!usedO.has(o.id))out.push({id:`-o:${o.id}`,kind:'opening',op:'remove',text:`ช่องเปิด ${o.label||o.id} (ไม่มีในแบบ)`,confidence:0.5});
- for(const m of p.panelMarks){const cur=f.panels.find(x=>inRing(m.at,x.outline as P2[]));out.push({id:m.id,kind:'panelMark',op:!cur?'add':cur.mark===m.mark?'same':'edit',text:`ป้ายเบอร์พื้น ${m.mark}${m.thickness?` t=${m.thickness}`:''}${cur&&cur.mark!==m.mark?` (แผง ${cur.tag} เดิม ${cur.mark})`:''}`,confidence:m.confidence,evidence:m.evidence});}
+ for(const m of p.panelMarks){const cur=f.panels.find(x=>inRing(m.at,x.outline as P2[]));out.push({id:m.id,kind:'panelMark',op:!cur?'add':cur.mark===m.mark?'same':'edit',text:`ป้ายเบอร์พื้น ${m.mark}${m.thickness?` t=${m.thickness}`:''}${cur&&cur.mark!==m.mark?` (แผง ${cur.tag} เดิม ${cur.mark})`:''}`,confidence:m.confidence,evidence:m.evidence,...meta(m)});}
  return out;
 }
 /** Rows ticked by default: everything but `same` rows and removals. */
