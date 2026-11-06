@@ -201,7 +201,16 @@ command `syncFloorBeams` in `src/data/direct/floorBeams.ts`, UI `components/Floo
   Concrete per span between the support faces (column / primary beam) — beams counted full depth, slab between the beam
   faces (S1), so beam + slab = hand total without overlap; the column–beam joints are left to the columns (no members yet).
 - **Bars**: Beam Template of the mark (`spec.beamTemplates`: bars + template id; the size stays the plan's, a different
-  template size gives a warning), else the group defaults (`plainBeamRebar`) + “คาน B2 ยังไม่มี Template”.
+  template size gives a warning), else **fitted defaults** (fix 0.114.1): `DEFAULT_BEAM_BARS` largest first — top / bottom
+  2-DB16 / 3-DB16, 2-DB16 / 2-DB16, 2-DB12 / 3-DB12, 2-DB12 / 2-DB12, 2-DB10 / 2-DB10, each with RB9@200 then DB10@200
+  stirrups — and the first set whose member passes `validateMember` (the command's own check) is used for the spans without
+  a template (on update: spans whose mark the member did not have). Stirrups under Ø10 get 135° hooks (`tieHook`); with a
+  spec without the flat-end cover policy (e.g. the starter spec, BS) the cover check measures the hook corner point as drawn,
+  so RB9 fails and DB10 (90° hooks) is taken. Warning “คาน B2 ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นที่วางได้ในหน้าตัด):
+  บน 2-DB16 · ล่าง 3-DB16 · ปลอก DB10@200” names the set(s) used.
+- **Member check in the preview** (fix 0.114.1): `planFloorBeams()` runs `validateMember` on every member it would write; a
+  failing line gets `errors` and no `member` (shown “ตรวจไม่ผ่าน · ข้ามแนวนี้” with the reasons, never sent). The dialog has a
+  tick per line (untick = skip), the button says “สร้าง / อัปเดต N สมาชิก · ข้าม M แนว (codes)”; the command still re-checks.
 - **Data on the beam input** (optional, old groups unchanged): `placement {floorMember, along, line, from, to, offset, level,
   ends?}` and `floorSource {kind 'slabFloor', floorMember, floorCode, floorVersion, beamIds, part, generatedHash}` — named
   `floorSource` because every element input already has `source` (the drawing it was read from).
@@ -385,7 +394,8 @@ quantities / sheets / DXF / drawing hash, backup restore remaps the underlay fil
 
 `tests/floorBeams.test.ts` (S3): 7 groups from the 4 × 3 floor with columns, beam + slab = hand total without overlap,
 secondary stops at the primary face and ranks swap, deeper = primary, 14 spans → 2 groups, Beam Templates / defaults +
-warning, update (lengths follow, bars kept), same = no write, hand edit detected (overwrite only when ticked), removed lines
+warning, no templates at all (B1 300 × 600 + B2 250 × 500: 7 lines pass under ACI and the starter spec, written by the
+command), a 120 × 300 line fails the check and is skipped (the other 6 written), update (lengths follow, bars kept), same = no write, hand edit detected (overwrite only when ticked), removed lines
 kept, hand-made groups unchanged, task 0 tags, backup round trip / copy drops the link, command (Draft v1, request id replay
 without writes, viewer refused, floor version, foreign member, > 25). UI check on separate emulators: images in
 `output/slab-beams-verification/` (ad-hoc `tmp/s3seed.test.ts`, `tmp/s3emu/`, `tmp/beamSheetPng.test.ts`).

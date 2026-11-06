@@ -5,7 +5,8 @@
 // beam member owns the bars (Beam Template by mark, kept by mark on update). Pure functions: the command writes the plan.
 import type {Member,Spec} from './model';
 import {blankMember} from './model';
-import {applyElementInput,defaultElementInput,newBeamGrid,plainBeamRebar,type BeamGrid,type BeamSpan,type ElementInput} from './elementInput';
+import {applyElementInput,defaultElementInput,newBeamGrid,plainBeamRebar,type BeamGrid,type BeamRebar,type BeamSpan,type ElementInput} from './elementInput';
+import {validateMember} from './engine';
 import {floorBeamRects,gridAt,sortGrids,type Floor} from './slabFloor';
 import type {FloorBeam,FloorColumn} from './slabFloorSchema';
 
@@ -92,14 +93,36 @@ export function floorBeamGroups(floor:Pick<Member,'id'|'code'|'category'|'elemen
     groups.push({key:`${along}|${line}|${Math.round(offset)}|${part}`,code,along,line,part,parts,beamIds,input,hash,spans:spans.length,concrete,length,warnings:[]});}
   });
  }
- for(const mk of noTemplate)warnings.push(`คาน ${mk} ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นของกลุ่มคาน)`);
+ for(const mk of noTemplate)warnings.push(`คาน ${mk} ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นที่วางได้ในหน้าตัด)`);
  return {groups,warnings};
 }
 
 export type BeamPlanStatus='new'|'update'|'same'|'edited'|'removed'|'conflict';
 export type BeamPlanRow={key:string;code:string;status:BeamPlanStatus;line?:string;along?:'X'|'Y';spans:number;concrete:number;
- /** member to write (new / update / edited when overwritten); removed / same / conflict: undefined */ member?:Member;
- existing?:Member;note?:string};
+ /** member to write (new / update / edited when overwritten); removed / same / conflict / failed check: undefined */ member?:Member;
+ existing?:Member;note?:string;
+ /** the planned member fails `validateMember` (the command's check): not written, the line is skipped */ errors?:string[]};
+/** Default bars for spans without a Beam Template, largest first: the first set the member check accepts is used
+ * (top / bottom count × Ø, stirrup Ø @ spacing). Each bar set is tried with RB9 then DB10 stirrups: stirrups under Ø10 get
+ * 135° hooks (`tieHook`), whose corner point the cover check measures as drawn unless the spec has the flat-end cover policy. */
+export const DEFAULT_BEAM_BARS:{top:[number,number];bottom:[number,number];stirrup:[number,number]}[]=([
+ [[2,16],[3,16]],[[2,16],[2,16]],[[2,12],[3,12]],[[2,12],[2,12]],[[2,10],[2,10]]] as [number,number][][]).flatMap(([top,bottom])=>
+ [{top,bottom,stirrup:[9,200] as [number,number]},{top,bottom,stirrup:[10,200] as [number,number]}]);
+/** “บน 2-DB16 · ล่าง 3-DB16 · ปลอก DB10@200” (main bars + mid-span stirrup) */
+export const rebarText=(r:BeamRebar)=>`บน ${r.top.count}-DB${r.top.diameter} · ล่าง ${r.bottom.count}-DB${r.bottom.diameter} · ปลอก ${r.stirrup.diameter<10?'RB':'DB'}${r.stirrup.diameter}@${r.stirrup.spacing.mid}`;
+const barsOf=(c:typeof DEFAULT_BEAM_BARS[number]):BeamRebar=>plainBeamRebar({count:c.top[0],diameter:c.top[1]},{count:c.bottom[0],diameter:c.bottom[1]},{diameter:c.stirrup[0],spacing:c.stirrup[1]});
+/** Builds the member; spans flagged in `free` (no template, no bars of their own) get the first default set that passes the
+ * member check. Returns the member, its check errors ([] = ok) and the default set used. */
+function fittedMember(base:Member,input:BeamInput,free:boolean[],spec:Spec):{member:Member;errors:string[]}{
+ const build=(i:BeamInput)=>applyElementInput(base,i,{rounding:spec.rounding}).member;
+ if(!free.some(Boolean)){const member=build(input);return {member,errors:validateMember(member,spec)};}
+ let last:{member:Member;errors:string[]}|undefined;
+ for(const c of DEFAULT_BEAM_BARS){
+  const member=build({...input,spans:input.spans.map((s,k)=>free[k]?{...s,rebar:barsOf(c)}:s)}),errors=validateMember(member,spec);
+  last={member,errors};if(!errors.length)return last;
+ }
+ return last!;
+}
 const linkKey=(i:BeamInput)=>i.placement&&i.floorSource?`${i.placement.along}|${i.placement.line}|${Math.round(i.placement.offset)}|${i.floorSource.part}`:'';
 const beamInputOf=(m:Member)=>(m.elementInput as BeamInput|undefined)?.category==='Beam'?m.elementInput as BeamInput:undefined;
 /** Members linked to a floor (beam groups with `floorSource.floorMember`). */
@@ -120,18 +143,28 @@ export function planFloorBeams(floor:Member,members:Member[],spec:Spec,opts:{ove
   const ex=linked.find(m=>!used.has(m.id)&&linkKey(beamInputOf(m)!)===g.key);
   if(!ex){const clash=members.find(m=>m.code.toUpperCase()===g.code.toUpperCase());
    if(clash){rows.push({key:g.key,code:g.code,status:'conflict',line:g.line,along:g.along,spans:g.spans,concrete:g.concrete,existing:clash,note:'รหัสนี้มีสมาชิกอื่นใช้แล้ว'});continue;}
-   const m0:Member={...blankMember('Beam',g.code),occurrences};
-   rows.push({key:g.key,code:g.code,status:'new',line:g.line,along:g.along,spans:g.spans,concrete:g.concrete,member:applyElementInput(m0,{...g.input,floorSource:{...g.input.floorSource!,floorVersion:floor.version}},{rounding:spec.rounding}).member});continue;}
+   const m0:Member={...blankMember('Beam',g.code),occurrences},input={...g.input,floorSource:{...g.input.floorSource!,floorVersion:floor.version}};
+   const fit=fittedMember(m0,input,input.spans.map(s=>!s.template),spec);
+   rows.push({key:g.key,code:g.code,status:'new',line:g.line,along:g.along,spans:g.spans,concrete:g.concrete,...fitRow(fit)});continue;}
   used.add(ex.id);const old=beamInputOf(ex)!,edited=beamGeometryHash(old)!==old.floorSource!.generatedHash;
   const sameOcc=JSON.stringify(ex.occurrences)===JSON.stringify(occurrences);
   if(!edited&&g.hash===old.floorSource!.generatedHash&&sameOcc&&JSON.stringify(old.floorSource!.beamIds)===JSON.stringify(g.beamIds)){rows.push({key:g.key,code:ex.code,status:'same',line:g.line,along:g.along,spans:g.spans,concrete:g.concrete,existing:ex});continue;}
   // keep the beam's own bars (by span mark), cover / detailing / ground, extra top bars by grid label
   const byMark=new Map(old.spans.map(s=>[s.mark,s])),grids=g.input.grids.map(x=>{const o=old.grids.find(y=>y.label===x.label);return o?{...x,extraTop:o.extraTop}:x;});
   const spans=g.input.spans.map(s=>{const o=byMark.get(s.mark);return o?{...s,rebar:structuredClone(o.rebar),...(o.template?{template:o.template}:{template:undefined})}:s;}).map(s=>{const {template,...r}=s;return template?{...r,template}:r;});
+  const free=g.input.spans.map(s=>!byMark.has(s.mark)&&!s.template);
   const input:BeamInput={...old,layout:'group',grids,spans,placement:g.input.placement,floorSource:{...g.input.floorSource!,floorVersion:floor.version}};
   const status:BeamPlanStatus=edited?'edited':'update',write=!edited||opts.overwrite?.includes(ex.id);
   rows.push({key:g.key,code:ex.code,status,line:g.line,along:g.along,spans:g.spans,concrete:g.concrete,existing:ex,
-   ...(write?{member:applyElementInput({...ex,occurrences},input,{rounding:spec.rounding}).member}:{}),...(edited?{note:'สมาชิกคานถูกแก้รูปทรงเอง · เลือกเขียนทับหรือข้าม'}:{})});}
+   ...(write?fitRow(fittedMember({...ex,occurrences},input,free,spec)):{}),...(edited?{note:'สมาชิกคานถูกแก้รูปทรงเอง · เลือกเขียนทับหรือข้าม'}:{})});}
  for(const m of linked)if(!used.has(m.id))rows.push({key:linkKey(beamInputOf(m)!)||m.id,code:m.code,status:'removed',spans:beamInputOf(m)?.spans.length||0,concrete:0,existing:m,note:'ไม่อยู่ในแปลนแล้ว · ลบเองได้'});
- return {rows,warnings};
+ // which default bars each mark has (members written now, or unchanged ones); marks only on failing lines: none fits
+ const sets=new Map<string,Set<string>>();for(const r of rows){const m=r.member||(r.status==='same'?r.existing:undefined);if(!m)continue;
+  for(const s of beamInputOf(m)?.spans||[])if(!s.template)sets.set(s.mark,(sets.get(s.mark)||new Set()).add(rebarText(s.rebar)));}
+ const out=warnings.map(w=>{const m=w.match(/^คาน (\S+) ยังไม่มี Template/);if(!m)return w;
+  return sets.has(m[1])?`${w}: ${[...sets.get(m[1])!].join(' / ')}`:rows.some(r=>r.errors?.length)?`${w}: ไม่มีชุดค่าเริ่มต้นที่ตรวจผ่าน`:w;});
+ return {rows,warnings:out};
+}
+function fitRow(fit:{member:Member;errors:string[]}):Partial<BeamPlanRow>{
+ return fit.errors.length?{errors:[...new Set(fit.errors)].slice(0,8)}:{member:fit.member};
 }

@@ -300,7 +300,8 @@
   S3 beams from the floor (`src/domain/floorBeams.ts`: `floorBeamGroups` / `planFloorBeams` / `beamGeometryHash`, command
   `syncFloorBeams` ≤ 25 members / 4 MiB, UI `FloorBeamsDialog.tsx`): one beam group per line `<floor>-B-<line>`, supports =
   `floor.columns` (reference) or the primary beam (`beam.rank`, else deeper, else X); beam input `placement` + `floorSource`
-  (not `source`), geometry locked in `BeamGroupEditor` while linked; `openMember()` (`components/memberNav.ts`) opens a member.
+  (not `source`), geometry locked in `BeamGroupEditor` while linked; marks without a Beam Template get the first `DEFAULT_BEAM_BARS` set that passes `validateMember`;
+  `planFloorBeams` checks every member (failing lines: `errors`, no `member`, skipped by the dialog); `openMember()` (`components/memberNav.ts`) opens a member.
   Panel tags follow the mark (`retagPanels`, `panel.tagCustom`). Test: `tests/floorBeams.test.ts`. UI check on separate
   emulators: `tmp/s3emu/` (ports 9399 / 8380 / 9599, demo-boq-s3, `node tmp/s3emu/dev.mjs` on 5181), seed `tmp/s3seed.test.ts`.
   S4a tracing / import (no AI): `floor.underlay` (PDF / DXF / image attachment under the plan, similarity transform, two-point

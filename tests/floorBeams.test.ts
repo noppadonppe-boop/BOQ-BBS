@@ -32,7 +32,7 @@ import {userDocPath} from '../src/domain/auth';
 import {encodeStorage,decodeStorage} from '../src/domain/storageCodec';
 import {blankMember,currentStarterSpec,memberSchema,type Member,type Project,type Role,type Spec} from '../src/domain/model';
 import {applyElementInput,beamGroupLayout,defaultElementInput,plainBeamRebar,type ElementInput,type SlabInput} from '../src/domain/elementInput';
-import {takeoff} from '../src/domain/engine';
+import {takeoff,validateMember} from '../src/domain/engine';
 import {autoBeams,autoPanels,floorPlanSummary,newSlabFloor,polyArea,type Floor} from '../src/domain/slabFloor';
 import {beamGeometryHash,floorBeamGroups,planFloorBeams} from '../src/domain/floorBeams';
 import {copyMemberInputs} from '../src/domain/memberCopy';
@@ -106,7 +106,7 @@ describe('beams from the slab floor: generator',()=>{
   const x=groups.find(g=>g.code==='FL2-B-1')!.input,y=groups.find(g=>g.code==='FL2-B-A')!.input;
   expect(x.spans.every(s=>s.template==='tB1'&&JSON.stringify(s.rebar)===JSON.stringify(B1))).toBe(true);
   expect(y.spans.every(s=>!s.template&&s.width===250&&JSON.stringify(s.rebar)===JSON.stringify(plainBeamRebar()))).toBe(true);
-  expect(warnings).toContain('คาน B2 ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นของกลุ่มคาน)');
+  expect(warnings).toContain('คาน B2 ยังไม่มี Template (ใช้เหล็กค่าเริ่มต้นที่วางได้ในหน้าตัด)');
  });
  it('update: unchanged plan = nothing to write; grid spacing changed → lengths follow, bars by mark kept; hand edit detected; removed lines kept',()=>{
   const fl=floorMember(floor()),made=planFloorBeams(fl,[fl],spec).rows.map(r=>({...r.member!,version:1}));
@@ -154,15 +154,17 @@ describe('beams from the slab floor: generator',()=>{
  });
 });
 
+const plainSpec={...currentStarterSpec,rounding:25} as Spec;
+const b1b2Floor=(narrow=false)=>floor(f=>{f.beams=f.beams.map(b=>b.along==='Y'?{...b,mark:'B2',width:250,depth:500}:narrow&&b.line==='1'?{...b,mark:'B9',width:120,depth:300}:b);});
 describe('beams from the slab floor: command syncFloorBeams',()=>{
  const PID='p1',project=footingData(2400,2400).project;
- function seed(role:Role){
+ function seed(role:Role,s:Spec=spec,f:Floor=floor()){
   store.clear();user.current={uid:'u1',email:'u1@test.local',isAnonymous:false};
   store.set(userDocPath('u1@test.local'),{uid:'u1',email:'u1@test.local',firstName:'T',lastName:'U',status:'approved',roles:['Staff'],assignedProjects:[PID],projectRoles:{[PID]:[role]},profileVersion:1});
-  store.set(`projects/${PID}`,encodeStorage({...project,spec,id:PID,version:7,acl:{u1:role}} as Project));
-  const fl=floorMember(floor());store.set(`projects/${PID}/members/${fl.id}`,encodeStorage(fl));return fl;
+  store.set(`projects/${PID}`,encodeStorage({...project,spec:s,id:PID,version:7,acl:{u1:role}} as Project));
+  const fl=floorMember(f);store.set(`projects/${PID}/members/${fl.id}`,encodeStorage(fl));return fl;
  }
- const plan=(fl:Member,members:Member[]=[fl])=>planFloorBeams(fl,members,spec).rows.filter(r=>r.member).map(r=>({...r.member!,version:r.existing?.version||0}));
+ const plan=(fl:Member,members:Member[]=[fl],s:Spec=spec)=>planFloorBeams(fl,members,s).rows.filter(r=>r.member).map(r=>({...r.member!,version:r.existing?.version||0}));
  const doc=(id:string)=>decodeStorage(store.get(`projects/${PID}/members/${id}`)) as Member;
  const writes=()=>JSON.stringify([...store.entries()].filter(([k])=>!k.includes('/operations/')));
  it('writes the planned members (Draft, version 1); the same request id replays without writing; re-plan = nothing to write',async()=>{
@@ -177,6 +179,42 @@ describe('beams from the slab floor: command syncFloorBeams',()=>{
   fl=seed('admin');await expect(syncFloorBeams(PID,{floorId:fl.id,floorVersion:2,members:plan(fl)},crypto.randomUUID())).rejects.toMatchObject({code:'aborted'});
   store.set(`projects/${PID}/members/other`,encodeStorage({...blankMember('Beam','OTHER'),id:'other',version:1}));
   const hijack={...plan(fl)[0],id:'other',version:1};await expect(syncFloorBeams(PID,{floorId:fl.id,floorVersion:1,members:[hijack]},crypto.randomUUID())).rejects.toMatchObject({code:'failed-precondition'});
-  await expect(syncFloorBeams(PID,{floorId:fl.id,floorVersion:1,members:Array.from({length:26},()=>plan(fl)[0])},crypto.randomUUID())).rejects.toMatchObject({code:'invalid-argument'});
+  const one=plan(fl)[0];await expect(syncFloorBeams(PID,{floorId:fl.id,floorVersion:1,members:Array.from({length:26},()=>one)},crypto.randomUUID())).rejects.toMatchObject({code:'invalid-argument'});
+ });
+ it('command: the 7 default-bar members are written under the starter spec; with the narrow line the other 6 are',async()=>{
+  let fl=seed('qs',plainSpec,b1b2Floor());let r=await syncFloorBeams(PID,{floorId:fl.id,floorVersion:1,members:plan(fl,[fl],plainSpec)},crypto.randomUUID());
+  expect(r.members).toHaveLength(7);
+  fl=seed('qs',plainSpec,b1b2Floor(true));const ms=plan(fl,[fl],plainSpec);expect(ms.map(m=>m.code)).not.toContain('FL2-B-1');
+  r=await syncFloorBeams(PID,{floorId:fl.id,floorVersion:1,members:ms},crypto.randomUUID());expect(r.members).toHaveLength(6);
+ });
+});
+
+// FIX floor-beam-defaults: marks without a Beam Template get the first default bar set the member check accepts; lines that
+// still fail are shown as “ตรวจไม่ผ่าน” and skipped (never written). Spec without a design code / flat-end cover policy: RB9
+// stirrups (135° hooks) fail the cover check, so the fit moves on to DB10 stirrups.
+describe('beams from the slab floor: no Beam Template',()=>{
+ const plain=plainSpec,noTpl={...spec,beamTemplates:[]} as Spec,b1b2=b1b2Floor;
+ it('4 × 3 plan, B1 300 × 600 + B2 250 × 500, no templates: all 7 lines pass the member check (ACI and the starter spec)',()=>{
+  for(const s of [noTpl,plain]){const fl=floorMember(b1b2()),{rows,warnings}=planFloorBeams(fl,[fl],s);
+   expect(rows).toHaveLength(7);expect(rows.every(r=>r.status==='new'&&r.member&&!r.errors)).toBe(true);
+   for(const r of rows)expect(validateMember(r.member!,s)).toEqual([]);
+   for(const mk of ['B1','B2'])expect(warnings.find(w=>w.startsWith(`คาน ${mk} ยังไม่มี Template`))).toMatch(/: บน \d-DB\d+ · ล่าง \d-DB\d+ · ปลอก (RB|DB)\d+@\d+/);}
+  const fl=floorMember(b1b2());expect(planFloorBeams(fl,[fl],plain).warnings.join()).toContain('ปลอก DB10@200');
+ });
+ it('templates still win: B1 keeps its template bars, only B2 gets defaults',()=>{
+  const fl=floorMember(b1b2()),{rows}=planFloorBeams(fl,[fl],spec),x=bin(rows.find(r=>r.code==='FL2-B-1')!.member!),y=bin(rows.find(r=>r.code==='FL2-B-A')!.member!);
+  expect(x.spans.every(s=>s.template==='tB1'&&JSON.stringify(s.rebar)===JSON.stringify(B1))).toBe(true);
+  expect(y.spans.every(s=>!s.template)).toBe(true);
+  // ACI: the first default set (2-DB16 / 3-DB16, RB9@200 = the group default) already fits 250 × 500
+  expect(y.spans.every(s=>JSON.stringify(s.rebar)===JSON.stringify(plainBeamRebar()))).toBe(true);
+ });
+ it('an abnormally narrow line (120 × 300, cover 40) fails: errors shown, no member; the other lines are planned',()=>{
+  const fl=floorMember(b1b2(true)),{rows}=planFloorBeams(fl,[fl],plain),bad=rows.find(r=>r.code==='FL2-B-1')!;
+  expect(bad.member).toBeUndefined();expect(bad.errors!.length).toBeGreaterThan(0);
+  expect(rows.filter(r=>r.member)).toHaveLength(6);
+  expect(planFloorBeams(fl,[fl],plain).warnings.find(w=>w.startsWith('คาน B9'))).toContain('ไม่มีชุดค่าเริ่มต้นที่ตรวจผ่าน');
+  // after writing, unchanged lines still name their default set
+  const made=rows.filter(r=>r.member).map(r=>({...r.member!,version:1})),again=planFloorBeams(fl,[fl,...made],plain);
+  expect(again.rows.filter(r=>r.status==='same')).toHaveLength(6);expect(again.warnings.find(w=>w.startsWith('คาน B2'))).toContain('ปลอก DB10@200');
  });
 });
