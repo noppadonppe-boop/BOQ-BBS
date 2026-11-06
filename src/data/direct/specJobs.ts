@@ -8,6 +8,8 @@ import {applyElementInput,elementInputSchema,isGeneratedBar} from '../../domain/
 import {applyArchInput} from '../../domain/archInput';
 import {detailingFromSpec} from '../../domain/specProfiles';
 import {syncColumnTemplate,syncFootingEmbedTies} from '../../domain/columnTemplates';
+import {specLinkedParts,syncPartTemplates} from '../../domain/partTemplates';
+import {applyPartPresets} from '../../domain/partRebar';
 import {syncBeamTemplates} from '../../domain/beamTemplates';
 import {sourceBarNames,sourceCurrent,memberSourceInfo,generalSourceInfo,validateSourceChains} from '../../domain/sourceRevisions';
 import {canonical} from '../../domain/canonical';
@@ -71,6 +73,8 @@ export async function beginDirectSpec(action:string,pid:string,data:Record<strin
  const regenerate=(m:Member):Member|undefined=>{
   // rooms / doors / windows: BOQ items follow the finish library of the new spec
   if(action==='beginSpecChange'&&m.archInput){try{const next=applyArchInput(m,m.archInput,spec);return validateMember(next,spec).length?undefined:next;}catch{return;}}
+  // custom elements: column parts linked to a column type / ties per the standard follow the new spec (presets rebuilt)
+  if(action==='beginSpecChange'&&!m.elementInput&&specLinkedParts(m.shapeModel)){try{const r=applyPartPresets({...m,shapeModel:syncPartTemplates(m.shapeModel!,spec)},spec);return validateMember(r.member,spec).length?undefined:r.member;}catch{return;}}
   if(action!=='beginSpecChange'||!m.elementInput)return;
   const parsed=elementInputSchema.safeParse(m.elementInput);if(!parsed.success||parsed.data.category!==m.category)return;
   // columns linked to a Project Column Template follow the template of the new spec

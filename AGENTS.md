@@ -33,7 +33,9 @@
   roles `column-etie-in<k>`, helper `innerTieBars()`). Outer / all: `ties` outer | all on the standard, type (own), footing column (wins over the standard) → `resolveEmbedTie().ties`.
   Column stack: `stack.footing.embedTie` (same shape, diameter 0 = none, absent = old hoop @500; `applyTemplateStack(…, {std, sync})`; roles `footing-tie`, `footing-tie-in<k>`).
   Custom column presets: `rebar.tiePattern` (set 2 above: `pp-…-tie2-<k>`; in the support with tieIn ties all: `tie-in2-<k>`, `boxColumnTieLayout()`), `rebar.template`, Type pick
-  `ColumnTypePick` (RebarWorkspace, `partTieInFromType()`). UI: footing section 5 choice + table column + “ใส่ปลอกในฐานทุกต้น”, picker tick, Custom preset select. Tests `tmp/embedTieStandard.test.ts`,
+  `ColumnTypePick` (RebarWorkspace) → `partRebarFromType()` (`src/domain/partTemplates.ts`: keeps ext and a column-set tieIn, `tieIn.type` = from the type, anchor on),
+  `syncPartTemplates()` + `applyPartPresets` in the spec job for members with `specLinkedParts()`; `partTieInState()` (panel / part table); resize button = box part about its centre
+  (`resizePart`); footing ties `PartTieInFields` always shown for column parts; part table columns Type / ties + bulk apply on ticked columns. Harness `tmp/preview/etie.html#custom`. UI: footing section 5 choice + table column + “ใส่ปลอกในฐานทุกต้น”, picker tick, Custom preset select. Tests `tmp/embedTieStandard.test.ts`,
   J-078 file `tmp/j078EmbedTie.test.ts` (writes columnEmbedTie + columnTemplates into `tmp/Spec-Project-J-078.json`); harness `tmp/preview/etie.html#spec|footing`. Single columns: `rebar.top|bottom.mode = 'coupler'` (bar ends `lap` mm above
   the joint; top couplers counted as `gen-coupler-<d>`). Coupled bar ends for every graphic come from `barCouplerEnds()`
   (sections, BBS sketch, `Shape` thumbnail, 3D via `coupler3d.ts`). Test: `tmp/columnCoupler.test.tsx`.

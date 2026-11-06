@@ -98,7 +98,8 @@ function restsOn(sm:ShapeModel,p:ShapePart){const b=partBox(p);return sm.parts.s
 /** Covered by a part cast on its whole top (a pit box under a mat): no top mesh needed. */
 function coveredAbove(sm:ShapeModel,p:ShapePart){const b=partBox(p);return sm.parts.some(q=>q.id!==p.id&&q.role==='solid'&&Math.abs(q.z0-b.z1)<1&&holds(partBox(q),b));}
 /** Part to anchor in: the support, else a solid part holding this part's base (a starter cast inside a mat). */
-function hostOf(sm:ShapeModel,p:ShapePart){
+/** Part a column / wall part anchors into (the support, else a solid holding its base); undefined = none. */
+export function hostOf(sm:ShapeModel,p:ShapePart){
  const b=partBox(p);let s=supportOf(sm,p);
  // a support standing on a part that holds the whole footprint: anchor in the lowest (starters through an upper pour into the mat)
  while(s){const d=supportOf(sm,s.q);if(!d||!(d.c.x0<=b.x0+1e-6&&d.c.x1>=b.x1-1e-6&&d.c.y0<=b.y0+1e-6&&d.c.y1>=b.y1-1e-6))break;s=d;}
