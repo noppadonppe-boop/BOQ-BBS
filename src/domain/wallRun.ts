@@ -465,13 +465,24 @@ const shapeOf=(pts:V3[]):{code:string;bent:boolean}=>{
 /** Mark prefix from the member code (letters / digits / -), e.g. W1. */
 export const wallMarkPrefix=(code:string)=>(code.replace(/[^A-Za-z0-9-]/g,'')||'W').slice(0,20);
 export type WallSet={id:string;mark:string;kind:WallKind;lifts:Map<string,number>;faces:Set<string>;
- /** bars per face ('out' | 'in' | 'mid' | '' = across / slab) */ faceCount:Map<string,number>;what:string;d:number};
+ /** bars per face ('out' | 'in' | 'mid' | '' = across / slab) */ faceCount:Map<string,number>;what:string;d:number;
+ /** the set has bars in every wall lift */ every?:boolean};
 /** Raw bars → Mark sets: equal bars (same kind, size, shape) share a Mark placed by spacing or offsets; lifts kept per set. */
-export function groupWallRaw(raw:WallRaw[],det:Detailing,code:string,shift:V3=[0,0,0]):{bars:GenBar[];sets:WallSet[]}{
- const keyOf=(r:WallRaw)=>{const o=r.pts[0];return [r.kind,r.d,r.cut||0,r.code||'',r.pts.map(p=>p.map((v,k)=>Math.round(v-o[k])).join(',')).join(';')].join('|');};
- const groups=new Map<string,WallRaw[]>();for(const r of raw){const k=keyOf(r);const g=groups.get(k);if(g)g.push(r);else groups.set(k,[r]);}
+/** Common description of merged bars (segment / corner names dropped when they differ). */
+function commonWhat(ws:string[]){const u=[...new Set(ws)];if(u.length===1)return u[0];
+ const strip=(w:string)=>w.replace(/ [A-Z][A-Z0-9]*–[A-Z][A-Z0-9]*(?= |$)/g,'').replace(/(เหล็กนอน|ผนัง T|ปลายผนัง|ต้น|ปลาย) [A-Z][A-Z0-9]*(?= |$)/g,'$1').replace(/\s+/g,' ').trim(),v=[...new Set(u.map(strip))];
+ if(v.length===1)return v[0];let p=v[0];for(const w of v)while(!w.startsWith(p))p=p.slice(0,-1);return (p.replace(/[\s·(]+$/,'')||v[0]).trim();}
+export function groupWallRaw(raw:WallRaw[],det:Detailing,code:string,shift:V3=[0,0,0],allLifts?:string[]):{bars:GenBar[];sets:WallSet[]}{
+ // equal bars → one Mark across lifts, faces and wall directions: the shape relative to its last point, turned about Z to a
+ // canonical heading (the engine's offsetTurns turn the template about its last point); either direction of the polyline
+ type Can={r:WallRaw;t:number};
+ const canon=(pts:V3[])=>{const o=pts[pts.length-1],rel=pts.map(p=>[p[0]-o[0],p[1]-o[1],p[2]-o[2]]),h=rel.find(q=>Math.hypot(q[0],q[1])>20),t=h?Math.atan2(h[1],h[0]):0,c=Math.cos(-t),sn=Math.sin(-t);
+  return {t,key:rel.map(q=>[q[0]*c-q[1]*sn,q[0]*sn+q[1]*c,q[2]].map(v=>Math.round(v)||0).join(',')).join(';')};};
+ const groups=new Map<string,Can[]>();
+ for(const r0 of raw){let r=r0,cc=canon(r.pts);if(!r.tie){const rv=canon([...r.pts].reverse());if(rv.key<cc.key){r={...r,pts:[...r.pts].reverse()};cc=rv;}}
+  const k=[r.kind,r.d,r.cut||0,r.code||'',r.tie?1:0,cc.key].join('|'),g=groups.get(k);if(g)g.push({r,t:cc.t});else groups.set(k,[{r,t:cc.t}]);}
  const minZ=(g:WallRaw[])=>Math.min(...g.map(r=>r.pts[0][2]));
- const list=[...groups.values()].sort((a,b)=>wallKinds.indexOf(a[0].kind)-wallKinds.indexOf(b[0].kind)||minZ(a)-minZ(b)||a[0].pts[0][0]-b[0].pts[0][0]||a[0].pts[0][1]-b[0].pts[0][1]||a[0].d-b[0].d);
+ const list=[...groups.values()].map(g=>g.map(x=>Object.assign({},x.r,{turn:x.t}))).sort((a,b)=>wallKinds.indexOf(a[0].kind)-wallKinds.indexOf(b[0].kind)||minZ(a)-minZ(b)||a[0].pts[0][0]-b[0].pts[0][0]||a[0].pts[0][1]-b[0].pts[0][1]||a[0].d-b[0].d);
  const n=new Map<string,number>(),bars:GenBar[]=[],sets:WallSet[]=[],pre=wallMarkPrefix(code);
  for(const g0 of list)for(let atn=0;atn<g0.length;atn+=2000){
   const g=g0.slice(atn,atn+2000),r=g[0],no=(n.get(r.kind)||0)+1;n.set(r.kind,no);
@@ -483,14 +494,16 @@ export function groupWallRaw(raw:WallRaw[],det:Detailing,code:string,shift:V3=[0
   const ext=[0,1,2].map(k=>Math.max(...r.pts.map(p=>p[k]))-Math.min(...r.pts.map(p=>p[k]))),bax=(['X','Y','Z'] as const)[ext.indexOf(Math.max(...ext))];
   const lifts=new Map<string,number>();for(const x of g)lifts.set(x.lift,(lifts.get(x.lift)||0)+1);
   const faces=new Set<string>(g.map(x=>x.face).filter(Boolean)),faceCount=new Map<string,number>();for(const x of g)faceCount.set(x.face,(faceCount.get(x.face)||0)+1);
-  const fl=[...faces].map(f=>faceName[f]).join(' + '),ll=[...lifts.keys()];
+  const fl=[...faces].map(f=>faceName[f]).join(' + '),ll=[...lifts.keys()],what=commonWhat(g.map(x=>x.what)),every=!!allLifts&&allLifts.length>1&&allLifts.every(l=>lifts.has(l));
   const flat=pts.every(p=>Math.abs(p[2]-pts[0][2])<1);
-  const base:GenBar={id,mark,role:`wr-${tag.toLowerCase()}`,note:`${r.what}${fl?` · ${fl}`:''} · ${ll.length>4?`${ll.length} ช่วงเท`:ll.join(', ')}`,diameter:r.d,grade:gradeFor(det,r.d,r.tie?det.tieGrade:det.mainGrade),count:g.length,points:pts,
+  const base:GenBar={id,mark,role:`wr-${tag.toLowerCase()}`,note:`${what}${fl?` · ${fl}`:''} · ${every?'ทุกช่วงเท':ll.length>4?`${ll.length} ช่วงเท`:ll.join(', ')}`,diameter:r.d,grade:gradeFor(det,r.d,r.tie?det.tieGrade:det.mainGrade),count:g.length,points:pts,
    axis:bax,face:(r.kind==='B'||r.kind==='K')&&flat?(/เหล็กบน|บน /.test(r.what)?'top':'bottom'):'side',radius:sh.bent?bendRadius(r.d,det,!!r.tie):0,shapeCode:sh.code,...(r.cut?{cut:r.cut}:{})};
-  if(g.length===1){const dax=bax==='Z'?'X':'Z';bars.push({...base,distributionAxis:dax,from:pts[0][dax==='X'?0:2],to:pts[0][dax==='X'?0:2]});}
+  const t0=(sortedG[0] as WallRaw&{turn:number}).turn,turns=sortedG.map(x=>{let a=((x as WallRaw&{turn:number}).turn-t0)*180/Math.PI;while(a>180)a-=360;while(a<=-180)a+=360;return Math.abs(a)<.01?0:Number(a.toFixed(4));});
+  if(turns.some(t=>t!==0)){const L0=sortedG[0].pts[sortedG[0].pts.length-1];bars.push({...base,offsets:sortedG.map(x=>{const L=x.pts[x.pts.length-1];return [L[0]-L0[0],L[1]-L0[1],L[2]-L0[2]] as V3;}),turns});}
+  else if(g.length===1){const dax=bax==='Z'?'X':'Z';bars.push({...base,distributionAxis:dax,from:pts[0][dax==='X'?0:2],to:pts[0][dax==='X'?0:2]});}
   else if(even&&axis!==undefined)bars.push({...base,distributionAxis:(['X','Y','Z'] as const)[axis],from:pts[0][axis],to:pts[0][axis]+offs[offs.length-1][axis]});
   else bars.push({...base,offsets:offs});
-  sets.push({id,mark,kind:r.kind,lifts,faces,faceCount,what:r.what,d:r.d});
+  sets.push({id,mark,kind:r.kind,lifts,faces,faceCount,what,d:r.d,every});
  }
  return {bars,sets};
 }
@@ -525,7 +538,7 @@ export function applyWallRun(m:Member,i:WallInput,det:Detailing,warn:(s:string)=
  const wh=run.wallType==='retaining'?run.retaining?.weepHoles:undefined;if(wh){const n=ax.segs.reduce((k,s)=>k+Math.max(1,Math.floor(s.len/wh.spacing)),0);items.push({id:'gen-wall-weep',label:`ท่อระบายน้ำ (Weep hole) Ø${wh.dia} mm @${wh.spacing}`,unit:'ท่อน',quantity:n});}
  const old=(next.siteWork?.items||[]).filter(it=>!/^gen-wall-/.test(it.id));
  if(items.length||(next.siteWork?.items||[]).some(it=>/^gen-wall-/.test(it.id)))next=withSiteWork(next,{...(next.siteWork||emptySiteWork()),items:[...old,...items].slice(0,30)});
- const raw=wallRunRaw(i,det,rounding,warn),{bars}=groupWallRaw(raw,det,m.code,shift);
+ const raw=wallRunRaw(i,det,rounding,warn),{bars}=groupWallRaw(raw,det,m.code,shift,lv.lifts.map(l=>l.id));
  if(bars.length>300)warn(`ชุดเหล็ก ${bars.length} Mark เกิน 300 ต่อสมาชิก · แบ่งผนังเป็นหลายสมาชิก`);
  return {member:next,bars};
 }
@@ -562,7 +575,7 @@ const setCache=new WeakMap<object,{code:string;sets:WallSet[]}>();
 export function wallRunSets(m:Pick<Member,'elementInput'|'code'>):WallSet[]{
  const i=m.elementInput as WallInput|undefined;if(!i||i.category!=='Wall'||i.layout!=='run'||!i.run)return [];
  const hit=setCache.get(i);if(hit&&hit.code===m.code)return hit.sets;
- const sets=groupWallRaw(wallRunRaw(i,i.detailing),i.detailing,m.code).sets;setCache.set(i,{code:m.code,sets});return sets;
+ const sets=groupWallRaw(wallRunRaw(i,i.detailing),i.detailing,m.code,[0,0,0],runLevels(i.run).lifts.map(l=>l.id)).sets;setCache.set(i,{code:m.code,sets});return sets;
 }
 /** Member built from a Wall Run (its shape model is derived: edited on the input tab, not in the shape / rebar tabs). */
 export const isWallRunMember=(m:Pick<Member,'elementInput'|'category'>)=>{const i=m.elementInput as {category?:string;layout?:string}|undefined;return m.category==='Wall'&&i?.category==='Wall'&&i.layout==='run';};
