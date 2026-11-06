@@ -25,6 +25,8 @@ export async function command(action:string,projectId:string|undefined,data:Data
  if(action==='setProjectAccess')return (await import('./direct/access')).setDirectAccess(pid,data,requestId);
  if(action==='setRole'){const roster=await (await import('./direct/access')).listDirectAccess(pid,{});return (await import('./direct/access')).setDirectAccess(pid,{target:{email:data.email},role:data.role,reason:'คำขอเปลี่ยนสิทธิ์จากรุ่นเดิม',expectedDigest:roster.digest,legacy:true},requestId);}
  if(action==='saveProject')return (await import('./direct/projects')).saveDirectProject(pid,data,requestId);
+ if(action==='setAiConsent')return (await import('./direct/aiConsent')).setDirectAiConsent(pid,data,requestId);
+ if(action==='logAiSend')return (await import('./direct/aiConsent')).logDirectAiSend(pid,data,requestId);
  if(action==='saveSheetTemplates')return (await import('./direct/projects')).saveDirectSheetTemplates(pid,data,requestId);
  if(action==='saveBoqChapters')return (await import('./direct/projects')).saveDirectBoqChapters(pid,data,requestId);
  if(action==='saveLocations')return (await import('./direct/projects')).saveDirectLocations(pid,data,requestId);
