@@ -152,14 +152,21 @@ async function loadAttachmentFromStorage(projectId, context) {
   };
 }
 
+// SEC1: the key is in `${APP_NAME}/root/apiProviderSecrets/{provider}` (clients can never read it); a key still in the
+// config (before the migration) is used only when there is no secret yet.
+async function providerApiKey(activeProvider, provider) {
+  const secret = await db.doc(`${APP_NAME}/root/apiProviderSecrets/${activeProvider}`).get();
+  const key = secret.exists ? stringValue(secret.data()?.apiKey) : '';
+  const apiKey = key || stringValue(provider.apiKey);
+  if (!apiKey) throw new GatewayError('ค่าย AI ที่เลือกยังไม่มี API Key', 412, 'failed-precondition');
+  return apiKey;
+}
+
 function selectedProvider(config) {
   const activeProvider = stringValue(config?.activeProvider);
   const provider = config?.providers?.[activeProvider];
   if (!['openai', 'anthropic', 'google-ai-studio'].includes(activeProvider) || !provider) {
     throw new GatewayError('ยังไม่ได้เลือกค่าย AI ในหน้า จัดการ API', 412, 'failed-precondition');
-  }
-  if (!stringValue(provider.apiKey)) {
-    throw new GatewayError('ค่าย AI ที่เลือกยังไม่มี API Key', 412, 'failed-precondition');
   }
   if (!stringValue(provider.model)) {
     throw new GatewayError('ค่าย AI ที่เลือกยังไม่มีโมเดล', 412, 'failed-precondition');
@@ -668,7 +675,8 @@ exports.analyseDrawing = onRequest({timeoutSeconds: 540, memory: '1GiB'}, async 
     };
     const configSnapshot = await db.doc(providerConfigPath()).get();
     const config = configSnapshot.exists ? decodeStorage(configSnapshot.data()) : null;
-    const {activeProvider, provider} = selectedProvider(config);
+    const {activeProvider, provider: providerConfig} = selectedProvider(config);
+    const provider = {...providerConfig, apiKey: await providerApiKey(activeProvider, providerConfig)};
     if ((context.aiProvider && context.aiProvider !== activeProvider) || (context.aiModel && context.aiModel !== provider.model)) {
       throw new GatewayError('การตั้งค่า AI เปลี่ยนระหว่างส่งคำขอ กรุณาลองใหม่เพื่อใช้ค่ายและโมเดลล่าสุด', 409, 'provider-changed');
     }

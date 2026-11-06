@@ -19,6 +19,8 @@ export async function command(action:string,projectId:string|undefined,data:Data
  if(action==='getActiveAiProvider')return (await import('./direct/apiProviders')).getDirectActiveAiProvider();
  if(action==='saveApiProviders')return (await import('./direct/apiProviders')).saveDirectApiProviders(data,requestId);
  if(action==='deleteApiProviderKey')return (await import('./direct/apiProviders')).deleteDirectApiProvider(data,requestId);
+ if(action==='legacyApiKeys')return (await import('./direct/apiProviders')).legacyApiKeysDirect();
+ if(action==='migrateApiProviderKeys')return (await import('./direct/apiProviders')).migrateDirectApiProviderKeys(data,requestId);
  must(projectId,'ต้องระบุโครงการ','invalid-argument');const pid=idSchema.parse(projectId);
  if(action==='listProjectAccess')return (await import('./direct/access')).listDirectAccess(pid,data);
  if(action==='listProjectAccessEvents')return (await import('./direct/access')).listDirectAccessEvents(pid,data);
