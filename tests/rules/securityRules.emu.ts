@@ -53,6 +53,11 @@ beforeEach(async()=>{
   await d.doc(`${ROOT}/apiProviderSecrets/anthropic`).set({apiKey:'sk-secret'});
   await d.doc(`${ROOT}/specProfiles/s1`).set({id:'s1',name:'Std'});
   await d.doc(`${ROOT}/directory/u-qs`).set({uid:'u-qs',email:'qs@test.local',status:'approved',profileVersion:1});
+  await d.doc(`${ROOT}/elementTemplates/c1`).set({id:'c1',name:'Central',scope:'workspace',version:2});
+  await d.doc(`${ROOT}/elementTemplates/c1/versions/1`).set({id:'c1',name:'Central',scope:'workspace',version:1});
+  await d.doc('projects/p1/elementTemplates/t1').set({id:'t1',name:'Own',scope:'project',projectId:'p1',version:2});
+  await d.doc('projects/p1/elementTemplates/t1/versions/1').set({id:'t1',name:'Own',scope:'project',projectId:'p1',version:1});
+  await d.doc(`${ROOT}/elementTemplateProposals/pr1`).set({id:'pr1',status:'pending',uid:'u-qs',email:'qs@test.local',projectId:'p1',name:'Prop'});
   await c.storage().ref('projects/p1/files/a1/x.pdf').put(new Uint8Array([1,2,3]),{contentType:'application/pdf'});
  });
 });
@@ -185,6 +190,70 @@ describe('workspace settings and secrets',()=>{
   await assertSucceeds(db('globalAdmin').doc(`${ROOT}/specProfiles/s1`).set({id:'s1',name:'x'}));
   await assertSucceeds(db('qs').collection(`${ROOT}/activityLogs`).add({action:'LOGIN',uid:'u-qs'}));await assertFails(db('qs').collection(`${ROOT}/activityLogs`).add({action:'LOGIN',uid:'u-admin'}));
   await assertFails(db('qs').collection(`${ROOT}/activityLogs`).get());
+ });
+});
+describe('element templates (T1)',()=>{
+ const tpl=(id:string,v=1)=>({id,name:'T '+id,scope:'project',projectId:'p1',version:v});
+ const prop=(u:U,id:string,over:Record<string,unknown>={})=>({id,status:'pending',uid:u.uid,email:u.email,proposerName:'x',projectId:'p1',projectCode:'P1',name:'P',description:'',category:'Foundation',payload:{},createdAt:'t',...over});
+ it('project templates: members read, outsiders not; admin / QS write and delete; viewer / detailer / checker cannot',async()=>{
+  for(const k of ['viewer','detailer','qs','master'] as const)await assertSucceeds(db(k).doc('projects/p1/elementTemplates/t1').get());
+  await assertFails(db('outsider').doc('projects/p1/elementTemplates/t1').get());await assertFails(db('outsider').collection('projects/p1/elementTemplates').get());
+  await assertSucceeds(db('qs').doc('projects/p1/elementTemplates/t2').set(tpl('t2')));
+  await assertSucceeds(db('admin').doc('projects/p1/elementTemplates/t1').set(tpl('t1',3)));
+  for(const k of ['viewer','detailer','checker','approver','outsider'] as const)await assertFails(db(k).doc('projects/p1/elementTemplates/t3').set(tpl('t3')));
+  await assertFails(db('viewer').doc('projects/p1/elementTemplates/t1').delete());
+  await assertSucceeds(db('qs').doc('projects/p1/elementTemplates/t1').delete());
+ });
+ it('versions are append-only (project and central), also for MasterAdmin',async()=>{
+  await assertSucceeds(db('qs').doc('projects/p1/elementTemplates/t1/versions/2').set(tpl('t1',2)));
+  await assertFails(db('viewer').doc('projects/p1/elementTemplates/t1/versions/3').set(tpl('t1',3)));
+  for(const k of ['qs','admin','master'] as const){await assertFails(db(k).doc('projects/p1/elementTemplates/t1/versions/1').update({name:'x'}));await assertFails(db(k).doc('projects/p1/elementTemplates/t1/versions/1').delete());}
+  await assertSucceeds(db('viewer').doc(`${ROOT}/elementTemplates/c1/versions/1`).get());
+  await assertSucceeds(db('master').doc(`${ROOT}/elementTemplates/c1/versions/2`).set({id:'c1',version:2}));
+  await assertFails(db('globalAdmin').doc(`${ROOT}/elementTemplates/c1/versions/3`).set({id:'c1',version:3}));
+  await assertFails(db('master').doc(`${ROOT}/elementTemplates/c1/versions/1`).delete());await assertFails(db('master').doc(`${ROOT}/elementTemplates/c1/versions/1`).update({name:'x'}));
+ });
+ it('central templates: approved users read; only MasterAdmin writes (not a global Admin, not QS)',async()=>{
+  await assertSucceeds(db('viewer').doc(`${ROOT}/elementTemplates/c1`).get());await assertFails(db('pending').doc(`${ROOT}/elementTemplates/c1`).get());
+  for(const k of ['qs','admin','globalAdmin'] as const)await assertFails(db(k).doc(`${ROOT}/elementTemplates/c2`).set({id:'c2',scope:'workspace',version:1}));
+  await assertSucceeds(db('master').doc(`${ROOT}/elementTemplates/c2`).set({id:'c2',scope:'workspace',version:1}));
+  await assertFails(db('globalAdmin').doc(`${ROOT}/elementTemplates/c1`).delete());await assertSucceeds(db('master').doc(`${ROOT}/elementTemplates/c1`).delete());
+ });
+ it('proposals: QS / admin of the project propose (own, pending); others cannot; proposer + MasterAdmin read',async()=>{
+  await assertSucceeds(db('qs').doc(`${ROOT}/elementTemplateProposals/pr2`).set(prop(users.qs,'pr2')));
+  await assertFails(db('viewer').doc(`${ROOT}/elementTemplateProposals/pr3`).set(prop(users.viewer,'pr3')));
+  await assertFails(db('outsider').doc(`${ROOT}/elementTemplateProposals/pr4`).set(prop(users.outsider,'pr4')));// not a member of p1
+  await assertFails(db('qs').doc(`${ROOT}/elementTemplateProposals/pr5`).set(prop(users.admin,'pr5')));// as someone else
+  await assertFails(db('qs').doc(`${ROOT}/elementTemplateProposals/pr6`).set(prop(users.qs,'pr6',{status:'approved'})));
+  await assertFails(db('qs').doc(`${ROOT}/elementTemplateProposals/pr7`).set(prop(users.qs,'pr7',{centralId:'c9'})));
+  await assertSucceeds(db('qs').doc(`${ROOT}/elementTemplateProposals/pr1`).get());await assertSucceeds(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).get());
+  await assertFails(db('admin').doc(`${ROOT}/elementTemplateProposals/pr1`).get());
+  await assertSucceeds(db('qs').collection(`${ROOT}/elementTemplateProposals`).where('uid','==','u-qs').get());await assertFails(db('qs').collection(`${ROOT}/elementTemplateProposals`).get());
+  await assertSucceeds(db('master').collection(`${ROOT}/elementTemplateProposals`).get());
+ });
+ it('proposals: only MasterAdmin decides, once; rejection needs a reason; the proposer cannot change it; never deleted',async()=>{
+  await assertFails(db('qs').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'approved',decidedAt:'t',decidedBy:'u-qs',centralId:'c9'}));
+  await assertFails(db('globalAdmin').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'approved',decidedAt:'t',decidedBy:'u-gadm',centralId:'c9'}));
+  await assertFails(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'rejected',decidedAt:'t',decidedBy:'u-master'}));// no reason
+  await assertFails(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'approved',decidedAt:'t',decidedBy:'u-master',centralId:'c9',name:'changed'}));
+  await assertSucceeds(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'approved',decidedAt:'t',decidedBy:'u-master',centralId:'c9',centralVersion:1}));
+  await assertFails(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'rejected',decidedAt:'t2',decidedBy:'u-master',reason:'no'}));// decided once
+  await assertFails(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).delete());
+ });
+ it('rejection with a reason is visible to the proposer',async()=>{
+  await assertSucceeds(db('master').doc(`${ROOT}/elementTemplateProposals/pr1`).update({status:'rejected',decidedAt:'t',decidedBy:'u-master',reason:'ซ้ำกับ F-01'}));
+  await assertSucceeds(db('qs').doc(`${ROOT}/elementTemplateProposals/pr1`).get());
+ });
+ it('project templateDefaults: admin / QS set it, viewer / detailer cannot',async()=>{
+  await assertSucceeds(db('qs').doc('projects/p1').update({templateDefaults:{'Foundation:pile':'t1'},version:4}));
+  await assertFails(db('viewer').doc('projects/p1').update({templateDefaults:{},version:5}));
+  await assertFails(db('detailer').doc('projects/p1').update({templateDefaults:{},version:5}));
+  await assertSucceeds(db('admin').doc('projects/p1').update({templateDefaults:{},version:5}));
+ });
+ it('the migration (MasterAdmin): copy into the project, then delete the old central document',async()=>{
+  await env.withSecurityRulesDisabled(c=>c.firestore().doc(`${ROOT}/elementTemplates/l1`).set({id:'l1',scope:'project',projectId:'p1',version:1}));
+  await assertSucceeds(db('master').doc('projects/p1/elementTemplates/l1').set(tpl('l1')));
+  await assertSucceeds(db('master').doc(`${ROOT}/elementTemplates/l1`).delete());
  });
 });
 describe('Storage',()=>{

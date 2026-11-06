@@ -42,7 +42,7 @@ service cloud.firestore {
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
     function adminKeys() { return ['acl', 'roleSets', 'aiConsent', 'deleted', 'code', 'name', 'location', 'owner', 'notes', 'contractor', 'subcontractor',
       'logo', 'titleBlock', 'drawingProfile', 'disciplines', 'activeRuleSetId', 'restoreState', 'id', 'createdAt']; }
-    function qsKeys() { return ['locations', 'boqChapters', 'sheetTemplates', 'specChangeState', 'stockEpoch']; }
+    function qsKeys() { return ['locations', 'boqChapters', 'sheetTemplates', 'templateDefaults', 'specChangeState', 'stockEpoch']; }
     function anyKeys() { return ['version', 'historyEpoch', 'revisionCounter', 'engineeringFixtureEpoch', 'updatedAt']; }
     /** project document: keys by role (every command bumps version; it never goes back); aiSendLog (old array) frozen */
     function projectUpdate(r, k) {
@@ -181,12 +181,22 @@ service cloud.firestore {
         allow create: if hasRole(pid, ['admin', 'qs', 'checker', 'approver']);
         allow update, delete: if false;
       }
+      // T1: project element templates — members read, admin / QS write and delete; previous versions append-only
+      match /elementTemplates/{tid} {
+        allow read: if member(pid);
+        allow create, update, delete: if hasRole(pid, ['admin', 'qs']);
+        match /versions/{n} {
+          allow read: if member(pid);
+          allow create: if hasRole(pid, ['admin', 'qs']);
+          allow update, delete: if false;
+        }
+      }
       // any other project record: members read, admin / QS write, never deleted (named collections above keep their own rules)
       match /{coll}/{id} {
         allow read: if member(pid);
         allow create, update: if !(coll in ['operations', 'accessEvents', 'revisionEvents', 'importedHistory', 'aiSendLog', 'revisions', 'revisionStates',
             'exportJobs', 'members', 'attachments', 'beamMarks', 'specChangeJobs', 'restoreJobs', 'submissionJobs', 'submissionNumbers', 'stock', 'cutPlans',
-            'stockLedger', 'engineeringFixtures', 'engineeringFixtureRuns', 'code99Reviews']) && hasRole(pid, ['admin', 'qs']);
+            'stockLedger', 'engineeringFixtures', 'engineeringFixtureRuns', 'code99Reviews', 'elementTemplates']) && hasRole(pid, ['admin', 'qs']);
         allow delete: if false;
       }
     }
@@ -272,7 +282,7 @@ service cloud.firestore {
         allow create: if master() && byMe();
         allow update, delete: if false;
       }
-      // workspace General Spec profiles / element templates: everyone approved reads, global admins write
+      // workspace General Spec profiles: everyone approved reads, global admins write
       match /specProfiles/{id} {
         allow read: if approved();
         allow create, update: if globalAdmin();
@@ -282,9 +292,31 @@ service cloud.firestore {
           allow write: if globalAdmin();
         }
       }
+      // T1: central element templates — every approved user reads, MasterAdmin writes; previous versions append-only.
+      // (old documents with scope 'project' stay readable here until MasterAdmin moves them into their projects)
       match /elementTemplates/{id} {
         allow read: if approved();
-        allow create, update, delete: if globalAdmin();
+        allow create, update, delete: if master();
+        match /versions/{n} {
+          allow read: if approved();
+          allow create: if master();
+          allow update, delete: if false;
+        }
+      }
+      // T1: proposals to the central library — admin / QS of the source project create their own (pending); the proposer and
+      // MasterAdmin read; only MasterAdmin decides once (pending → approved / rejected with a reason); never deleted
+      match /elementTemplateProposals/{id} {
+        allow read: if signedIn() && (resource.data.uid == request.auth.uid || master());
+        allow create: if approved() && byMe() && request.resource.data.id == id
+          && request.resource.data.status == 'pending' && request.resource.data.email == myEmail()
+          && hasRole(request.resource.data.projectId, ['admin', 'qs'])
+          && !request.resource.data.keys().hasAny(['decidedAt', 'decidedBy', 'reason', 'centralId', 'centralVersion']);
+        allow update: if master() && resource.data.status == 'pending'
+          && changed().hasOnly(['status', 'decidedAt', 'decidedBy', 'reason', 'centralId', 'centralVersion'])
+          && request.resource.data.decidedBy == request.auth.uid
+          && ((request.resource.data.status == 'approved' && request.resource.data.centralId is string)
+              || (request.resource.data.status == 'rejected' && request.resource.data.reason is string && request.resource.data.reason.size() > 0));
+        allow delete: if false;
       }
     }
   }
