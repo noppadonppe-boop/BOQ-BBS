@@ -1,6 +1,8 @@
 import {ArrowUp,Plus,Trash2} from 'lucide-react';
 import {columnPresets,columnStackLayout,layoutBarCount,newColumnStorey,tiePatternInfo,tiePatterns,type ColumnInput,type ColumnStorey,type TiePattern} from '../domain/elementInput';
 import {NumInput} from './EditorControls';
+import {ColumnEmbedTieChoice} from './EmbedTieStandard';
+import type {EmbedTieStandard,FootingEmbedTie} from '../domain/embedTie';
 
 const diameters=[12,16,20,25,28,32,36,40];
 const barName=(d:number)=>`${d<=9?'RB':'DB'}${d}`;
@@ -11,7 +13,7 @@ const mainText=(s:ColumnStorey)=>{const m=s.main,ds=[...new Set([m.corner.diamet
 const tieText=(s:ColumnStorey)=>`${s.tie.sets||''}${barName(s.tie.diameter)}@${s.tie.s1}(${s.tie.diameter}@${s.tie.s2})`;
 
 /** Column stack = the column table of one mark: a row per storey (top row = highest storey as on the drawings). */
-export function ColumnStackEditor({input,edit,readOnly}:{input:ColumnInput;edit:Edit;readOnly:boolean}){
+export function ColumnStackEditor({input,edit,readOnly,std,typeName}:{input:ColumnInput;edit:Edit;readOnly:boolean;std?:EmbedTieStandard;typeName?:string}){
  const st=input.stack,S=st.storeys,lay=S.length?columnStackLayout(input):undefined;
  const num=(v:number,on:(v:number)=>void,label:string,width=64)=><NumInput aria-label={label} type="number" min={0} step="any" style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Number(e.target.value)||0))}/>;
  const int=(v:number,on:(v:number)=>void,label:string,width=44)=><NumInput aria-label={label} type="number" min={0} step={1} style={{width}} disabled={readOnly} value={v} onChange={e=>on(Math.max(0,Math.trunc(Number(e.target.value)||0)))}/>;
@@ -24,6 +26,10 @@ export function ColumnStackEditor({input,edit,readOnly}:{input:ColumnInput;edit:
   <div className="form-grid stack-ends">
    <label className="check"><input type="checkbox" disabled={readOnly} checked={st.footing.enabled} onChange={e=>edit(i=>{i.stack.footing.enabled=e.target.checked;})}/>เหล็กยืนฝังในฐานราก งอ 12d</label>
    {st.footing.enabled&&<label className="field"><span>ระยะฝังจากหลังฐาน (mm)</span>{num(st.footing.depth,v=>edit(i=>{i.stack.footing.depth=v;}),'ระยะฝังในฐานราก',90)}</label>}
+   {st.footing.enabled&&(()=>{
+    // stored diameter 0 = none; absent = first-storey tie @ ≤ 500, outer hoop (as before)
+    const d0=S[0]?.tie.diameter??12,cur=st.footing.embedTie,et:FootingEmbedTie|undefined=cur?(cur.diameter>0?cur:undefined):{diameter:d0,spacing:500,ties:'outer'};
+    return <div className="full"><ColumnEmbedTieChoice et={et} tieD={d0} std={std} typeName={typeName} readOnly={readOnly} onChange={v=>edit(i=>{i.stack.footing.embedTie=v??{diameter:0,spacing:0};if(v?.link==='spec'&&std)i.detailing.embedTie??=std;})}/></div>;})()}
    <label className="field"><span>ปลายบนสุด</span><select disabled={readOnly} value={st.top} onChange={e=>edit(i=>{i.stack.top=e.target.value as 'fta'|'none';})}><option value="fta">F.T.A งอ 12d เข้าคาน/หัวเสา</option><option value="none">ตัดที่ cover</option></select></label>
    <label className="field"><span>การต่อเหล็กยืน</span><select disabled={readOnly} value={st.splice.type} onChange={e=>edit(i=>{i.stack.splice.type=e.target.value as 'coupler'|'lap';})}><option value="coupler">Coupler (ข้อต่อทางกล) 50 %</option><option value="lap">ทาบ (ต้องได้รับอนุมัติ)</option></select></label>
    <label className="field"><span>{st.splice.type==='coupler'?'ระยะเหลื่อมกลุ่ม Coupler (mm)':'ระยะเหลื่อมกลุ่มต่อทาบ (mm)'}</span>{num(st.splice.stagger,v=>edit(i=>{i.stack.splice.stagger=v;}),'ระยะเหลื่อม',90)}</label>

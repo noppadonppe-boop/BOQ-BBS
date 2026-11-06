@@ -6,7 +6,10 @@ import {takeoff,validateMember} from '../domain/engine';
 import {buildView,markColors} from '../domain/elementViews';
 import {codeValues} from '../domain/designCodes';
 import {partPolygon,shapeGeometry} from '../domain/shapeGeometry';
-import {hookDevLength,lapLength} from '../domain/elementInput';
+import {hookDevLength,lapLength,tiePatternInfo,tiePatterns} from '../domain/elementInput';
+import {mainText,rowPattern,tieText} from '../domain/columnTemplates';
+import {partTieInFromType} from '../domain/embedTie';
+import {TiesSelect} from './EmbedTieStandard';
 import {faceLabels,partPurposeLabels,partPurposes,type FaceKey,type PartPurpose,type PartRebar,type ShapePart} from '../domain/shapeModelSchema';
 import {addHooks,barLayout,boxFaces,hookInfo,hookRadius,stdHookLength,coverRings,defaultRange,detectShapeCode,edgeSegments,insideCover,isSketchBar,offsetSegments,polyLength,rayHit,sketchBar,snapPoint,snapToCover,toView,traceCover,viewAxes,viewRegion,withEnds,
  type CoverHit,type HookEnd,type HookTable,type LayoutRule,type P2,type SketchEndSet,type Snap,type SketchView} from '../domain/rebarSketch';
@@ -264,7 +267,9 @@ function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;sp
  return <div className="part-panel"><h4>หน้าที่ของชิ้น · {part.label}</h4>
   <label className="field"><span>ใช้เป็น</span><select disabled={readOnly} value={r.purpose} onChange={e=>setR(defaultPartRebar(e.target.value as PartPurpose,part,det,m.shapeModel))}>{(part.role==='void'?(['other','wall'] as const):partPurposes).map(k=><option key={k} value={k}>{part.role==='void'&&k==='wall'?'เหล็กรอบผิวบ่อ / ช่องเปิด':partPurposeLabels[k]}{!part.rebar&&k===guessPurpose(part,m.shapeModel)?' (แนะนำ)':''}</option>)}</select></label>
   <div className="form-grid">
-   {r.purpose==='column'&&<>{dsel('เหล็กยืน ขนาด',r.main?.d||16,d=>setR({...r,main:{...r.main!,d}}))}<span/>{num('จำนวนต่อด้าน X (รวมมุม)',r.main?.nx||2,n=>setR({...r,main:{...r.main!,nx:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{num('จำนวนต่อด้าน Y (รวมมุม)',r.main?.ny||2,n=>setR({...r,main:{...r.main!,ny:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{at('tie','ปลอก')}</>}
+   {r.purpose==='column'&&(spec.columnTemplates?.length??0)>0&&<ColumnTypePick part={part} r={r} spec={spec} det={det} readOnly={readOnly} onPick={setR}/>}
+   {r.purpose==='column'&&<>{dsel('เหล็กยืน ขนาด',r.main?.d||16,d=>setR({...r,main:{...r.main!,d}}))}<span/>{num('จำนวนต่อด้าน X (รวมมุม)',r.main?.nx||2,n=>setR({...r,main:{...r.main!,nx:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{num('จำนวนต่อด้าน Y (รวมมุม)',r.main?.ny||2,n=>setR({...r,main:{...r.main!,ny:Math.min(20,Math.max(2,Math.trunc(n)))}}),2)}{at('tie','ปลอก')}
+    <label className="field"><span>ปลอกชุดที่ 2 (ปลอกใน / เหล็กรัดขวาง)</span><select disabled={readOnly} value={r.tiePattern??'none'} onChange={e=>{const v=e.target.value;const {tiePattern:_,...rest}=r;setR(v==='none'?rest:{...rest,tiePattern:v});}}>{tiePatterns.filter(t=>t!=='custom').map(t=><option key={t} value={t}>{tiePatternInfo[t].label}</option>)}</select></label><span/></>}
    {r.purpose==='beam'&&<>{cnt('top','เหล็กบน')}{cnt('bottom','เหล็กล่าง')}{at('stirrup','ปลอก')}</>}
    {(r.purpose==='slab'||r.purpose==='footing')&&<>{at('meshB','ตะแกรงล่าง')}{at('meshT','ตะแกรงบน')}</>}
    {r.purpose==='footing'&&<>{at('loops','ลูปรอบผิว')}<label className="check"><input type="checkbox" disabled={readOnly} checked={!!r.legs} onChange={e=>setR({...r,legs:e.target.checked})}/>ตะแกรงล่างงอขึ้น (U)</label>
@@ -276,10 +281,13 @@ function PartPanel({part,m,spec,det,readOnly,onSave}:{part:ShapePart;m:Member;sp
     // ties in the part below: the General Spec standard (std / absent while the standard is on), own size / spacing, or none (s 0)
     const ES=det.embedTie,mode=r.tieIn?(r.tieIn.std&&ES?'std':r.tieIn.s>0?'own':'off'):ES?.enabled?'std':r.tie&&r.tie.s>0?'own':'off';
     const ti=r.tieIn&&!r.tieIn.std?r.tieIn:{d:r.tie?.d||12,s:mode==='own'?300:500};
+    // the choice keeps outer / all (ties)
     return <>
-    <label className="field" title="ปลอกรอบเหล็กยืนช่วงที่ฝังในชิ้นด้านล่าง (ฐานราก): จากเหนือขางอถึงใต้ตะแกรงบน"><span>ปลอกในฐาน (ช่วงเหล็กยืนที่ฝัง)</span><select disabled={readOnly} value={mode} onChange={e=>{const v=e.target.value;setR({...r,tieIn:v==='std'?{d:ES?.diameter||r.tie?.d||12,s:ES?.spacing||500,std:true}:v==='own'?{d:ti.d,s:ti.s||300}:{d:ti.d,s:0}});}}>
+    <label className="field" title="ปลอกรอบเหล็กยืนช่วงที่ฝังในชิ้นด้านล่าง (ฐานราก): จากเหนือขางอถึงใต้ตะแกรงบน"><span>ปลอกในฐาน (ช่วงเหล็กยืนที่ฝัง)</span><select disabled={readOnly} value={mode} onChange={e=>{const v=e.target.value,tz=r.tieIn?.ties?{ties:r.tieIn.ties}:{};setR({...r,tieIn:v==='std'?{d:ES?.diameter||r.tie?.d||12,s:ES?.spacing||500,std:true,...tz}:v==='own'?{d:ti.d,s:ti.s||300,...tz}:{d:ti.d,s:0}});}}>
      {ES&&<option value="std">ตามมาตรฐาน Spec ({ES.diameter?`DB${ES.diameter}`:'= ปลอกเสา'} @ ≤ {ES.spacing})</option>}<option value="own">กำหนดเอง</option><option value="off">ไม่ใส่</option></select></label>
-    {mode==='own'?<>{dsel('ปลอกในฐาน ขนาด',ti.d,d=>setR({...r,tieIn:{d,s:ti.s}}))}{num('ปลอกในฐาน @ ไม่เกิน (mm)',ti.s,s=>setR({...r,tieIn:{d:ti.d,s:Math.max(50,s)}}),50)}</>:<span/>}</>;})()}
+    {mode==='own'?<>{dsel('ปลอกในฐาน ขนาด',ti.d,d=>setR({...r,tieIn:{...r.tieIn,d,s:ti.s}}))}{num('ปลอกในฐาน @ ไม่เกิน (mm)',ti.s,s=>setR({...r,tieIn:{...r.tieIn,d:ti.d,s:Math.max(50,s)}}),50)}</>:<span/>}
+    {mode!=='off'&&<TiesSelect readOnly={readOnly} value={r.tieIn?.ties??(mode==='std'?ES?.ties:undefined)??'all'} onChange={v=>setR({...r,tieIn:{...(r.tieIn??{d:ES?.diameter||r.tie?.d||12,s:ES?.spacing||500,std:true as const}),ties:v}})}/>}
+    {mode!=='off'&&(r.tieIn?.ties??ES?.ties??'all')==='all'&&!r.tiePattern&&<p className="muted full">ปลอกทั้งหมด: ชิ้นนี้ยังไม่มีรูปแบบปลอกชุดที่ 2 (เลือก Type จาก Column Template หรือรูปแบบปลอกใน) — ใส่เฉพาะปลอกนอก</p>}</>;})()}
    {r.purpose!=='other'&&num(`Cover ชิ้นนี้ (≥ ${m.cover})`,r.cover??m.cover,c=>setR({...r,cover:Math.max(m.cover,c)}))}
   </div>
   {r.purpose==='other'?<p className="muted">ไม่มี Preset · ใช้ “วาดเหล็ก” ในมุมมอง (เหล็กที่วาดขณะโฟกัสชิ้นนี้จะย้ายตามชิ้น)</p>:null}
@@ -403,4 +411,17 @@ function SketchCanvas({kind,ctx,large=false}:{kind:Kind;ctx:Ctx;large?:boolean})
    <text className="sk-axis" x={W-10} y={H-8} textAnchor="end">{['X','Y','Z'][a.u]} → · {['X','Y','Z'][a.v]} ↑</text>
   </svg>
  </div>;
+}
+
+/** Custom column part: fill main bars, ties, set-2 pattern and ties in the support from a project Column Template type / row. */
+function ColumnTypePick({part,r,spec,det,readOnly,onPick}:{part:ShapePart;r:PartRebar;spec:Project['spec'];det:ReturnType<typeof detailingFor>;readOnly:boolean;onPick:(r:PartRebar)=>void}){
+ const list=spec.columnTemplates||[],cur=r.template,t=cur&&list.find(x=>x.id===cur.id),row=t?.rows[cur!.row];
+ const pick=(v:string)=>{const [id,k]=v.split('/'),x=list.find(y=>y.id===id),q=x?.rows[Number(k)];if(!x||!q)return;
+  const ti=partTieInFromType(x.embedTie,q.tie.diameter,det.embedTie??spec.columnEmbedTie);
+  onPick({...r,main:{d:q.main.corner.diameter,nx:Math.min(20,q.main.sideX.count+2),ny:Math.min(20,q.main.sideY.count+2)},tie:{d:q.tie.diameter,s:q.tie.s2||q.tie.s1},
+   tiePattern:rowPattern(x,q),template:{id:x.id,row:Number(k)},...(ti?{tieIn:ti}:{})});};
+ const w=part.shape==='box'?part.w:undefined,d=part.shape==='box'?part.d:undefined,off=row&&w!==undefined&&(Math.abs(row.width-w)>1||Math.abs(row.depth-d!)>1);
+ return <><label className="field full"><span>เลือกจาก Column Template โครงการ (Type · ช่วงชั้น)</span><select disabled={readOnly} value={cur?`${cur.id}/${cur.row}`:''} onChange={e=>pick(e.target.value)}>
+  <option value="">— กำหนดเอง —</option>{list.map(x=><optgroup key={x.id} label={x.name}>{x.rows.map((q,k)=><option key={k} value={`${x.id}/${k}`}>{x.name} · {q.level} · {q.width}×{q.depth} · {mainText(q)} · {tieText(q)}</option>)}</optgroup>)}</select></label>
+  {row&&<p className={`full ${off?'notice warning':'muted'}`}>{t!.name} · เหล็กยืน {mainText(row)} · ปลอก {tieText(row)}{row.main.corner.count>1||row.main.sideBundle===2?' · เหล็กมัดรวมใช้เป็นเส้นเดี่ยว':''}{off?` · หน้าตัดชิ้นนี้ ${w}×${d} ไม่เท่ากับ Type ${row.width}×${row.depth} (แก้ขนาดที่แท็บรูปทรง)`:''}</p>}</>;
 }

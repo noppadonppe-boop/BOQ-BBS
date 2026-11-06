@@ -103,12 +103,15 @@ export function applyTemplateRow(i:ColumnInput,t:ColumnTemplate,k:number,rules:C
 }
 /** Column stack from every row of a template (bottom → top); storey heights / beam depths kept from the column
  * where the template has none. */
-export function applyTemplateStack(i:ColumnInput,t:ColumnTemplate,rules:ColumnZoneRules,opts:{linked?:boolean}={}):ColumnInput{
+/** `opts.std`: ties in the footing follow the type (none = diameter 0); `sync` keeps a column's own / spec-linked choice. */
+export function applyTemplateStack(i:ColumnInput,t:ColumnTemplate,rules:ColumnZoneRules,opts:{linked?:boolean;std?:EmbedTieStandard;sync?:boolean}={}):ColumnInput{
  const v=structuredClone(i),old=v.stack.storeys;
  v.layout='stack';v.shape='rect';
  v.stack.storeys=t.rows.map((r,k):ColumnStorey=>({name:r.level.slice(0,40),height:r.height||old[k]?.height||v.height||4000,beamDepth:r.beamDepth||old[k]?.beamDepth||600,width:r.width,depth:r.depth,
   main:mainOf(r),tie:{diameter:r.tie.diameter,sets:r.tie.sets,pattern:rowPattern(t,r),s1:r.tie.s1,s2:r.tie.s2}}));
  if(t.rows.length)v.stack.footing.enabled=t.rows[0].first;
+ const cur=v.stack.footing.embedTie,et=t.rows.length>0&&(!opts.sync||!cur||cur.link==='type')?embedTieFromType(t.embedTie,t.rows[0].tie.diameter,opts.std):null;
+ if(et!==null)v.stack.footing.embedTie=et??{diameter:0,spacing:0};
  v.stack.zones=structuredClone(rules);
  v.template={id:t.id,name:t.name,row:-1,beam:0,linked:opts.linked??true};
  return v;
@@ -130,16 +133,17 @@ export function syncFootingEmbedTies<T extends {column:FootingColumn;extraColumn
   if(c.embedTie?.link!=='type'||!c.template)return c;
   const t=spec.columnTemplates?.find(x=>x.id===c.template!.id),r=t?.rows[c.template.row];if(!t||!r)return c;
   const et=embedTieFromType(t.embedTie,r.tie.diameter,spec.columnEmbedTie);if(et===null)return c;
-  if(et&&et.diameter===c.embedTie.diameter&&et.spacing===c.embedTie.spacing)return c;
+  if(et&&!et.ties&&c.embedTie.ties)et.ties=c.embedTie.ties;
+  if(et&&et.diameter===c.embedTie.diameter&&et.spacing===c.embedTie.spacing&&et.ties===c.embedTie.ties)return c;
   const {embedTie:_e,...rest}=c;return et?{...rest,embedTie:et}:rest;
  };
  const column=one(i.column),extra=i.extraColumns.map(c=>c.linked?c:one(c) as typeof c);
  return column===i.column&&extra.every((c,k)=>c===i.extraColumns[k])?i:{...i,column,extraColumns:extra};
 }
 /** Re-apply the linked template (spec change / template edit); unlinked or missing templates leave the input as is. */
-export function syncColumnTemplate(i:ColumnInput,spec:Pick<Spec,'columnTemplates'|'columnZoneRules'>):ColumnInput{
+export function syncColumnTemplate(i:ColumnInput,spec:Pick<Spec,'columnTemplates'|'columnZoneRules'|'columnEmbedTie'>):ColumnInput{
  const ref=i.template;if(!ref?.linked)return i;
  const t=spec.columnTemplates?.find(x=>x.id===ref.id);if(!t)return i;
  const rules=zoneRulesOf(spec);
- return ref.row<0?applyTemplateStack(i,t,rules):ref.row<t.rows.length?applyTemplateRow(i,t,ref.row,rules,{beam:ref.beam}):i;
+ return ref.row<0?applyTemplateStack(i,t,rules,{std:spec.columnEmbedTie,sync:true}):ref.row<t.rows.length?applyTemplateRow(i,t,ref.row,rules,{beam:ref.beam}):i;
 }

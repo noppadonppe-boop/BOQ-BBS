@@ -3,7 +3,8 @@ import type {Spec} from '../domain/model';
 import {columnTieLayout,defaultElementInput,tiePatternInfo,type ColumnInput,type FootingColumn,type TieZoneKey} from '../domain/elementInput';
 import {applyTemplateFooting,applyTemplateRow,applyTemplateStack,fractionText,mainText,rowPattern,templateBarName,tieText,zoneFractions,zoneRulesOf,type ColumnTemplate,type ColumnZoneRules} from '../domain/columnTemplates';
 import {Modal,NumInput} from './EditorControls';
-import {embedTieFromLabel,embedTieFromType,embedTieText,resolveEmbedTie,standardEmbedTie} from '../domain/embedTie';
+import {TiesSelect} from './EmbedTieStandard';
+import {type EmbedTies,embedTieFromLabel,embedTieFromType,embedTieText,resolveEmbedTie,standardEmbedTie} from '../domain/embedTie';
 import {TieElevation,TiePlan} from './ColumnTieEditor';
 
 /** Pick a section from the Project Column Template: one level range → single column (tie zones from the zone rules
@@ -14,7 +15,7 @@ export function ColumnTemplatePicker({spec,input,onApply,onClose}:{spec:Spec;inp
  const [beam,setBeam]=useState(ref&&ref.row>=0?ref.beam:input.pour?.beam??600),[linked,setLinked]=useState(ref?.linked??true),[filter,setFilter]=useState('');
  const [zone,setZone]=useState<TieZoneKey>('middle'),[view,setView]=useState<'grid'|'list'>('grid');
  const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0;
- const next=useMemo(()=>t?k<0?applyTemplateStack(input,t,rules,{linked}):applyTemplateRow(input,t,k,rules,{beam,linked}):undefined,[t,k,input,rules,beam,linked]);
+ const next=useMemo(()=>t?k<0?applyTemplateStack(input,t,rules,{linked,std:spec.columnEmbedTie}):applyTemplateRow(input,t,k,rules,{beam,linked}):undefined,[t,k,input,rules,beam,linked]);
  const lay=useMemo(()=>{if(!next||!t)return;const probe=k<0?applyTemplateRow(input,t,0,rules):next;try{return columnTieLayout(probe,rowPattern(t,t.rows[Math.max(0,k)]),probe.detailing);}catch{return;}},[next,t,k,input,rules]);
  const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
  const r=t&&k>=0?t.rows[k]:undefined,tie=next?.rebar.tie,f=r?zoneFractions(rules,r.first):undefined;
@@ -59,11 +60,12 @@ export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Sp
  const t=list.find(x=>x.id===id),k=t?Math.min(row,t.rows.length-1):0,r=t?.rows[k];
  const shown=list.filter(x=>!filter.trim()||x.name.toUpperCase().includes(filter.trim().toUpperCase()));
  // ties in the footing: default from the type (standard / own / none), else the column's current choice; tick overrides per pick
- const std=spec.columnEmbedTie,[etOver,setEtOver]=useState<Record<string,boolean>>({}),pick=`${id}/${k}`;
+ const std=spec.columnEmbedTie,[etOver,setEtOver]=useState<Record<string,boolean>>({}),[ties,setTies]=useState<EmbedTies|undefined>(),pick=`${id}/${k}`;
  const auto=t&&r?embedTieFromType(t.embedTie,r.tie.diameter,std):undefined,etOn=etOver[pick]??(auto===null?!!col.embedTie:!!auto);
  const build=():FootingColumn=>{if(!t||!r)return col;const next=applyTemplateFooting(col,t,k,type,std);
   if(!etOn){const {embedTie:_,...rest}=next;return rest;}
-  return next.embedTie?next:{...next,embedTie:standardEmbedTie(r.tie.diameter,std&&{...std,enabled:true})??{diameter:r.tie.diameter,spacing:500}};};
+  const et=next.embedTie??standardEmbedTie(r.tie.diameter,std&&{...std,enabled:true})??{diameter:r.tie.diameter,spacing:500};
+  return {...next,embedTie:ties?{...et,ties}:et};};
  const preview=etOn?resolveEmbedTie(build().embedTie,r?.tie.diameter??0,std):undefined;
  return <Modal title="ตารางหน้าตัดเสา · เสาตอม่อ / Starter bar บนฐานราก" onClose={onClose}>
   <div className="ct-picker">
@@ -75,7 +77,7 @@ export function FootingTemplatePicker({spec,col,target,onApply,onClose}:{spec:Sp
    {t&&r&&<div className="ct-summary"><b>{target} ← {t.name} · {r.level}</b>
     <p>{type==='pedestal'?'เสาตอม่อ':'Starter bar'} · หน้าตัด {r.width} × {r.depth} · เหล็กยืน {mainText(r)}{type==='pedestal'?` · ปลอก ${templateBarName(r.tie.diameter)}@${r.tie.s2||r.tie.s1} (ระยะโซนปลายเสา S2)`:''}</p>
     <p className="muted">จะเติมให้: ประเภท · Column no. = {t.name} · หน้าตัดสี่เหลี่ยม · {r.layout?'ตำแหน่งเหล็กยืนตามรูปในแบบ':'เหล็กมุม / ด้าน X / ด้าน Y'}{type==='pedestal'?' · เหล็กปลอก':''} · ค่าอื่น (ตำแหน่ง, ความสูงตอม่อ, ระยะโผล่, การฝัง, ปลายบน) คงเดิม{type==='starter'?' · Starter bar ไม่มีเหล็กปลอกเหนือฐาน':''}</p></div>}
-   {t&&r&&<label className="check ct-etie"><input type="checkbox" checked={etOn} onChange={e=>setEtOver({...etOver,[pick]:e.target.checked})}/>ใส่เหล็กปลอกในฐานราก <span className="muted">{etOn&&preview?`${embedTieText(preview)} · ${embedTieFromLabel[preview.from]} · ปลอกชุดที่ 2 ตามรูปแบบหน้าตัด`:auto===undefined&&t.embedTie?.mode==='off'?'(Type นี้กำหนด “ไม่ใส่”)':''}</span></label>}
+   {t&&r&&<label className="check ct-etie"><input type="checkbox" checked={etOn} onChange={e=>setEtOver({...etOver,[pick]:e.target.checked})}/>ใส่เหล็กปลอกในฐานราก {etOn&&preview&&<TiesSelect short value={preview.ties} onChange={setTies}/>}<span className="muted">{etOn&&preview?`${embedTieText(preview)} · ${embedTieFromLabel[preview.from]}`:auto===undefined&&t.embedTie?.mode==='off'?'(Type นี้กำหนด “ไม่ใส่”)':''}</span></label>}
    <footer className="actions"><span style={{flex:1}}/><button onClick={onClose}>ยกเลิก</button><button className="primary" disabled={!t||!r} onClick={()=>{if(t){onApply(build());onClose();}}}>ใช้หน้าตัดนี้</button></footer></>}
   </div>
  </Modal>;

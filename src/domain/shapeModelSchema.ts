@@ -34,7 +34,11 @@ export const partRebarSchema=z.object({
  vert:barAt.optional(),horz:barAt.optional(),layers:z.union([z.literal(1),z.literal(2)]).optional(),
  ext:mm.optional(),anchor:z.boolean().optional(),
  /** column anchored in the part below: ties round the bars inside it (absent = tie size @300, s 0 = none) */
- tieIn:barAt.extend({std:z.literal(true).optional()}).optional(),
+ tieIn:barAt.extend({std:z.literal(true).optional(),ties:z.enum(['outer','all']).optional()}).optional(),
+ /** column: set-2 tie pattern (`tiePatterns` of elementInput) of the ties above and, with tieIn ties 'all', in the part below */
+ tiePattern:z.string().max(20).optional(),
+ /** column: project Column Template type / row it was filled from */
+ template:z.object({id:z.string().max(40),row:z.number().int().min(0).max(19)}).strict().optional(),
  /** preset bar sets taken over as drawn bars (key = id after `pp-<part>-`): no longer built from the preset */
  off:z.array(z.string().max(30)).max(40).optional(),
 }).strict();
