@@ -26,7 +26,8 @@ async function read(a:Attachment,page:number):Promise<UnderlaySource>{
   const pdf=await pdfjs.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
   try{const n=Math.min(Math.max(1,page),pdf.numPages),p=await pdf.getPage(n),view=p.view as [number,number,number,number];
    const v1=p.getViewport({scale:1,rotation:0}),v=p.getViewport({scale:RASTER/Math.max(v1.width,v1.height),rotation:0}),c=document.createElement('canvas');c.width=Math.round(v.width);c.height=Math.round(v.height);
-   const ctx=c.getContext('2d')!;ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);await p.render({canvasContext:ctx,canvas:c,viewport:v}).promise;
+   const ctx=c.getContext('2d')!;ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);// print intent: no requestAnimationFrame, so a page in a background tab still renders (a static background picture)
+   await p.render({canvasContext:ctx,canvas:c,viewport:v,intent:'print'}).promise;
    const cfg=await pdf.getOptionalContentConfig().catch(()=>null),texts=(await p.getTextContent()).items.filter((x:any)=>typeof x?.str==='string') as PdfTextItem[];
    const doc=pdfDoc(await p.getOperatorList(),pdfjs.OPS as unknown as Record<string,number>,view,{texts,ocName:(props:any)=>{const id=typeof props==='string'?props:props?.id;return id&&cfg?(cfg.getGroup(id)?.name||undefined):undefined;}}),scanned=doc.segCount<20;
    const href=await toUrl(c);return {doc:scanned?undefined:doc,image:{href,box:view},pages:pdf.numPages,scanned,...(p.rotate?{note:`หน้านี้หมุน ${p.rotate}° ในไฟล์ PDF: ภาพแสดงตามพิกัดหน้ากระดาษ (จัดแนว 2 จุดแก้การหมุน)`}:{})};}

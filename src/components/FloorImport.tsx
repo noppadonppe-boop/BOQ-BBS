@@ -173,7 +173,7 @@ function DiffRow({r,on,useAi,onToggle,onAlt}:{r:DiffItem;on:boolean;useAi:boolea
   <span className={`fi-op fi-op-${r.op}`}>{opLabel[r.op]}</span>{r.text}</label>
   {r.origin&&<span className={`fi-src fi-src-${r.origin}`}>{originLabel[r.origin]}</span>}
   {r.op!=='remove'&&<small className={`muted${r.confidence<0.7?' fi-low':''}`} title={r.evidence?.handles.length||r.evidence?.text?`หลักฐาน: ${r.evidence?.handles.slice(0,6).join(', ')}${r.evidence?.text?` · “${r.evidence.text}”`:''}`:undefined}> {Math.round(r.confidence*100)}%</small>}
-  {r.alt&&<span className="fi-alt">ขัดกัน: {useAi?'ใช้ค่า AI':'ใช้ค่าจากกฎ'} · อีกค่า: {r.alt}<button type="button" onClick={()=>onAlt(!useAi)}>{useAi?'กลับใช้ค่าจากกฎ':'ใช้ค่าอีกค่า'}</button></span>}</li>;
+  {r.alt&&<span className="fi-alt">อ่านได้ไม่ตรงกัน · ค่าที่สอง: {r.alt} · ใช้อยู่: <b>{useAi?'ค่าที่สอง':'ค่าหลัก (แสดงในแถว)'}</b><button type="button" onClick={()=>onAlt(!useAi)}>{useAi?'กลับใช้ค่าหลัก':'ใช้ค่าที่สอง'}</button></span>}</li>;
 }
 /** Drawing preview (source units, y up) with a drag rectangle → window. */
 function WindowPicker({image,win,onWin,label}:{image:{href:string;box:Win};win?:Win;onWin:(w:Win)=>void;label:string}){

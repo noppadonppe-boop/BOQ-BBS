@@ -28,7 +28,9 @@ const pos=z.object({view:z.number().int().min(0).max(20),x:z.number().finite(),y
 const box=z.tuple([z.number().finite(),z.number().finite(),z.number().finite(),z.number().finite()]);
 const evidence=z.object({view:z.number().int().min(0).max(20).optional(),box:box.optional(),quote:z.string().max(300).optional(),textIds:z.array(z.string().max(20)).max(20).optional()}).strict();
 const size=z.number().finite().positive().max(5000).nullable().optional();
-export const aiFloorProposalSchema=z.object({version:z.literal(1),task:z.literal('slabPlan'),
+/** envelope fields the gateway adds to every answer */
+const envelope={provider:z.string().max(40).optional(),model:z.string().max(120).optional(),attachmentId:z.string().max(80).optional(),page:z.number().int().min(1).max(9999).optional()};
+export const aiFloorProposalSchema=z.object({...envelope,version:z.literal(1),task:z.literal('slabPlan'),
  layers:z.array(z.object({name:z.string().max(255),role:z.enum([...IMPORT_ROLES,'none']),confidence:conf,evidence:evidence.optional()}).strict()).max(200).default([]),
  grids:z.array(z.object({axis:z.enum(['X','Y']),label:z.string().trim().min(1).max(12),at:pos,confidence:conf,evidence}).strict()).max(60).default([]),
  beams:z.array(z.object({mark:z.string().trim().min(1).max(20),width:size,depth:size,a:pos,b:pos,confidence:conf,evidence}).strict()).max(200).default([]),
@@ -39,7 +41,7 @@ export const aiFloorProposalSchema=z.object({version:z.literal(1),task:z.literal
  warnings:z.array(z.string().max(300)).max(30).default([])}).strict();
 export type AiFloorProposal=z.infer<typeof aiFloorProposalSchema>;
 /** Table rows read from a slab / beam schedule (task `slabPlan`, part `schedule`). */
-export const aiScheduleSchema=z.object({version:z.literal(1),task:z.literal('slabSchedule'),kind:z.enum(['slab','beam']),header:z.array(z.string().max(80)).max(30),
+export const aiScheduleSchema=z.object({...envelope,version:z.literal(1),task:z.literal('slabSchedule'),kind:z.enum(['slab','beam']),header:z.array(z.string().max(80)).max(30),
  rows:z.array(z.array(z.string().max(120)).max(30)).max(300),confidence:conf,evidence:evidence.optional(),questions:z.array(z.object({id:z.string().max(40),text:z.string().max(300)}).strict()).max(20).default([]),
  warnings:z.array(z.string().max(300)).max(30).default([])}).strict();
 export type AiSchedule=z.infer<typeof aiScheduleSchema>;

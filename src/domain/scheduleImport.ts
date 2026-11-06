@@ -4,7 +4,7 @@
 import {DEFAULT_SLAB_REBAR,type TopExtra} from './slabFloorSchema';
 import {entSegments,type CadEnt} from './cadEntities';
 import {mergeByName,type SlabTemplate} from './slabWallTemplates';
-import {beamRebarFromSections,parseBarText,parseSpacingText,type BeamTemplate} from './beamTemplates';
+import {beamRebarFromSections,parseBarText,type BeamTemplate} from './beamTemplates';
 import type {Spec} from './model';
 
 export type TableRead={header:string[];rows:string[][]};
@@ -29,7 +29,7 @@ export function readRuledTable(ents:CadEnt[]):TableRead|undefined{
  return rows.length>=2?{header:rows[0],rows:rows.slice(1)}:undefined;
 }
 const col=(header:string[],re:RegExp,not?:RegExp)=>header.findIndex(h=>re.test(h.toUpperCase())&&!(not&&not.test(h.toUpperCase())));
-const bar=(s:string|undefined)=>{const t=(s||'').trim();if(!t||/^[-–—]+$|^NONE$|^ไม่มี$/i.test(t))return {diameter:12,spacing:0};const b=parseSpacingText(t);return b?{diameter:b.diameter,spacing:b.spacing}:undefined;};
+const bar=(s:string|undefined)=>{const t=(s||'').trim();if(!t||/^[-–—]+$|^NONE$|^ไม่มี$/i.test(t))return {diameter:12,spacing:0};const m=t.toUpperCase().match(/(?:[YDR]B?|T|Ø)\s*(\d+)\s*@\s*(\d+)/);return m?{diameter:Number(m[1]),spacing:Number(m[2])}:undefined;};
 const mmOf=(s:string|undefined)=>{const m=(s||'').toUpperCase().match(/(\d{2,4})/);return m?Number(m[1]):undefined;};
 const idOf=(prefix:string,name:string)=>`${prefix}-${name.replace(/[^A-Za-z0-9_-]/g,'').slice(0,30)||'x'}`;
 /** Slab schedule rows → Slab Templates (columns by header: MARK, THICK / t, SHORT / LONG × BOT / TOP (B1 B2 T1 T2), EXTRA TOP,
@@ -44,8 +44,8 @@ export function slabTemplatesFromTable(t:TableRead,source=''):{templates:SlabTem
   const thickness=mmOf(r[c.thick]);if(!thickness){warnings.push(`${name}: ไม่มีความหนา · ข้าม`);continue;}
   const sb=bar(r[c.sb]),lb=bar(r[c.lb]),st=c.st>=0?bar(r[c.st]):{diameter:12,spacing:0},lt=c.lt>=0?bar(r[c.lt]):{diameter:12,spacing:0};
   if(!sb||!lb||!st||!lt){warnings.push(`${name}: อ่านขนาด / ระยะเหล็กไม่ได้ · ข้าม`);continue;}
-  let topExtra:TopExtra|undefined;const ex=c.ex>=0?(r[c.ex]||'').toUpperCase():'';const eb=ex?parseSpacingText(ex):undefined;
-  if(eb){const ratio=ex.match(/L\s*\/\s*([34])/),fixed=ex.replace(/.*@\d+/,'').match(/(\d{3,4})/);
+  let topExtra:TopExtra|undefined;const ex=c.ex>=0?(r[c.ex]||'').toUpperCase():'';const em=ex.match(/(?:[YDR]B?|T|Ø)\s*(\d+)\s*@\s*(\d+)/),eb=em?{diameter:Number(em[1]),spacing:Number(em[2])}:undefined;
+  if(eb){const ratio=ex.match(/L\s*\/\s*([34])/),fixed=ex.slice((em?.index||0)+(em?.[0].length||0)).match(/(\d{3,4})/);
    topExtra={diameter:eb.diameter,spacing:eb.spacing,length:ratio?{mode:'ratio',n:Number(ratio[1]) as 3|4}:{mode:'fixed',value:fixed?Number(fixed[1]):1000,from:'face'}};
    if(!ratio&&!fixed)warnings.push(`${name}: ความยาวบนเสริมไม่ระบุ · ใช้ 1000 จากหน้าคาน`);}
   const ground=c.sup>=0&&/SOG|ON GROUND|บนดิน|GROUND/i.test(r[c.sup]||'');

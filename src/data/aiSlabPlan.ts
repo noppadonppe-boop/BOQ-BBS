@@ -27,7 +27,7 @@ export async function requestSlabAI(r:SlabAiRequest,io:SlabAiIO=defaultIO(r)):Pr
  if(!r.views.length)throw Error('ไม่มีภาพของกรอบที่เลือก');
  const task=r.part==='schedule'?'slabSchedule':'slabPlan';
  await io.log({task,attachmentId:r.attachment.id,fileName:r.attachment.name,page:r.page,box:r.box,views:r.views.length,provider:r.provider.id,model:r.provider.model,memberId:r.member.id});
- const raw=await io.send({part:r.part,scheduleKind:r.scheduleKind,page:r.page,frames:r.frames.map(f=>({label:f.label,px:f.px})),texts:r.texts.slice(0,2500),layers:r.layers.slice(0,120),ruleSummary:r.ruleSummary,answers:r.answers},task);
+ const raw=await io.send({part:r.part,scheduleKind:r.scheduleKind,page:r.page,frames:r.frames.map(f=>({label:f.label,px:f.px,box:f.box})),texts:r.texts.slice(0,2500),layers:r.layers.slice(0,120),ruleSummary:r.ruleSummary,answers:r.answers},task);
  return r.part==='schedule'?parseAi(aiScheduleSchema,raw,'ตาราง'):parseAi(aiFloorProposalSchema,raw,'แปลนพื้น');
 }
 /** Why the AI button is off ('' = available): consent, gateway URL, provider / key in “จัดการ API”. */
