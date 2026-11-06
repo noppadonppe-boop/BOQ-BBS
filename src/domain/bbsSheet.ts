@@ -369,6 +369,8 @@ export function drawSheetInfo(s:SheetData,page=0):{prims:Prim[];scales:SheetView
 }
 /** Bar shape sketch (NTS: each axis stretched to the cell so short legs stay readable) with the outside
  * length of every straight leg written next to it. `raw` = unrounded bar vertices (centreline). */
+/** BBS shape sketch of a bar in a table cell (also used by the Wall Run sheet). */
+export {sketch as barSketch};
 function sketch(out:Prim[],path:Vec3[],raw:Vec3[],d:number,x:number,y:number,w:number,h:number,color:string,coupler:{top:boolean;bottom:boolean}={top:false,bottom:false}){
  if(path.length<2)return;
  const spans=[0,1,2].map(i=>Math.max(...path.map(p=>p[i]))-Math.min(...path.map(p=>p[i]))),axes=spans.map((s,i)=>({s,i})).sort((a,b)=>b.s-a.s).slice(0,2).map(v=>v.i);

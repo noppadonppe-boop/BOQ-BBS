@@ -461,7 +461,8 @@ const shapeOf=(pts:V3[]):{code:string;bent:boolean}=>{
 };
 /** Mark prefix from the member code (letters / digits / -), e.g. W1. */
 export const wallMarkPrefix=(code:string)=>(code.replace(/[^A-Za-z0-9-]/g,'')||'W').slice(0,20);
-export type WallSet={id:string;mark:string;kind:WallKind;lifts:Map<string,number>;faces:Set<string>};
+export type WallSet={id:string;mark:string;kind:WallKind;lifts:Map<string,number>;faces:Set<string>;
+ /** bars per face ('out' | 'in' | 'mid' | '' = across / slab) */ faceCount:Map<string,number>;what:string;d:number};
 /** Raw bars → Mark sets: equal bars (same kind, size, shape) share a Mark placed by spacing or offsets; lifts kept per set. */
 export function groupWallRaw(raw:WallRaw[],det:Detailing,code:string,shift:V3=[0,0,0]):{bars:GenBar[];sets:WallSet[]}{
  const keyOf=(r:WallRaw)=>{const o=r.pts[0];return [r.kind,r.d,r.cut||0,r.code||'',r.pts.map(p=>p.map((v,k)=>Math.round(v-o[k])).join(',')).join(';')].join('|');};
@@ -478,7 +479,7 @@ export function groupWallRaw(raw:WallRaw[],det:Detailing,code:string,shift:V3=[0
   const sh=r.code?{code:r.code,bent:true}:shapeOf(r.pts),pts=sortedG[0].pts.map(p=>[p[0]+shift[0],p[1]+shift[1],p[2]+shift[2]] as V3);
   const ext=[0,1,2].map(k=>Math.max(...r.pts.map(p=>p[k]))-Math.min(...r.pts.map(p=>p[k]))),bax=(['X','Y','Z'] as const)[ext.indexOf(Math.max(...ext))];
   const lifts=new Map<string,number>();for(const x of g)lifts.set(x.lift,(lifts.get(x.lift)||0)+1);
-  const faces=new Set<string>(g.map(x=>x.face).filter(Boolean));
+  const faces=new Set<string>(g.map(x=>x.face).filter(Boolean)),faceCount=new Map<string,number>();for(const x of g)faceCount.set(x.face,(faceCount.get(x.face)||0)+1);
   const fl=[...faces].map(f=>faceName[f]).join(' + '),ll=[...lifts.keys()];
   const flat=pts.every(p=>Math.abs(p[2]-pts[0][2])<1);
   const base:GenBar={id,mark,role:`wr-${tag.toLowerCase()}`,note:`${r.what}${fl?` · ${fl}`:''} · ${ll.length>4?`${ll.length} ช่วงเท`:ll.join(', ')}`,diameter:r.d,grade:gradeFor(det,r.d,r.tie?det.tieGrade:det.mainGrade),count:g.length,points:pts,
@@ -486,7 +487,7 @@ export function groupWallRaw(raw:WallRaw[],det:Detailing,code:string,shift:V3=[0
   if(g.length===1){const dax=bax==='Z'?'X':'Z';bars.push({...base,distributionAxis:dax,from:pts[0][dax==='X'?0:2],to:pts[0][dax==='X'?0:2]});}
   else if(even&&axis!==undefined)bars.push({...base,distributionAxis:(['X','Y','Z'] as const)[axis],from:pts[0][axis],to:pts[0][axis]+offs[offs.length-1][axis]});
   else bars.push({...base,offsets:offs});
-  sets.push({id,mark,kind:r.kind,lifts,faces});
+  sets.push({id,mark,kind:r.kind,lifts,faces,faceCount,what:r.what,d:r.d});
  }
  return {bars,sets};
 }

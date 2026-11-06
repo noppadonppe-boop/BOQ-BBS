@@ -114,6 +114,7 @@ export async function excel(bundle:Bundle):Promise<Blob>{checkEngine(bundle);
  appendProjectMaterialSheet(wb,bundle);appendCoverageSheet(wb,bundle);appendPricingSheets(wb,bundle);appendEarthworkSheet(wb,bundle);appendPileSheet(wb,bundle);appendSiteWorkSheet(wb,bundle);(await import('./sourceLabelExcel')).appendSourceLabelSheet(wb,bundle);
  (await import('./code99ReviewExports')).appendCode99ReviewSheet(wb,bundle);(await import('./fabricationInputReviewExcel')).appendFabricationInputSheet(wb,bundle);
  (await import('./slabFloorExcel')).appendSlabFloorSheets(wb,ordered(bundle),m=>{const q=frozenTakeoff(m,bundle);return {rows:q.rows as never,quantity:q.quantity};});
+ (await import('./wallRunExcel')).appendWallRunSheets(wb,ordered(bundle),m=>{const q=frozenTakeoff(m,bundle);return {rows:q.rows as never,quantity:q.quantity};});
  return new Blob([await wb.xlsx.writeBuffer() as ArrayBuffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 export function drawProjection(doc:jsPDF,m:Member,bundle:Bundle,axes:[number,number],box:{x:number;y:number;w:number;h:number},offset:number,count:number,fitLabels=true,cut:DrawingSection=drawingSections(m)[0]){
