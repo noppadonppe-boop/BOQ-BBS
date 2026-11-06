@@ -4,7 +4,7 @@ import type {Attachment,Member,Project} from '../domain/model';
 import {insUnits,SNAP_LIMIT,UNIT_MM} from '../domain/cadEntities';
 import {alignResiduals,alignTwoPoints,crossing,PDF_1_100,SnapIndex,toFloor,toSource,type SnapKind,type Similarity} from '../domain/underlay';
 import {isUnderlayFile,loadUnderlay,type UnderlaySource} from '../data/underlaySource';
-import {FloorDxfImport,svgPoint} from './FloorDxfImport';
+import {FloorImport,svgPoint} from './FloorImport';
 import {lineRank} from '../domain/floorBeams';
 import {FloorBeamsDialog,floorLinks,linkStateLabel} from './FloorBeamsDialog';
 import {openMember} from './memberNav';
@@ -193,7 +193,7 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
    <button type="button" className="icon-button" title="ทำซ้ำ" disabled={readOnly||!hist.future.length} onClick={redo}><Redo2 size={15}/></button>
    {onView3d&&<button type="button" onClick={onView3d}><Box size={14}/>ดู 3D</button>}
    <button type="button" aria-pressed={underOpen} className={underOpen?'active':''} title="แบบพื้นหลัง: วางแบบ PDF / DXF ใต้แปลนพื้น จัดแนว 2 จุด แล้ววาดทับ (ไม่มีผลกับปริมาณ / แบบที่ส่งออก)" onClick={()=>setUnderOpen(o=>!o)}><Layers size={14}/>แบบพื้นหลัง{u?' ●':''}</button>
-   <button type="button" disabled={readOnly} title="นำเข้ากริด คาน เสา ช่องเปิด และเบอร์พื้นจากไฟล์ DXF (ตรวจก่อนใช้)" onClick={()=>setImportOpen(true)}><FileInput size={14}/>นำเข้าจาก DXF</button>
+   <button type="button" disabled={readOnly} title="นำเข้ากริด คาน เสา ช่องเปิด เบอร์พื้น (และตารางพื้น / ตารางคาน) จากไฟล์ DXF หรือ PDF (ตรวจก่อนใช้)" onClick={()=>setImportOpen(true)}><FileInput size={14}/>นำเข้าจากแบบ (DXF / PDF)</button>
    <button type="button" aria-pressed={snapOn} className={snapOn?'active':''} disabled={!index} title={index?'Snap กับเส้นในแบบพื้นหลัง (ปลายเส้น จุดตัด กึ่งกลาง มุม จุดศูนย์กลาง)':src?.scanned?'PDF สแกน / รูป: ไม่มีเส้นให้ snap':'ไม่มีแบบพื้นหลังแบบ vector'} onClick={()=>setSnapOn(v=>!v)}><Magnet size={14}/>Snap กับแบบ</button>
    <button type="button" className="icon-button" title="พอดีจอ (ซูม: Ctrl + ล้อเมาส์ · เลื่อน: ลากพื้นที่ว่าง หรือปุ่มกลางเมาส์)" disabled={view.k===1&&view.cx===undefined} onClick={()=>setView({k:1})}><Maximize2 size={14}/></button>
    <HelpButton topic="slab-floor"/>
@@ -222,7 +222,7 @@ export function SlabFloorEditor({input,project,readOnly,onChange,onView3d,onBuil
      <button type="button" className="primary" onClick={applyAlign}>ใช้การจัดแนว</button></span>}
     <button type="button" onClick={()=>setAlign({picks:[]})}>เริ่มใหม่</button><button type="button" onClick={()=>setAlign(null)}>ยกเลิก</button></div>}
   </div>}
-  {importOpen&&<FloorDxfImport floor={f} project={project} files={files} initialFile={u?.attachmentId} saved={savedMaps} readOnly={readOnly} onApply={next=>{commit(next);setMsg('นำเข้าจาก DXF แล้ว (ย้อนกลับได้ 1 ครั้ง) · ตรวจแปลนแล้วกด “สร้างเหล็ก + ใช้กับสมาชิก”');setView({k:1});}} onClose={()=>setImportOpen(false)}/>}
+  {importOpen&&<FloorImport floor={f} project={project} member={members?.find(m=>m.id===memberId)} files={files} initialFile={u?.attachmentId} saved={savedMaps} readOnly={readOnly} onApply={next=>{commit(next);setMsg('นำเข้าจากแบบแล้ว (ย้อนกลับได้ 1 ครั้ง) · ตรวจแปลนแล้วกด “สร้างเหล็ก + ใช้กับสมาชิก”');setView({k:1});}} onClose={()=>setImportOpen(false)}/>}
   {beamsOpen&&memberId&&<FloorBeamsDialog project={project} floorId={memberId} editedInput={input} readOnly={readOnly} members={members||null} onReload={async()=>{await onReloadMembers?.();}} onClose={()=>setBeamsOpen(false)}/>}
   {problems.length>0&&<div className="notice warning"><b>ต้องแก้ก่อนสร้างเหล็ก ({problems.length})</b><ul>{problems.slice(0,8).map(p=><li key={p}>{p}</li>)}</ul></div>}
   <div className="sf-body">

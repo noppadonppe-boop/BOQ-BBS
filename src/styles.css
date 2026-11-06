@@ -606,6 +606,17 @@ button.ct-open{border-color:var(--brand);color:var(--brand);background:var(--bra
 .fi-list{max-height:60vh;overflow:auto}.fi-list summary{display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600}.fi-list summary .check{margin-left:auto;font-weight:400}.fi-list ul{list-style:none;margin:4px 0 8px;padding:0 0 0 6px}.fi-list li{display:flex;align-items:baseline;gap:4px;padding:2px 0;font-size:13px}.fi-list li.fi-same{color:#64748b}
 .fi-dot{display:inline-block;width:10px;height:10px;border-radius:50%}.fi-op{display:inline-block;min-width:54px;margin-right:4px;padding:0 6px;border-radius:8px;font-size:11px;text-align:center}.fi-op-add{background:#dcfce7;color:#15803d}.fi-op-edit{background:#fef3c7;color:#b45309}.fi-op-remove{background:#fee2e2;color:#b91c1c}.fi-op-same{background:#f1f5f9;color:#64748b}.fi-low{color:#b45309}
 @media (max-width:900px){.fi-review{grid-template-columns:1fr}}
+/* S4b import from PDF + AI help + schedules (FloorImport.tsx, AiConsentSettings.tsx) */
+.fi-file{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:4px 0 8px}.fi-file .field.inline{display:flex;align-items:center;gap:6px;margin:0}.fi-file input[type=number]{width:70px}
+.fi-step1{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:12px;align-items:start}.fi-step1 tr{cursor:pointer}.fi-step1 tr.on td{background:#fef2f2}.fi-layer-preview{width:100%;border:1px solid #cbd5e1;border-radius:6px}
+.fi-scale{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:end}.fi-scale .field{margin:0}.fi-scale input[type=number]{width:90px}
+.fi-src{display:inline-block;margin-left:4px;padding:0 6px;border-radius:8px;font-size:11px;background:#f1f5f9;color:#475569}.fi-src-ai{background:#ede9fe;color:#6d28d9}.fi-src-both{background:#dcfce7;color:#166534}
+.fi-list li.fi-conflict{flex-wrap:wrap;background:#fff7ed;border-radius:4px}.fi-alt{flex-basis:100%;padding-left:22px;font-size:12px;color:#9a3412}.fi-alt button{margin-left:6px;font-size:11px;padding:0 6px}
+.fi-questions{display:grid;gap:6px;padding:8px;margin:6px 0;border:1px solid #c4b5fd;border-radius:6px;background:#f5f3ff}.fi-questions .field{margin:0}
+.fi-confirm{position:absolute;inset:auto 24px 24px auto;z-index:5;max-width:520px;padding:12px 14px;border:2px solid #7c3aed;border-radius:10px;background:#fff;box-shadow:0 10px 30px #0003}.fi-confirm ul{margin:6px 0;padding-left:18px}
+.floor-import-dialog{position:relative}.fi-tpl{list-style:none;padding:0;margin:6px 0;max-height:40vh;overflow:auto}.fi-tpl li{padding:2px 0;font-size:13px}.fi-table{max-height:30vh;overflow:auto}.fi-ai-off{margin-top:6px;font-size:12px}
+.ai-consent{margin-top:14px;padding-top:10px;border-top:1px solid #e2e8f0}.ai-consent h4{display:flex;align-items:center;gap:6px;margin:0 0 6px}.ai-log{font-size:12px}
+@media (max-width:900px){.fi-step1{grid-template-columns:1fr}}
 .sf-open{fill:#fff;stroke:#2563eb;stroke-width:1.6;cursor:move}.sf-open.on{stroke-width:2.6}.sf-open-x{stroke:#2563eb;stroke-width:1;pointer-events:none}
 .sf-drop{fill:#0f766e18;stroke:#0f766e;stroke-dasharray:4 3;cursor:move}.sf-drop.sunken{fill:#4338ca18;stroke:#4338ca}.sf-drop.on{stroke-width:2.4}.sf-drop-t{font:10px Sarabun;text-anchor:middle;fill:#0f766e;pointer-events:none}
 .sf-grip{fill:#fff;stroke:#2563eb;stroke-width:1.5;cursor:nwse-resize}.sf-odim line{stroke:#2563eb}.sf-odim text,.sf-odim-t{font:600 11px 'JetBrains Mono',monospace;fill:#2563eb;text-anchor:middle}
