@@ -471,3 +471,6 @@
   docs/SECURITY_RULES.md (path × role table, deploy order, rollback). A new collection / project key / Storage folder needs a rule
   and a case in `tests/rules/securityRules.emu.ts` (`npm run test:rules`, separate demo emulators). UI check with the new rules:
   `tmp/secemu/` (copies of the rules, ports 9397 / 8382 / 9597, `node tmp/secemu/dev.mjs` on 5183).
+
+
+ห้ามแก้ไขไฟล์ `firestore.rules` และ `storage.rules` โดยตรง 
