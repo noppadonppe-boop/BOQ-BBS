@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import type {WallRun} from './wallRunSchema';
 import type {ElementInput} from './elementInput';
 import {topExtraSchema,DEFAULT_SLAB_REBAR,type FloorMark,type TopExtra} from './slabFloorSchema';
 
@@ -33,7 +34,9 @@ export const wallTemplateSchema=z.object({...head,thickness:mm,layers:z.union([z
  /** EDGE BAR (free end) / CORNER BAR (end at another wall): total count + Ø */
  edge:countSchema.optional(),corner:countSchema.optional(),
  /** bars around openings: count per face per side (2x2-DB16 = 2), diagonal bars at the corners */
- opening:z.object({count:z.number().int().min(0).max(6),diameter:dia,diagonal:z.boolean()}).strict().optional()}).strict();
+ opening:z.object({count:z.number().int().min(0).max(6),diameter:dia,diagonal:z.boolean()}).strict().optional(),
+ /** Wall Run: inner-face bars when they differ from the outer face (vertical / horizontal above = outer face; absent = same) */
+ inner:z.object({vertical:barSchema,horizontal:barSchema}).strict().optional()}).strict();
 export type WallTemplate=z.infer<typeof wallTemplateSchema>;
 const unique=(what:string)=>(list:{id:string;name:string}[],ctx:z.RefinementCtx)=>{const ids=new Set<string>(),names=new Set<string>();list.forEach((t,i)=>{
  if(ids.has(t.id))ctx.addIssue({code:'custom',path:[i,'id'],message:`รหัส Template ${what}ซ้ำ`});
@@ -52,7 +55,7 @@ export function floorMarkFromTemplate(t:SlabTemplate):FloorMark{
 }
 const countText=(b:{count:number;diameter:number})=>`${b.count}-${b.diameter<=9?'RB':'DB'}${b.diameter}`;
 export const wallTemplateSummary=(t:WallTemplate)=>[`หนา ${t.thickness}`,`${t.layers} ชั้น`,`แนวตั้ง ${barText(t.vertical)}`,`แนวนอน ${barText(t.horizontal)}`,t.edge?.count?`EDGE ${countText(t.edge)}`:'',t.corner?.count?`CORNER ${countText(t.corner)}`:'',
- t.opening?.count?`รอบช่องเปิด ${t.layers}x${countText(t.opening)}${t.opening.diagonal?' + ทแยง':''}`:''].filter(Boolean).join(' · ');
+ t.opening?.count?`รอบช่องเปิด ${t.layers}x${countText(t.opening)}${t.opening.diagonal?' + ทแยง':''}`:'',t.inner?`ผิวใน ตั้ง ${barText(t.inner.vertical)} นอน ${barText(t.inner.horizontal)}`:''].filter(Boolean).join(' · ');
 
 type SlabIn=Extract<ElementInput,{category:'Slab'}>;type WallIn=Extract<ElementInput,{category:'Wall'}>;
 /** Slab input with the template's thickness, support and bars (short-span bars along the shorter side; shapes kept). */
@@ -73,3 +76,12 @@ export function applyWallTemplate(i:WallIn,t:WallTemplate):WallIn{
 }
 /** Merge imported templates by name (imported rows replace, others kept). */
 export function mergeByName<T extends {name:string}>(current:T[]|undefined,incoming:T[]){const names=new Set(incoming.map(t=>t.name.toUpperCase()));return [...(current||[]).filter(t=>!names.has(t.name.toUpperCase())),...incoming];}
+/** Wall Run filled from an RC wall list row: every segment's thickness, layers, outer / inner bars (inner = outer when the row
+ * has no inner columns), EDGE bars of free ends and opening trims. */
+export function applyWallTemplateToRun(run:WallRun,t:WallTemplate):WallRun{
+ const m=(b:{diameter:number;spacing:number},o:{diameter:number;spacing:number})=>({diameter:b.diameter||o.diameter,spacing:b.spacing||o.spacing});
+ const r=run.rebar,outer={vertical:m(t.vertical,r.outer.vertical),horizontal:m(t.horizontal,r.outer.horizontal)},inner=t.inner?{vertical:m(t.inner.vertical,r.inner.vertical),horizontal:m(t.inner.horizontal,r.inner.horizontal)}:outer;
+ return {...run,path:{...run.path,segments:run.path.segments.map(s=>({...s,thickness:t.thickness}))},branches:run.branches?.map(b=>({...b,thickness:t.thickness})),
+  rebar:{...r,layers:t.layers,outer,inner,...(t.edge?.count?{edgeBar:{...t.edge}}:{})},
+  openings:t.opening?.count?run.openings.map(o=>({...o,trim:{...o.trim,count:t.opening!.count,diameter:t.opening!.diameter,diagonal:t.opening!.diagonal}})):run.openings};
+}

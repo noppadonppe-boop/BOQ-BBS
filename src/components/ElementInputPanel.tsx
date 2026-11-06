@@ -28,6 +28,8 @@ import {SiteItemsEditor} from './SiteItemsEditor';
 import {applySlabTemplate,applyWallTemplate,floorMarkFromTemplate,slabTemplateSummary,wallTemplateSummary} from '../domain/slabWallTemplates';
 import {newSlabFloor} from '../domain/slabFloor';
 import {SlabFloorEditor} from './SlabFloorEditor';
+import {WallRunEditor,WallTypePicker,withWallType} from './WallRunEditor';
+import {singleToRun} from '../domain/wallRun';
 import {floorLinks,useProjectMembers} from './FloorBeamsDialog';
 import {groupLabel,orderGroups} from '../domain/specBuildings';
 import {emptySiteWork,siteKinds,siteLabels,siteUnits,withSiteWork,type SiteItem} from '../domain/siteWork';
@@ -63,6 +65,7 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
  const isFloor=m.category==='Slab'&&(m.elementInput as {layout?:string}|undefined)?.layout==='floor';
  const proj=useProjectMembers(project.id,isFloor),linkedLines=isFloor?floorLinks(proj.members?.find(x=>x.id===m.id),proj.members,project).map(l=>`${l.input.placement?.along}|${l.input.placement?.line}`):undefined;
  const [items,setItems]=useState<SiteItem[]>(()=>m.siteWork?.items||[]);
+ const [wallPick,setWallPick]=useState(false);
  const [colSel,setColSel]=useState(0),[beamSel,setBeamSel]=useState(0),[picker,setPicker]=useState(false),[ftPicker,setFtPicker]=useState(false);
  const spec=project.spec;
  // typed but not yet applied = unsaved work (the member popup asks before closing)
@@ -144,6 +147,12 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Slab'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบพื้น">{([['single','พื้นแผ่นเดียว'],['floor','พื้นทั้งชั้น (กริด)']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={input.layout===v?'active':''} onClick={()=>setInput(prev=>prev?.category!=='Slab'?prev:v==='floor'?{...prev,layout:'floor',floor:prev.floor??newSlabFloor(spec.slabTemplates?.[0]?floorMarkFromTemplate(spec.slabTemplates[0]):undefined)}:{...prev,layout:'single'})}>{t}</button>)}</div>}
   {input.category==='Slab'&&input.layout==='floor'&&input.floor&&<section className="slab-floor-wrap"><h4>แปลนพื้น <small className="muted">กริด · คานอ้างอิง · แผงตามเบอร์พื้น · ช่องเปิด · Drop — กด “สร้างเหล็ก + ใช้กับสมาชิก” แล้วบันทึกสมาชิก</small></h4>
    <SlabFloorEditor input={input} project={project} readOnly={readOnly} attachments={attachments} memberId={m.id} members={proj.members} onReloadMembers={proj.reload} onView3d={()=>setView3d(true)} onBuild={()=>apply(true)} buildDisabled={pending||!preview||'error' in preview} onChange={floor=>setInput(prev=>prev?.category==='Slab'?{...prev,floor}:prev)}/></section>}
+  {input.category==='Wall'&&<div className="segmented beam-layout" role="group" aria-label="รูปแบบผนัง">{([['single','ผนังตรง (แบบเดิม)'],['run','Wall Run · ผนังต่อเนื่องบนแปลน']] as const).map(([v,t])=><button key={v} type="button" disabled={readOnly} className={(input.layout||'single')===v?'active':''} onClick={()=>{if(v==='run'&&!input.run){setWallPick(true);return;}setInput(prev=>prev?.category==='Wall'?{...prev,layout:v==='run'?'run':undefined}:prev);}}>{t}</button>)}
+   {input.layout!=='run'&&<button type="button" disabled={readOnly} title="ผนังตรงนี้เป็น Wall Run 1 segment · ปริมาณและเหล็กเท่าเดิม" onClick={()=>setInput(prev=>{if(prev?.category!=='Wall')return prev;const r=singleToRun(prev);if(r.notes.length)alert(r.notes.join(' · '));return {...prev,layout:'run',run:r.run};})}>แปลงเป็น Wall Run</button>}</div>}
+  {wallPick&&input.category==='Wall'&&<WallTypePicker onClose={()=>setWallPick(false)} onSingle={()=>{setWallPick(false);setInput(prev=>prev?.category==='Wall'?{...prev,layout:undefined}:prev);}} onPick={t=>{setWallPick(false);setInput(prev=>prev?.category==='Wall'?withWallType(prev,t):prev);}}/>}
+  {input.category==='Wall'&&input.layout==='run'&&input.run&&<section className="wall-run-wrap">
+   <WallRunEditor input={input} spec={spec} readOnly={readOnly} preview={preview&&!('error' in preview)?{member:preview.member,q:preview.q}:undefined} onChange={run=>setInput(prev=>prev?.category==='Wall'?{...prev,run}:prev)}
+    onBuild={()=>apply(true)} buildDisabled={pending||!preview||'error' in preview} onView3d={()=>setView3d(true)} onType={()=>setWallPick(true)}/></section>}
   <div className="element-input-layout"><div className="element-input-form">
   <h4>1. มิติและรูปร่าง (จำเป็น)</h4>
   {input.category==='Foundation'&&<div className="ct-bar"><button type="button" className={spec.foundationTemplates?.length?'ct-open':''} disabled={readOnly} title={spec.foundationTemplates?.length?'เลือกฐานรากตามแบบ (ขนาด เข็ม เหล็ก ระดับ ตำแหน่งเสา) จาก General Spec ของโครงการ':'ยังไม่มี Foundation Template · นำเข้าที่ General Spec'} onClick={()=>setFtPicker(true)}><Box size={15}/>Foundation Template (ตามแบบ)</button>
@@ -205,12 +214,13 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
      <div className="form-grid">{num('กว้าง b','width')}{num('ลึก h','depth')}{num('ความยาวคาน','length')}</div></>}
    {groundFields('คาน')}</>}
   {input.category==='Slab'&&input.layout!=='floor'&&<MarkTemplateField what="พื้น" list={spec.slabTemplates||[]} buildings={spec.buildings} summary={slabTemplateSummary} readOnly={readOnly} onPick={t=>setInput(prev=>prev?.category==='Slab'?applySlabTemplate(prev,t):prev)}/>}
-  {input.category==='Wall'&&<MarkTemplateField what="ผนัง" list={spec.wallTemplates||[]} buildings={spec.buildings} summary={wallTemplateSummary} readOnly={readOnly} onPick={t=>setInput(prev=>prev?.category==='Wall'?applyWallTemplate(prev,t):prev)}/>}
+  {input.category==='Wall'&&input.layout!=='run'&&<MarkTemplateField what="ผนัง" list={spec.wallTemplates||[]} buildings={spec.buildings} summary={wallTemplateSummary} readOnly={readOnly} onPick={t=>setInput(prev=>prev?.category==='Wall'?applyWallTemplate(prev,t):prev)}/>}
   {input.category==='Slab'&&input.layout==='floor'&&<p className="muted">พื้นทั้งชั้น: มิติมาจากแปลนพื้นด้านบน · ส่วนนี้ใช้ตั้งพื้นบนดิน (ชั้นรองพื้น) และระยะหุ้ม</p>}
   {input.category==='Slab'&&input.layout==='floor'&&groundFields('พื้น')}
   {input.category==='Slab'&&input.layout!=='floor'&&<><div className="form-grid">{num('ยาว X','lengthX')}{num('กว้าง Y','lengthY')}{num('ความหนาพื้น','thickness')}</div>{groundFields('พื้น')}</>}
-  {input.category==='Wall'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
-  {input.category==='Wall'&&<HeightFromLevels what="ผนัง" readOnly={readOnly} onUse={h=>set('height',h)}/>}
+  {input.category==='Wall'&&input.layout==='run'&&<p className="muted">Wall Run: มิติ ระดับ และเหล็กมาจากเครื่องมือ Wall Run ด้านบน · ส่วนนี้ใช้ตั้งจำนวน ระยะหุ้ม และรายการเพิ่มเติม</p>}
+  {input.category==='Wall'&&input.layout!=='run'&&<div className="form-grid">{num('ความยาวผนัง','length')}{num('ความหนาผนัง','thickness')}{num('ความสูงผนัง','height')}</div>}
+  {input.category==='Wall'&&input.layout!=='run'&&<HeightFromLevels what="ผนัง" readOnly={readOnly} onUse={h=>set('height',h)}/>}
 
   <SiteItemsEditor items={items} onChange={setItems} readOnly={readOnly}/>
 
@@ -321,7 +331,8 @@ export function ElementInputPanel({member:m,project,attachments,readOnly,onApply
   {input.category==='Beam'&&input.layout!=='group'&&<>{shapedCount('เหล็กบน','rebar.top')}{input.rebar.top.count>0&&<BeamBarEnds label="เหล็กบน" layer={input.rebar.top} readOnly={readOnly} onChange={v=>set('rebar.top.ends',v)}/>}{shapedCount('เหล็กล่าง','rebar.bottom')}{input.rebar.bottom.count>0&&<BeamBarEnds label="เหล็กล่าง" layer={input.rebar.bottom} readOnly={readOnly} onChange={v=>set('rebar.bottom.ends',v)}/>}{spacing('เหล็กปลอก','rebar.stirrup')}<p className="muted">เหล็กบนงอ/ขอลง · เหล็กล่างงอ/ขอขึ้น · ปลายอยู่ที่ cover ปลายคาน</p></>}
   {input.category==='Slab'&&input.layout==='floor'&&<p className="muted">พื้นทั้งชั้น: เหล็กกำหนดต่อเบอร์พื้นในแปลนพื้น (ล่าง B1/B2 · บน T1/T2 · บนเสริมที่คาน · ขอบนอก · ช่องเปิด) · Mark = S1-B01 / S1-T01 / S1-OP1 / S1-OD1</p>}
   {input.category==='Slab'&&input.layout!=='floor'&&<>{mesh('เหล็กล่างทิศ X','rebar.bottomX')}{mesh('เหล็กล่างทิศ Y','rebar.bottomY')}{mesh('เหล็กบนทิศ X','rebar.topX',true)}{mesh('เหล็กบนทิศ Y','rebar.topY',true)}<p className="muted">เหล็กล่างงอ/ขอขึ้น · เหล็กบนงอ/ขอลง · จำกัดตามความหนาพื้น − cover</p></>}
-  {input.category==='Wall'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p><WallExtras input={input} readOnly={readOnly} onChange={f=>setInput(prev=>prev?.category==='Wall'?f(prev):prev)}/></>}
+  {input.category==='Wall'&&input.layout==='run'&&<p className="muted">Wall Run: เหล็กผิวนอก / ผิวใน มุม จุดต่อ T ปลายผนัง และช่องเปิด กำหนดในเครื่องมือ Wall Run · Mark = W1-V01 ตั้ง · H นอน · C มุม / ปลาย · T จุดต่อ · S เดือย · OP ช่องเปิด · B ฐาน / พื้นบ่อ · K ฝา</p>}
+  {input.category==='Wall'&&input.layout!=='run'&&<><label className="field"><span>จำนวนชั้นเหล็ก</span><select disabled={readOnly} value={input.rebar.layers} onChange={e=>set('rebar.layers',Number(e.target.value))}><option value={1}>1 ชั้น (กึ่งกลาง)</option><option value={2}>2 ชั้น (สองผิว)</option></select></label>{mesh('เหล็กแนวตั้ง','rebar.vertical')}{mesh('เหล็กแนวนอน','rebar.horizontal')}{check('รวมระยะทาบเหล็กแนวตั้ง','rebar.lap')}<p className="muted">งอ/ขอปลายเหล็กหันเข้าหาผิวผนังอีกด้าน · จำกัดตามความหนาผนัง − cover</p><WallExtras input={input} readOnly={readOnly} onChange={f=>setInput(prev=>prev?.category==='Wall'?f(prev):prev)}/></>}
 
   <ConcreteMixField spec={project.spec} input={input} readOnly={readOnly} onChange={mix=>setInput(prev=>prev&&{...prev,concreteMix:mix,detailing:detailingFromSpec(project.spec,prev.detailing,{category:prev.category,mix})})}/>
   <details className="detailing-defaults"><summary>มาตรฐานงอขอ / ระยะทาบ (กำหนดไว้เบื้องต้น)</summary>
