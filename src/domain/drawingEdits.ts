@@ -85,7 +85,7 @@ export function cleanDrawingEdits(e:DrawingEdits|undefined):DrawingEdits|undefin
 /** Fingerprint of everything a BBS drawing is made from (geometry, input, bars, sections), not the drawing layer itself
  * (layout, edits, drawing setup) nor review / version data: a change means the edited drawing should be checked again. */
 export function drawingModelHash(m:Record<string,unknown>):string{
- const skip=new Set(['sheetLayout','drawingEdits','drawingSetup','review','version','status','updatedAt','inputEpoch','pricing','copySource','occurrences','quantityBasis','description','code']);
+ const skip=new Set(['sheetLayout','drawingEdits','drawingSetup','review','version','status','updatedAt','inputEpoch','pricing','copySource','templateSource','occurrences','quantityBasis','description','code']);
  const keys=Object.keys(m).filter(k=>!skip.has(k)).sort(),bars=(m.bars as {placementConfirmed?:boolean;bsDimensionsConfirmed?:boolean}[]|undefined)?.map(b=>({...b,placementConfirmed:undefined,bsDimensionsConfirmed:undefined}));
  // S4a: the slab-floor underlay / import map are display aids, not drawing content (absent → the hash is unchanged)
  const ei=m.elementInput as {floor?:{underlay?:unknown;importMap?:unknown}}|undefined,input=ei?.floor&&(ei.floor.underlay||ei.floor.importMap)?{...ei,floor:(({underlay:_u,importMap:_i,...f})=>f)(ei.floor)}:ei;
