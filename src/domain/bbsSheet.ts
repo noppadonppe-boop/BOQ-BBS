@@ -177,7 +177,8 @@ export type SheetViewScale={title:string;n:number;fits:boolean};
  * Primitives drawn in the view carry `view` = id; the rest of the sheet (tables, title block, notes) is paper. */
 export type SheetViewInfo={id:string;key?:ViewKey;lockNote?:string;title:string;box:{x:number;y:number;w:number;h:number};n:number;s:number;fits:boolean;axes:[number,number];normal?:number;cut?:number;
  origin:{sheet:[number,number];model:[number,number]};
- /** the drawn view data (Drawing Edit snaps / anchors) */ data?:ViewData};
+ /** the drawn view data (Drawing Edit snaps / anchors) */ data?:ViewData;
+ /** minimum gap between Mark labels the label check asks in this view (sheet mm; wall sheets 1.5), else the rule */ minGap?:number};
 /** All primitives of one sheet (mm). */
 export function drawSheet(s:SheetData,page=0):Prim[]{return drawSheetInfo(s,page).prims;}
 /** Sheet primitives plus the scale used for each view (n = 0: not to scale; fits = false: the chosen 1:N did not fit). */

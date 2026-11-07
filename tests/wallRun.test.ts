@@ -206,8 +206,10 @@ describe('templates and backup',()=>{
 describe('Wall Run sheet (W1.1): merged Marks, labels in the views, ≥ 1:75 by storey groups, Sheet Composer, DXF',()=>{
  const project={id:'p',code:'J-099',name:'Wall Run test',spec,version:1,titleBlock:{}} as unknown as Project;
  const liftRun:WallRun={...defaultWallRun('lift'),levels:[1,2,3,4,5].map((n,k)=>({id:`L${n}`,name:`${n}F`,bottom:k*3.2,top:(k+1)*3.2,lifts:2}))};
- const tankDoor:WallRun={...defaultWallRun('tank'),openings:[{id:'O1',label:'O1',segment:'A',face:'through',x:2425,z:275,w:1000,h:2100,level:'L1',trim:{count:2,diameter:12,ext:'ld',diagonal:true}}]};
- const cases:[string,WallRun][]=[['general',defaultWallRun('general')],['tank',defaultWallRun('tank')],['tankDoor',tankDoor],['lift',liftRun],['retaining',defaultWallRun('retaining')]];
+ // v0.119 baseline = haunch bars to Ld (no barEnd, as saved before W2a; new walls default to 'centre', tests/wallRunW2a.test.ts)
+ const oldTank=():WallRun=>{const r=defaultWallRun('tank');return {...r,tank:{...r.tank!,haunch:{size:r.tank!.haunch!.size}}};};
+ const tankDoor:WallRun={...oldTank(),openings:[{id:'O1',label:'O1',segment:'A',face:'through',x:2425,z:275,w:1000,h:2100,level:'L1',trim:{count:2,diameter:12,ext:'ld',diagonal:true}}]};
+ const cases:[string,WallRun][]=[['general',defaultWallRun('general')],['tank',oldTank()],['tankDoor',tankDoor],['lift',liftRun],['retaining',defaultWallRun('retaining')]];
  const base=JSON.parse(readFileSync('tests/fixtures/wallRun-v0119.json','utf8')) as Record<string,{kg:number;marks:number;lifts:Record<string,number>;faces:Record<string,number>}>;
  const sd=(m:Member,q:ReturnType<typeof takeoff>,extra:Partial<SheetData>={})=>({member:m,rows:q.rows,input:m.elementInput,project,quantity:1,takeoff:q,status:'DRAFT',revision:'D1',date:'2026-11-06',provisional:false,...extra}) as unknown as SheetData;
  mkdirSync('output/dxf-verification',{recursive:true});

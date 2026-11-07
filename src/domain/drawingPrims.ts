@@ -7,7 +7,8 @@ export type LayerRole='concrete'|'concreteHidden'|'barMain'|'barBottom'|'barTop'
 export const layerRoles:LayerRole[]=['concrete','concreteHidden','barMain','barBottom','barTop','barLink','barRef','dim','mark','text','symbol','titleBlock','viewport'];
 /** `layer` = CAD layer role, `view` = id of the sheet view the primitive belongs to (absent = paper: tables, title block),
  * `key` = stable id of the annotation it draws (Drawing Edit overrides, `drawingEdits.ts`: mark:… / dim:… / user:…). */
-type Meta={group?:string;layer?:LayerRole;view?:string;key?:string};
+type Meta={group?:string;layer?:LayerRole;view?:string;key?:string;
+ /** label check obstacle (W2a): leaders must not cross an opening outline / cross or an opening diagonal bar */ qa?:'opening'};
 type Pt=[number,number];
 export type Prim=
  |({t:'line';x1:number;y1:number;x2:number;y2:number;cap?:'round'}&Stroke&Meta)
