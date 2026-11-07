@@ -52,8 +52,10 @@ export const wallTankSchema=z.object({
  bottom:z.object({thickness:z.number().finite().min(100).max(3000),projection:mm,rebar:slabMesh}).strict(),
  /** cover slab on the walls (null = open tank) with manholes (plan x, y = lower-left corner in plan coordinates) */
  cover:z.object({thickness:z.number().finite().min(100).max(1500),rebar:slabMesh,manholes:z.array(z.object({x:coord,y:coord,w:len,h:len}).strict()).max(6)}).strict().nullable().optional(),
- /** haunch at the wall / bottom slab inner corner (size = leg of the 45° fillet), diagonal bars at the wall spacing */
- haunch:z.object({size:z.number().finite().min(0).max(600)}).strict().optional(),
+ /** haunch at the wall / bottom slab inner corner (size = leg of the 45° fillet), diagonal bars at the wall spacing;
+  * barEnd (W2a) centre = bar ends at the wall centre / slab mid-depth (≥ 150 past the faces, default of new walls),
+  * ld = Ld past both faces cut at the opposite cover (absent = ld: members saved before W2a keep their steel) */
+ haunch:z.object({size:z.number().finite().min(0).max(600),barEnd:z.enum(['centre','ld']).optional()}).strict().optional(),
  /** pipe sleeves through the walls: BOQ items + trimming bars (x along the segment, z above the wall base) */
  sleeves:z.array(z.object({segment:z.string().max(16),x:mm,z:mm,dia:z.number().finite().min(20).max(1500)}).strict()).max(20).optional(),
 }).strict();

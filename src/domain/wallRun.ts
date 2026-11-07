@@ -103,7 +103,7 @@ export function defaultWallRun(type:WallType):WallRun{
   case 'tank':return {...base,path:{closed:true,segments:[seg('A',4000,250,90),seg('B',3000,250,90),seg('C',4000,250,90),seg('D',3000,250,90)]},levels:[{id:'L1',name:'TANK',bottom:0,top:3,lifts:1}],
    base:{kind:'dowel-slab',embed:'ldh',kicker:150},top:{kind:'bend-into-slab'},waterstop:{joints:true,material:'PVC waterstop 150 mm'},
    rebar:{...base.rebar,outer:{vertical:mesh(12,150),horizontal:mesh(12,150)},inner:{vertical:mesh(12,150),horizontal:mesh(12,150)}},
-   tank:{bottom:{thickness:300,projection:300,rebar:{top:mesh(12,200),bottom:mesh(12,200)}},cover:{thickness:200,rebar:{top:mesh(12,200),bottom:mesh(12,200)},manholes:[{x:1700,y:1200,w:600,h:600}]},haunch:{size:150},sleeves:[]}};
+   tank:{bottom:{thickness:300,projection:300,rebar:{top:mesh(12,200),bottom:mesh(12,200)}},cover:{thickness:200,rebar:{top:mesh(12,200),bottom:mesh(12,200)},manholes:[{x:1700,y:1200,w:600,h:600}]},haunch:{size:150,barEnd:'centre'},sleeves:[]}};
   case 'lift':return {...base,path:{closed:true,segments:[seg('A',2600,250,90),seg('B',2400,250,90),seg('C',2600,250,90),seg('D',2400,250,90)]},
    levels:[1,2,3,4,5].map((n,k)=>({id:`L${n}`,name:`${n}F`,bottom:k*3.2,top:(k+1)*3.2,lifts:1})),base:{kind:'continue',embed:'ldh',kicker:100},top:{kind:'straight'},
    openings:[{id:'D1',label:'ประตูลิฟต์',segment:'A',face:'through',x:700,z:0,w:1200,h:2200,level:'L1',repeat:{levels:['L2','L3','L4']},trim}],
@@ -431,8 +431,13 @@ export function wallRunRaw(i:WallInput,det:Detailing,rounding=25,warn:(s:string)
  if(tank?.haunch&&tank.haunch.size>0&&lv.bottom&&two){const size=tank.haunch.size,d=I.vertical.diameter,Ld=devLength(det,d),zB=lv.zBase;
   for(const s of ax.segs){const t=tIn(s,first),cc=Math.SQRT2*(c.face+d/2)+1,zLo=lv.bottom[0]+c.face+d/2,oMax=t/2-c.face-d/2;
    const zAt=(o:number)=>zB+t/2+size/2-cc+o,oAt=(z:number)=>z-zB-t/2-size/2+cc;
-   const oUp=Math.min(-t/2+Ld/Math.SQRT2,oMax),oLo=Math.max(oAt(zB)-Ld/Math.SQRT2,oAt(zLo));
-   for(const e of entries(s,planes[1],1,first))if(e.kind==='V')push({kind:'B',d,pts:[at(s,e.u,oLo,zAt(oLo)),at(s,e.u,oUp,zAt(oUp))],lift:'BASE',face:'in',what:'เหล็กทแยง Haunch ผนัง–พื้นบ่อ'});}}
+   // ends (W2a): 'centre' = wall centre / bottom slab mid-depth, ≥ 150 past the wall face / slab top, ≤ the opposite cover;
+   // 'ld' (absent = members saved before W2a) = Ld past both faces, cut at the opposite cover / bottom cover (+ note)
+   const centre=tank.haunch.barEnd==='centre',P=150/Math.SQRT2;let oUp:number,oLo:number,short=false;
+   if(centre){oUp=Math.min(Math.max(0,-t/2+P),oMax);const zEnd=Math.max(Math.min((lv.bottom[0]+lv.bottom[1])/2,zB-P),zLo);oLo=oAt(zEnd);}
+   else{const up=-t/2+Ld/Math.SQRT2,lo=oAt(zB)-Ld/Math.SQRT2;oUp=Math.min(up,oMax);oLo=Math.max(lo,oAt(zLo));short=up>oMax+.5||lo<oAt(zLo)-.5;
+    if(short)warn(`Haunch ${s.id}: เหล็กทแยง ${barName(d)} ระยะฝังไม่ครบ Ld ${Math.round(Ld)} mm (ตัดที่แนว cover ผิวตรงข้าม) · เลือก “ถึงกึ่งกลางผนัง” ได้`);}
+   for(const e of entries(s,planes[1],1,first))if(e.kind==='V')push({kind:'B',d,pts:[at(s,e.u,oLo,zAt(oLo)),at(s,e.u,oUp,zAt(oUp))],lift:'BASE',face:'in',what:`เหล็กทแยง Haunch ผนัง–พื้นบ่อ${centre?' (ถึงกึ่งกลางผนัง / พื้น)':short?' (ระยะฝังไม่ครบ Ld)':''}`});}}
  // ---- retaining base: transverse top / bottom (hooked), distribution, key U bars
  if(rt&&lv.base){const [b0,b1]=lv.base,sg=rt.soilSide==='out'?1:-1,R=rt.rebar,dd=R.dist.diameter;
   for(const s of ax.segs){const t=tIn(s,first),oH=sg*(t/2+rt.heel),oT=-sg*(t/2+rt.toe);
