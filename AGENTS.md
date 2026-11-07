@@ -21,7 +21,9 @@
   (BBS wall | lift | face, PDF / DXF / Excel `data/wallRunExcel.ts`). Template keys `Wall:<type>`. W1.1: Marks merged across lifts /
   faces / directions (offsetTurns), sheet through `bbsSheet` branches (`wallPagesOf`, Composer ViewKeys `sec:wall-…`, roles `wall-…`,
   system layout `wallPlanOf`: 1:50 / 1:75, A3 / A2 / A1, storey groups), labels in the views (`placeLabels`). Baseline weights
-  `tests/fixtures/wallRun-v0119.json`. Test `tests/wallRun.test.ts`;
+  `tests/fixtures/wallRun-v0119.json`. W2a: elevation labels stay in their face (`LabelReq.zone`, `WallSheetPage.faces`), leaders never
+  cross openings / opening diagonals (prims `qa: 'opening'`, label check kind `opening`, view `minGap` 1.5), opening bars by side, short code +
+  “ดูรูปขยายช่องเปิด”; haunch `tank.haunch.barEnd` centre | ld (absent = ld). Tests `tests/wallRun.test.ts`, `tests/wallRunW2a.test.ts`;
   UI emulators `tmp/wremu/` (5184).
 - Footing pour stages: input `pour {count, heights}` (last stage = rest, `footingPour()`), UI `FootingPourEditor.tsx`;
   apply writes `member.pourStages.levels`; `pourStageQuantities()` (`solids.ts`) gives concrete / formwork / joint area per

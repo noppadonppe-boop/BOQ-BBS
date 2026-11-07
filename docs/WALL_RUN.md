@@ -1,4 +1,4 @@
-# Wall Run (ผนังต่อเนื่องบนแปลน) — round W1
+# Wall Run (ผนังต่อเนื่องบนแปลน) — round W1 (+ W1.1 sheet, W2a labels round openings / haunch bar ends)
 
 One Wall member = a **Wall Run**: the wall axis on plan (straight / L / U / box / T / drawn) over levels and pour lifts.
 The system builds the concrete, formwork, every bar (corners, junctions, free ends, laps per lift, dowels, top ends,
@@ -21,7 +21,7 @@ results are untouched) and `run`:
 | `waterstop` | `{joints, material}` → BOQ item |
 | `rebar` | `outer` / `inner` `{vertical, horizontal}` (Ø@s each, different faces allowed), `layers 1|2`, `corner ubar|lap-l|hook90`, `tee l-anchor|ubar`, `freeEnd ucap-edge|boundary|plain`, `edgeBar`, `boundary {length, ties, bars}`, `stagger` |
 | `openings` | `{id, label, segment, face through|out|in (+depth), x (along the segment), z (from the level's wall bottom), w, h, level, repeat.levels[], trim {count, Ø, ext ld|lap|mm, diagonal}}` ≤ 30 |
-| `tank` | `bottom {thickness, projection, rebar}`, `cover {thickness, rebar, manholes[]} \| null`, `haunch {size}`, `sleeves[] {segment, x, z, dia}` |
+| `tank` | `bottom {thickness, projection, rebar}`, `cover {thickness, rebar, manholes[]} \| null`, `haunch {size, barEnd? centre \| ld}` (W2a; absent = ld), `sleeves[] {segment, x, z, dia}` |
 | `liftPit` | `{depth, bottomThickness, rebar}` |
 | `retaining` | `toe, heel, baseThickness, key {width, depth}, soilSide out|in, curtail[] {at}, weepHoles, rebar {top, bottom, dist}, formSoilFace` |
 | `converted` | set by “แปลงเป็น Wall Run”: vertical cut lengths follow the old wall (lap added under the base) |
@@ -66,6 +66,13 @@ Outer face: closed path = outside of the loop; open path = **right** of the trav
   U-bar legs stop before openings. Retaining: soil-face main bars, curtailment groups at `at · H + Ld`, base transverse
   bars hooked (21), distribution bars, key U bars. Tank: bottom / cover meshes (cut at manholes + trimmers), haunch
   diagonals, sleeve trims.
+- **Haunch bar ends (W2a)** `tank.haunch.barEnd`: one diagonal per inner vertical, parallel to the 45° fillet.
+  `centre` (default of new tanks, `defaultWallRun('tank')` / the editor when a haunch is added) = the wall end stops at
+  the wall centre plane (o = 0) and the slab end at the bottom slab mid-depth, but each end ≥ 150 mm past the face it
+  crosses (wall face / slab top) and never past the opposite cover → length √2 (t/2 + size/2 − cc + h/2), cc = √2 (cover
+  + d/2) + 1. `ld` (= absent: members saved before W2a keep their steel) = Ld past both faces, cut at the opposite face
+  cover / the bottom cover; when cut, the bar note says “(ระยะฝังไม่ครบ Ld)” and apply warns. The section A–A label
+  gives the length (`W1-B03 DB12 L=425`). UI: radio “ปลายเหล็กทแยง: ถึงกึ่งกลางผนัง / ระยะฝัง Ld” under Haunch.
 - Marks `<code>-V01 / H / C / T / S / OP1 / B / K`. **W1.1:** equal bars share one Mark across lifts, faces and wall
   directions: shape relative to its last point turned about Z to a canonical heading (either polyline direction) →
   offsets + `offsetTurns` (engine turns the template about its last point), else distribution / offsets as before. The
@@ -102,9 +109,23 @@ member's own (Composer) → project default template (category Wall) → **syste
   mm, never crossing, never on a drawn line / text / other label; full label once per Mark per face (+ `TYP.` when the
   Mark repeats on other segments, “· ทุกช่วงเท”), short code (`V01`) elsewhere; toolbar option **ป้ายทุกจุด**
   (`drawingSetup.wallLabels 'all'`). Labels that find no spot are counted (`WallSheetPage.miss`, 0 on the samples).
+- **W2a, labels round openings**: every elevation label has a face = the column of the segment where its anchor is drawn
+  (`LabelReq.zone`); the placer looks inside that face first (above / below the concrete counts), outside it only when
+  the face has no room — then never on another face's concrete and with a leader that crosses no other face. Leaders
+  never cross an opening outline / cross or an opening diagonal bar (`block`; those prims carry `qa: 'opening'`).
+  Opening bars are labelled on their side of the opening (`dir`: top / bottom bars above / below, side bars left /
+  right, diagonals at the outer end of the bar past the corner). Opening bars of the detailed opening (openings[0], all
+  its repeated levels) take the short code inside the face before a full label outside it; such an opening gets
+  “ดูรูปขยายช่องเปิด” at its bottom and the full labels stay in the 1:20 detail (`sec:wall-op`). Label gap 1.6 mm. Up to
+  5 passes (labels left out / outside their face go first in the next pass; best pass wins). `WallSheetPage.faces`
+  lists each label with its face and whether it lies inside (`anchorIn` = anchor inside the face; corner U / L bars drawn
+  in the gap between faces have none).
+- Mark label check (W2a): new kind `opening` (“เส้นชี้ตัดช่องเปิด / เหล็กทแยง”, low) for leaders across prims with
+  `qa: 'opening'`; a view may ask a larger gap (`SheetViewInfo.minGap`, wall views 1.5 mm = `WALL_LABEL_GAP`).
 - BBS presentation `drawingSetup.wallBbs` (or the toolbar), title block on every page, page numbers over the whole set.
 - Mark label check: 0 issues of any level (incl. leaders > 75 mm) on the 4 samples (lift 5 storeys, tank + door, general,
-  retaining). Images before / after: `output/wall-run-verification/after-w1-1/`.
+  retaining). Images before / after: `output/wall-run-verification/after-w1-1/`; W2a `output/wall-run-verification/after-w2a/`
+  (`before-*` = v0.121.0, `after-*`; `liftAll` = doors on every storey).
 
 ### W1 sheet (kept for reference)
 
@@ -121,10 +142,15 @@ also appended to the project Excel export). “แผ่นมาตรฐาน
 `tests/wallRun.test.ts` (old wall unchanged + conversion equal, box corners, L / T methods, lift 5 × 2 + door × 4 + pit,
 tank by hand + waterstop + L bars, retaining by hand + curtailment, thickness steps, RB9 / DB10 / DB12 cover policy,
 templates / backup, sheets: elevations, label check, 3 presentations, DXF → `output/dxf-verification/wallRun-*.dxf` for
-`python tools/qa/dxf_audit.py`). UI check: `tmp/wremu/` (demo-boq-wall, ports 9396 / 8381 / 9596, Vite 5184).
+`python tools/qa/dxf_audit.py`). `tests/wallRunW2a.test.ts`: haunch ends (old / ld = v0.119 weights, centre = only the B
+haunch bars shorter, ends by the formula, thin walls), label rules on lift 5 storeys with a door every storey, tank +
+door, general with 3 openings, retaining (0 label issues, leaders vs openings, gap ≥ 1.5, labels inside their face
+except named no-room cases, opening bars on their side, short code ↔ full label in the detail). UI check: `tmp/wremu/`
+(demo-boq-wall, ports 9396 / 8381 / 9596, Vite 5184).
 
 ## Limits / next rounds
 
 Projection lock between wall views is not offered (unfolded elevations have no shared plan axis). Haunch = equal
-area band; sleeves do not deduct concrete or cut wall bars. Next: counterfort / basement / curved / septic / box culvert
+area band in the quantities (bars follow the drawn 45° fillet); only the first opening gets a 1:20 detail (short codes
+of other openings' bars fall back to full labels outside the face when crowded); sleeves do not deduct concrete or cut wall bars. Next: counterfort / basement / curved / septic / box culvert
 types, walls placed from a slab floor plan or read from drawings (AI), thicker-above detailing.
