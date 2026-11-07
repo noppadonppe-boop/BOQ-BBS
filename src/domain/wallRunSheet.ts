@@ -26,6 +26,8 @@ export type WallLabelMode='typ'|'all';
 export const wallBbsModes:{id:WallBbsMode;label:string}[]=[{id:'wall',label:'ทั้งผนัง'},{id:'lift',label:'แยกตามชั้น / ช่วงเท'},{id:'face',label:'แยกตามด้าน'}];
 export type WallRow={id:string;mark:string;diameter:number;grade:string;shapeCode:string;cutLength:number;count:number;weight:number;eachWeight?:number;paths:V3[][];points?:V3[]};
 export type WallSheetPage={prims:Prim[];views:SheetViewInfo[];w:number;h:number;size:WallPaper;title:string;paper?:{key:ViewKey;box:Box}[];
+ /** elevation labels and their faces (labels outside their face only where the face had no room) */ faces?:LabelFace[];
+ /** opening bar labels left to the opening detail on this page (see Rendered.inDetail) */ inDetail?:number;
  /** Mark labels that found no free spot on this page (the label check cannot see them) */ miss?:number};
 export type WallPaper='A3'|'A2'|'A1';
 const INK='#203940',MUTED='#5f6b6d',LINE='#9aa6a8',CONC='#5b21b6',JOINT='#7c3aed',FADE='#cbd5e1';
@@ -67,8 +69,19 @@ function locate(c:Ctx,p:V3):{k:number;u:number;o:number}|undefined{let best:{k:n
   if(!best||d<best.d||(d===best.d&&Math.abs(o)<Math.abs(best.o)))best={k,u,o,d};});return best;}
 
 // ---------- label placer (inside the view) ----------
-type LabelReq={x:number;y:number;full:string;short:string;mark:string;color:string;n:number;d:number;useShort:boolean};
+type LabelReq={x:number;y:number;full:string;short:string;mark:string;color:string;n:number;d:number;useShort:boolean;
+ /** own face (segment column of an elevation): labels are looked for there first */ zone?:Zone;face?:string;
+ /** preferred side of the anchor (sheet direction): opening bars above / below / beside the opening, diagonals past the corner */ dir?:P2;
+ /** opening bar whose full label is in the opening detail (1:20): the short code in the face comes before a label outside it */ detail?:boolean;op?:number;
+ /** other points on the bar, tried in order when nothing fits at (x, y) */ alts?:P2[]};
 type SB={x0:number;x1:number;y0:number;y1:number};type Seg=[number,number,number,number];
+/** face column of an elevation + its concrete (labels of other faces never go on it, their leaders never cross it) */
+type Zone=SB&{solid?:SB};
+type Placed={i:number;box:SB;inZone:boolean;short:boolean;at:P2};
+/** Gap between a label box and other labels / texts (sheet mm; the label check asks ≥ 1.5 on wall sheets). */
+const LABEL_GAP=1.6;
+/** Minimum gap between label boxes the label check asks on wall sheets (sheet mm). */
+export const WALL_LABEL_GAP=1.5;
 const tbox=(x:number,y:number,t:string,sz:number,anchor?:'start'|'middle'|'end'):SB=>{const w=textWidth(t,sz),x0=anchor==='middle'?x-w/2:anchor==='end'?x-w:x;return {x0,x1:x0+w,y0:y-sz*.8,y1:y+sz*.2};};
 const segsOf=(p:PlainPrim):Seg[]=>{
  if(p.t==='line')return [[p.x1,p.y1,p.x2,p.y2]];
@@ -82,39 +95,79 @@ const segCross=(a:Seg,b:Seg)=>{const o=(px:number,py:number,qx:number,qy:number,
 const boxHit=(a:SB,b:SB,g=0)=>a.x0<b.x1+g&&b.x0<a.x1+g&&a.y0<b.y1+g&&b.y0<a.y1+g;
 const segBB=(s:Seg):SB=>({x0:Math.min(s[0],s[2]),x1:Math.max(s[0],s[2]),y0:Math.min(s[1],s[3]),y1:Math.max(s[1],s[3])});
 /** Places labels around their anchors inside `R` (sheet mm): never on a drawn line / text / other label, leaders ≤ 70 mm,
- * never crossing; full text first, the short code when the full one finds no spot. */
-function placeLabels(reqs:LabelReq[],drawn:Prim[],R:SB,view:string,size=2.1):Prim[]{
- const plain=expandPrims(drawn),asc=size*.8,desc=size*.2,H=asc+desc,gap=1.25;
- const hardB:SB[]=[],hardS:Seg[]=[];
- for(const p of plain){if(p.t==='text'){hardB.push(tbox(p.x,p.y,p.text,p.size,p.anchor));continue;}
-  if(p.t==='circle'){hardB.push({x0:p.cx-p.r,x1:p.cx+p.r,y0:p.cy-p.r,y1:p.cy+p.r});continue;}hardS.push(...segsOf(p));}
- const anchors=reqs.map(r=>({x:r.x,y:r.y})),placedB:SB[]=[],placedS:Seg[]=[],out:Prim[]=[];
- const order=reqs.map((_,i)=>i).sort((a,b)=>Number(reqs[a].useShort)-Number(reqs[b].useShort)||reqs[b].full.length-reqs[a].full.length);
- for(const i of order){const r=reqs[i],{x:ax,y:ay}=anchors[i];let done=false;
-  for(const txt of r.useShort?[r.short]:[r.full,r.short]){const w=textWidth(txt,size);let best:{s:number;x:number;y:number;px:number;py:number;b:SB}|undefined;
-   for(const reach of [30,70]){
-    const near=(b:SB)=>b.x0<ax+reach+w&&b.x1>ax-reach-w&&b.y0<ay+reach+H&&b.y1>ay-reach-H;
-    const hb=[...hardB,...placedB].filter(near),hs=[...hardS,...placedS].filter(s=>near(segBB(s))),others=anchors.filter((_,j)=>j!==i).map(a=>({x0:a.x-.9,x1:a.x+.9,y0:a.y-.9,y1:a.y+.9})).filter(near);
-    const step=1.5,nx=Math.ceil((reach+w)/step),ny=Math.ceil(reach/(H*.6));
-    for(let jy=-ny;jy<=ny;jy++)for(let jx=-nx;jx<=nx;jx++){
-     const x0=ax+jx*step-w/2,yb=ay+jy*H*.6+H/2-desc,b={x0,x1:x0+w,y0:yb-asc,y1:yb+desc};
-     const px=Math.min(Math.max(ax,b.x0),b.x1),py=Math.min(Math.max(ay,b.y0),b.y1),dist=Math.hypot(px-ax,py-ay);
-     if(dist>reach||dist<.7||best&&dist>=best.s)continue;
-     if(b.x0<R.x0||b.x1>R.x1||b.y0<R.y0||b.y1>R.y1)continue;
-     if(hb.some(q=>boxHit(b,q,gap))||others.some(q=>boxHit(b,q,.3))||hs.some(q=>segBox(q,{x0:b.x0-.3,x1:b.x1+.3,y0:b.y0-.3,y1:b.y1+.3})))continue;
-     const lead:Seg=[ax,ay,px,py];if(placedS.some(q=>segCross(q,lead))||placedB.some(q=>segBox(lead,{x0:q.x0-.4,x1:q.x1+.4,y0:q.y0-.4,y1:q.y1+.4})))continue;
-     best={s:dist,x:x0,y:yb,px,py,b};}
-    if(best)break;}
-   if(!best)continue;
-   placedB.push(best.b);placedS.push([ax,ay,best.px,best.py]);hardB.push(best.b);
-   const draw:PlainPrim[]=[{t:'circle',cx:ax,cy:ay,r:.4,fill:r.color,stroke:r.color,width:.1},{t:'line',x1:ax,y1:ay,x2:best.px,y2:best.py,stroke:r.color,width:.15},text(best.x,best.y,txt,size,{color:r.color})];
-   out.push({t:'leader',pts:[[ax,ay],[best.px,best.py]],text:[txt],at:[best.x,best.y],anchor:'start',mark:{mark:r.mark,n:r.n,size:barName(r.d)},arrow:'dot',color:r.color,size,draw,view,layer:'mark',key:`mark:${r.mark}`} as LeaderPrim);done=true;break;}
-  void done;}
- return out;
+ * never crossing each other nor an opening outline / cross / opening diagonal bar (`block`). A label with a face (`zone`)
+ * is looked for inside its face first (on its preferred side `dir` first), outside it only when the face has no room —
+ * then never over another face and with a leader that crosses no other face. Full text first, the short code when the
+ * full one finds no spot (opening bars shown in the detail: short code in the face before the full text outside it). */
+function placeLabels(reqs:LabelReq[],drawn:Prim[],R:SB,view:string,size=2.1,o:{block?:Seg[];zones?:Zone[];order?:number[];passes?:number}={}):{prims:Prim[];placed:Placed[];order:number[]}{
+ const plain=expandPrims(drawn),asc=size*.8,desc=size*.2,H=asc+desc,gap=LABEL_GAP,block=o.block||[],zones=o.zones||[];
+ const hardB0:SB[]=[],hardS:Seg[]=[];
+ for(const p of plain){if(p.t==='text'){hardB0.push(tbox(p.x,p.y,p.text,p.size,p.anchor));continue;}
+  if(p.t==='circle'){hardB0.push({x0:p.cx-p.r,x1:p.cx+p.r,y0:p.cy-p.r,y1:p.cy+p.r});continue;}hardS.push(...segsOf(p));}
+ const anchors=reqs.map(r=>({x:r.x,y:r.y})),REACH=70,step=1.5;
+ // 4 mm grid over the drawn lines / texts (static): a candidate only looks at the cells it touches
+ const CELL=4,ck=(i:number,j:number)=>i*100003+j,cells=(b:SB,f:(k:number)=>boolean|void)=>{for(let i=Math.floor(b.x0/CELL);i<=Math.floor(b.x1/CELL);i++)for(let j=Math.floor(b.y0/CELL);j<=Math.floor(b.y1/CELL);j++)if(f(ck(i,j)))return true;return false;};
+ const index=(bs:SB[])=>{const g=new Map<number,number[]>();bs.forEach((b,n)=>cells(b,k=>{let a=g.get(k);if(!a)g.set(k,a=[]);a.push(n);}));return g;};
+ const gS=index(hardS.map(segBB)),gB=index(hardB0),seenS=new Int32Array(hardS.length),seenB=new Int32Array(hardB0.length);let stamp=0;
+ const hitS=(b:SB)=>{stamp++;return cells(b,k=>{const a=gS.get(k);if(a)for(const n of a){if(seenS[n]===stamp)continue;seenS[n]=stamp;if(segBox(hardS[n],b))return true;}});};
+ const hitB=(b:SB,g:number)=>{stamp++;return cells({x0:b.x0-g,x1:b.x1+g,y0:b.y0-g,y1:b.y1+g},k=>{const a=gB.get(k);if(a)for(const n of a){if(seenB[n]===stamp)continue;seenB[n]=stamp;if(boxHit(b,hardB0[n],g))return true;}});};
+ // candidate offsets (box left / baseline from the anchor) nearest first, per text width: the first one that passes wins
+ const cands=new Map<number,{dx:number;dy:number;px:number;py:number;s:number}[]>();
+ const candsFor=(w:number)=>{const k=Math.round(w*100);let c=cands.get(k);if(c)return c;c=[];const nx=Math.ceil((REACH+w)/step),ny=Math.ceil(REACH/(H*.6));
+  for(let jy=-ny;jy<=ny;jy++)for(let jx=-nx;jx<=nx;jx++){const dx=jx*step-w/2,dy=jy*H*.6+H/2-desc,px=Math.min(Math.max(0,dx),dx+w),py=Math.min(Math.max(0,dy-asc),dy+desc),s=Math.hypot(px,py);
+   if(s<=REACH&&s>=.7)c.push({dx,dy,px,py,s});}
+  c.sort((a,b)=>a.s-b.s);cands.set(k,c);return c;};
+ type Where='zone'|'out'|'any';type Run={prims:Prim[];placed:Placed[];miss:number[];outside:number;len:number};
+ const run=(order:number[]):Run=>{const placedB:SB[]=[],placedS:Seg[]=[],out:Prim[]=[],placed:Placed[]=[],miss:number[]=[];let len=0;
+  const attempt=(i:number,txt:string,where:Where,dir?:P2)=>{const r=reqs[i],{x:ax,y:ay}=anchors[i],w=textWidth(txt,size),Z=r.zone;
+   const lim:SB=where==='zone'&&Z?{x0:Math.max(R.x0,Z.x0),x1:Math.min(R.x1,Z.x1),y0:Math.max(R.y0,Z.y0),y1:Math.min(R.y1,Z.y1)}:R,others=zones.filter(z=>z!==Z);
+   if(lim.x1-lim.x0<w)return undefined;
+   const near=(b:SB)=>b.x0<ax+REACH+w&&b.x1>ax-REACH-w&&b.y0<ay+REACH+H&&b.y1>ay-REACH-H;
+   const bl=block.filter(s=>near(segBB(s))),dots=anchors.filter((_,j)=>j!==i).map(a=>({x0:a.x-.9,x1:a.x+.9,y0:a.y-.9,y1:a.y+.9})).filter(near);
+   const lp=placedS.filter(s=>near(segBB(s))),lb=placedB.filter(near),os=where==='out'?others.map(z=>z.solid||z):[];
+   for(const c of candsFor(w)){const x0=ax+c.dx,yb=ay+c.dy,b={x0,x1:x0+w,y0:yb-asc,y1:yb+desc},px=ax+c.px,py=ay+c.py;
+    if(b.x0<lim.x0||b.x1>lim.x1||b.y0<lim.y0||b.y1>lim.y1)continue;
+    if(dir){if(dir[0]===0||dir[1]===0){if(dir[1]<0&&b.y1>ay||dir[1]>0&&b.y0<ay||dir[0]<0&&b.x1>ax||dir[0]>0&&b.x0<ax)continue;}
+     else{const cx=(b.x0+b.x1)/2-ax,cy=(b.y0+b.y1)/2-ay;if(cx*dir[0]<0||cy*dir[1]<0)continue;}}
+    if(os.some(q=>boxHit(b,q,.3)))continue;
+    if(lb.some(q=>boxHit(b,q,gap))||dots.some(q=>boxHit(b,q,.3))||hitB(b,gap))continue;
+    const bp={x0:b.x0-.3,x1:b.x1+.3,y0:b.y0-.3,y1:b.y1+.3};if(lp.some(q=>segBox(q,bp))||hitS(bp))continue;
+    const lead:Seg=[ax,ay,px,py];if(lp.some(q=>segCross(q,lead))||bl.some(q=>segCross(q,lead))||lb.some(q=>segBox(lead,{x0:q.x0-.4,x1:q.x1+.4,y0:q.y0-.4,y1:q.y1+.4})))continue;
+    if(os.some(q=>segBox(lead,{x0:q.x0+.2,x1:q.x1-.2,y0:q.y0+.2,y1:q.y1-.2})))continue;
+    return {s:c.s,x:x0,y:yb,px,py,b};}
+   return undefined;};
+  for(let k=0;k<reqs.length;k++)anchors[k]={x:reqs[k].x,y:reqs[k].y};
+  for(const i of order){const r=reqs[i],F=r.full,S=r.short,first:Where=r.zone?'zone':'any';
+   const steps:[string,Where,P2|undefined][]=[],add=(t:string,w:Where)=>{if(r.dir)steps.push([t,w,r.dir]);steps.push([t,w,undefined]);};
+   if(r.useShort){add(S,first);if(r.zone)add(S,'out');}
+   else if(!r.zone){add(F,'any');add(S,'any');}
+   else if(r.detail){add(F,'zone');add(S,'zone');add(F,'out');add(S,'out');}
+   else{add(F,'zone');add(F,'out');add(S,'zone');add(S,'out');}
+   let done=false;
+   for(const A of [[r.x,r.y] as P2,...(r.alts||[])]){anchors[i]={x:A[0],y:A[1]};const ax=A[0],ay=A[1];
+   for(const [txt,where,dir] of steps){const best=attempt(i,txt,where,dir);if(!best)continue;
+    placedB.push(best.b);placedS.push([ax,ay,best.px,best.py]);len+=best.s;
+    placed.push({i,box:best.b,inZone:!r.zone||best.b.x0>=r.zone.x0-.01&&best.b.x1<=r.zone.x1+.01,short:txt===S&&txt!==F,at:[ax,ay]});
+    const draw:PlainPrim[]=[{t:'circle',cx:ax,cy:ay,r:.4,fill:r.color,stroke:r.color,width:.1},{t:'line',x1:ax,y1:ay,x2:best.px,y2:best.py,stroke:r.color,width:.15},text(best.x,best.y,txt,size,{color:r.color})];
+    out.push({t:'leader',pts:[[ax,ay],[best.px,best.py]],text:[txt],at:[best.x,best.y],anchor:'start',mark:{mark:r.mark,n:r.n,size:barName(r.d)},arrow:'dot',color:r.color,size,draw,view,layer:'mark',key:`mark:${r.mark}`} as LeaderPrim);done=true;break;}
+   if(done)break;}
+   if(!done){anchors[i]={x:r.x,y:r.y};miss.push(i);}}
+  return {prims:out,placed,miss,outside:placed.filter(p=>!p.inZone).length,len};};
+ // labels left out go first in the next pass (≤ 4 passes); the best pass wins: fewest left out, then fewest outside their face
+ let order=o.order||reqs.map((_,i)=>i).sort((a,b)=>Number(reqs[a].useShort)-Number(reqs[b].useShort)||reqs[b].full.length-reqs[a].full.length),best=run(order),bestOrder=order;
+ const hard=(r:Run)=>r.miss.filter(i=>!reqs[i].detail).length;
+ for(let k=0;k<(o.passes??5)-1&&(hard(best)||best.outside&&k<1);k++){const m=new Set(k&&best.miss.length?best.miss:[...best.miss,...best.placed.filter(p=>!p.inZone).map(p=>p.i)]);if(!m.size)break;
+  order=[...order.filter(i=>m.has(i)),...order.filter(i=>!m.has(i))];const next=run(order);
+  if(next.miss.length<best.miss.length||next.miss.length===best.miss.length&&(next.outside<best.outside||next.outside===best.outside&&next.len<best.len)){best=next;bestOrder=order;}}
+ return {prims:best.prims,placed:best.placed,order:bestOrder};
 }
 
 // ---------- views ----------
-type Rendered={prims:Prim[];info?:SheetViewInfo;n:number;fits:boolean;miss:number};
+type Rendered={prims:Prim[];info?:SheetViewInfo;n:number;fits:boolean;miss:number;
+ /** elevation labels with their face (segment column) and whether the label box lies inside it */ faces?:LabelFace[];
+ /** opening bar labels with no spot in a crowded elevation, left to the opening detail (1:20, “ดูรูปขยายช่องเปิด”) */ inDetail?:number};
+export type LabelFace={view:string;face:string;mark:string;zone:SB;label:SB;inside:boolean;
+ /** the anchor (point on the bar) lies inside its face column (corner bars / L bars drawn in the gap between faces do not) */ anchorIn:boolean};
 type Win={u0:number;u1:number;z0:number;z1:number};
 const TITLE=9,LEFT=17;
 const levelName=(c:Ctx,l:{level:number})=>l.level<0?'PIT':c.lvs[l.level]?.name||'';
@@ -124,7 +177,11 @@ function elevation(c:Ctx,face:'out'|'in',box:Box,id:string,title:string,win:Win,
  const lv=c.lv,run=c.i.run!,W=win,iw=box.w-LEFT-3,ih=box.h-TITLE-3;
  const sc=o.n?fitScale(W.u1-W.u0,W.z1-W.z0,iw,ih,o.n):{n:autoScale(W.u1-W.u0,W.z1-W.z0,iw,ih,o.want||20),fits:true},n=sc.n;
  const ox=box.x+LEFT+(iw-(W.u1-W.u0)/n)/2,oy=box.y+TITLE+(ih-(W.z1-W.z0)/n)/2,X=(u:number)=>ox+(u-W.u0)/n,Y=(z:number)=>oy+(W.z1-z)/n;
- const R:SB={x0:X(W.u0),x1:X(W.u1),y0:Y(W.z1),y1:Y(W.z0)},g:Prim[]=[];
+ const R:SB={x0:X(W.u0),x1:X(W.u1),y0:Y(W.z1),y1:Y(W.z0)},g:Prim[]=[],block:Seg[]=[],opR:(SB&{first:boolean})[]=[];
+ // faces: segment columns (inside the view), where each segment's labels are looked for first
+ const L0={x0:box.x+1,x1:box.x+box.w-1,y0:box.y+TITLE,y1:box.y+box.h-1},zones:Zone[]=c.segs.map((s,k)=>{const x0=Math.max(X(c.offs[k]),R.x0,L0.x0),x1=Math.min(X(c.offs[k]+s.len),R.x1,L0.x1);
+  return {x0,x1,y0:L0.y0,y1:L0.y1,solid:{x0,x1,y0:Math.max(Y(c.zHi),R.y0),y1:Math.min(Y(c.zLo),R.y1)}};});
+ const op0=run.openings[0],opDetail=!o.focus&&!!op0&&c.segs.some(s=>s.id===op0.segment);
  c.segs.forEach((s,k)=>{const u0=c.offs[k],u1=u0+s.len;
   g.push({...rect({x:X(u0),y:Y(lv.zTop),w:s.len/n,h:(lv.zTop-lv.zBase)/n},{stroke:CONC,width:.35}),layer:'concrete'} as Prim);
   for(const b of [lv.bottom,lv.cover,lv.pit,lv.base])if(b)g.push({...rect({x:X(u0),y:Y(b[1]),w:s.len/n,h:(b[1]-b[0])/n},{stroke:CONC,width:.25,fill:'#f1f5f9'}),layer:'concrete'} as Prim);
@@ -132,8 +189,9 @@ function elevation(c:Ctx,face:'out'|'in',box:Box,id:string,title:string,win:Win,
   for(const l of lv.lifts.slice(1))g.push({...line(X(u0),Y(l.z0),X(u1),Y(l.z0),JOINT,l.k===0?.3:.2,l.k===0?undefined:[1.6,.8]),layer:'symbol'} as Prim);});
  for(const op of run.openings){const k=c.segs.findIndex(s=>s.id===op.segment);if(k<0)continue;if(op.face!=='through'&&op.face!==face)continue;
   for(const L of [op.level||c.lvs[0].id,...(op.repeat?.levels||[])]){const ls=lv.lifts.filter(l=>l.level>=0&&c.lvs[l.level].id===L);if(!ls.length)continue;
-   const z0=ls[0].z0+op.z,u0=c.offs[k]+op.x;g.push({...rect({x:X(u0),y:Y(z0+op.h),w:op.w/n,h:op.h/n},{stroke:CONC,width:.3,fill:'#ffffff'}),layer:'concrete'} as Prim,
-    {...line(X(u0),Y(z0),X(u0+op.w),Y(z0+op.h),LINE,.15),layer:'concreteHidden'} as Prim,{...line(X(u0),Y(z0+op.h),X(u0+op.w),Y(z0),LINE,.15),layer:'concreteHidden'} as Prim);}}
+   const z0=ls[0].z0+op.z,u0=c.offs[k]+op.x,r0={x0:X(u0),x1:X(u0+op.w),y0:Y(z0+op.h),y1:Y(z0)};g.push({...rect({x:X(u0),y:Y(z0+op.h),w:op.w/n,h:op.h/n},{stroke:CONC,width:.3,fill:'#ffffff'}),layer:'concrete',qa:'opening'} as Prim,
+    {...line(X(u0),Y(z0),X(u0+op.w),Y(z0+op.h),LINE,.15),layer:'concreteHidden',qa:'opening'} as Prim,{...line(X(u0),Y(z0+op.h),X(u0+op.w),Y(z0),LINE,.15),layer:'concreteHidden',qa:'opening'} as Prim);
+   opR.push({...r0,first:op===run.openings[0]});block.push([r0.x0,r0.y0,r0.x1,r0.y0],[r0.x1,r0.y0,r0.x1,r0.y1],[r0.x1,r0.y1,r0.x0,r0.y1],[r0.x0,r0.y1,r0.x0,r0.y0],[r0.x0,r0.y1,r0.x1,r0.y0],[r0.x0,r0.y0,r0.x1,r0.y1]);}}
  // bars: one representative per Mark per segment (+ distribution line); labels only where the rep lies in the window
  const reqs:LabelReq[]=[],labelled=new Set<string>(),labels=o.labels!==false;
  for(const row of c.rows){const s=c.sets.get(row.id);if(!s||s.kind==='B'||s.kind==='K')continue;const faded=!!o.focus&&!o.focus.includes(s.kind),color=faded?FADE:KIND_COLOR[s.kind];
@@ -143,24 +201,39 @@ function elevation(c:Ctx,face:'out'|'in',box:Box,id:string,title:string,win:Win,
    const zs=p.map(q=>q[2]);if(Math.max(...zs)<W.z0||Math.min(...zs)>W.z1)continue;
    const list=bySeg.get(at.k)||[];list.push({path:p,a:{u:c.offs[at.k]+at.u,z:p[0][2]}});bySeg.set(at.k,list);}
   const segsOfMark=bySeg.size;
-  for(const [,list] of [...bySeg].sort((a,b)=>a[0]-b[0])){
+  for(const [k0,list] of [...bySeg].sort((a,b)=>a[0]-b[0])){
    const wc={u:(W.u0+W.u1)/2,z:(W.z0+W.z1)/2},inside=list.filter(x=>x.a.z>=W.z0&&x.a.z<=W.z1),pool=inside.length?inside:list,rep=o.focus?pool.reduce((b,x)=>Math.hypot(x.a.u-wc.u,x.a.z-wc.z)<Math.hypot(b.a.u-wc.u,b.a.z-wc.z)?x:b):pool[Math.floor(pool.length/2)],pts:P2[]=[];
    for(let j=1;j<rep.path.length;j++){const a=rep.path[j-1],b=rep.path[j],mid:V3=[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2],L=locate(c,mid);if(!L)continue;const s2=c.segs[L.k];
     const ua=c.offs[L.k]+(a[0]-s2.a[0])*s2.dir[0]+(a[1]-s2.a[1])*s2.dir[1],ub=c.offs[L.k]+(b[0]-s2.a[0])*s2.dir[0]+(b[1]-s2.a[1])*s2.dir[1];
     if(Math.abs(ua-ub)<1&&Math.abs(a[2]-b[2])<1)continue;if(!pts.length)pts.push([X(ua),Y(a[2])]);pts.push([X(ub),Y(b[2])]);}
    if(pts.length<2)continue;
-   g.push({t:'poly',pts,closed:false,stroke:color,width:faded?.25:.45,layer:faded?'barRef':s.kind==='C'||s.kind==='T'?'barLink':'barMain',group:row.id} as Prim);
+   // opening bars: side of the opening they belong to (top / bottom / left / right / diagonal past the corner)
+   let opSide:{dir:P2;at?:P2;op:number}|undefined;
+   if(s.kind==='OP'&&opR.length){const a=pts[0],b=pts[pts.length-1],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,dx=b[0]-a[0],dy=b[1]-a[1];
+    const dTo=(r:SB)=>Math.hypot(Math.max(r.x0-mx,0,mx-r.x1),Math.max(r.y0-my,0,my-r.y1)),k=opR.reduce((bi,r,i)=>dTo(r)<dTo(opR[bi])?i:bi,0),r=opR[k],cx=(r.x0+r.x1)/2,cy=(r.y0+r.y1)/2;
+    if(Math.abs(dx)>3*Math.abs(dy))opSide={dir:[0,my<cy?-1:1],op:k};else if(Math.abs(dy)>3*Math.abs(dx))opSide={dir:[mx<cx?-1:1,0],op:k};
+    else{const far=Math.hypot(a[0]-cx,a[1]-cy)>Math.hypot(b[0]-cx,b[1]-cy)?a:b,near=far===a?b:a,ex=far[0]-cx,ey=far[1]-cy;
+     opSide={dir:[Math.sign(ex)||1,Math.sign(ey)||1],at:[near[0]+(far[0]-near[0])*.97,near[1]+(far[1]-near[1])*.97],op:k};
+     if(!faded)for(let j=1;j<pts.length;j++)block.push([pts[j-1][0],pts[j-1][1],pts[j][0],pts[j][1]]);}}
+   const diag=!!opSide?.at&&!faded;
+   g.push({t:'poly',pts,closed:false,stroke:color,width:faded?.25:.45,layer:faded?'barRef':s.kind==='C'||s.kind==='T'?'barLink':'barMain',group:row.id,...(diag?{qa:'opening'}:{})} as Prim);
    if(list.length>1&&!faded){const us=list.map(x=>x.a.u),zs=list.map(x=>Math.min(Math.max(x.a.z,W.z0),W.z1)),du=Math.max(...us)-Math.min(...us),dz=Math.max(...zs)-Math.min(...zs);
     if(du>=dz){const yy=Math.min(Math.max((pts[0][1]+pts[pts.length-1][1])/2+.9,R.y0),R.y1);g.push(line(X(Math.min(...us)),yy,X(Math.max(...us)),yy,color,.15),{t:'circle',cx:X(Math.min(...us)),cy:yy,r:.3,stroke:color,width:.12} as Prim,{t:'circle',cx:X(Math.max(...us)),cy:yy,r:.3,stroke:color,width:.12} as Prim);}
     else{const xx=(pts[0][0]+pts[pts.length-1][0])/2+.9;g.push(line(xx,Y(Math.max(...zs)),xx,Y(Math.min(...zs)),color,.15),{t:'circle',cx:xx,cy:Y(Math.max(...zs)),r:.3,stroke:color,width:.12} as Prim,{t:'circle',cx:xx,cy:Y(Math.min(...zs)),r:.3,stroke:color,width:.12} as Prim);}}
    if(!labels||faded)continue;
    // anchor on the longest drawn piece inside the window
-   let best:{x:number;y:number;l:number}|undefined;
-   for(let j=1;j<pts.length;j++){const a=pts[j-1],b=pts[j],cl=(t:number):P2=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
-    for(const t of [.5,.35,.65,.25,.75]){const q=cl(t);if(q[0]>R.x0+.5&&q[0]<R.x1-.5&&q[1]>R.y0+.5&&q[1]<R.y1-.5){const l=Math.hypot(b[0]-a[0],b[1]-a[1]);if(!best||l>best.l)best={x:q[0],y:q[1],l};break;}}}
+   let best:{x:number;y:number;l:number;j:number}|undefined;const inR=(q:P2)=>q[0]>R.x0+.5&&q[0]<R.x1-.5&&q[1]>R.y0+.5&&q[1]<R.y1-.5;
+   const on=(j:number,t:number):P2=>[pts[j-1][0]+(pts[j][0]-pts[j-1][0])*t,pts[j-1][1]+(pts[j][1]-pts[j-1][1])*t];
+   for(let j=1;j<pts.length;j++){const a=pts[j-1],b=pts[j];
+    for(const t of [.5,.35,.65,.25,.75]){const q=on(j,t);if(inR(q)){const l=Math.hypot(b[0]-a[0],b[1]-a[1]);if(!best||l>best.l)best={x:q[0],y:q[1],l,j};break;}}}
+   let alts:P2[]=[];
+   if(opSide?.at&&inR(opSide.at)){best={x:opSide.at[0],y:opSide.at[1],l:0,j:1};const far=opSide.at,near0=Math.hypot(pts[0][0]-far[0],pts[0][1]-far[1])>Math.hypot(pts[pts.length-1][0]-far[0],pts[pts.length-1][1]-far[1])?pts[0]:pts[pts.length-1];
+    alts=[.5].map(t=>[near0[0]+(far[0]-near0[0])*t,near0[1]+(far[1]-near0[1])*t] as P2).filter(inR);}
    if(!best)continue;
    const first=!labelled.has(s.mark),full=`${setText(c.i,s,row,face)}${s.every?' · ทุกช่วงเท':''}${c.labels==='typ'&&segsOfMark>1?' TYP.':''}`;labelled.add(s.mark);
-   reqs.push({x:best.x,y:best.y,full,short:shortCode(s.mark),mark:s.mark,color,n:row.count,d:row.diameter,useShort:c.labels==='typ'&&!first});}}
+   const zk=zones.findIndex(z=>best!.x>=z.x0&&best!.x<=z.x1),k=zk>=0?zk:k0;
+   reqs.push({x:best.x,y:best.y,full,short:shortCode(s.mark),mark:s.mark,color,n:row.count,d:row.diameter,useShort:c.labels==='typ'&&!first,zone:zones[k],face:c.segs[k].id,alts,
+    ...(opSide?{dir:opSide.dir,op:opSide.op,detail:opDetail&&opR[opSide.op].first}:{})});}}
  const geo=clipPrims(g,{kind:'rect',x0:R.x0-.01,y0:R.y0-.01,x1:R.x1+.01,y1:R.y1+.01});
  // break lines where the window cuts the wall (storey groups)
  const brk=(y:number)=>{const pts:P2[]=[[R.x0-2,y]];for(let x=R.x0;x<R.x1;x+=6)pts.push([x+2,y],[x+3,y-1.2],[x+4,y+1.2],[x+5,y]);pts.push([R.x1+2,y]);return {t:'poly',pts,closed:false,stroke:MUTED,width:.2,layer:'symbol'} as Prim;};
@@ -170,9 +243,16 @@ function elevation(c:Ctx,face:'out'|'in',box:Box,id:string,title:string,win:Win,
  for(const l of lv.lifts)if((l.k===0||l.level<0)&&l.z0>=W.z0&&l.z0<=W.z1)marks.push(line(R.x0-LEFT+1,Y(l.z0),R.x0-1,Y(l.z0),MUTED,.15),text(R.x0-LEFT+1,Y(l.z0)-.5,`${levelName(c,l)} ${l.z0>=0?'+':''}${(l.z0/1000).toFixed(3)}`,1.7,{color:MUTED}));
  if(lv.zTop>=W.z0&&lv.zTop<=W.z1)marks.push(line(R.x0-LEFT+1,Y(lv.zTop),R.x0-1,Y(lv.zTop),MUTED,.15),text(R.x0-LEFT+1,Y(lv.zTop)-.5,`T.O.W. ${(lv.zTop/1000).toFixed(3)}`,1.7,{color:MUTED}));
  if(!o.focus)c.segs.forEach((s,k)=>{const cx=X(c.offs[k]+s.len/2);if(cx>R.x0&&cx<R.x1)marks.push(text(cx,R.y0-1,`${s.id} · ${s.len}`,2,{bold:true,anchor:'middle',color:CONC}));});
- const lab=placeLabels(reqs,[...geo,...marks],{x0:box.x+1,x1:box.x+box.w-1,y0:box.y+TITLE,y1:box.y+box.h-1},id);
- const info:SheetViewInfo={id,title,box,n,s:1/n,fits:sc.fits,axes:[0,2],origin:{sheet:[ox,oy],model:[W.u0,W.z1]}};
- return {prims:tagPrims([...geo,...marks,...lab],{view:id}),info,n,fits:sc.fits,miss:reqs.length-lab.length};
+ const zs=zones.filter(z=>z.x1-z.x0>1),place=()=>placeLabels(reqs,[...geo,...marks],L0,id,2.1,{block,zones:zs});let lab=place();
+ // opening bars left with the short code: “ดูรูปขยายช่องเปิด” at the bottom of the opening (full labels in the 1:20 detail), placed again round it
+ // + opening bars of the detailed opening with no spot at all: their full label is in the detail (not counted as left out)
+ const deferred=(l:typeof lab)=>{const got=new Set(l.placed.map(p=>p.i));return reqs.map((r,i)=>i).filter(i=>!got.has(i)&&reqs[i].detail);};
+ const notes=[...new Set([...lab.placed.filter(p=>p.short&&reqs[p.i].detail&&!reqs[p.i].useShort).map(p=>reqs[p.i].op!),...deferred(lab).map(i=>reqs[i].op!)])];
+ if(notes.length){for(const k of notes){const r=opR[k];marks.push(text((r.x0+r.x1)/2,r.y1-1.2,'ดูรูปขยายช่องเปิด',1.6,{anchor:'middle',color:MUTED,halo:true,layer:'text'}));}
+  const again=placeLabels(reqs,[...geo,...marks],L0,id,2.1,{block,zones:zs,order:lab.order});if(again.prims.length>=lab.prims.length)lab=again;else marks.splice(marks.length-notes.length,notes.length);}
+ const info:SheetViewInfo={id,title,box,n,s:1/n,fits:sc.fits,axes:[0,2],origin:{sheet:[ox,oy],model:[W.u0,W.z1]},minGap:WALL_LABEL_GAP};
+ const faces=lab.placed.map(p=>{const r=reqs[p.i],z=r.zone!;return {view:id,face:r.face||'',mark:r.mark,zone:z,label:p.box,inside:p.inZone,anchorIn:p.at[0]>z.x0+.01&&p.at[0]<z.x1-.01};});
+ return {prims:tagPrims([...geo,...marks,...lab.prims],{view:id}),info,n,fits:sc.fits,miss:reqs.length-lab.prims.length-deferred(lab).length,faces,inDetail:deferred(lab).length};
 }
 /** Plan detail (corner / T / free end) around `center` (radius r). */
 function planDetail(c:Ctx,box:Box,id:string,title:string,center:P2,r:number,want:number|'auto'):Rendered{
@@ -188,8 +268,8 @@ function planDetail(c:Ctx,box:Box,id:string,title:string,center:P2,r:number,want
     if(!labelled){let a:P2|undefined;for(let j=1;j<pts.length&&!a;j++){const m:P2=[(pts[j-1][0]+pts[j][0])/2,(pts[j-1][1]+pts[j][1])/2];if(m[0]>R.x0+2&&m[0]<R.x1-2&&m[1]>R.y0+2&&m[1]<R.y1-2)a=m;}
      if(a){reqs.push({x:a[0],y:a[1],full:`${s.mark} ${barName(row.diameter)}`,short:shortCode(s.mark),mark:s.mark,color,n:row.count,d:row.diameter,useShort:false});labelled=true;}}}
    else if(!flat&&p.some(q=>q[2]<=z0&&q[2]>=z0-2000)&&Math.hypot(p[0][0]-center[0],p[0][1]-center[1])<r*1.4){const q=p[0];g.push({t:'circle',cx:X(q[0]),cy:Y(q[1]),r:Math.max(.35,row.diameter/2/n),fill:color,stroke:color,width:.1,layer:'barMain'} as Prim);}}}
- const geo=clipPrims(g,{kind:'rect',...R}),head=[text(box.x,box.y+4.5,`${title} · 1:${n}`,2.6,{bold:true,layer:'text'})],lab=placeLabels(reqs,[...geo,...head],{x0:box.x+1,x1:box.x+box.w-1,y0:box.y+TITLE,y1:box.y+box.h-1},id);
- return {prims:tagPrims([...geo,...head,...lab],{view:id}),info:{id,title,box,n,s:1/n,fits:sc.fits,axes:[0,1],origin:{sheet:[cx,cy],model:[center[0],center[1]]}},n,fits:sc.fits,miss:reqs.length-lab.length};
+ const geo=clipPrims(g,{kind:'rect',...R}),head=[text(box.x,box.y+4.5,`${title} · 1:${n}`,2.6,{bold:true,layer:'text'})],lab=placeLabels(reqs,[...geo,...head],{x0:box.x+1,x1:box.x+box.w-1,y0:box.y+TITLE,y1:box.y+box.h-1},id).prims;
+ return {prims:tagPrims([...geo,...head,...lab],{view:id}),info:{id,title,box,n,s:1/n,fits:sc.fits,axes:[0,1],origin:{sheet:[cx,cy],model:[center[0],center[1]]},minGap:WALL_LABEL_GAP},n,fits:sc.fits,miss:reqs.length-lab.length};
 }
 /** Section geometry window of segment 1 (model o, z). */
 function sectionWin(c:Ctx){const run=c.i.run!,t=c.segs[0].t,rt=run.retaining;
@@ -223,13 +303,13 @@ function section(c:Ctx,box:Box,id:string,want:number|'auto'):Rendered{
    for(let j=1;j<loc.length;j++){const a=loc[j-1],b=loc[j];if((a.u-uc)*(b.u-uc)<0){const f=(uc-a.u)/(b.u-a.u);dots.push([X(a.o+(b.o-a.o)*f),Y(a.z+(b.z-a.z)*f)]);}}}
   if(best){const pts=best.p.map(q=>{const dx=q[0]-s.a[0],dy=q[1]-s.a[1];return [X(dx*s.out[0]+dy*s.out[1]),Y(q[2])] as P2;});g.push({t:'poly',pts,closed:false,stroke:color,width:.45,layer:'barMain'} as Prim);
    const j=pts.reduce((b,_,k)=>k&&Math.hypot(pts[k][0]-pts[k-1][0],pts[k][1]-pts[k-1][1])>b.l?{k,l:Math.hypot(pts[k][0]-pts[k-1][0],pts[k][1]-pts[k-1][1])}:b,{k:1,l:0}).k;
-   reqs.push({x:(pts[j][0]+pts[j-1][0])/2,y:(pts[j][1]+pts[j-1][1])/2,full:`${st.mark} ${barName(row.diameter)}`,short:shortCode(st.mark),mark:st.mark,color,n:row.count,d:row.diameter,useShort:false});}
+   reqs.push({x:(pts[j][0]+pts[j-1][0])/2,y:(pts[j][1]+pts[j-1][1])/2,full:`${st.mark} ${barName(row.diameter)}${/Haunch/.test(st.what)?` L=${row.cutLength}${/ไม่ครบ Ld/.test(st.what)?' (ระยะฝังไม่ครบ Ld)':''}`:''}`,short:shortCode(st.mark),mark:st.mark,color,n:row.count,d:row.diameter,useShort:false});}
   for(const d of dots)g.push({t:'circle',cx:d[0],cy:d[1],r:Math.max(.3,row.diameter/2/n),fill:color,stroke:color,width:.1,layer:'barMain'} as Prim);
   if(!best&&dots.length&&(st.kind==='H'||st.kind==='B'||st.kind==='K')){const d=dots[Math.floor(dots.length/2)];reqs.push({x:d[0]+.6,y:d[1],full:`${st.mark} ${barName(row.diameter)}`,short:shortCode(st.mark),mark:st.mark,color,n:row.count,d:row.diameter,useShort:false});}}
  const head=[text(box.x,box.y+4.5,`รูปตัด A–A ผ่าน ${s.id} (u = ${uc}) · 1:${n}`,2.6,{bold:true,layer:'text'}),
   text(box.x+1,box.y+box.h-1.5,`C.J. = รอยต่อการเท${run.waterstop?.joints?` + WATERSTOP ${run.waterstop.material}`:''}${run.base.kicker?` · KICKER ${run.base.kicker}`:''} · ทาบ ${barName(run.rebar.outer.vertical.diameter)} = ${Math.round(lapLength(det,run.rebar.outer.vertical.diameter))} mm ทุกช่วงเท${run.rebar.stagger?' (เหลื่อม 50%)':''}`,1.7,{color:MUTED})];
- const lab=placeLabels(reqs,[...g,...head],{x0:box.x+1,x1:box.x+box.w-1,y0:box.y+TITLE,y1:box.y+box.h-5},id);
- return {prims:tagPrims([...clipPrims(g,{kind:'rect',x0:box.x,y0:box.y,x1:box.x+box.w,y1:box.y+box.h}),...head,...lab],{view:id}),info:{id,title:'รูปตัด A–A',box,n,s:1/n,fits:sc.fits,axes:[1,2],origin:{sheet:[ox,oy],model:[oR,zHi]}},n,fits:sc.fits,miss:reqs.length-lab.length};
+ const lab=placeLabels(reqs,[...g,...head],{x0:box.x+1,x1:box.x+box.w-1,y0:box.y+TITLE,y1:box.y+box.h-5},id).prims;
+ return {prims:tagPrims([...clipPrims(g,{kind:'rect',x0:box.x,y0:box.y,x1:box.x+box.w,y1:box.y+box.h}),...head,...lab],{view:id}),info:{id,title:'รูปตัด A–A',box,n,s:1/n,fits:sc.fits,axes:[1,2],origin:{sheet:[ox,oy],model:[oR,zHi]},minGap:WALL_LABEL_GAP},n,fits:sc.fits,miss:reqs.length-lab.length};
 }
 // ---------- paper views ----------
 function standardDetails(c:Ctx,box:Box):Prim[]{
@@ -451,19 +531,19 @@ export function wallSheetPages(m:Member,rows:WallRow[],project:Project,o:WallShe
  const defs=new Map(viewDefs(c,plan.groups,plan.n,p.mode,p.qty).map(d=>[d.key,d]));
  const pages:WallSheetPage[]=[];let total=0;const tot=()=>total;
  layout.sheets.forEach((sh,si)=>{const out:Prim[]=[...frame(P),text(WALL_SHEET.m+3,WALL_SHEET.m+7,title,3.6,{bold:true,layer:'titleBlock'}),
-   {...line(WALL_SHEET.m,WALL_SHEET.m+WALL_SHEET.head,P.w-WALL_SHEET.m,WALL_SHEET.m+WALL_SHEET.head,INK,.3),layer:'titleBlock'} as Prim],views:SheetViewInfo[]=[],paper:{key:ViewKey;box:Box}[]=[];let miss=0;
+   {...line(WALL_SHEET.m,WALL_SHEET.m+WALL_SHEET.head,P.w-WALL_SHEET.m,WALL_SHEET.m+WALL_SHEET.head,INK,.3),layer:'titleBlock'} as Prim],views:SheetViewInfo[]=[],paper:{key:ViewKey;box:Box}[]=[],faces:LabelFace[]=[];let miss=0,inDetail=0;
   for(const pv of sh.views){const d=defs.get(pv.view);if(!d)continue;const box={x:pv.x,y:pv.y,w:pv.w,h:pv.h};
    if(d.paper){out.push(...d.render(box,'auto').prims);paper.push({key:d.key,box});continue;}
    if(pv.show?.marks===false){/* labels off */}
-   const r=d.render(box,pv.n);miss+=pv.show?.marks===false?0:r.miss;out.push(...(pv.show?.marks===false?r.prims.filter(q=>q.t!=='leader'):r.prims));if(r.info)views.push({...r.info,key:d.key,title:d.title});}
-  pages.push({prims:out,views,w:P.w,h:P.h,size,title:`แบบ ${si+1}`,paper,miss});});
+   const r=d.render(box,pv.n);miss+=pv.show?.marks===false?0:r.miss;if(r.faces&&pv.show?.marks!==false)faces.push(...r.faces);inDetail+=r.inDetail||0;out.push(...(pv.show?.marks===false?r.prims.filter(q=>q.t!=='leader'):r.prims));if(r.info)views.push({...r.info,key:d.key,title:d.title});}
+  pages.push({prims:out,views,w:P.w,h:P.h,size,title:`แบบ ${si+1}`,paper,miss,faces,...(inDetail?{inDetail}:{})});});
  pages.push(...bbsPages(c,P,size,project,o,p.mode,p.qty,pages.length,tot,title));
  total=pages.length;
  pages.forEach((pg,k)=>{if(k<layout.sheets.length)titleBlock(pg.prims,P,m,project,o,k,total,title);});
  return pages;
 }
 /** Label views of a page for the Mark label check (`labelReport`). */
-export const wallSheetLabelViews=(p:WallSheetPage)=>p.views.map(v=>({id:v.id,title:v.title,box:v.box}));
+export const wallSheetLabelViews=(p:WallSheetPage)=>p.views.map(v=>({id:v.id,title:v.title,box:v.box,minGap:v.minGap}));
 /** Old entry point (W1): every page with the options. */
 export function wallRunSheets(m:Member,rows:WallRow[],project:Project,o:WallSheetOpts):WallSheetPage[]{return wallSheetPages(m,rows,project,o);}
 // ---------- adapter for the BBS sheet engine (bbsSheet.ts / Sheet Composer) ----------

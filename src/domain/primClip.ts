@@ -21,7 +21,7 @@ export function clipPrims(prims:Prim[],s:ClipShape):Prim[]{
  const out:Prim[]=[];
  const segs=(p:PlainPrim&{stroke?:string;width?:number;dash?:number[]},pts:P[],closed:boolean)=>{if(!p.stroke||p.stroke==='none')return;const n=closed?pts.length:pts.length-1;
   for(let i=0;i<n;i++){const a=pts[i],b=pts[(i+1)%pts.length],r=segRange(s,a,b);if(!r)continue;const A=at(a,b,r[0]),B=at(a,b,r[1]);
-   out.push({t:'line',x1:A[0],y1:A[1],x2:B[0],y2:B[1],stroke:p.stroke,width:p.width,dash:p.dash,group:p.group,layer:p.layer,key:p.key});}};
+   out.push({t:'line',x1:A[0],y1:A[1],x2:B[0],y2:B[1],stroke:p.stroke,width:p.width,dash:p.dash,group:p.group,layer:p.layer,key:p.key,...(p.qa?{qa:p.qa}:{})});}};
  for(const p of prims){
   if(p.t==='leader'){if(inside(s,p.pts[0][0],p.pts[0][1]))out.push(p);continue;}
   if(p.t==='dim'){if(inside(s,p.a[0],p.a[1])&&inside(s,p.b[0],p.b[1]))out.push(p);continue;}
